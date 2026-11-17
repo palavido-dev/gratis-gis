@@ -5,24 +5,46 @@ organized and how to propose changes.
 
 ## Project state
 
-GratisGIS is in active pre-v1 development. The core portal, web maps,
-forms, App Builder, field PWA, and the observation-log engine with
-Cedar policy authorization are all working today (see the status
-section in the [README](./README.md)); dashboards and document
-reports are planned but not yet built. The architecture is
-stabilizing but expect the occasional pivot on internals; cross-app
-contracts in [packages/shared-types](./packages/shared-types) and the
-API surface are the parts we try hardest to keep settled. The issue
-tracker reflects near-term work from [ROADMAP.md](./ROADMAP.md).
+GratisGIS is at **v1.6.1**. The core portal, web maps, forms, App
+Builder, field PWA, and the observation-log engine with Cedar policy
+authorization are the supported surface (see the status section in the
+[README](./README.md)). Dashboards ship as web-app layouts, including
+KPI Dashboard and Operations Board. Dedicated document report templates
+and store-listed native mobile apps are not built yet. The public
+surface in [docs/VERSIONING.md](./docs/VERSIONING.md) follows semver;
+internals under `packages/` may still move. The issue tracker reflects
+near-term work from [ROADMAP.md](./ROADMAP.md).
+
+Translations and locale review: see
+[CONTRIBUTING-TRANSLATIONS.md](./CONTRIBUTING-TRANSLATIONS.md)
+(Weblate is the chosen platform; git PRs are the workflow until
+hosting lands).
 
 ## Branching & PRs
 
 - `main` is always deployable.
 - Feature work happens on branches named `feat/<short-slug>`; bug fixes on
   `fix/<short-slug>`.
-- PRs require passing CI (lint, typecheck, test, build). The project
-  currently has a single maintainer, so reviews from other contributors
-  are welcome but not required; the maintainer reviews and merges.
+- The automated loop in
+  [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md) uses three
+  streams (Researcher, Scoper, Developer). The Developer uses
+  `cursor/<slug>-2838` (or `palavido-dev/<slug>-2838`) only for items
+  Matthew marked yay. Use `feat/` or `fix/` for a change a person
+  should review outside that queue.
+- PRs require passing CI (lint, typecheck, test, build). Matthew is
+  the final reviewer. Others may open pull requests; that is not a
+  review. The Developer stream may merge a PR it opened for an
+  approved queue item when CI is green. It does not merge a PR marked
+  for maintainer review, and it does not treat another contributor's
+  approval as Matthew's review.
+- Dependabot opens dependency pull requests (see
+  `.github/dependabot.yml`). Patch and minor updates squash-merge
+  themselves once the CI and Security workflows are green
+  (`.github/workflows/dependabot-automerge.yml`). A grouped update
+  merges only when every dependency in the group is patch or minor,
+  so the highest bump is patch or minor too. A major stays open for Matthew,
+  including a group that contains one. A Node base-image bump uses
+  the same rule. The workflow does not check out the pull request.
 
 ## Commit messages
 
@@ -57,6 +79,21 @@ text input as the primary entry point, push back and ask for the
 guided path first. The paste field can live in the PR, just not at
 the front.
 
+## How this project is built
+
+Matthew designs, directs, and reviews, and he is the final say. AI
+assists with the coding. That includes the automated loop described in
+[docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md): a Researcher
+proposes, a Scoper ranks a morning list, Matthew gives yay/nay on each
+item, and a Developer implements approved items (opens PRs, merges on
+green CI). Releases need an explicit ask or an approved release queue
+item. Matthew makes the product, security-default, and licensing
+calls.
+
+Contributions that used AI assistance are welcome when the contributor
+takes responsibility for the change and says so in the pull request
+description.
+
 ## Writing style (code comments, docs, commits, PRs)
 
 These rules apply everywhere we write prose for this project: code
@@ -66,15 +103,16 @@ comments, commit messages, PR descriptions, docs, and markdown files.
   not use two consecutive hyphens as a substitute for one. Pick a comma,
   colon, period, or parenthesis based on what the sentence actually
   needs.
-- **No AI attribution or tells.** No `Claude`, `Anthropic`, `AI`,
-  `Co-Authored-By` lines that reference an LLM, `Generated with`, or
-  similar. Write in your own voice.
+- **Say when AI assisted with the writing.** Put that in the pull
+  request description, as described in
+  [How this project is built](#how-this-project-is-built). You still
+  own the change.
 - **Plain, direct prose.** Short sentences over long ones. Concrete nouns
   over puffy abstractions. No "we're excited to announce" style.
 - **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/)
-  and contain no em dashes, no AI attribution, and no marketing tone.
+  and contain no em dashes and no marketing tone.
 
-A pre-commit check may be added later to enforce the first two rules
+A pre-commit check may be added later to enforce the em dash rule
 automatically; until then, self-policing is expected.
 
 ## Documentation with every behavior change
@@ -95,7 +133,9 @@ call:
 - Add a plain-English entry at the top of
   `apps/portal-web/content/changelog/user-visible.md` when a
   non-technical visitor would notice (this feeds the landing-page
-  What's new card).
+  What's new card and `/whats-new`). When cutting a version tag,
+  add a `## [X.Y.Z] - YYYY-MM-DD` banner above that release's
+  entries so the history page can group by version.
 - Update `CHANGELOG.md` under Unreleased.
 - Touch README / `docs/*` / package READMEs when the public
   surface or status line moved.
@@ -120,7 +160,16 @@ PR when a queued item ships.
 | Change how sharing works | `apps/portal-api/src/items/sharing.service.ts` (review carefully!) |
 | New shared UI component | `packages/ui` |
 | New app (field-app, app-builder, …) | `apps/<name>` |
-| Infra (docker, helm, installer) | `/infra` (dev) or `/deploy` (prod) |
+| Infra (Docker Compose, installer, deploy scripts) | `/infra` |
+
+Dev and production infra both live in `/infra` (`docker-compose.yml`,
+`docker-compose.prod.yml`, `docker-compose.nas.yml`, `install.sh`,
+`bootstrap.sh`, `deploy.sh`, `nas-init.py`). There is no Helm chart
+and no TrueNAS catalog app. `/deploy` only holds a placeholder for a
+future `get.gratisgis.org` one-liner; the script there exits without
+installing anything. Stack changes do not go in `/deploy`. The
+one-paste NAS file is `infra/docker-compose.nas.yml`, generated from
+`docker-compose.nas.yml.tmpl` and `nas-init.py`.
 
 ## Licensing
 
@@ -139,6 +188,17 @@ New source files should carry an SPDX header on the first line:
 // SPDX-License-Identifier: AGPL-3.0-or-later
 ```
 
-(Or the equivalent comment syntax for the file's language.) The
-existing tree was swept in one pass; please do not remove headers when
-editing.
+(Or the equivalent comment syntax for the file's language.) A shell
+script keeps its shebang on line 1 and puts the header on the next
+line. A `'use client'` file keeps that directive as the first
+statement, with the header comment on the line above it, which is
+what the existing client components do. The existing tree was swept
+in one pass; please do not remove headers when editing.
+
+`pnpm check:spdx` (CI runs `scripts/check-spdx.sh`) fails when a
+tracked source file is missing
+`SPDX-License-Identifier: AGPL-3.0-or-later` in its first 10 lines.
+Do not add a header to an applied Prisma migration under
+`apps/portal-api/prisma/migrations/`: editing one changes its
+checksum. `next-env.d.ts` is exempt because Next.js rewrites it.
+The rest of the exemption list is in the script.

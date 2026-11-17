@@ -5,10 +5,15 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
- * Versioning for an Item's data blob. Callers take a snapshot
- * before every replace (PATCH that changes `data`, bulk-import,
- * file upload) so an admin can revert to a known-good prior state
- * without needing infrastructure-level backups.
+ * Versioning for an Item's data blob. Today only a data_layer is
+ * snapshotted, and only by ItemsService.update when a PATCH replaces
+ * `data`. For a v3 layer that blob is the schema and settings; the
+ * features live in the observation table and are not in a snapshot,
+ * so a revert restores the schema, not rows.
+ *
+ * Anyone with edit access can list and revert. A revert goes through
+ * ItemsService.revertToSnapshot, which writes the snapshot back with
+ * the same checks and normalizers as any other data save.
  *
  * Retention has two gates, whichever kicks in first:
  *   - TTL: 30 days since createdAt (configurable via env
@@ -87,28 +92,6 @@ export class DataSnapshotService {
     });
     if (!snap) throw new NotFoundException('Snapshot not found');
     return snap;
-  }
-
-  /**
-   * Restore an item's data from a snapshot. Captures the CURRENT
-   * data as a fresh snapshot before the revert, so 'undo revert'
-   * is also possible within the retention window.
-   */
-  async revert(snapshotId: string, userId: string) {
-    const snap = await this.get(snapshotId);
-    // Snapshot-before-revert so the user can un-revert. Note = a
-    // breadcrumb pointing back at the target snapshot id, for
-    // auditability.
-    await this.snapshot(
-      snap.itemId,
-      userId,
-      `pre-revert to snapshot ${snap.id}`,
-    );
-    await this.prisma.item.update({
-      where: { id: snap.itemId },
-      data: { data: snap.data as Prisma.InputJsonValue },
-    });
-    return { itemId: snap.itemId, revertedFrom: snap.id };
   }
 
   /** Drop snapshots older than TTL or beyond the per-item cap. */

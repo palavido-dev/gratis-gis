@@ -417,6 +417,19 @@ export function AnalyzeQueryBuilder({
               // otherwise generate ORDER BY a column that no longer
               // exists (found live: Binder Error on "features").
               if (!next && orderField === '__count__') setOrderField('');
+              // A grouped query can only sort by its own columns: the
+              // group field, the count or the aggregate. Any other
+              // field is a DuckDB Binder Error.
+              if (
+                next &&
+                orderField &&
+                orderField !== '__count__' &&
+                orderField !== '__agg__' &&
+                orderField !== next
+              ) {
+                setOrderField('');
+              }
+              if (!next && orderField === '__agg__') setOrderField('');
               if (!next) {
                 setAggFn('none');
                 setAggField('');
@@ -479,7 +492,13 @@ export function AnalyzeQueryBuilder({
                 {t('analyzeWorkbench.qbSortCount')}
               </option>
             ) : null}
-            {fields.map((f) => (
+            {groupByField && aggFn !== 'none' && aggField ? (
+              <option value="__agg__">{aggregateAlias(aggFn, aggField)}</option>
+            ) : null}
+            {(groupByField
+              ? fields.filter((f) => f.name === groupByField)
+              : fields
+            ).map((f) => (
               <option key={f.name} value={f.name}>
                 {f.label || f.name}
               </option>
@@ -574,6 +593,14 @@ const MEASURE_EXPR: Record<Measure, string> = {
   perimeter: 'round(ST_Perimeter_Spheroid(geometry), 1) AS perimeter_m',
 };
 
+/** Column alias of the optional aggregate in a grouped query. */
+function aggregateAlias(
+  fn: 'sum' | 'avg' | 'min' | 'max',
+  field: string,
+): string {
+  return `${fn}_${field.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+}
+
 function buildSql(args: {
   viewName: string;
   fields: FeatureField[];
@@ -598,7 +625,7 @@ function buildSql(args: {
     const parts = [quoteIdent(args.groupByField), 'count(*) AS features'];
     if (args.aggFn !== 'none' && args.aggField) {
       parts.push(
-        `round(${args.aggFn}(${quoteIdent(args.aggField)}), 2) AS ${args.aggFn}_${args.aggField.replace(/[^a-zA-Z0-9_]/g, '_')}`,
+        `round(${args.aggFn}(${quoteIdent(args.aggField)}), 2) AS ${aggregateAlias(args.aggFn, args.aggField)}`,
       );
     }
     lines.push(`SELECT ${parts.join(',\n       ')}`);
@@ -654,13 +681,25 @@ function buildSql(args: {
   // Belt to the state reset above: a count sort is only valid on a
   // grouped query, so an inconsistent state can never emit ORDER BY
   // over a column that does not exist.
-  const orderField =
-    args.orderField === '__count__' && !args.groupByField
-      ? ''
-      : args.orderField;
-  if (orderField) {
-    const col =
-      orderField === '__count__' ? 'features' : quoteIdent(orderField);
+  // The same goes for a grouped query sorted by a column it does not
+  // select: only the group field, the count and the aggregate exist.
+  const hasAgg = args.aggFn !== 'none' && args.aggField !== '';
+  let col: string | null = null;
+  if (args.groupByField) {
+    if (args.orderField === '__count__') col = 'features';
+    else if (args.orderField === '__agg__' && hasAgg && args.aggFn !== 'none') {
+      col = aggregateAlias(args.aggFn, args.aggField);
+    } else if (args.orderField === args.groupByField) {
+      col = quoteIdent(args.orderField);
+    }
+  } else if (
+    args.orderField &&
+    args.orderField !== '__count__' &&
+    args.orderField !== '__agg__'
+  ) {
+    col = quoteIdent(args.orderField);
+  }
+  if (col) {
     lines.push(`ORDER BY ${col} ${args.orderDir.toUpperCase()}`);
   }
 

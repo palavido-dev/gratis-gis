@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { AlertTriangle, ArrowLeft, Shield } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
+import { adminUsersPageQuery, fetchAllAdminUsers } from '@/lib/admin-users-paging';
 import { t } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
 import { AdminUsersView } from './admin-users-view';
@@ -36,6 +37,10 @@ export interface AdminUserRow {
    *  corresponding controls and shows a lock badge so the
    *  affordance matches what the server will accept. */
   isProtected: boolean;
+  /** The portal's own id for this person, which items and groups use
+   *  as their owner. Differs from `id` (the Keycloak id) for seeded
+   *  accounts. Null when they have never had a local row. */
+  localId?: string | null;
   /** Populated by the invite flow when the user was created in
    *  Keycloak but the password-setup email could not be sent
    *  (typically because the realm SMTP isn't configured yet, or
@@ -77,7 +82,11 @@ export default async function AdminUsersPage() {
   }
   if (meta.configured) {
     try {
-      users = await apiFetch<AdminUserRow[]>('/api/admin/users?max=200');
+      users = await fetchAllAdminUsers((first, max) =>
+        apiFetch<AdminUserRow[]>(
+          `/api/admin/users?${adminUsersPageQuery(first, max)}`,
+        ),
+      );
     } catch (err) {
       // Surface the failure instead of silently returning an empty
       // table: an empty result indistinguishable from "no users yet"

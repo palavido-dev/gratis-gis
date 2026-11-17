@@ -1,23 +1,62 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { ItemAccess, ItemType, PrincipalType, SharePermission } from '@prisma/client';
+import type {
+  Item,
+  ItemAccess,
+  ItemShare,
+  ItemType,
+  PrincipalType,
+  SharePermission,
+} from '@prisma/client';
 import {
   ITEM_TYPES,
   defaultThumbnailDesign,
+  findUnsafeMapColors,
+  safeNavigationUrl,
+  isShareClipGeometry,
   sanitizeAttributionHtml,
+  unsafeAppThemeTokenKeys,
 } from '@gratis-gis/shared-types';
 
+import { isClosedGeoLimit } from '../common/closed-geo-limit.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeTileSettingsInData } from '../data-layer/tile-settings.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
+import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
+import { assertFormNotifyLimits } from '../forms/form-notify-limits.js';
 import { pickDefaultBasemap } from './default-basemap.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
-import { hasCapability } from '../auth/capabilities.js';
-import { SharingService } from './sharing.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
+import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
+import {
+  assertPostgisHostOnSave,
+  assertPostgisLayersOnSave,
+} from '../postgis-live/postgis-host.js';
+import { credentialTarget } from './credential-target.js';
+import { AdminAuditService, type AuditOutcome } from '../admin/admin-audit.service.js';
+import {
+  SharingService,
+  isScopeLimited,
+  legacyTableScopeConditions,
+  type FeatureScope,
+} from './sharing.service.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
-import { itemBbox } from './item-bbox.js';
+import {
+  bboxWriteForData,
+  hasDerivedExtent,
+  itemBbox,
+  searchEnvelopes,
+} from './item-bbox.js';
+import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
+import {
+  carryLayerSyncVersionsFrom,
+  carryMapDrawingsFrom,
+  lockItemRow,
+  withLockedItem,
+} from './item-data-lock.js';
+import { redactItemData } from './item-data-redact.js';
 
 /** Allow-list of types a smart folder's saved query can filter to.
  *  Just the runtime ITEM_TYPES set as a plain string array so we
@@ -32,12 +71,59 @@ const SMART_FOLDER_TYPES: readonly string[] = ITEM_TYPES;
  */
 const MAX_DERIVED_CHAIN_DEPTH = 5;
 
+/** derivedInputScopeLimit's answer when the input walk hit its cap. */
+const DERIVED_WALK_CAPPED = 'derived-walk-capped';
+
+/**
+ * A derived layer's stored extent (item bbox, recipe bbox) and the
+ * buffer cap `cachedMaxMeters` are computed from the whole of every
+ * input. A reader limited on an input must not learn them.
+ */
+function redactDerivedExtent<T extends { bbox?: unknown; data: unknown }>(
+  item: T,
+): T {
+  const data = item.data as Record<string, unknown> | null;
+  let nextData: unknown = data;
+  if (data && typeof data === 'object') {
+    const { bbox: _bbox, ...rest } = data;
+    const pipeline = Array.isArray(rest.pipeline)
+      ? rest.pipeline.map((step: unknown) => {
+          const params = (step as { params?: unknown } | null)?.params;
+          if (!params || typeof params !== 'object') return step;
+          const { cachedMaxMeters: _cap, ...p } = params as Record<
+            string,
+            unknown
+          >;
+          return { ...(step as object), params: p };
+        })
+      : rest.pipeline;
+    nextData = { ...rest, ...(pipeline !== undefined && { pipeline }) };
+  }
+  return { ...item, bbox: [], data: nextData };
+}
+
+/** How many times update() recomputes after a concurrent save. */
+const UPDATE_STALE_RETRIES = 3;
+
+/** update() read the row, then someone else saved before the write. */
+class StaleItemRead extends Error {
+  constructor() {
+    super('item changed between read and write');
+  }
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Coarse degree-equivalent of a kilometer buffer. Good enough for
  * "show items near this region" search; not for any kind of
  * geodesic computation. 1 degree of latitude is roughly 111 km;
  * longitude varies with latitude so we err on the wide side.
  */
+/** Most rows the legacy item-level GeoJSON read returns. */
+const LEGACY_GEOJSON_MAX_ROWS = 10_000;
+
 function degreesFromKm(km: number): number {
   return Math.min(Math.max(km, 0), 100_000) / 111;
 }
@@ -65,7 +151,23 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
-import { ITEM_ASSET_KIND, assetKeyFor, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  FILE_PUBLIC_IMAGE_FIELD,
+  FILE_PUBLIC_IMAGE_KIND,
+  ITEM_ASSET_KIND,
+  assetKeyFor,
+  isValidAssetKey,
+} from '../storage/asset-keys.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
+import {
+  assertScheduleChangeAllowed,
+  provenanceOnReassign,
+  stampScriptProvenance,
+} from '../scripts/script-provenance.js';
+import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -172,6 +274,12 @@ export interface ItemsListOptions {
    */
   ownerId?: string;
   /**
+   * Only items whose `data.source.itemId` equals this id: the derived
+   * layers built from one source item. Narrows a list, never widens
+   * it, like ownerId.
+   */
+  sourceItemId?: string;
+  /**
    * Optional spatial filter. When set, the list is restricted to
    * items whose cached `bbox_geom` (set by ItemsService on save
    * via itemBbox()) intersects the given envelope. EPSG:4326,
@@ -269,6 +377,12 @@ export interface FolderDeleteCascadePreview {
 export function computeFolderCascade(
   rootId: string,
   folders: Array<{ id: string; title: string; childItemIds: string[] }>,
+  // Folders the caller may delete. Any folder can list any other in
+  // its childItemIds, so without this check a user could list someone
+  // else's folder in their own and trash it with theirs. A folder that
+  // fails it survives, like one that still has a live parent, and is
+  // not named in the preview.
+  canCascade: (folderId: string) => boolean = () => true,
 ): FolderDeleteCascadePreview {
   const folderIdSet = new Set(folders.map((f) => f.id));
   const folderTitleById = new Map(folders.map((f) => [f.id, f.title]));
@@ -315,6 +429,7 @@ export function computeFolderCascade(
     safetyBudget -= 1;
     for (const f of folders) {
       if (cascadeSet.has(f.id)) continue;
+      if (!canCascade(f.id)) continue;
       const parents = parentsByChild.get(f.id);
       if (!parents || parents.size === 0) continue; // unreachable root.
       // Must touch the cascade somewhere.
@@ -409,15 +524,175 @@ export interface ShareItemInput {
  * See `storage/asset-keys.ts` for why this is enforced rather than
  * trusted.
  */
-function assertItemAssetKey(itemType: string, data: unknown): void {
+function assertItemAssetKey(
+  itemType: string,
+  data: unknown,
+  prevData?: unknown,
+): void {
   if (data === undefined || data === null || typeof data !== 'object') return;
-  const key = (data as { storageKey?: unknown }).storageKey;
-  if (assetKeyFor(itemType, key).ok) return;
+  const prev =
+    prevData && typeof prevData === 'object'
+      ? (prevData as Record<string, unknown>)
+      : {};
+  for (const field of ASSET_KEY_FIELDS) {
+    const key = (data as Record<string, unknown>)[field];
+    // The derived keys (the COG and PMTiles a tile_layer is served
+    // from, which the analysis worker downloads with its own
+    // credentials) are checked when they change. A value carried over
+    // unchanged from the stored item keeps every existing item saveable.
+    if (field !== 'storageKey' && key === prev[field]) continue;
+    if (assetKeyFor(itemType, key).ok) continue;
+    throw new BadRequestException(
+      `${field} must be an upload under ${
+        ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
+      }/ for a ${itemType} item.`,
+    );
+  }
+  // The asset picker's public image key: File items only, and only
+  // under the public image prefix. Empty or absent means none.
+  const image = (data as Record<string, unknown>)[FILE_PUBLIC_IMAGE_FIELD];
+  if (image === undefined || image === null || image === '') return;
+  if (itemType === 'file' && isValidAssetKey(image, FILE_PUBLIC_IMAGE_KIND)) {
+    return;
+  }
   throw new BadRequestException(
-    `storageKey must be an upload under ${
-      ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND]
-    }/ for a ${itemType} item.`,
+    `${FILE_PUBLIC_IMAGE_FIELD} must be an upload under ${FILE_PUBLIC_IMAGE_KIND}/ on a file item.`,
   );
+}
+
+/** Fields in item data that name an object in the shared bucket. */
+const ASSET_KEY_FIELDS = ['storageKey', 'cogStorageKey', 'pmtilesStorageKey'] as const;
+
+/** Every storage key an item's data names: the asset fields, a File
+ *  item's publicImageKey, and mosaic / multi-tile
+ *  `sources[].storageKey`. */
+export function itemDataStorageKeys(data: unknown): string[] {
+  if (!data || typeof data !== 'object') return [];
+  const d = data as Record<string, unknown>;
+  const keys: string[] = [];
+  for (const field of [...ASSET_KEY_FIELDS, FILE_PUBLIC_IMAGE_FIELD]) {
+    const v = d[field];
+    if (typeof v === 'string' && v.length > 0) keys.push(v);
+  }
+  if (Array.isArray(d.sources)) {
+    for (const src of d.sources) {
+      const v = (src as { storageKey?: unknown } | null)?.storageKey;
+      if (typeof v === 'string' && v.length > 0) keys.push(v);
+    }
+  }
+  return keys;
+}
+
+/** Options for writes whose `data` came straight from an HTTP body. */
+export interface ClientWriteOptions {
+  /** Storage keys in `data` are client-supplied: each must be issued
+   *  to the caller or already referenced by this item. */
+  clientKeys?: boolean;
+  /** Note on the snapshot a data_layer save takes first. */
+  snapshotNote?: string;
+}
+
+/**
+ * Reject author data that a client renders without escaping.
+ *
+ * - A tool's `open-url` action is passed to `location.assign`, so a
+ *   `javascript:` URL would run on the portal origin for every viewer
+ *   who presses the button. Only an app-relative path or an http(s)
+ *   URL is stored. An empty URL stays allowed (a half-configured tool).
+ * - A map layer's style colors are interpolated into legend SVG
+ *   markup. A value with a quote or angle bracket is never a color.
+ *
+ * The web client checks both again at render time, because rows
+ * written before this landed are still in the database.
+ */
+/**
+ * Keys in item data that hold the id of another item. Pages build API
+ * paths from these (`/api/portal/items/${itemId}/...`), so a value with
+ * a slash, dot, `?`, `#`, `%` or backslash would steer a viewer's own
+ * request to a different endpoint (the browser normalizes `..` before
+ * the BFF sees it). The web app checks at each sink too; this stops a
+ * crafted value from being stored at all.
+ */
+const ITEM_REF_KEY =
+  /^(itemId|serviceItemId|dataLayerId|sourceItemId|targetItemId|formId|mapId|folderId|editorId|toolId|[a-z][A-Za-z]*ItemId|[a-z][A-Za-z]*BoundaryId)$/;
+// eslint-disable-next-line no-control-regex
+const UNSAFE_REF_VALUE = /[/\\?#%.\s\u0000-\u001f\u007f]/;
+const REF_WALK_MAX_DEPTH = 64;
+
+/** Paths of item-reference values that are not plain ids. */
+export function findUnsafeItemRefs(data: unknown): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown, path: string, depth: number) => {
+    if (depth > REF_WALK_MAX_DEPTH || out.length >= 5) return;
+    if (Array.isArray(v)) {
+      v.forEach((x, i) => walk(x, `${path}[${i}]`, depth + 1));
+      return;
+    }
+    if (v === null || typeof v !== 'object') return;
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      const p = path ? `${path}.${k}` : k;
+      if (typeof x === 'string' && ITEM_REF_KEY.test(k) && UNSAFE_REF_VALUE.test(x)) {
+        out.push(p);
+      } else {
+        walk(x, p, depth + 1);
+      }
+    }
+  };
+  walk(data, '', 0);
+  return out;
+}
+
+function assertRenderSafeData(itemType: string, data: unknown): void {
+  if (data === undefined || data === null || typeof data !== 'object') return;
+  const badRefs = findUnsafeItemRefs(data);
+  if (badRefs.length > 0) {
+    throw new BadRequestException(
+      `Item references must be plain ids; invalid value at ${badRefs.join(', ')}.`,
+    );
+  }
+  if (itemType === 'tool') {
+    const action = (data as { action?: unknown }).action;
+    if (action && typeof action === 'object') {
+      const { kind, url } = action as { kind?: unknown; url?: unknown };
+      if (
+        kind === 'open-url' &&
+        url !== undefined &&
+        url !== '' &&
+        safeNavigationUrl(url) === null
+      ) {
+        throw new BadRequestException(
+          'A tool URL must be an http(s) URL or a path that starts with a single /.',
+        );
+      }
+    }
+  }
+  if (itemType === 'map') {
+    const bad = findUnsafeMapColors(data);
+    if (bad.length > 0) {
+      throw new BadRequestException(
+        `Invalid color value at ${bad.join(', ')}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Drop theme tokens that are not safe `--app-*` values. A theme's
+ * tokens are set as CSS custom properties on the root of every app
+ * that uses it, for every viewer including anonymous ones, so a token
+ * that names a real property or carries `url(...)` would restyle or
+ * blank those apps or send each viewer to an outside host. Stripped
+ * rather than refused so a theme that already holds a bad token can
+ * still be saved. The appliers skip the same tokens on read.
+ */
+export function stripUnsafeThemeTokens(itemType: string, data: unknown): unknown {
+  if (itemType !== 'theme' || !data || typeof data !== 'object') return data;
+  const tokens = (data as { tokens?: unknown }).tokens;
+  const bad = unsafeAppThemeTokenKeys(tokens);
+  if (bad.length === 0) return data;
+  const kept = { ...(tokens as Record<string, unknown>) };
+  for (const k of bad) delete kept[k];
+  return { ...(data as Record<string, unknown>), tokens: kept };
 }
 
 /**
@@ -487,54 +762,12 @@ function sanitizeAttributionInData(data: unknown, depth = 0): unknown {
 }
 
 /**
- * Keep anonymous markup ownership across a full map Save.
- * Clients never round-trip `anonymousAuthorToken` (API strips it);
- * reattach the previous token when the same drawing id comes back
- * without one. Also keep `allowAnonymousDrawings` if the client
- * omitted the key entirely.
+ * Ceiling for the transaction that deletes a v3 data layer's rows on
+ * purge. Prisma's default is 5 s; a multi-million row layer needs
+ * minutes. Generous on purpose: the delete holds no lock other users
+ * wait on, and a purge that never finishes leaves rows behind for good.
  */
-function preserveMapAnonDrawingFields(
-  prev: Record<string, unknown>,
-  incoming: Record<string, unknown>,
-): Record<string, unknown> {
-  const merged: Record<string, unknown> = { ...incoming };
-  if (
-    typeof prev.allowAnonymousDrawings === 'boolean' &&
-    typeof merged.allowAnonymousDrawings !== 'boolean'
-  ) {
-    merged.allowAnonymousDrawings = prev.allowAnonymousDrawings;
-  }
-  const prevDrawings = Array.isArray(prev.drawings) ? prev.drawings : null;
-  const nextDrawings = Array.isArray(merged.drawings) ? merged.drawings : null;
-  if (!prevDrawings || !nextDrawings) return merged;
-  const prevById = new Map<string, Record<string, unknown>>();
-  for (const raw of prevDrawings) {
-    if (!raw || typeof raw !== 'object') continue;
-    const row = raw as Record<string, unknown>;
-    if (typeof row.id === 'string') prevById.set(row.id, row);
-  }
-  let changed = false;
-  const restored = nextDrawings.map((raw) => {
-    if (!raw || typeof raw !== 'object') return raw;
-    const row = raw as Record<string, unknown>;
-    if (typeof row.id !== 'string') return raw;
-    if (
-      typeof row.anonymousAuthorToken === 'string' &&
-      row.anonymousAuthorToken.length > 0
-    ) {
-      return raw;
-    }
-    const prior = prevById.get(row.id);
-    const priorToken = prior?.anonymousAuthorToken;
-    if (typeof priorToken !== 'string' || priorToken.length === 0) {
-      return raw;
-    }
-    changed = true;
-    return { ...row, anonymousAuthorToken: priorToken };
-  });
-  if (changed) merged.drawings = restored;
-  return merged;
-}
+const PURGE_TX_TIMEOUT_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class ItemsService {
@@ -552,11 +785,43 @@ export class ItemsService {
     // from a data_collection. Lives in OfflinePackageCoreModule
     // (Prisma-only) precisely so this import is not a cycle.
     private readonly offlinePackages: OfflinePackageService,
+    @Optional() private readonly audit?: AdminAuditService,
+    // Resolves a field-queue manifest's user into a principal so the
+    // schema-break notice reaches only people who can read the
+    // deployment. Optional so unit tests can omit it; without it only
+    // the deployment owner is notified.
+    @Optional() private readonly authSync?: AuthSyncService,
+    // Recomputes the stored extent of a layer, map or editor after a
+    // data save, since that extent is not in the blob. Optional so
+    // unit tests can omit it.
+    @Optional() private readonly bboxRefresh?: ItemBboxRefreshService,
   ) {}
+
+  private noteAudit(
+    user: AuthUser,
+    action: 'item.access' | 'item.share' | 'item.unshare' | 'item.owner',
+    itemId: string,
+    outcome: AuditOutcome,
+    detail: Record<string, unknown>,
+  ): void {
+    if (!this.audit) return;
+    void this.audit.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action,
+      targetType: 'item',
+      targetId: itemId,
+      outcome,
+      detail,
+    });
+  }
 
   async list(user: AuthUser, opts: ItemsListOptions = {}) {
     const where = await this.buildListWhere(user, opts);
-    return this.queryListRows(where, opts);
+    return this.redactLimitedDerivedRows(
+      user,
+      await this.queryListRows(user, where, opts),
+    );
   }
 
   /**
@@ -573,10 +838,59 @@ export class ItemsService {
   ): Promise<{ rows: unknown[]; total: number }> {
     const where = await this.buildListWhere(user, opts);
     const [rows, total] = await Promise.all([
-      this.queryListRows(where, opts),
+      this.queryListRows(user, where, opts),
       this.prisma.item.count({ where }),
     ]);
-    return { rows, total };
+    return { rows: await this.redactLimitedDerivedRows(user, rows), total };
+  }
+
+  /**
+   * List form of the get() redaction: a derived layer row whose
+   * inputs the caller reads only in part loses its stored extent.
+   */
+  private async redactLimitedDerivedRows(
+    user: AuthUser,
+    rows: unknown[],
+  ): Promise<unknown[]> {
+    const derivedIds = rows
+      .filter((r) => (r as { type?: unknown }).type === 'derived_layer')
+      .map((r) => (r as { id: string }).id);
+    if (derivedIds.length === 0) return rows;
+    // Full rows already carry the recipe; only lite rows need a read.
+    const withData = new Map<string, unknown>();
+    for (const r of rows) {
+      const row = r as { id: string; type?: unknown; data?: unknown };
+      if (row.type === 'derived_layer' && row.data !== undefined) {
+        withData.set(row.id, row.data);
+      }
+    }
+    const missing = derivedIds.filter((id) => !withData.has(id));
+    const recipes = [
+      ...[...withData].map(([id, data]) => ({ id, data })),
+      ...(missing.length > 0
+        ? await this.prisma.item.findMany({
+            where: { id: { in: missing } },
+            select: { id: true, data: true },
+          })
+        : []),
+    ];
+    // Derived layers on one page usually share inputs. One cache for
+    // the whole page reads each input once instead of once per row.
+    const nodes: DerivedNodeCache = new Map();
+    const limited = new Set<string>();
+    for (const r of recipes) {
+      if ((await this.derivedInputScopeLimit(user, r.data, nodes)) !== null) {
+        limited.add(r.id);
+      }
+    }
+    if (limited.size === 0) return rows;
+    return rows.map((r) => {
+      const row = r as { id: string; bbox?: unknown; data?: unknown };
+      if (!limited.has(row.id)) return r;
+      return 'data' in row
+        ? redactDerivedExtent(row as { data: unknown })
+        : { ...row, bbox: [] };
+    });
   }
 
   /**
@@ -602,13 +916,15 @@ export class ItemsService {
     if (opts.type) {
       where.type = Array.isArray(opts.type) ? { in: opts.type } : opts.type;
     }
-    if (opts.ownerId && opts.ownerId !== user.id && user.orgRole !== 'admin') {
-      // Non-admins can only filter to their own items.
-      throw new ForbiddenException(
-        'Only org admins can filter items by another user',
-      );
-    }
+    // Anyone may filter by owner. The result is still limited by
+    // visibleWhere to items the caller can already see, so this only
+    // narrows a list; it never widens one. The old admin-only rule
+    // broke smart folders filtered by owner for everyone but that
+    // owner and admins.
     if (opts.ownerId) where.ownerId = opts.ownerId;
+    if (opts.sourceItemId) {
+      where.data = { path: ['source', 'itemId'], equals: opts.sourceItemId };
+    }
     // sharedWithGroupId (#100): restrict to items whose shares
     // include a row for the given group. Layered on top of the
     // existing visibleWhere so a user only sees items the group has
@@ -659,21 +975,43 @@ export class ItemsService {
     // computed yet (seeded fixtures, pre-#24 rows) will be hidden
     // here until something writes an extent into item.bbox.
     if (opts.bbox) {
-      const buf = degreesFromKm(opts.bufferKm ?? 0);
-      const [w, s, e, n] = opts.bbox;
+      // One envelope, or two when the box crosses the antimeridian.
+      const boxes = searchEnvelopes(
+        opts.bbox,
+        degreesFromKm(opts.bufferKm ?? 0),
+      );
+      const inArea = Prisma.join(
+        boxes.map(
+          ([bw, bs, be, bn]) =>
+            Prisma.sql`"bbox_geom" && ST_MakeEnvelope(${bw}, ${bs}, ${be}, ${bn}, 4326)`,
+        ),
+        ' OR ',
+      );
       // Filter trashed items out of the spatial id set up front. The
       // visibleWhere AND clause already excludes deletedAt != null
       // for the non-mine path, but $queryRaw runs against the bare
       // table so we need to repeat it here for safety. Prevents a
       // recently-deleted item from sneaking into search results just
       // because it has a non-null bbox_geom.
+      //
+      // The org / public / shared predicate and the type list are a
+      // coarse pre-filter: visibleWhere still decides access below. A
+      // whole-world box used to collect ids from every org and bind
+      // them all back into the page query and the count.
       const ids = await this.prisma.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM "item"
         WHERE "bbox_geom" IS NOT NULL
           AND "deleted_at" IS NULL
-          AND "bbox_geom" && ST_MakeEnvelope(
-            ${w - buf}, ${s - buf}, ${e + buf}, ${n + buf}, 4326
+          AND "type" IN (
+            'map', 'data-layer', 'arcgis-service',
+            'wms-service', 'wfs-service', 'geo-boundary'
           )
+          AND (
+            "org_id" = ${user.orgId}::uuid
+            OR "access" = 'public'
+            OR EXISTS (SELECT 1 FROM "item_share" s WHERE s."item_id" = "item"."id")
+          )
+          AND (${inArea})
       `;
       const idSet = ids.map((r) => r.id);
       // visibleWhere(user) returns `{ AND: [access, { deletedAt: null }] }`
@@ -713,6 +1051,7 @@ export class ItemsService {
    * WHERE object.
    */
   private async queryListRows(
+    user: AuthUser,
     where: Prisma.ItemWhereInput,
     opts: ItemsListOptions,
   ) {
@@ -970,12 +1309,158 @@ export class ItemsService {
     // #66: surface the auto-thumbnail URL for rows without an
     // uploaded image. Compute from the design blob + updatedAt
     // cache-buster so renames refresh the rendering.
-    return (result as Array<{
-      id: string;
-      updatedAt: Date;
-      thumbnailUrl: string | null;
-      thumbnailDesign?: Prisma.JsonValue | null;
-    }>).map(synthesizeThumbnailUrl);
+    const redacted = await Promise.all(
+      (result as Array<{
+        id: string;
+        updatedAt: Date;
+        thumbnailUrl: string | null;
+        thumbnailDesign?: Prisma.JsonValue | null;
+      }>).map(async (r) =>
+        this.stripShareRoster(
+          user,
+          await this.projectMapForList(user, this.redactRow(user, r)),
+        ),
+      ),
+    );
+    return redacted.map(synthesizeThumbnailUrl);
+  }
+
+  /**
+   * get() shows a viewer of a map only the layers they may see, and
+   * strips each layer's access roster. The full list (?full=1)
+   * returned the raw map, so the same viewer could read the hidden
+   * layers there. Apply the same projection to full map rows the
+   * caller cannot edit. Lite rows carry no data and pass through.
+   */
+  private async projectMapForList<T>(user: AuthUser, row: T): Promise<T> {
+    const r = row as T & { type?: string; data?: unknown; shares?: ItemShare[] };
+    if (r.type !== 'map' || r.data === undefined) return row;
+    if (this.sharing.canEdit(user, r as unknown as Item, r.shares ?? [])) {
+      return row;
+    }
+    return { ...r, data: await this.filterMapForViewer(user, r.data) } as T;
+  }
+
+  /**
+   * The share roster (who else has access, at what tier, with which
+   * clip) is for the people who manage sharing: the owner and admins
+   * of the item's org. One exception: someone who can edit a map
+   * gets who the map is shared with (principal ids only, no tier or
+   * clip), because the map's per-layer access matrix has a column per
+   * principal. Everyone else gets an empty list. Run it last, after
+   * anything that needs the shares to decide what the caller may see.
+   */
+  stripShareRoster<T>(user: AuthUser, row: T): T {
+    const r = row as T & { type?: string; shares?: ItemShare[] };
+    if (!Array.isArray(r.shares) || r.shares.length === 0) return row;
+    if (this.sharing.canAdmin(user, r as unknown as Item)) return row;
+    if (
+      r.type === 'map' &&
+      this.sharing.canEdit(user, r as unknown as Item, r.shares)
+    ) {
+      return {
+        ...r,
+        shares: r.shares.map((s) => ({
+          itemId: s.itemId,
+          principalType: s.principalType,
+          principalId: s.principalId,
+        })),
+      } as T;
+    }
+    return { ...r, shares: [] } as T;
+  }
+
+  /**
+   * Can each principal read each item? Answers yes or no per pair and
+   * never returns a roster. The sharing panel uses it to find
+   * dependencies a sharee cannot open, now that item reads only show
+   * the share list to people who manage sharing.
+   *
+   * Items the caller cannot read are left out, the same as the batch
+   * permissions route. Principals outside the caller's org, unknown
+   * ones and trashed groups are left out too. Keys are
+   * `<itemId>` then `user:<id>` or `group:<id>`.
+   */
+  async principalAccess(
+    user: AuthUser,
+    itemIds: readonly string[],
+    principals: ReadonlyArray<{ type: 'user' | 'group'; id: string }>,
+  ): Promise<Record<string, Record<string, boolean>>> {
+    const users = new Map<string, AuthUser>();
+    const groups = new Set<string>();
+    for (const p of principals) {
+      if (p.type === 'user') {
+        if (users.has(p.id) || !this.authSync) continue;
+        const principal = await this.authSync.principalForUserId(p.id);
+        if (principal && principal.orgId === user.orgId) {
+          users.set(p.id, principal);
+        }
+      } else if (!groups.has(p.id)) {
+        const group = await this.prisma.group.findFirst({
+          where: { id: p.id, orgId: user.orgId, deletedAt: null },
+          select: { id: true },
+        });
+        if (group) groups.add(p.id);
+      }
+    }
+    const out: Record<string, Record<string, boolean>> = {};
+    for (const id of itemIds) {
+      let item: Awaited<ReturnType<ItemsService['get']>>;
+      try {
+        item = await this.get(user, id);
+      } catch {
+        continue;
+      }
+      const shares = item.shares ?? [];
+      const row: Record<string, boolean> = {};
+      for (const [uid, principal] of users) {
+        row[`user:${uid}`] = this.sharing.canRead(principal, item, shares);
+      }
+      for (const gid of groups) {
+        // A group reaches an item that is public, org-wide in the
+        // group's org (groups are always in the caller's org here), or
+        // shared to the group by a share that has not expired.
+        row[`group:${gid}`] =
+          item.access === 'public' ||
+          (item.access === 'org' && item.orgId === user.orgId) ||
+          shares.some(
+            (s) =>
+              s.principalType === 'group' &&
+              s.principalId === gid &&
+              (!s.expiresAt || new Date(s.expiresAt).getTime() > Date.now()),
+          );
+      }
+      out[id] = row;
+    }
+    return out;
+  }
+
+  /** Apply redactItemData to a list or detail row that carries `data`. */
+  redactRow<T>(user: AuthUser, row: T): T {
+    const r = row as T & {
+      type?: string;
+      data?: unknown;
+      shares?: ItemShare[];
+    };
+    if (r.data === undefined || typeof r.type !== 'string') return row;
+    const canEdit = this.sharing.canEdit(
+      user,
+      r as unknown as Item,
+      r.shares ?? [],
+    );
+    return {
+      ...r,
+      data: redactItemData(r.type, r.data, {
+        canEdit,
+        readsAllFeatures: (policy) =>
+          this.sharing.readsAllFeatures(
+            user,
+            r as unknown as Item,
+            r.shares ?? [],
+            policy,
+          ),
+      }),
+    } as T;
   }
 
   /**
@@ -985,14 +1470,19 @@ export class ItemsService {
    * surface or restore someone else's deleted content. Owner-only
    * matches what users expect from a "my recycle bin" metaphor.
    */
-  listTrash(user: AuthUser) {
+  async listTrash(user: AuthUser) {
     const where: Prisma.ItemWhereInput =
       user.orgRole === 'admin'
         ? { orgId: user.orgId, deletedAt: { not: null } }
         : { ownerId: user.id, deletedAt: { not: null } };
-    return this.prisma.item.findMany({
+    const rows = await this.prisma.item.findMany({
       where,
       orderBy: { deletedAt: 'desc' },
+      // The trash view never shows an item's content, and an admin's
+      // trash can hold every deleted item in the org, some with large
+      // blobs. Leave `data` out so the list stays small. There is no
+      // paging: the demo purge script reads the whole list.
+      omit: { data: true },
       // Same lean owner projection as the live list and the detail
       // read. An org admin's trash shows other people's items, so the
       // rows need an owner label, and the pre-snapshot demo purge
@@ -1011,6 +1501,9 @@ export class ItemsService {
         },
       },
     });
+    // An org admin's trash shows other people's items: redact like
+    // every other list.
+    return rows.map((r) => this.redactRow(user, r));
   }
 
   async get(user: AuthUser, id: string, opts: { includeTrashed?: boolean } = {}) {
@@ -1065,7 +1558,30 @@ export class ItemsService {
         }),
       );
     }
+    if (
+      item.type === 'derived_layer' &&
+      (await this.derivedInputScopeLimit(user, item.data)) !== null
+    ) {
+      return withMetaUi(synthesizeThumbnailUrl(redactDerivedExtent(item)));
+    }
     return withMetaUi(synthesizeThumbnailUrl(item));
+  }
+
+  /**
+   * get() for a response body. get() itself returns the stored data
+   * because update() and other internal callers build on it (the map
+   * Save merge needs the anonymous markup tokens). Anything that sends
+   * an item to a client goes through this instead.
+   */
+  async getForReader(
+    user: AuthUser,
+    id: string,
+    opts: { includeTrashed?: boolean } = {},
+  ) {
+    return this.stripShareRoster(
+      user,
+      this.redactRow(user, await this.get(user, id, opts)),
+    );
   }
 
   /**
@@ -1085,29 +1601,26 @@ export class ItemsService {
    * Backing items are fetched in a single batched query. Items the
    * caller can't read are treated the same as "doesn't exist".
    */
-  private async filterMapForViewer(
-    viewer: AuthUser,
+  async filterMapForViewer(
+    viewer: AuthUser | null,
     rawData: unknown,
   ): Promise<unknown> {
     if (!rawData || typeof rawData !== 'object') return rawData;
     const data = rawData as {
       layers?: Array<Record<string, unknown>>;
     };
-    const layers = Array.isArray(data.layers) ? data.layers : [];
+    // Entries that are not objects are dropped: a malformed blob
+    // must not make the map unreadable for every viewer.
+    const layers = (Array.isArray(data.layers) ? data.layers : []).filter(
+      (l): l is Record<string, unknown> => !!l && typeof l === 'object',
+    );
     // Fetch each backing data_layer / arcgis_service item and
     // its shares in one round-trip. Only layers that use an item id
     // are relevant; url / inline sources have no separate gatekeeping.
     const backingItemIds = new Set<string>();
     for (const l of layers) {
-      const src = (l as { source?: { kind?: string; itemId?: string } })
-        .source;
-      if (
-        src &&
-        (src.kind === 'data-layer' || src.kind === 'arcgis_service') &&
-        typeof src.itemId === 'string'
-      ) {
-        backingItemIds.add(src.itemId);
-      }
+      const id = mapLayerBackingItemId(l);
+      if (id !== null) backingItemIds.add(id);
     }
     const backingItems =
       backingItemIds.size > 0
@@ -1120,16 +1633,16 @@ export class ItemsService {
 
     const out: Array<Record<string, unknown>> = [];
     for (const layer of layers) {
-      const src = (layer as { source?: { kind?: string; itemId?: string } })
-        .source;
-      if (
-        src &&
-        (src.kind === 'data-layer' || src.kind === 'arcgis_service') &&
-        typeof src.itemId === 'string'
-      ) {
-        const target = byId.get(src.itemId);
+      const backingId = mapLayerBackingItemId(layer);
+      if (backingId !== null) {
+        const target = byId.get(backingId);
         if (!target) continue;
-        if (!this.sharing.canRead(viewer, target, target.shares)) continue;
+        // A null viewer is an anonymous reader of a public map: only
+        // public sources are readable to them.
+        const readable = viewer
+          ? this.sharing.canRead(viewer, target, target.shares)
+          : target.access === 'public';
+        if (!readable) continue;
       }
 
       const access = (
@@ -1137,7 +1650,7 @@ export class ItemsService {
           access?: {
             policy?: 'inherit' | 'custom';
             entries?: Array<{
-              principalType: 'user' | 'group';
+              principalType: 'user' | 'group' | 'everyone';
               principalId: string;
               view: boolean;
               query: boolean;
@@ -1149,13 +1662,23 @@ export class ItemsService {
 
       let effective = { view: true, query: true, edit: false };
       if (access?.policy === 'custom') {
-        const entry = (access.entries ?? []).find((e) => {
-          if (e.principalType === 'user') return e.principalId === viewer.id;
-          if (e.principalType === 'group') {
-            return viewer.groupIds.includes(e.principalId);
-          }
-          return false;
-        });
+        // A user or group entry for the viewer decides. A viewer no
+        // entry names (an org member reaching the map through org-wide
+        // sharing, or an anonymous reader of a public map) gets the
+        // "Everyone else" entry, and with none the layer is hidden.
+        const entries = Array.isArray(access.entries) ? access.entries : [];
+        const entry =
+          entries.find((e) => {
+            if (!viewer || !e || typeof e !== 'object') return false;
+            if (e.principalType === 'user') return e.principalId === viewer.id;
+            if (e.principalType === 'group') {
+              return viewer.groupIds.includes(e.principalId);
+            }
+            return false;
+          }) ??
+          entries.find(
+            (e) => !!e && typeof e === 'object' && e.principalType === 'everyone',
+          );
         if (!entry || !entry.view) continue;
         effective = {
           view: !!entry.view,
@@ -1180,7 +1703,11 @@ export class ItemsService {
     return { ...(data as Record<string, unknown>), layers: out };
   }
 
-  async create(user: AuthUser, input: CreateItemInput) {
+  async create(
+    user: AuthUser,
+    input: CreateItemInput,
+    opts: ClientWriteOptions = {},
+  ) {
     // The authorization gate for creating anything at all.
     //
     // This had no check of any kind, which made ownership a
@@ -1204,6 +1731,13 @@ export class ItemsService {
       throw new ForbiddenException(
         'Creating items requires the contributor or admin role.',
       );
+    }
+    // Creating straight into org or public access is sharing, the same
+    // as widening access in update(). Every creation path (POST /items,
+    // AGO import, web map JSON import, drawing promotion) comes through
+    // here, so this one check covers them all.
+    if (input.access !== undefined && input.access !== 'private') {
+      assertCanShare(user);
     }
 
     // For map items, resolve the empty-string basemap sentinel from
@@ -1248,7 +1782,20 @@ export class ItemsService {
       const alreadyLinked =
         typeof formData.linkedLayerId === 'string'
           && formData.linkedLayerId.length > 0;
-      if (!alreadyLinked) {
+      // Check the form itself before anything is created for it, so a
+      // bad pattern does not leave an orphan submissions layer behind.
+      const formChecked = stampFormEngineVersion(formData as Prisma.InputJsonValue);
+      assertFormPatternsCompile(formChecked);
+      assertFormNotifyLimits(formChecked);
+      if (alreadyLinked) {
+        // Submissions are written into this layer with no further
+        // check by the submitter, so linking is an edit of the layer.
+        await this.assertFormLinkTarget(
+          user,
+          user.orgId,
+          formData.linkedLayerId as string,
+        );
+      } else {
         const paired = await this.createPairedDataLayerForForm(
           user,
           input.title,
@@ -1264,25 +1811,61 @@ export class ItemsService {
       // a form needs is derived from its content on every write and
       // never taken from the client.
       resolvedData = stampFormEngineVersion(resolvedData) as Prisma.InputJsonValue;
+      assertFormPatternsCompile(resolvedData);
+      assertFormNotifyLimits(resolvedData);
     }
 
-    // Same pin as update(): a file / tile_layer / point_cloud item may
-    // only reference an upload under its own prefix. The new-item
-    // wizard legitimately posts a presigned key here, so this
-    // validates rather than strips.
-    assertItemAssetKey(input.type, resolvedData);
-
-    // Attribution reaches every viewer of every map that uses this
-    // item, as HTML, through a MapLibre control whose own sanitizer is
-    // bypassable on the version we are pinned to. Clean it here rather
-    // than trusting the renderer.
-    resolvedData = sanitizeAttributionInData(
-      resolvedData,
-    ) as Prisma.InputJsonValue;
-
-    const bbox = itemBbox(input.type, resolvedData);
     let row;
     try {
+      // Same pin as update(): a file / tile_layer / point_cloud item may
+      // only reference an upload under its own prefix. The new-item
+      // wizard legitimately posts a presigned key here, so this
+      // validates rather than strips.
+      assertItemAssetKey(input.type, resolvedData);
+      assertRenderSafeData(input.type, resolvedData);
+      // Per-layer vector tile settings: refuse an out-of-range value
+      // here, where every data_layer write passes, rather than at tile
+      // time where a bad value could only be ignored.
+      if (input.type === 'data_layer') {
+        resolvedData = normalizeTileSettingsInData(
+          resolvedData,
+        ) as Prisma.InputJsonValue;
+      }
+      if (opts.clientKeys) {
+        await assertKeysAttachable(
+          this.prisma,
+          user.id,
+          itemDataStorageKeys(resolvedData),
+        );
+      }
+      // The creator owns the item, so the code it starts with is theirs.
+      // Overwrites anything the client sent for the server-owned field.
+      if (input.type === 'script') {
+        resolvedData = stampScriptProvenance({
+          ownerId: user.id,
+          editorId: user.id,
+          prevData: null,
+          nextData: resolvedData,
+        }) as Prisma.InputJsonValue;
+      }
+      if (input.type === 'service') {
+        await assertPostgisHostOnSave(null, resolvedData);
+        assertPostgisLayersOnSave(resolvedData);
+      }
+
+      // Attribution reaches every viewer of every map that uses this
+      // item, as HTML, through a MapLibre control whose own sanitizer is
+      // bypassable on the version we are pinned to. Clean it here rather
+      // than trusting the renderer.
+      resolvedData = sanitizeAttributionInData(
+        resolvedData,
+      ) as Prisma.InputJsonValue;
+      resolvedData = stripUnsafeThemeTokens(
+        input.type,
+        resolvedData,
+      ) as Prisma.InputJsonValue;
+
+      const bbox = itemBbox(input.type, resolvedData);
       // #66: every new item ships with an auto-generated thumbnail
       // design. The SVG is computed on the fly at request time so a
       // later rename automatically updates the rendering with no
@@ -1315,7 +1898,7 @@ export class ItemsService {
       });
     } catch (err) {
       // Roll back any paired data_layer created above so a failed
-      // form persist doesn't leave an orphan layer (#281c).
+      // check or form persist doesn't leave an orphan layer (#281c).
       if (pairedLayerId) {
         await this.prisma.item
           .delete({ where: { id: pairedLayerId } })
@@ -1477,11 +2060,146 @@ export class ItemsService {
       if (depId === sourceRef.itemId) continue;
       await this.assertReadableDerivedLayerInput(user, depId);
     }
+    await this.assertDerivedInputsUnscoped(user, rawData);
     const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
       source,
     );
     return enriched as unknown as Prisma.JsonValue;
+  }
+
+  /**
+   * Walk every input of a derived-layer recipe (the source chain and
+   * each level's otherSources) and return the id of the first data
+   * layer on which the caller's feature scope is limited (own rows
+   * or a geo limit), or null when every input is unscoped.
+   *
+   * The derived read path materialises its inputs in SQL with no way
+   * to carry a reader's share limits, so these readers are refused
+   * instead of handed the whole input. Unreadable or missing inputs
+   * are refused too.
+   */
+  private async derivedInputScopeLimit(
+    user: AuthUser,
+    rootData: unknown,
+    nodes: DerivedNodeCache = new Map(),
+  ): Promise<string | null> {
+    const visited = new Set<string>();
+    const queue: unknown[] = [rootData];
+    let walked = 0;
+    while (queue.length > 0) {
+      const data = queue.shift();
+      walked += 1;
+      // Inputs past the walk cap were never checked, so treat the
+      // recipe as limited rather than hand out unchecked inputs.
+      if (walked > 1 + MAX_DERIVED_CHAIN_DEPTH * 4) return DERIVED_WALK_CAPPED;
+      const deps = extractDependencies({ type: 'derived_layer', data });
+      for (const depId of deps.itemIds) {
+        if (visited.has(depId)) continue;
+        visited.add(depId);
+        let node = nodes.get(depId);
+        if (node === undefined) {
+          node = await this.prisma.item.findUnique({
+            where: { id: depId },
+            include: { shares: true },
+          });
+          nodes.set(depId, node);
+        }
+        // The read path builds SQL for every input from the recipe's
+        // ids and never loads the items, so this walk is the only
+        // check on deeper levels. A missing, trashed or unreadable
+        // input is refused: skipping it would serve a trashed layer's
+        // rows to readers who never had it.
+        if (
+          !node ||
+          node.deletedAt !== null ||
+          !this.sharing.canRead(user, node, node.shares)
+        ) {
+          return depId;
+        }
+        if (node.type === 'derived_layer') {
+          queue.push(node.data);
+          continue;
+        }
+        if (node.type !== 'data_layer') continue;
+        // Any own-rows-only layer on the input counts: the recipe
+        // can name the layer, and a stricter guess is the safe one.
+        const layers = (node.data as {
+          layers?: Array<{ editingPolicy?: string }>;
+        } | null)?.layers ?? [];
+        const layerPolicy = layers.some(
+          (l) => l.editingPolicy === 'own-rows-only',
+        )
+          ? 'own-rows-only'
+          : 'all-rows';
+        const scope = await this.sharing.featureScopeFor(
+          user,
+          node,
+          node.shares,
+          { action: 'read', layerPolicy },
+        );
+        if (isScopeLimited(scope)) return depId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The caller's read scope on one layer of a data layer item, from
+   * the shared resolver. `layerKey` picks a v3 sublayer's
+   * editingPolicy; a v1/v2 item reads it from item.data.
+   */
+  async featureReadScope(
+    user: AuthUser,
+    item: Item & { shares?: ItemShare[] },
+    layerKey?: string,
+  ): Promise<FeatureScope> {
+    const shares =
+      item.shares ??
+      (await this.prisma.itemShare.findMany({ where: { itemId: item.id } }));
+    const data = item.data as {
+      editingPolicy?: unknown;
+      layers?: Array<{ id?: string; editingPolicy?: unknown }>;
+    } | null;
+    const policy = Array.isArray(data?.layers)
+      ? data.layers.find((l) => l.id === layerKey)?.editingPolicy
+      : data?.editingPolicy;
+    return this.sharing.featureScopeFor(user, item, shares, {
+      action: 'read',
+      layerPolicy: policy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+    });
+  }
+
+  /**
+   * True when the caller can read the item's features only in part:
+   * a share scope on a data layer, or a limited input anywhere under
+   * a derived layer. Throws NotFound when the item is not readable.
+   * For paths that read a layer's extent or rows outside the engine
+   * and cannot apply the scope themselves.
+   */
+  async isFeatureReadLimited(
+    user: AuthUser,
+    itemId: string,
+    layerKey?: string,
+  ): Promise<boolean> {
+    const item = await this.get(user, itemId);
+    if (item.type === 'derived_layer') {
+      return (await this.derivedInputScopeLimit(user, item.data)) !== null;
+    }
+    if (item.type !== 'data_layer') return false;
+    return isScopeLimited(await this.featureReadScope(user, item, layerKey));
+  }
+
+  /** Save and preview form of derivedInputScopeLimit: refuse. */
+  private async assertDerivedInputsUnscoped(
+    user: AuthUser,
+    rootData: unknown,
+  ): Promise<void> {
+    if ((await this.derivedInputScopeLimit(user, rootData)) !== null) {
+      throw new ForbiddenException(
+        'A layer this recipe reads is shared to you with a row or area limit, which a derived layer cannot honour.',
+      );
+    }
   }
 
   /**
@@ -1658,6 +2376,11 @@ export class ItemsService {
       if (depId === args.source.itemId) continue;
       await this.assertReadableDerivedLayerInput(user, depId);
     }
+    await this.assertDerivedInputsUnscoped(user, {
+      version: 1,
+      source: args.source,
+      pipeline: args.pipeline,
+    });
     // Coerce the inbound pipeline to the validator-friendly shape;
     // the validator inside DerivedLayersService.previewRecipe runs
     // each step's per-tool validate() so malformed entries surface
@@ -1727,7 +2450,149 @@ export class ItemsService {
     }
   }
 
-  async update(user: AuthUser, id: string, input: UpdateItemInput) {
+  /**
+   * A sublayer with `editingEnabled: false` is frozen. Share holders
+   * and Editor apps cannot write to it; the item owner and admins
+   * still can, because imports, analysis outputs and OSM saves create
+   * layers with the flag off and their owners must keep editing them.
+   * `layer` is the target sublayer as stored in the item data.
+   */
+  assertLayerEditingEnabled(
+    user: AuthUser,
+    item: Item,
+    layer: { editingEnabled?: unknown },
+  ): void {
+    if (layer.editingEnabled !== false) return;
+    if (this.sharing.canAdmin(user, item)) return;
+    throw new ForbiddenException(
+      'Editing is turned off for this layer. Ask the owner to turn it on.',
+    );
+  }
+
+  /**
+   * Edit access for a bulk import, which can replace every row and
+   * insert anywhere. A share limited to the caller's own rows or to
+   * an area cannot authorize that, so a limited editor is refused.
+   * `editingPolicy` is the target layer's raw editingPolicy value.
+   */
+  async assertCanImportAllRows(
+    user: AuthUser,
+    id: string,
+    editingPolicy?: unknown,
+  ): Promise<void> {
+    const item = await this.get(user, id);
+    const shares = await this.prisma.itemShare.findMany({
+      where: { itemId: id },
+    });
+    if (!this.sharing.canEdit(user, item, shares)) {
+      throw new ForbiddenException(
+        'You do not have edit permission on this item',
+      );
+    }
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action: 'edit',
+      layerPolicy:
+        editingPolicy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+    });
+    if (isScopeLimited(scope)) {
+      throw new ForbiddenException(
+        'Import replaces or adds rows across the whole layer; your access is limited to some rows or an area.',
+      );
+    }
+  }
+
+  /**
+   * A form's `linkedLayerId` names the layer its submissions are
+   * written into, by the submitter, with no further check. Setting it
+   * therefore needs what editing that layer needs: the layer must be a
+   * live data layer in the form's org and the caller must be able to
+   * edit it. The mirror checks the org again when it writes.
+   */
+  private async assertFormLinkTarget(
+    user: AuthUser,
+    formOrgId: string,
+    layerId: string,
+  ): Promise<void> {
+    const refuse = () =>
+      new BadRequestException(
+        'linkedLayerId must name a data layer in this organization that you can edit.',
+      );
+    if (!UUID_RE.test(layerId)) throw refuse();
+    const layer = await this.prisma.item.findFirst({
+      where: { id: layerId, deletedAt: null },
+      select: { type: true, orgId: true },
+    });
+    if (!layer || layer.type !== 'data_layer' || layer.orgId !== formOrgId) {
+      throw refuse();
+    }
+    try {
+      await this.assertCanEdit(user, layerId);
+    } catch {
+      throw refuse();
+    }
+  }
+
+  /**
+   * PATCH an item. Everything update() derives from the stored row
+   * (the form link and map drawing merges, folder children, a data
+   * layer's previous schema) is computed from a read taken before the
+   * write. The write re-reads the row under its lock, and if anything
+   * saved in between, the whole update is computed again from the new
+   * row, up to three times, instead of writing a blob built from stale
+   * data. A caller that sent `expectedUpdatedAt` gets a 409 instead.
+   */
+  async update(
+    user: AuthUser,
+    id: string,
+    input: UpdateItemInput,
+    opts: ClientWriteOptions = {},
+  ) {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.updateOnce(user, id, input, opts);
+      } catch (err) {
+        if (!(err instanceof StaleItemRead)) throw err;
+        if (attempt >= UPDATE_STALE_RETRIES) {
+          throw new ConflictException(
+            'This item is being changed by someone else. Try again in a moment.',
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Put an item's data back to a snapshot. This is an ordinary data
+   * save of the snapshot's blob, so it gets every check and
+   * normalizer `update` applies (tile settings, render-safe check,
+   * attribution sanitizing, schema-break notice, syncVersion carry,
+   * row lock) and the usual pre-save snapshot, which makes the
+   * revert itself undoable. Writing the blob directly skipped all of
+   * those.
+   *
+   * The snapshot must belong to the item in the URL, so edit access
+   * on A cannot be used to rewrite B.
+   */
+  async revertToSnapshot(user: AuthUser, id: string, snapshotId: string) {
+    const snap = await this.snapshots.get(snapshotId);
+    if (snap.itemId !== id) {
+      throw new BadRequestException('Snapshot does not belong to this item');
+    }
+    await this.update(
+      user,
+      id,
+      { data: snap.data as Prisma.InputJsonValue },
+      { snapshotNote: `pre-revert to snapshot ${snap.id}` },
+    );
+    return { itemId: id, revertedFrom: snap.id };
+  }
+
+  private async updateOnce(
+    user: AuthUser,
+    id: string,
+    input: UpdateItemInput,
+    opts: ClientWriteOptions,
+  ) {
     const item = await this.get(user, id);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId: id } });
     if (!this.sharing.canEdit(user, item, shares)) {
@@ -1754,6 +2619,38 @@ export class ItemsService {
           'This item changed since you loaded it. Refresh to see the latest version, then apply your change again.',
         );
       }
+    }
+
+    // Who can see the item, and the geographic limit on each tier,
+    // are sharing settings. share() lets only the owner or an org
+    // admin change sharing, so the same rule holds here: an edit
+    // share lets someone change the content, not make it public or
+    // lift its clip. Values sent unchanged pass, so a full-item save
+    // by an editor still works.
+    const tierFields = item as Item & {
+      publicGeoBoundaryId?: string | null;
+      orgGeoBoundaryId?: string | null;
+    };
+    const changesSharing =
+      (input.access !== undefined && input.access !== item.access) ||
+      (input.publicGeoBoundaryId !== undefined &&
+        input.publicGeoBoundaryId !== (tierFields.publicGeoBoundaryId ?? null)) ||
+      (input.orgGeoBoundaryId !== undefined &&
+        input.orgGeoBoundaryId !== (tierFields.orgGeoBoundaryId ?? null));
+    if (changesSharing && !this.sharing.canAdmin(user, item)) {
+      throw new ForbiddenException(
+        'Only the owner or an org admin can change who can see this item',
+      );
+    }
+
+    // Widening access (to org or public) is sharing, so it needs the
+    // same capability as share(). Narrowing to private never does.
+    if (
+      input.access !== undefined &&
+      input.access !== item.access &&
+      input.access !== 'private'
+    ) {
+      assertCanShare(user);
     }
 
     // Form-paired data_layer access invariant.  A form's "submissions"
@@ -1816,7 +2713,7 @@ export class ItemsService {
     // Non-data updates (title / tags / access / thumbnail) skip the
     // snapshot since reverting those is trivially an edit away.
     if (input.data !== undefined && item.type === 'data_layer') {
-      await this.snapshots.snapshot(id, user.id, 'pre-update');
+      await this.snapshots.snapshot(id, user.id, opts.snapshotNote ?? 'pre-update');
     }
     // For derived_layer updates that touch the recipe, validate +
     // re-enrich (recomputes outputSchema and bbox) before persisting.
@@ -1831,7 +2728,43 @@ export class ItemsService {
     // item type's own prefix here, which is the only choke point every
     // writer passes through: point-cloud and tile-layer validate their
     // own finalize inputs, but this generic path bypasses both.
-    assertItemAssetKey(item.type, nextData);
+    assertItemAssetKey(item.type, nextData, item.data);
+    assertRenderSafeData(item.type, nextData);
+    // The pyramid worker owns a tile layer's processing state. A client
+    // PATCH (the only caller that passes clientKeys) keeps whatever the
+    // worker last wrote for those keys, so an owner cannot set
+    // processingState / tiling* / maxZoom to values that break the
+    // worker's recovery for every org or crash it.
+    if (opts.clientKeys && item.type === 'tile_layer' && nextData !== undefined) {
+      nextData = keepTileWorkerFields(item.data, nextData) as Prisma.InputJsonValue;
+    }
+    // Same tile settings validation as create(). The cache needs no
+    // invalidation here: a setting that changes tile bytes changes the
+    // tile cache key (see data-layer/tile-settings.ts).
+    if (item.type === 'data_layer' && nextData !== undefined) {
+      nextData = normalizeTileSettingsInData(nextData) as Prisma.InputJsonValue;
+    }
+    if (opts.clientKeys && nextData !== undefined) {
+      await assertKeysAttachable(
+        this.prisma,
+        user.id,
+        itemDataStorageKeys(nextData),
+        itemDataStorageKeys(item.data),
+      );
+    }
+    // A scheduled script runs with its owner's key. Record who wrote the
+    // code so the scheduler can refuse code the owner did not write, and
+    // keep the schedule itself in the owner's hands.
+    if (input.data !== undefined && item.type === 'script') {
+      const provenance = {
+        ownerId: item.ownerId,
+        editorId: user.id,
+        prevData: item.data,
+        nextData: input.data,
+      };
+      assertScheduleChangeAllowed(provenance);
+      nextData = stampScriptProvenance(provenance) as Prisma.InputJsonValue;
+    }
     if (input.data !== undefined && item.type === 'derived_layer') {
       nextData = (await this.enrichDerivedLayerData(
         user,
@@ -1842,41 +2775,50 @@ export class ItemsService {
     // a `data` patch (#283 / #284). The form designer's save sends
     // the whole FormSchema as data, which would otherwise overwrite
     // the link to the paired data_layer that was set at create time
-    // and break the submission mirror. The link is server-state, not
-    // author-state: clients can't (and shouldn't) round-trip it.
+    // and break the submission mirror. A save that omits the link
+    // keeps the stored one. A save that changes it (the designer's
+    // "link to an existing layer") must name a data layer in the
+    // form's org that the caller can edit, because every submission
+    // is then written into that layer.
     if (input.data !== undefined && item.type === 'form') {
       const prevData = (item.data ?? {}) as Record<string, unknown>;
       const incoming = (nextData ?? {}) as Record<string, unknown>;
       const merged: Record<string, unknown> = { ...incoming };
       if (
-        typeof prevData.linkedLayerId === 'string' &&
-        typeof merged.linkedLayerId !== 'string'
+        typeof merged.linkedLayerId === 'string' &&
+        (merged.linkedLayerId !== prevData.linkedLayerId ||
+          (typeof merged.linkedLayerKey === 'string' &&
+            merged.linkedLayerKey !== prevData.linkedLayerKey))
       ) {
-        merged.linkedLayerId = prevData.linkedLayerId;
+        await this.assertFormLinkTarget(user, item.orgId, merged.linkedLayerId);
       }
-      if (
-        typeof prevData.linkedLayerKey === 'string' &&
-        typeof merged.linkedLayerKey !== 'string'
-      ) {
-        merged.linkedLayerKey = prevData.linkedLayerKey;
+      // `linkedLayerId: null` is the designer's Unlink. Omitting the
+      // field keeps the stored link, so without an explicit value the
+      // link could never be removed: the designer showed the form as
+      // unlinked while every submission was still mirrored.
+      if (merged.linkedLayerId === null) {
+        delete merged.linkedLayerId;
+        delete merged.linkedLayerKey;
+      } else {
+        if (
+          typeof prevData.linkedLayerId === 'string' &&
+          typeof merged.linkedLayerId !== 'string'
+        ) {
+          merged.linkedLayerId = prevData.linkedLayerId;
+        }
+        if (
+          typeof prevData.linkedLayerKey === 'string' &&
+          typeof merged.linkedLayerKey !== 'string'
+        ) {
+          merged.linkedLayerKey = prevData.linkedLayerKey;
+        }
       }
       // And the engine version the form needs, recomputed from what
       // is being saved so a native client never trusts a stale or
       // client-supplied value.
       nextData = stampFormEngineVersion(merged) as Prisma.InputJsonValue;
-    }
-
-    // #154 / R3-anonymous-markup: map Save sends the full MapData
-    // from the browser, which never sees anonymousAuthorToken
-    // (stripped from drawings API responses). Without this merge a
-    // routine Save would wipe ownership tokens and leave only the
-    // weaker authorDisplay fallback. Also preserve
-    // allowAnonymousDrawings when the client omitted it.
-    if (input.data !== undefined && item.type === 'map') {
-      nextData = preserveMapAnonDrawingFields(
-        (item.data ?? {}) as Record<string, unknown>,
-        (nextData ?? {}) as Record<string, unknown>,
-      ) as Prisma.InputJsonValue;
+      assertFormPatternsCompile(nextData);
+      assertFormNotifyLimits(nextData);
     }
 
     // Round-trip footgun normalizer: any bare-MinIO URL pointing at
@@ -1913,64 +2855,134 @@ export class ItemsService {
     // control for every viewer of every map using this item.
     if (nextData !== undefined) {
       nextData = sanitizeAttributionInData(nextData) as Prisma.InputJsonValue;
+      nextData = stripUnsafeThemeTokens(item.type, nextData) as Prisma.InputJsonValue;
+    }
+    if (item.type === 'service' && nextData !== undefined) {
+      await assertPostgisHostOnSave(item.data, nextData);
+      assertPostgisLayersOnSave(nextData);
+    }
+    // The stored credential goes wherever `data` points (the proxy's
+    // url, PostGIS Live's host). Setting the credential needs admin, so
+    // pointing it somewhere else does too; otherwise an editor could
+    // retarget the owner's password or token to a host they control.
+    if (
+      nextData !== undefined &&
+      credentialTarget(item.data) !== credentialTarget(nextData) &&
+      !this.sharing.canAdmin(user, item)
+    ) {
+      const stored = await this.prisma.itemCredential.findUnique({
+        where: { itemId: id },
+        select: { itemId: true },
+      });
+      if (stored) {
+        throw new ForbiddenException(
+          'This item has a stored credential. Only its owner or an org admin can change where it connects.',
+        );
+      }
     }
 
-    // Recompute the cached extent when the data blob changes; leave
-    // it untouched on metadata-only edits so we don't churn the
-    // index for no reason.
-    const nextBbox =
-      nextData !== undefined ? itemBbox(item.type, nextData) : null;
-    const updated = await this.prisma.item.update({
-      where: { id },
-      data: {
-        ...(input.title !== undefined && { title: input.title }),
-        ...(input.description !== undefined && { description: input.description }),
-        ...(input.tags !== undefined && { tags: input.tags }),
-        ...(nextData !== undefined && { data: nextData }),
-        ...(input.access !== undefined && { access: input.access }),
-        // Belt-and-suspenders for the round-trip footgun: when a
-        // client PATCHes thumbnailUrl as the synthesized SVG endpoint
-        // path (the form may have read it from a GET response and
-        // sent it back unchanged), treat it as null so the
-        // synthesizer keeps generating a fresh URL with the latest
-        // updatedAt cache-buster.  Without this, a save freezes the
-        // URL and any subsequent design edit produces a card that
-        // still serves the stale SVG.
-        ...(input.thumbnailUrl !== undefined && {
-          thumbnailUrl:
-            typeof input.thumbnailUrl === 'string' &&
-            /\/api\/portal\/items\/[^/]+\/thumbnail\.svg/.test(
-              input.thumbnailUrl,
-            )
-              ? null
-              : input.thumbnailUrl,
-        }),
-        // #66: thumbnailDesign updates re-render the SVG on the
-        // next read; no extra side-effect needed here because the
-        // synthesized thumbnailUrl is keyed on updatedAt which
-        // Prisma is about to bump.  Prisma needs the JsonNull
-        // sentinel to clear a nullable Json column; plain `null`
-        // isn't accepted under exactOptionalPropertyTypes.
-        ...(input.thumbnailDesign !== undefined && {
-          thumbnailDesign:
-            input.thumbnailDesign === null
-              ? Prisma.JsonNull
-              : input.thumbnailDesign,
-        }),
-        ...(input.license !== undefined && { license: input.license }),
-        // #80: tier-level geo limits. Null clears, undefined leaves
-        // unchanged. The columns are nullable in Prisma so passing
-        // null directly is the right way to clear; we don't need a
-        // separate disconnect path.
-        ...(input.publicGeoBoundaryId !== undefined && {
-          publicGeoBoundaryId: input.publicGeoBoundaryId,
-        }),
-        ...(input.orgGeoBoundaryId !== undefined && {
-          orgGeoBoundaryId: input.orgGeoBoundaryId,
-        }),
-        ...(nextData !== undefined && { bbox: nextBbox ?? [] }),
-      },
+    // The cached extent is rewritten from the data blob only when the
+    // blob changes (bboxWriteForData below); metadata-only edits leave
+    // it untouched so we don't churn the index for no reason.
+    // A data_layer's per-layer syncVersion belongs to the server. The
+    // client sends back whatever it last read, so writing its `data` as
+    // is could move the cursor backwards and make sync clients skip
+    // edits. Re-read the row under the lock commitLayerSync takes and
+    // keep the stored value.
+    const writeItem = (client: Pick<Prisma.TransactionClient, 'item'>) =>
+      client.item.update({
+        where: { id },
+        data: {
+          ...(input.title !== undefined && { title: input.title }),
+          ...(input.description !== undefined && { description: input.description }),
+          ...(input.tags !== undefined && { tags: input.tags }),
+          ...(nextData !== undefined && { data: nextData }),
+          ...(input.access !== undefined && { access: input.access }),
+          // Belt-and-suspenders for the round-trip footgun: when a
+          // client PATCHes thumbnailUrl as the synthesized SVG endpoint
+          // path (the form may have read it from a GET response and
+          // sent it back unchanged), treat it as null so the
+          // synthesizer keeps generating a fresh URL with the latest
+          // updatedAt cache-buster.  Without this, a save freezes the
+          // URL and any subsequent design edit produces a card that
+          // still serves the stale SVG.
+          ...(input.thumbnailUrl !== undefined && {
+            thumbnailUrl:
+              typeof input.thumbnailUrl === 'string' &&
+              /\/api\/portal\/items\/[^/]+\/thumbnail\.svg/.test(
+                input.thumbnailUrl,
+              )
+                ? null
+                : input.thumbnailUrl,
+          }),
+          // #66: thumbnailDesign updates re-render the SVG on the
+          // next read; no extra side-effect needed here because the
+          // synthesized thumbnailUrl is keyed on updatedAt which
+          // Prisma is about to bump.  Prisma needs the JsonNull
+          // sentinel to clear a nullable Json column; plain `null`
+          // isn't accepted under exactOptionalPropertyTypes.
+          ...(input.thumbnailDesign !== undefined && {
+            thumbnailDesign:
+              input.thumbnailDesign === null
+                ? Prisma.JsonNull
+                : input.thumbnailDesign,
+          }),
+          ...(input.license !== undefined && { license: input.license }),
+          // #80: tier-level geo limits. Null clears, undefined leaves
+          // unchanged. The columns are nullable in Prisma so passing
+          // null directly is the right way to clear; we don't need a
+          // separate disconnect path.
+          ...(input.publicGeoBoundaryId !== undefined && {
+            publicGeoBoundaryId: input.publicGeoBoundaryId,
+          }),
+          ...(input.orgGeoBoundaryId !== undefined && {
+            orgGeoBoundaryId: input.orgGeoBoundaryId,
+          }),
+          ...(nextData !== undefined && bboxWriteForData(item.type, nextData)),
+        },
+      });
+    // The precondition and the stale-read check run against the row
+    // under its lock, so nothing can land between the check and the
+    // write. Only a `data` write is rebuilt on a stale read: the other
+    // columns are set outright and do not depend on what was read.
+    const readMs = new Date(item.updatedAt).getTime();
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await lockItemRow(tx, id);
+      if (!locked) throw new NotFoundException('Item not found');
+      if (locked.updatedAtMs !== readMs) {
+        if (
+          input.expectedUpdatedAt !== undefined &&
+          input.expectedUpdatedAt !== null
+        ) {
+          throw new ConflictException(
+            'This item changed since you loaded it. Refresh to see the latest version, then apply your change again.',
+          );
+        }
+        if (nextData !== undefined) throw new StaleItemRead();
+      }
+      if (item.type === 'data_layer' && nextData !== undefined) {
+        nextData = carryLayerSyncVersionsFrom(locked.data, nextData);
+      }
+      // #154: markup belongs to the drawings routes. A map Save keeps
+      // the stored sets (and their anonymous ownership tokens, which
+      // the browser never sees) instead of the browser's copy.
+      if (item.type === 'map' && nextData !== undefined) {
+        nextData = carryMapDrawingsFrom(locked.data, nextData);
+      }
+      return writeItem(tx);
     });
+    // A layer's or map's extent is not in its blob, so the save above
+    // left the stored bbox alone. Recompute it in the background in
+    // case the change moved it (a sublayer or a map layer removed).
+    if (nextData !== undefined && hasDerivedExtent(item.type)) {
+      this.bboxRefresh?.refreshItemBbox(id);
+    }
+    if (input.access !== undefined && input.access !== item.access) {
+      this.noteAudit(user, 'item.access', id, 'succeeded', {
+        from: item.access,
+        to: input.access,
+      });
+    }
     // Phase 2.5: schema edits are pure metadata now. Pre-engine,
     // this called dataLayerTables.reconcile to DROP tables for removed
     // layers and CREATE/ALTER tables for new ones. The engine
@@ -2051,6 +3063,33 @@ export class ItemsService {
    * for v1 we tell the deployment owner so they can warn their
    * field crew themselves.
    */
+  /**
+   * The owner plus every manifest-reported user who can read the
+   * data_collection, judged by the same sharing rules as a read.
+   * Without the principal resolver only the owner is returned.
+   */
+  private async schemaBreakRecipients(
+    dataCollectionId: string,
+    ownerId: string,
+    reported: string[],
+  ): Promise<string[]> {
+    const out = new Set<string>([ownerId]);
+    const others = [...new Set(reported)].filter((id) => id !== ownerId);
+    if (others.length === 0 || !this.authSync) return [...out];
+    const item = await this.prisma.item.findUnique({
+      where: { id: dataCollectionId },
+      include: { shares: true },
+    });
+    if (!item) return [...out];
+    for (const userId of others) {
+      const principal = await this.authSync.principalForUserId(userId);
+      if (principal && this.sharing.canRead(principal, item, item.shares)) {
+        out.add(userId);
+      }
+    }
+    return [...out];
+  }
+
   private async notifyDataCollectionSchemaBreak(args: {
     dataLayerId: string;
     dataLayerTitle: string;
@@ -2161,8 +3200,16 @@ export class ItemsService {
             { dataCollectionId: dc.id },
           ])}::jsonb`}
         `);
-        const recipients = new Set<string>([dc.ownerId]);
-        for (const row of downloaders) recipients.add(row.user_id);
+        // A manifest is whatever the device posted, and any signed-in
+        // user can post one naming any data_collection id. Only
+        // people who can read the deployment hear about it, or the
+        // notice would hand item and layer titles to anyone who
+        // listed a known id (any org).
+        const recipients = await this.schemaBreakRecipients(
+          dc.id,
+          dc.ownerId,
+          downloaders.map((row) => row.user_id),
+        );
         for (const userId of recipients) {
           await this.notifications.notify(
             userId,
@@ -2308,8 +3355,12 @@ export class ItemsService {
         type: 'folder',
         deletedAt: null,
       },
-      select: { id: true, title: true, data: true },
     });
+    const deletable = new Set(
+      allFolders
+        .filter((f) => this.sharing.canAdmin(user, f))
+        .map((f) => f.id),
+    );
 
     return computeFolderCascade(
       id,
@@ -2334,6 +3385,7 @@ export class ItemsService {
               : [],
         };
       }),
+      (folderId) => deletable.has(folderId),
     );
   }
 
@@ -2356,9 +3408,14 @@ export class ItemsService {
       throw new ForbiddenException('Only the owner or an org admin can restore an item');
     }
     if (!item.deletedCohortId) {
+      const clash = await this.seedKindClashes([item]);
       return this.prisma.item.update({
         where: { id },
-        data: { deletedAt: null },
+        // A live starter with the same seedKind (made by "Restore
+        // starters" while this one sat in the trash) would violate
+        // item_org_type_seed_kind_unique and turn the restore into a
+        // 500. The restored copy becomes an ordinary item instead.
+        data: { deletedAt: null, ...(clash.has(id) ? { seedKind: null } : {}) },
       });
     }
 
@@ -2371,19 +3428,49 @@ export class ItemsService {
         deletedAt: { not: null },
       },
     });
-    const restoreIds = cohort
-      .filter((m) => this.sharing.canAdmin(user, m))
-      .map((m) => m.id);
+    const restoreRows = cohort.filter((m) => this.sharing.canAdmin(user, m));
+    const restoreIds = restoreRows.map((m) => m.id);
+    // Same seedKind clash as above, for every row of the cohort.
+    const clash = await this.seedKindClashes(restoreRows);
     // The target is always in restoreIds because canAdmin already
     // passed above; updateMany also clears deletedCohortId so a
     // future redelete starts a fresh cohort.
-    await this.prisma.item.updateMany({
-      where: { id: { in: restoreIds } },
-      data: { deletedAt: null, deletedCohortId: null },
-    });
+    await this.prisma.$transaction([
+      this.prisma.item.updateMany({
+        where: { id: { in: [...clash] } },
+        data: { seedKind: null },
+      }),
+      this.prisma.item.updateMany({
+        where: { id: { in: restoreIds } },
+        data: { deletedAt: null, deletedCohortId: null },
+      }),
+    ]);
     // Return the originally-requested row in its restored state so
     // the caller sees the same shape `update` would have returned.
     return this.prisma.item.findUnique({ where: { id } });
+  }
+
+  /**
+   * Ids of trashed rows whose seedKind is already held by a live item
+   * of the same org and type. Restoring them as they are would break
+   * the partial unique index on (org_id, type, seed_kind).
+   */
+  private async seedKindClashes(
+    rows: ReadonlyArray<Pick<Item, 'id' | 'orgId' | 'type' | 'seedKind'>>,
+  ): Promise<Set<string>> {
+    const seeded = rows.filter((r) => r.seedKind);
+    if (seeded.length === 0) return new Set();
+    const live = await this.prisma.item.findMany({
+      where: {
+        deletedAt: null,
+        OR: seeded.map((r) => ({ orgId: r.orgId, type: r.type, seedKind: r.seedKind })),
+      },
+      select: { orgId: true, type: true, seedKind: true },
+    });
+    const key = (r: Pick<Item, 'orgId' | 'type' | 'seedKind'>) =>
+      `${r.orgId}\u0000${r.type}\u0000${r.seedKind}`;
+    const taken = new Set(live.map(key));
+    return new Set(seeded.filter((r) => taken.has(key(r))).map((r) => r.id));
   }
 
   /**
@@ -2429,6 +3516,11 @@ export class ItemsService {
     itemType: ItemType,
     itemData: unknown,
   ): Promise<void> {
+    if (itemType === 'geocoding_service') {
+      // Its search indexes sit on the shared observation table and
+      // slow every write there. Nothing else drops them.
+      await dropGeocoderIndexes(this.prisma, itemId).catch(() => []);
+    }
     if (itemType === 'data_collection') {
       // #74: delete the offline basemap archives before the item row
       // goes. The rows themselves die by FK cascade with the item,
@@ -2454,10 +3546,23 @@ export class ItemsService {
         // Engine-pivot layout: features live in `observation` keyed
         // by scope. Wipe every scope under this item id in one
         // statement; pg_partman partition routing keeps it cheap.
-        await this.prisma.$executeRaw`
-          DELETE FROM observation
-          WHERE scope LIKE ${`data_layer:${itemId}:%`}
-        `;
+        //
+        // The app role carries a 30 s statement_timeout, and deleting
+        // a big layer takes longer: 2.5M polygons ran past it on the
+        // demo, so purge failed and the rows stayed behind for good,
+        // in the nightly trash sweep too (#573). Lift the limit for
+        // this one statement, inside its own transaction, the same
+        // way CopyWriter does for imports.
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRawUnsafe('SET LOCAL statement_timeout = 0');
+            await tx.$executeRaw`
+              DELETE FROM observation
+              WHERE scope LIKE ${`data_layer:${itemId}:%`}
+            `;
+          },
+          { maxWait: 10_000, timeout: PURGE_TX_TIMEOUT_MS },
+        );
       } else if (data?.storageType === 'postgis') {
         // v2 legacy: per-item table. Drop it so the storage shrinks
         // immediately (DROP TABLE returns disk faster than DELETE).
@@ -2469,33 +3574,48 @@ export class ItemsService {
       itemType === 'tile_layer' ||
       itemType === 'point_cloud'
     ) {
-      // file + tile_layer + point_cloud all store a single MinIO
-      // object keyed by data.storageKey; cleanup is identical. Best-effort: a
+      // file + tile_layer + point_cloud keep their bytes in MinIO under
+      // the keys their data names: storageKey, and for a tile layer
+      // also the archival COG (cogStorageKey) and a mosaic's
+      // sources[].storageKey. Purge used to delete only storageKey, so
+      // a purged 5 GB ortho left its COG behind. Best-effort: a
       // missing key, MinIO down, or transient permission error
       // shouldn't block the item-row delete. Orphan accounting
       // on the storage card surfaces any leaked object.
-      const data = itemData as { storageKey?: string } | null;
-      const key = data?.storageKey;
-      // Pin the prefix before deleting through it. Rows written before
-      // the create/update guard landed can still carry a key pointing
-      // at another kind's object, and purge runs with portal-api's
-      // credentials, so an unpinned key here is a delete primitive over
-      // the whole bucket. Skip rather than throw: purge must still tear
-      // the item row down, and a stale key is a leaked object at worst
-      // (the housekeeping orphan card accounts for it).
+      //
+      // Pin the prefix before deleting through each key. Rows written
+      // before the create/update guard landed can still carry a key
+      // pointing at another kind's object, and purge runs with
+      // portal-api's credentials, so an unpinned key here is a delete
+      // primitive over the whole bucket. Skip rather than throw: purge
+      // must still tear the item row down, and a stale key is a leaked
+      // object at worst (the housekeeping orphan card accounts for it).
       const expectedKind =
         ITEM_ASSET_KIND[itemType as keyof typeof ITEM_ASSET_KIND];
-      if (typeof key === 'string' && key.length > 0) {
-        if (!isValidAssetKey(key, expectedKind)) {
+      // A File item from the asset picker also names its public image.
+      const publicImage =
+        itemType === 'file' && itemData && typeof itemData === 'object'
+          ? (itemData as Record<string, unknown>)[FILE_PUBLIC_IMAGE_FIELD]
+          : undefined;
+      for (const key of new Set(itemDataStorageKeys(itemData))) {
+        const kind =
+          key === publicImage ? FILE_PUBLIC_IMAGE_KIND : expectedKind;
+        if (!isValidAssetKey(key, kind)) {
           this.log.warn(
-            `purge ${itemId}: refusing to delete storageKey ${key}, outside ${expectedKind}/`,
+            `purge ${itemId}: refusing to delete storage key ${key}, outside ${kind}/`,
           );
-        } else {
-          try {
-            await this.storage.deleteObject(key);
-          } catch (err) {
-            void err;
-          }
+          continue;
+        }
+        try {
+          // Another item or attachment may still reference the same
+          // object (rows from before attach paths checked
+          // ownership). Leave it; the orphan sweep reclaims it once
+          // nothing does.
+          await deleteIfUnreferenced(this.prisma, this.storage, key, {
+            itemId,
+          });
+        } catch (err) {
+          void err;
         }
       }
     }
@@ -2583,11 +3703,10 @@ export class ItemsService {
    * fully removed in one statement.
    *
    * item_share.geoBoundaryId is NOT nulled here. A dangling boundary
-   * already resolves to "no clip" in SharingService, so rewriting the
-   * column changes no behaviour and destroys the only evidence that
-   * the share was ever scoped. Housekeeping reports those instead, so
-   * an admin can repoint the share rather than discover later that it
-   * quietly went org-wide.
+   * closes its share in SharingService, while a null boundary means
+   * "no clip", so nulling the column would widen the share to the
+   * whole layer. Housekeeping reports those instead, so an admin can
+   * repoint the share.
    */
   private async spliceFromLandingFeatured(deletedItemId: string): Promise<void> {
     await this.prisma.$executeRaw`
@@ -2613,15 +3732,22 @@ export class ItemsService {
         AND data_json @> jsonb_build_object('childItemIds', jsonb_build_array(${deletedItemId}::text))
     `;
     for (const row of candidates) {
-      const data = row.data_json as { version?: number; childItemIds?: unknown } | null;
-      if (!data || !Array.isArray(data.childItemIds)) continue;
-      const next = (data.childItemIds as unknown[]).filter(
-        (id) => id !== deletedItemId,
-      );
-      if (next.length === data.childItemIds.length) continue;
-      await this.prisma.item.update({
-        where: { id: row.id },
-        data: { data: { ...data, childItemIds: next } as Prisma.InputJsonValue },
+      // Re-read under the row lock: the candidate scan is a plain read,
+      // and a folder save between it and this write would be reverted.
+      await withLockedItem(this.prisma, row.id, async (tx, locked) => {
+        const data = locked?.data as
+          | { version?: number; childItemIds?: unknown }
+          | null
+          | undefined;
+        if (!data || !Array.isArray(data.childItemIds)) return;
+        const next = (data.childItemIds as unknown[]).filter(
+          (id) => id !== deletedItemId,
+        );
+        if (next.length === data.childItemIds.length) return;
+        await tx.item.update({
+          where: { id: row.id },
+          data: { data: { ...data, childItemIds: next } as Prisma.InputJsonValue },
+        });
       });
     }
   }
@@ -2643,8 +3769,15 @@ export class ItemsService {
       bbox?: [number, number, number, number];
       at?: string;
       boundaryClipId?: string;
+      /** Row cap below the built-in 10000, for previews that show a
+       *  few hundred rows and should not read the whole table. */
+      limit?: number;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
+    const rowCap = Math.min(
+      LEGACY_GEOJSON_MAX_ROWS,
+      Math.max(1, Math.floor(opts.limit ?? LEGACY_GEOJSON_MAX_ROWS)),
+    );
     const item = await this.get(user, id);
 
     if (item.type === 'derived_layer') {
@@ -2690,6 +3823,12 @@ export class ItemsService {
           return { type: 'FeatureCollection', features: [] };
         }
       }
+      // A derived layer has no way to carry a reader's own-rows or
+      // geo limit through its pipeline, so a reader who is limited on
+      // any input gets nothing rather than the whole input.
+      if ((await this.derivedInputScopeLimit(user, item.data)) !== null) {
+        return { type: 'FeatureCollection', features: [] };
+      }
       return this.derivedLayers.getGeoJson(item, source, opts);
     }
 
@@ -2723,6 +3862,14 @@ export class ItemsService {
       });
       const g = (row?.data as { geometry?: unknown } | null)?.geometry;
       if (g && typeof g === 'object') boundaryGeom = g;
+    }
+
+    // A v3 layer keeps its features in the observation table, not in
+    // an fs_ table, so the table query below would throw (500). The
+    // per-sublayer route /items/:id/layers/:key/geojson serves v3;
+    // meta.ui advertises that one for v3 items.
+    if (data?.version === 3) {
+      return { type: 'FeatureCollection', features: [] };
     }
 
     if (data?.storageType === 'postgis') {
@@ -2810,23 +3957,10 @@ export class ItemsService {
       // applies both; without the same gates here a geo-limited or
       // own-rows share could still dump the whole layer via
       // GET /items/:id/geojson.
-      const shares =
-        (item as { shares?: Parameters<SharingService['geoLimitFor']>[2] })
-          .shares ?? [];
-      const geoLimit = await this.sharing.geoLimitFor(user, item, shares);
-      if (geoLimit) {
-        params.push(JSON.stringify(geoLimit));
-        const b = params.length;
-        conditions.push(
-          `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${b}::text), 4326))`,
-        );
-      }
-      const rowScope = this.sharing.effectiveRowScope(user, item, shares);
-      if (rowScope === 'own') {
-        params.push(user.id);
-        const b = params.length;
-        conditions.push(`created_by = $${b}`);
-      }
+      // featureReadScope also reads the layer's own-rows policy, which
+      // a bare featureScopeFor call left out.
+      const scope = await this.featureReadScope(user, item);
+      conditions.push(...legacyTableScopeConditions(scope, params));
 
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -2847,6 +3981,8 @@ export class ItemsService {
         edited_by: string | null;
         edited_at: Date | string | null;
       };
+      params.push(rowCap);
+      const limitParam = params.length;
       const rows = await this.prisma.$queryRawUnsafe<RawRow[]>(
         `SELECT global_id,
                 ST_AsGeoJSON(geom) AS geom,
@@ -2858,7 +3994,7 @@ export class ItemsService {
            FROM "${tbl}"
           ${where}
           ORDER BY gid
-          LIMIT 10000`,
+          LIMIT $${limitParam}`,
         ...params,
       );
 
@@ -2897,11 +4033,14 @@ export class ItemsService {
     // #235: same share gates as the PostGIS branch. v1 rows are
     // rare (pre-PostGIS uploads); filter in process rather than
     // inventing a SQL path over the JSON blob.
-    const v1Shares =
-      (item as { shares?: Parameters<SharingService['geoLimitFor']>[2] })
-        .shares ?? [];
-    const v1RowScope = this.sharing.effectiveRowScope(user, item, v1Shares);
-    const v1GeoLimit = await this.sharing.geoLimitFor(user, item, v1Shares);
+    const v1Scope = await this.featureReadScope(user, item);
+    const v1RowScope = v1Scope.rowScope;
+    const v1GeoLimit = v1Scope.geoLimit;
+    // A closed limit (boundary missing or unreadable) admits nothing.
+    // Handing it to ST_GeomFromGeoJSON raised an error instead.
+    if (isClosedGeoLimit(v1GeoLimit)) {
+      return { type: 'FeatureCollection', features: [] };
+    }
     let features = (fc as { features: unknown[] }).features ?? [];
     if (v1RowScope === 'own') {
       features = features.filter((raw) => {
@@ -2930,7 +4069,7 @@ export class ItemsService {
       }
       features = kept;
     }
-    return { type: 'FeatureCollection', features };
+    return { type: 'FeatureCollection', features: features.slice(0, rowCap) };
   }
 
   /**
@@ -2947,6 +4086,24 @@ export class ItemsService {
       keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
     },
   ) {
+    const item = await this.prepareReassign(user, id, input.newOwnerId);
+    if (input.newOwnerId === item.ownerId) {
+      return item; // no-op: already owned by the target user
+    }
+    return this.applyReassign(user, item, input);
+  }
+
+  /**
+   * Every check reassignOwner makes, with no write. Returns the item.
+   * Split out so the bulk path can check every item before it moves
+   * any of them.
+   */
+  private async prepareReassign(
+    user: AuthUser,
+    id: string,
+    newOwnerId: string,
+  ) {
+    const input = { newOwnerId };
     const item = await this.get(user, id);
     if (!this.sharing.canAdmin(user, item)) {
       throw new ForbiddenException(
@@ -2961,17 +4118,48 @@ export class ItemsService {
     // org boundaries.
     const newOwner = await this.prisma.user.findUnique({
       where: { id: input.newOwnerId },
-      select: { id: true, orgId: true, username: true, fullName: true },
+      select: {
+        id: true,
+        orgId: true,
+        username: true,
+        fullName: true,
+        orgRole: true,
+        deletedAt: true,
+        capabilityOverrides: { select: { capability: true, enabled: true } },
+      },
     });
-    if (!newOwner) {
+    if (!newOwner || newOwner.deletedAt !== null) {
       throw new BadRequestException('Unknown user');
+    }
+    // Owners can do anything to their own items, so the new owner must
+    // be someone allowed to create items in the first place.
+    if (
+      !effectiveCapabilities(newOwner.orgRole, newOwner.capabilityOverrides).has(
+        'can_publish_items',
+      )
+    ) {
+      throw new BadRequestException(
+        'The new owner must be a contributor or admin.',
+      );
     }
     if (newOwner.orgId !== item.orgId) {
       throw new BadRequestException(
         'Cannot reassign an item to a user in a different organization',
       );
     }
+    return item;
+  }
 
+  /** The write half of reassignOwner, after prepareReassign passed. */
+  private async applyReassign(
+    user: AuthUser,
+    item: Awaited<ReturnType<ItemsService['get']>>,
+    input: {
+      newOwnerId: string;
+      keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
+    },
+  ) {
+    const id = item.id;
     const prevOwnerId = item.ownerId;
 
     // Transaction: update ownership + optionally add a share for the
@@ -2979,10 +4167,23 @@ export class ItemsService {
     // keepPreviousOwnerAccess is null / undefined or when the
     // previous owner is the caller's own account (they already
     // carry admin through org role if relevant).
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.item.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.item.update({
         where: { id },
-        data: { ownerId: input.newOwnerId },
+        data: {
+          ownerId: input.newOwnerId,
+          // A scheduled script runs with its owner's key. The new owner
+          // did not write this code, so record who did; scheduled runs
+          // stay paused until the new owner saves it.
+          ...(item.type === 'script'
+            ? {
+                data: provenanceOnReassign(
+                  item.data,
+                  prevOwnerId,
+                ) as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       });
       if (input.keepPreviousOwnerAccess) {
         await tx.itemShare.upsert({
@@ -3002,8 +4203,13 @@ export class ItemsService {
           },
         });
       }
-      return updated;
+      return row;
     });
+    this.noteAudit(user, 'item.owner', id, 'succeeded', {
+      previousOwnerId: prevOwnerId,
+      ownerId: input.newOwnerId,
+    });
+    return updated;
   }
 
   /**
@@ -3026,10 +4232,12 @@ export class ItemsService {
   }
 
   /**
-   * Bulk reassignment. Applies reassignOwner() across many items in
-   * a single transaction, stopping on the first failure. Useful for
-   * the "delete this user -> move their stuff first" flow and for
-   * bulk-select in the items list.
+   * Bulk reassignment. Checks every item first (readable, caller may
+   * reassign it, valid new owner) and only then moves them, one
+   * transaction per item. A list with one bad id (trashed, not
+   * yours) is refused before anything moves, so the "move their
+   * stuff, then delete the user" flow never runs on a half-moved
+   * set. Useful for that flow and for bulk-select in the items list.
    */
   async bulkReassignOwner(
     user: AuthUser,
@@ -3039,16 +4247,32 @@ export class ItemsService {
       keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
     },
   ): Promise<{ reassigned: number }> {
-    let reassigned = 0;
+    const patch: {
+      newOwnerId: string;
+      keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
+    } = { newOwnerId: input.newOwnerId };
+    if (input.keepPreviousOwnerAccess !== undefined) {
+      patch.keepPreviousOwnerAccess = input.keepPreviousOwnerAccess;
+    }
+    const items = [];
     for (const id of input.itemIds) {
-      const patch: {
-        newOwnerId: string;
-        keepPreviousOwnerAccess?: 'view' | 'download' | 'edit' | 'admin' | null;
-      } = { newOwnerId: input.newOwnerId };
-      if (input.keepPreviousOwnerAccess !== undefined) {
-        patch.keepPreviousOwnerAccess = input.keepPreviousOwnerAccess;
+      items.push(await this.prepareReassign(user, id, input.newOwnerId));
+    }
+    let reassigned = 0;
+    for (const item of items) {
+      if (item.ownerId !== input.newOwnerId) {
+        try {
+          await this.applyReassign(user, item, patch);
+        } catch (err) {
+          // Only a write error can land here. Say how far it got so
+          // a retry is not a guess.
+          throw new ConflictException(
+            `Reassigned ${reassigned} of ${items.length} items, then failed on ${item.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
       }
-      await this.reassignOwner(user, id, patch);
       reassigned += 1;
     }
     return { reassigned };
@@ -3059,7 +4283,21 @@ export class ItemsService {
     if (!this.sharing.canAdmin(user, item)) {
       throw new ForbiddenException('Only the owner or an org admin can change sharing');
     }
-    await this.assertPrincipalExists(input.principalType, input.principalId);
+    assertCanShare(user);
+    // The clip is handed to ST_GeomFromGeoJSON on every feature read by
+    // this sharee, so a malformed one (no coordinates, open rings,
+    // projected metres) would fail or match nothing on every read.
+    // Refuse it here, where every share write passes.
+    if (
+      input.geoLimit !== undefined &&
+      input.geoLimit !== null &&
+      !isShareClipGeometry(input.geoLimit)
+    ) {
+      throw new BadRequestException(
+        'geoLimit must be a Polygon, MultiPolygon or GeometryCollection of them in WGS84 longitude and latitude, with closed rings.',
+      );
+    }
+    await this.assertPrincipalExists(input.principalType, input.principalId, item.orgId);
     // Build the update payload conditionally so an undefined field
     // doesn't overwrite a previously-set value. `null` is the explicit
     // "clear" signal and DOES pass through to Prisma.
@@ -3068,9 +4306,11 @@ export class ItemsService {
     // to a non-null value clears the other on the same update so the
     // share never carries a stale partner column. Either field can be
     // explicitly cleared with `null` independently.
-    const update: Record<string, unknown> = {
-      permission: input.permission ?? 'view',
-    };
+    // `permission` follows the same rule: omitted keeps the stored
+    // tier (an expiry-only change must not downgrade an edit share);
+    // a new share defaults to view below.
+    const update: Record<string, unknown> = {};
+    if (input.permission !== undefined) update.permission = input.permission;
     if (input.geoBoundaryId !== undefined) {
       update.geoBoundaryId = input.geoBoundaryId;
       if (input.geoBoundaryId !== null) update.geoLimit = null;
@@ -3179,6 +4419,11 @@ export class ItemsService {
         payload,
       );
     }
+    this.noteAudit(user, 'item.share', id, 'succeeded', {
+      principalType: input.principalType,
+      principalId: input.principalId,
+      permission: input.permission ?? 'view',
+    });
     return result;
   }
 
@@ -3217,18 +4462,36 @@ export class ItemsService {
         },
       },
     });
+    this.noteAudit(user, 'item.unshare', id, 'succeeded', {
+      principalType: input.principalType,
+      principalId: input.principalId,
+    });
   }
 
-  private async assertPrincipalExists(type: PrincipalType, id: string) {
+  /**
+   * A share target must be a live user or group in the item's own
+   * organization. Shares are honoured regardless of org on the read
+   * side, so a cross-org principal here would hand another tenant
+   * access; group membership refuses cross-org members for the same
+   * reason. A removed user is not a valid target either.
+   */
+  private async assertPrincipalExists(
+    type: PrincipalType,
+    id: string,
+    orgId: string,
+  ) {
     if (type === 'user') {
-      const hit = await this.prisma.user.findUnique({ where: { id }, select: { id: true } });
+      const hit = await this.prisma.user.findFirst({
+        where: { id, orgId, deletedAt: null },
+        select: { id: true },
+      });
       if (!hit) throw new BadRequestException('Unknown user principal');
     } else if (type === 'group') {
       // A trashed group should not be a valid share target; treat it as
       // unknown so clients can't create new references to something that
       // will disappear on purge.
       const hit = await this.prisma.group.findFirst({
-        where: { id, deletedAt: null },
+        where: { id, orgId, deletedAt: null },
         select: { id: true },
       });
       if (!hit) throw new BadRequestException('Unknown group principal');
@@ -3333,11 +4596,15 @@ export class ItemsService {
     if (typeof q.bufferKm === 'number' && q.bufferKm >= 0) {
       opts.bufferKm = q.bufferKm;
     }
-    const rows = await this.list(user, opts);
     const limit =
       typeof q.limit === 'number' && q.limit > 0
         ? Math.min(Math.floor(q.limit), 1000)
         : 1000;
+    // Bounded and lite, like the HTTP list. Without them list()
+    // loaded every visible row with its full data blob and only then
+    // cut the result to the limit. The lite rows carry the same
+    // per-layer hints (`_layers`) the items list does.
+    const rows = await this.list(user, { ...opts, limit, lite: true });
     return Array.isArray(rows) ? rows.slice(0, limit) : rows;
   }
 
@@ -3426,7 +4693,11 @@ export class ItemsService {
         (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
         (order.get(b.id) ?? Number.MAX_SAFE_INTEGER),
     );
-    return rows;
+    // Same redaction as list() and get(): a folder is just another way
+    // to reach these rows and must not show more than either does.
+    return rows.map((r) =>
+      this.stripShareRoster(user, this.redactRow(user, r)),
+    );
   }
 
   /**
@@ -3826,4 +5097,89 @@ function computeSchemaBreaks(
     }
   }
   return { dropped, geometryChanged };
+}
+
+/**
+ * Copy each layer's stored syncVersion onto the incoming data, under a
+ * row lock. The sync cursor only moves through commitLayerSync, never
+ * through an item PATCH.
+ */
+export async function carryLayerSyncVersions(
+  tx: Prisma.TransactionClient,
+  id: string,
+  next: Prisma.InputJsonValue,
+): Promise<Prisma.InputJsonValue> {
+  const locked = await lockItemRow(tx, id);
+  return carryLayerSyncVersionsFrom(locked?.data, next);
+}
+
+/** Sharing an item, or widening its access, needs can_share_items. */
+function assertCanShare(user: AuthUser): void {
+  if (!hasCapability(user, 'can_share_items')) {
+    throw new ForbiddenException('You do not have permission to share items.');
+  }
+}
+
+/**
+ * The portal item a map layer reads through, or null for a url or
+ * inline source. Each source kind names its item in its own field
+ * (shared-types MapLayerSource). The old check looked for an
+ * `arcgis_service` kind that no stored layer has, so ArcGIS, tile,
+ * point-cloud and PostGIS Live layers backed by a private item were
+ * never dropped for a viewer who cannot read that item.
+ */
+/** Input items read while walking derived recipes, by id. */
+type DerivedNodeCache = Map<string, (Item & { shares: ItemShare[] }) | null>;
+
+export function mapLayerBackingItemId(layer: unknown): string | null {
+  const src = (layer as { source?: Record<string, unknown> } | null)?.source;
+  if (!src || typeof src !== 'object') return null;
+  let id: unknown;
+  switch (src.kind) {
+    case 'data-layer':
+    case 'tile':
+    case 'point-cloud':
+      id = src.itemId;
+      break;
+    case 'arcgis-rest':
+      id = src.sourceItemId;
+      break;
+    case 'postgis-live':
+      id = src.serviceItemId;
+      break;
+    default:
+      return null;
+  }
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/** tile_layer data keys only the server writes. */
+const TILE_WORKER_KEYS = [
+  'processingState',
+  'tilingProgress',
+  'tilingError',
+  'tilingStartedAt',
+  'tilingHeartbeatAt',
+  'tilingCompletedAt',
+  'tilingAttempts',
+  'maxZoom',
+  'minZoom',
+] as const;
+
+/**
+ * `next` with every worker-owned key put back to its value in `prev`
+ * (or removed when `prev` has none). A client cannot write them.
+ */
+export function keepTileWorkerFields(prev: unknown, next: unknown): unknown {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) return next;
+  const before =
+    prev && typeof prev === 'object' && !Array.isArray(prev)
+      ? (prev as Record<string, unknown>)
+      : {};
+  const out = { ...(next as Record<string, unknown>) };
+  for (const k of TILE_WORKER_KEYS) {
+    if (k in before) out[k] = before[k];
+    else delete out[k];
+  }
+  return out;
 }

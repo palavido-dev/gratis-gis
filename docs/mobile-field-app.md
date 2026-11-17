@@ -1,10 +1,14 @@
 # GratisGIS Field: native mobile app plan
 
-Status: planned, not started. Decided 2026-09-13. Revised the same day
-after a review that changed the approach to the form and sync logic
-(embedded engine instead of a Kotlin port), cut the auth prerequisite
-to a fraction of its first estimate, and added two server items the
-first draft missed (edit conflicts, engine versioning).
+Status: in progress in `clients/android`, and not released. The client
+is Kotlin and Jetpack Compose. There is no Play Store listing and no
+released build. **v1.0.0 ships without a store-listed Android or iOS
+app**; the offline-capable field PWA is the 1.0 field surface. Decided
+2026-09-13. Revised the same day after a review that changed the
+approach to the form and sync logic (embedded engine instead of a
+Kotlin port), cut the auth prerequisite to a fraction of its first
+estimate, and added two server items the first draft missed (edit
+conflicts, engine versioning).
 
 Scope of this document: the native Android client for `data_collection`
 items, and what has to change in portal-api, Keycloak and the shared
@@ -117,7 +121,8 @@ What goes in (all verified pure: no `crypto`, `Intl`, `fetch`,
 | `packages/shared-types/src/queue-fold.ts` | 142 | Same-device edit folding, insert-then-delete annihilation |
 | `packages/shared-types/src/queue-replay.ts` | 190 | Retry ladder, 120s claim window, chain-head ordering |
 | `packages/shared-types/src/offline-message.ts` | 314 | The code-plus-params i18n envelope for every sync string |
-| `packages/shared-types/src/sync-outcome.ts` | 42 | HTTP status to retry / park / success |
+| `packages/shared-types/src/sync-outcome.ts` | 90 | HTTP status to retry / park / success, and the lost-response echo check on a 409 |
+| `packages/shared-types/src/delta-sync.ts` | 100 | Delta paging steps and the properties a delta change writes ([sync-protocol.md](./sync-protocol.md)) |
 | `packages/shared-types/src/submission-stamp.ts` | 113 | Server-stamped field protection |
 | `packages/shared-types/src/filter-match.ts` | 99 | Client-side layer filter evaluation |
 
@@ -252,7 +257,15 @@ client and the server get it too:
   before the stamp existed carry none; the app computes the same
   value locally through `form.requirement` in that case, which is
   also what it does for the auto-generated no-authoring forms.
-- The app compares against its own `ENGINE_VERSION`. A collection whose
+- A behaviour change to a feature that already existed (version 2: a
+  required signature is validated) bumps `ENGINE_VERSION` and is
+  registered in `BEHAVIOUR_ENGINE_VERSION` with a walker rule naming
+  the forms it affects. A bump with no registered rule changes no
+  stamp, so no client would ever be gated.
+- The app compares the higher of the stamp and its own
+  `form.requirement` result against its own `ENGINE_VERSION`
+  (`FormViewModel.load`). A form saved before a later bump keeps its
+  old stamp until it is saved again. A collection whose
   forms need a newer engine opens in drain-only mode: queued records
   still sync, capture is disabled, and the message says to update the
   app. Never silently evaluate with an older engine.
@@ -456,7 +469,7 @@ Reads:
 GET /api/items?type=data_collection&full=1
 GET /api/items/{id}
 GET /api/items/{id}/layers/{layerKey}/geojson
-GET /api/items/{id}/layers/{layerKey}/delta?since=N
+GET /api/items/{id}/layers/{layerKey}/delta?since=N[&after=OBS]
 GET /api/items/{id}/layers/{layerKey}/features?entity={globalId}
 GET /api/items/{id}/layers/{layerKey}/tile/{z}/{x}/{y}.mvt
 GET /api/items/{itemId}/offline-areas
@@ -465,7 +478,10 @@ GET /api/items/{itemId}/offline-packages/{packageId}/file
 
 `delta?since=N` returns `{ syncVersion, since, changes[], truncated }`
 with change kinds `create|update|delete|derive|observe` and feature id
-`entity`. The field PWA offline refresh and the Android
+`entity`; a truncated page adds `nextSince` and `nextAfter`, which the
+next request sends back as `since` and `after`. The full contract
+(paging, seeding the cursor before a first download, scope, conflict
+tokens) is in [sync-protocol.md](./sync-protocol.md). The field PWA offline refresh and the Android
 `OfflineDownloader` both use it when a local `syncVersion` cursor
 exists (full GeoJSON on first download / unknown cursor, then
 incremental upserts and deletes; Android persists the cursor on

@@ -41,6 +41,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   splitByPrefetchPolicy,
+  isServerStampedField,
   stampSubmissionMetadata,
 } from '@gratis-gis/shared-types';
 import {
@@ -53,13 +54,16 @@ import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import {
   searchLayers,
+  searchV3Layers,
   type SearchResult as MapSearchResult,
 } from '../map/search-sources';
 import { FormRuntime } from '@/components/form-runtime';
 import { PwaInstallButton } from '@/components/pwa-install-button';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
+  countUnsyncedEdits,
   enqueueEdit,
+  getCachedFeature,
   getDeployment,
   hashLayerSchema,
   listFeaturesForLayer,
@@ -73,6 +77,9 @@ import {
   type CachedFeature,
   type QueueRecord,
 } from '@/lib/offline-store';
+import { loadFeatureForEdit } from '@/lib/field-edit-source';
+import { placedAtGpsFix } from '@/lib/gps-placement';
+import { buildOfflineRecoveryZip } from '@/lib/offline-export';
 import { formatBytes } from '@/lib/format-bytes';
 import { formatOfflineMessage } from '@/lib/offline-message';
 import { holdReload } from '@/lib/sw-update-guard';
@@ -134,13 +141,14 @@ import {
 } from './use-offline-basemap';
 import { OfflineBasemapRow } from './offline-basemap-row';
 import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
-import { stampGpsMetadata } from './gps-metadata-stamp';
+import { classifyGpsField, stampGpsMetadata } from './gps-metadata-stamp';
 import { FieldAttachments } from './field-attachments';
+import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
-import { formatDate, useFormat } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
+import { RelativeTime } from '@/components/relative-time';
 import type { Translator } from '@/lib/i18n';
 
 /**
@@ -573,6 +581,9 @@ export function FieldRuntime({
 
   const canvasRef = useRef<MapCanvasHandle | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // Bumped on each popup Edit so a slow record read cannot open a
+  // form after a newer Edit tap.
+  const editLoadTokenRef = useRef(0);
   // GPS state (Phase A). Hook owns the watch lifecycle and follow-mode
   // toggle; marker handle paints the dot + accuracy ring on the map and
   // is created on first map-ready. The two are intentionally
@@ -878,14 +889,16 @@ export function FieldRuntime({
           next = { ...next, visible: false };
         }
         if (offlineActive && next.source?.kind === 'data-layer') {
-          const key = `${next.source.itemId}:${next.source.layerKey ?? ''}`;
-          // Try with an empty layerKey first (legacy v1/v2), then
-          // with the layerKey when present.
+          // The cache is keyed by the resolved sublayer, which a legacy
+          // map source without a layerKey only names through
+          // resolveEditableLayer. Fall back to the raw key for
+          // single-table layers that are not editable here.
+          const resolved = resolveEditableLayer(editableLayers, next.source);
           const fc =
-            offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`] ??
-            (next.source.layerKey
-              ? offlineFeatures[`${next.source.itemId}:${next.source.layerKey}`]
-              : undefined);
+            (resolved
+              ? offlineFeatures[`${next.source.itemId}:${resolved.layerKey}`]
+              : undefined) ??
+            offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`];
           if (fc) {
             next = {
               ...next,
@@ -896,12 +909,18 @@ export function FieldRuntime({
           // It'll fail to fetch offline, but MapCanvas tolerates
           // that (empty source) and the user sees an empty layer
           // rather than a broken canvas.
-          void key;
         }
         return next;
       }),
     };
-  }, [mapData, hiddenLayerIds, isOnline, offlineFeatures, basemapOverrideId]);
+  }, [
+    mapData,
+    hiddenLayerIds,
+    isOnline,
+    offlineFeatures,
+    basemapOverrideId,
+    editableLayers,
+  ]);
 
   // Effective pickLists. When offline, pick from IndexedDB instead of
   // the prop so newly-added pick lists from the download cache work.
@@ -1098,10 +1117,31 @@ export function FieldRuntime({
     [dataCollectionId, currentUserId, mapData.layers],
   );
 
-  // Auto-sync when isOnline flips from false -> true. Captured via a
-  // ref so we don't fire on the initial mount when isOnline starts
-  // true and there's nothing queued (the queue read is cheap but
-  // pointless).
+  async function saveUnsyncedCopy(): Promise<void> {
+    const records = await listQueue(dataCollectionId, currentUserId);
+    const blobs = await listPendingBlobs(dataCollectionId, currentUserId);
+    const { filename, bytes } = await buildOfflineRecoveryZip({
+      dataCollectionId,
+      deploymentTitle: title,
+      userId: currentUserId,
+      exportedAt: new Date().toISOString(),
+      records,
+      blobs,
+    });
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    const file = new Blob([copy], { type: 'application/zip' });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    // Revoking in the same tick can cancel the download on mobile
+    // Safari, and this menu is mostly used on phones. Free it later.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  // Auto-sync when isOnline flips from false -> true.
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
@@ -1109,6 +1149,25 @@ export function FieldRuntime({
     }
     wasOnlineRef.current = isOnline;
   }, [isOnline, runSync]);
+
+  // And once when the runtime opens with signal and edits are already
+  // waiting: queued in an earlier session, then the PWA was closed or
+  // evicted. The flip above never fires for a boot that is already
+  // online, and on iOS and Firefox there is no Background Sync to
+  // cover it. Gated on a cheap count so an empty queue does not
+  // trigger a sync and a refresh of every layer.
+  const bootSyncDoneRef = useRef(false);
+  useEffect(() => {
+    if (bootSyncDoneRef.current || !isOnline || !currentUserId) return;
+    bootSyncDoneRef.current = true;
+    void countUnsyncedEdits(currentUserId)
+      .then((n) => {
+        if (n > 0 && mountedRef.current) void runSync('auto');
+      })
+      .catch(() => {
+        /* no IndexedDB: nothing could have been queued */
+      });
+  }, [isOnline, currentUserId, runSync]);
 
   // Slice 6 (persistence floor; see docs/field-offline-areas.md):
   // surface whether the browser will keep our IndexedDB across
@@ -1442,9 +1501,10 @@ export function FieldRuntime({
   // Templates: one row per (editable layer, symbology class) pair.
   // Computed once unless the source data changes; stable React keys
   // come from `template.id`.
+  // No templates for an anonymous viewer; see canWriteLayer.
   const templates = useMemo<FieldTemplate[]>(
-    () => buildTemplates(editableLayers, mapData),
-    [editableLayers, mapData],
+    () => (currentUserId ? buildTemplates(editableLayers, mapData) : []),
+    [editableLayers, mapData, currentUserId],
   );
 
   // Selection is unused at this slice but MapCanvas requires the
@@ -1668,6 +1728,7 @@ export function FieldRuntime({
           '-fill',
           '-poly-line',
           '-line',
+          '-icon-bg',
           '-icon-halo',
           '-circle',
           '-label',
@@ -1754,10 +1815,7 @@ export function FieldRuntime({
           // narrowing across `ml.source!.x` is too pessimistic
           // inside arrow callbacks.
           const src = ml.source;
-          const dl = editableLayers.find(
-            (e) =>
-              e.dataLayerId === src.itemId && e.layerKey === src.layerKey,
-          );
+          const dl = resolveEditableLayer(editableLayers, src);
           if (dl) editable = dl;
         }
         hits.push({
@@ -2075,6 +2133,9 @@ export function FieldRuntime({
             collection chrome out of the way of the canvas. */}
         <FieldMoreMenu
           mapTitle={mapTitle}
+          onSaveCopy={() => {
+            void saveUnsyncedCopy();
+          }}
           isOnline={isOnline}
           cachedAt={cachedDeployment?.cachedAt ?? null}
           persistentState={persistentState}
@@ -2288,6 +2349,7 @@ export function FieldRuntime({
                   mapRef={mapRef}
                   canvasRef={canvasRef}
                   layers={mapData.layers ?? []}
+                  isOnline={isOnline}
                   autoFocus
                   onClose={() => setSearchExpanded(false)}
                 />
@@ -2414,9 +2476,11 @@ export function FieldRuntime({
               {t('fieldRuntime.nothingToCollectTitle')}
             </p>
             <p className="mt-0.5 text-2xs text-muted">
-              {editableLayers.length > 0
-                ? t('fieldRuntime.nothingToCollectViewOnly')
-                : t('fieldRuntime.nothingToCollectNoLayers')}
+              {!currentUserId
+                ? t('fieldRuntime.nothingToCollectSignIn')
+                : editableLayers.length > 0
+                  ? t('fieldRuntime.nothingToCollectViewOnly')
+                  : t('fieldRuntime.nothingToCollectNoLayers')}
             </p>
           </div>
         ) : null}
@@ -2723,14 +2787,35 @@ export function FieldRuntime({
             // Switch the FormModal to edit mode for the hit's
             // editable layer. The same shape the legacy tap-to-edit
             // flow used; the sheet just makes the path explicit.
-            if (!hit.editable || !hit.globalId) return;
-            setFeatureSheet(null);
-            setFormModal({
-              layer: hit.editable,
-              mode: 'edit',
-              featureId: hit.globalId,
-              properties: hit.properties,
-              geometry: hit.geometry,
+            if (!canWriteLayer(hit.editable, currentUserId) || !hit.globalId) {
+              return;
+            }
+            const layer = hit.editable;
+            const featureId = hit.globalId;
+            // Read the record before opening the form. The tap gives
+            // tile values, which can be stale, miss trimmed fields and
+            // never carry `_observation_id`, so the server could not
+            // spot a conflicting edit and the stale values won.
+            const token = ++editLoadTokenRef.current;
+            void loadFeatureForEdit({
+              dataCollectionId,
+              dataLayerId: layer.dataLayerId,
+              layerKey: layer.layerKey,
+              globalId: featureId,
+              isOnline,
+              tile: { properties: hit.properties, geometry: hit.geometry },
+            }).then((loaded) => {
+              // The collector tapped something else while this read
+              // was in flight; that newer tap owns the screen.
+              if (token !== editLoadTokenRef.current) return;
+              setFeatureSheet(null);
+              setFormModal({
+                layer,
+                mode: 'edit',
+                featureId,
+                properties: loaded.properties,
+                geometry: loaded.geometry ?? hit.geometry,
+              });
             });
           }}
           onCopy={(hit) => {
@@ -2743,11 +2828,31 @@ export function FieldRuntime({
             // through to GPS / map center via the same fallback
             // the FAB uses. For non-point geometries, fall back
             // to no geometry; the FormModal already handles that.
-            if (!hit.editable) return;
+            if (!canWriteLayer(hit.editable, currentUserId)) return;
             const presetAttributes: Record<string, string> = {};
             for (const [k, v] of Object.entries(hit.properties)) {
               if (v === null || v === undefined) continue;
+              // Submission and GPS columns describe the original's
+              // visit, not this one. Copied, they also blocked the
+              // stamps, which only fill blanks.
+              if (isServerStampedField(k) || classifyGpsField(k)) continue;
               presetAttributes[k] = typeof v === 'string' ? v : String(v);
+            }
+            // A line or polygon copy needs a shape of its own. Opening
+            // the form with no geometry saved a row that could never
+            // be tapped again, so go through vertex collection with
+            // the copied attributes instead.
+            if (hit.editable.geometryType !== 'point') {
+              setFeatureSheet(null);
+              setActiveTemplate({
+                id: `copy:${hit.editable.dataLayerId}:${hit.editable.layerKey}`,
+                layer: hit.editable,
+                label: hit.editable.layerLabel,
+                sublabel: hit.editable.dataLayerTitle,
+                color: '#888888',
+                presetAttributes,
+              });
+              return;
             }
             const map = mapRef.current;
             const gpsPos = gps.position;
@@ -2780,6 +2885,11 @@ export function FieldRuntime({
 
       {bottomSheet === 'form' && formModal ? (
         <FormModal
+          // One form per record. "Open" and "Add related" swap the
+          // modal in place; without a key the child record kept the
+          // parent's answers and saved them. Update Point keeps the
+          // same record and so the same key (no remount).
+          key={`${formModal.mode}:${formModal.layer.dataLayerId}:${formModal.layer.layerKey}:${formModal.featureId}`}
           dataCollectionId={dataCollectionId}
           modal={formModal}
           pickLists={effectivePickLists}
@@ -2842,8 +2952,14 @@ export function FieldRuntime({
           }}
           onSubmitted={() => {
             const submittedLayer = formModal.layer;
+            const submittedId = formModal.featureId;
             clearPendingMarker();
-            setFormModal(null);
+            // Close only the form that was submitted. A slow save can
+            // finish after the collector has moved on to another form,
+            // and that one must stay open.
+            setFormModal((cur) =>
+              cur && cur.featureId === submittedId ? null : cur,
+            );
             // Refresh the MapLayer(s) backed by the data_layer that
             // just received a write so the new / updated feature
             // appears immediately. setData(url) on the existing
@@ -2912,6 +3028,45 @@ export function FieldRuntime({
  * gesture and ride along with terra-draw integration in a follow-up
  * slice (#196).
  */
+/**
+ * The EditableLayer a map's data-layer source draws. A legacy map
+ * source with no layerKey is resolved by page.tsx to the data layer's
+ * first spatial sublayer, so it matches the first spatial entry for
+ * that item. Matching on layerKey alone left such a layer with no
+ * Edit, hidden from the layer panel, and drawn empty offline.
+ */
+function resolveEditableLayer(
+  editableLayers: readonly EditableLayer[],
+  src: { itemId: string; layerKey?: string | undefined },
+): EditableLayer | undefined {
+  if (src.layerKey) {
+    return editableLayers.find(
+      (e) => e.dataLayerId === src.itemId && e.layerKey === src.layerKey,
+    );
+  }
+  return editableLayers.find(
+    (e) => e.dataLayerId === src.itemId && e.geometryType !== null,
+  );
+}
+
+/**
+ * Whether this viewer may write to `layer` from the field app: add,
+ * edit, copy, or add a related row.
+ *
+ * A layer with `addable: false` is kept in editableLayers only so the
+ * layer panel can list it; the data layer or the map marks it as
+ * reference only, and the API does not refuse the write on its own.
+ * An anonymous viewer of a public deployment has no account to save
+ * as, so a capture would fail online or queue under an empty owner
+ * that no signed-in account can ever send.
+ */
+function canWriteLayer(
+  layer: EditableLayer | null | undefined,
+  currentUserId: string,
+): layer is EditableLayer {
+  return !!layer && layer.addable !== false && currentUserId !== '';
+}
+
 function isPointGeometry(t: LayerGeometryType): boolean {
   return t === 'point';
 }
@@ -3433,11 +3588,7 @@ function LayerVisibilityPanel({
             let geometryType: LayerGeometryType = null;
             if (l.source?.kind === 'data-layer') {
               const src = l.source;
-              const dl = editableLayers.find(
-                (e) =>
-                  e.dataLayerId === src.itemId &&
-                  e.layerKey === src.layerKey,
-              );
+              const dl = resolveEditableLayer(editableLayers, src);
               geometryType = dl?.geometryType ?? null;
             } else if (!isGroup) {
               // Non-data-layer overlays (arcgis-rest, geojson-url):
@@ -3707,10 +3858,13 @@ function LayerVisibilityPanel({
             ? panelT('fieldOffline.refreshOfflineCache')
             : panelT('fieldOffline.downloadForOffline')}
         </button>
+        <p className="mt-1.5 text-2xs text-ink-1">
+          {panelT('fieldOffline.deviceOnlyWarning')}
+        </p>
         {cachedDeployment ? (
           <p className="mt-1 text-2xs text-muted">
             {panelT('fieldOffline.cachedSummary', {
-              when: formatRelativeTime(cachedDeployment.cachedAt),
+              when: fmt.relativeTime(cachedDeployment.cachedAt),
               size: formatBytes(cachedDeployment.estimatedSize),
             })}
           </p>
@@ -4104,11 +4258,20 @@ function FormModal({
   // whole form on the first keystroke would be a real cost on a
   // low-end handset.
   const dirtyRef = useRef(false);
+  // True while handleSubmit is saving; see requestCancel.
+  const submittingRef = useRef(false);
+  // The same flag as state, so the header Submit (the only submit
+  // control here, since the runtime's own button is hidden) can show
+  // it is busy and refuse a second tap while the save is in flight.
+  const [submitting, setSubmitting] = useState(false);
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
   }, []);
 
   const requestCancel = useCallback(() => {
+    // While a save is in flight, Cancel cannot stop it: the request
+    // still lands. Ignore it rather than pretend the entry was dropped.
+    if (submittingRef.current) return;
     if (!dirtyRef.current) {
       onClose();
       return;
@@ -4202,6 +4365,18 @@ function FormModal({
   }, [modal]);
 
   async function handleSubmit(response: FormResponse) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await submitResponse(response);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  async function submitResponse(response: FormResponse) {
     setError(null);
     // GPS fix metadata stamping (#225 item 3). For add-mode features
     // only -- on edit, the existing fix was the one that mattered.
@@ -4249,8 +4424,9 @@ function FormModal({
       modal.mode === 'add'
         ? { ...modal.presetAttributes, ...response }
         : response;
+    // Only when the point was put at the fix; see placedAtGpsFix.
     const gpsStamped: FormResponse =
-      modal.mode === 'add' && gpsPosition
+      modal.mode === 'add' && placedAtGpsFix(activeGeometry, gpsPosition)
         ? stampGpsMetadata(modal.layer.fields, responseWithPresets, gpsPosition)
         : responseWithPresets;
     // Submission bookkeeping, on adds only (an edit keeps the row's
@@ -4286,30 +4462,48 @@ function FormModal({
     // (Slice 5 doesn't act on it yet, but capturing it now means an
     // upgraded portal can reconcile without a queue migration).
     const schemaHash = await hashLayerSchema(modal.layer.fields);
+    // The server observation this edit was made against. Sent as
+    // `baseObservationId` so a stale edit gets a 409 instead of
+    // overwriting someone else's newer one (docs/sync-protocol.md).
+    const baseObservationId =
+      modal.mode === 'edit' &&
+      typeof modal.properties._observation_id === 'string' &&
+      modal.properties._observation_id !== ''
+        ? modal.properties._observation_id
+        : undefined;
 
     // Local apply path (used by both offline mode and online mode's
     // network-failure fallback). Enqueues the operation, writes the
     // feature into IndexedDB so it's visible on the map immediately,
     // and bumps the runtime's refresh counter via the callback.
-    const applyLocally = async (): Promise<void> => {
+    const applyLocally = async (opts: { afterSend?: boolean } = {}): Promise<void> => {
       // enqueueEdit, not a raw put. The queue can hold an earlier
       // unsynced edit for this same feature, and folding the two
       // inside one transaction is what keeps an offline capture that
       // the user then corrects from being replaced by an update
       // against a globalId the server has never seen. A raw put here
       // is the original data-loss bug.
+      // An edit never changes geometry (the form has no geometry
+      // control in edit mode), and the geometry it holds came from the
+      // tapped map feature: tile geometry, clipped to the tile and
+      // simplified for the zoom. Queuing it made the drain PATCH that
+      // fragment over the real shape. Attribute-only edits queue no
+      // geometry, as the online PATCH already sends none.
+      const isEdit = modal.mode !== 'add';
       const enqueued = await enqueueEdit({
         dataCollectionId,
-        op: modal.mode === 'add' ? 'insert' : 'update',
+        op: isEdit ? 'update' : 'insert',
         dataLayerId: modal.layer.dataLayerId,
         layerKey: modal.layer.layerKey,
         globalId: featureId,
-        geometry: activeGeometry,
+        geometry: isEdit ? null : activeGeometry,
         properties,
         schemaHash,
         // Who captured it, so only this account's session ever sends
         // it. The server stamps submitted_by from the caller.
         ownerUserId: currentUserId,
+        ...(baseObservationId ? { baseObservationId } : {}),
+        ...(opts.afterSend ? { mayHaveReachedServer: true } : {}),
       });
       // The fold keeps the original capture time, so the cached
       // feature's timestamps must come from the surviving row rather
@@ -4324,6 +4518,17 @@ function FormModal({
       // updates it overwrites the prior cached copy under the same
       // composite key. The properties carry _global_id so the popup
       // and the existing feature-id resolution paths keep working.
+      // Same rule for the device copy: keep the geometry already cached
+      // for an edited feature and use the form's geometry only when the
+      // device has none (a feature edited online after a failed send).
+      const prior = isEdit
+        ? await getCachedFeature(
+            dataCollectionId,
+            modal.layer.dataLayerId,
+            modal.layer.layerKey,
+            featureId,
+          )
+        : null;
       const cachedFeature: CachedFeature = {
         dataCollectionId,
         dataLayerId: modal.layer.dataLayerId,
@@ -4332,10 +4537,13 @@ function FormModal({
         feature: {
           type: 'Feature',
           id: featureId,
-          geometry: activeGeometry as GeoJSON.Geometry,
+          geometry: (prior?.feature.geometry ?? activeGeometry) as GeoJSON.Geometry,
           properties: {
             ...properties,
             _global_id: featureId,
+            // Keep the server token the edit was made against, so a
+            // second edit before sync still carries the right base.
+            ...(baseObservationId ? { _observation_id: baseObservationId } : {}),
             _created_by: currentUserId,
             _edited_by: currentUserId,
             _created_at: queuedAt,
@@ -4350,6 +4558,20 @@ function FormModal({
 
     try {
       if (isOnline) {
+        // Photos and signatures still pending ({ dataUrl }) go to
+        // storage first, so the row keeps attachment descriptors, not
+        // base64 (the form's own inputs upload when they can; this
+        // catches what they could not). A failure here keeps the record
+        // and queues it; the sync drain uploads them later.
+        try {
+          await uploadPendingAttachmentsInResponse(
+            properties as Record<string, unknown>,
+          );
+        } catch {
+          await applyLocally();
+          onSubmitted();
+          return;
+        }
         // Online path. Try the live API first. On non-2xx (validation
         // error, schema mismatch, anything 4xx) we propagate to the
         // user so they can fix and retry; this is NOT a queue case.
@@ -4386,8 +4608,9 @@ function FormModal({
           } catch {
             // Likely network failure during a transient blip. Stash
             // it in the queue so it doesn't get lost; auto-sync will
-            // retry as soon as the radio comes back.
-            await applyLocally();
+            // retry as soon as the radio comes back. The POST may have
+            // landed with only the answer lost.
+            await applyLocally({ afterSend: true });
             onSubmitted();
             return;
           }
@@ -4404,11 +4627,14 @@ function FormModal({
               {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ properties }),
+                body: JSON.stringify({
+                  properties,
+                  ...(baseObservationId ? { baseObservationId } : {}),
+                }),
               },
             );
           } catch {
-            await applyLocally();
+            await applyLocally({ afterSend: true });
             onSubmitted();
             return;
           }
@@ -4509,7 +4735,9 @@ function FormModal({
           <button
             type="submit"
             form={`field-form-${modal.layer.layerKey}`}
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3"
+            disabled={submitting}
+            aria-busy={submitting}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3 disabled:opacity-50"
           >
             {t('fieldCollect.submit')}
           </button>
@@ -4540,7 +4768,10 @@ function FormModal({
                       : null;
                   if (!coords) return t('fieldRuntime.notSet');
                   const [lon, lat] = coords;
-                  return `${lat.toFixed(6)}°N  ${lon.toFixed(6)}°W`;
+                  // Hemisphere from the sign, on the absolute value; a
+                  // fixed N and W printed Berlin as west and California
+                  // as a double negative.
+                  return `${Math.abs(lat).toFixed(6)}°${lat < 0 ? 'S' : 'N'}  ${Math.abs(lon).toFixed(6)}°${lon < 0 ? 'W' : 'E'}`;
                 })()}
               </p>
             </div>
@@ -4637,11 +4868,16 @@ function FormModal({
               </p>
               <div className="space-y-4">
                 {(modal.layer.childLayers ?? []).map((c) => {
-                  const childEditable = editableLayers.find(
+                  const childFound = editableLayers.find(
                     (e) =>
                       e.dataLayerId === modal.layer.dataLayerId &&
                       e.layerKey === c.layerKey,
                   );
+                  // A child marked not editable stays listed, with its
+                  // Add and Open buttons off; see canWriteLayer.
+                  const childEditable = canWriteLayer(childFound, currentUserId)
+                    ? childFound
+                    : undefined;
                   const state = relatedRowsByChild[c.layerKey];
                   const count = state?.rows.length ?? 0;
                   return (
@@ -4954,6 +5190,9 @@ function FieldFeaturePopupSheet({
   // list mode (the hook's first guard short-circuits on a null
   // parentId).
   const detailHit = concrete.mode === 'detail' ? concrete.hit : null;
+  const hitWritable =
+    concrete.mode === 'detail' &&
+    canWriteLayer(concrete.hit.editable, currentUserId);
   const parentEditable =
     detailHit && detailHit.editable && detailHit.globalId
       ? detailHit.editable
@@ -5064,13 +5303,11 @@ function FieldFeaturePopupSheet({
           <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-0 px-3 py-2">
             <button
               type="button"
-              disabled={
-                !concrete.hit.editable || !concrete.hit.globalId
-              }
+              disabled={!hitWritable || !concrete.hit.globalId}
               onClick={() => onEdit(concrete.hit)}
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
-                concrete.hit.editable
+                hitWritable
                   ? t('fieldRuntime.sheetEditTitle')
                   : t('fieldRuntime.relatedNoEditAccess')
               }
@@ -5080,11 +5317,11 @@ function FieldFeaturePopupSheet({
             </button>
             <button
               type="button"
-              disabled={!concrete.hit.editable}
+              disabled={!hitWritable}
               onClick={() => onCopy(concrete.hit)}
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
-                concrete.hit.editable
+                hitWritable
                   ? t('fieldRuntime.sheetCopyTitle')
                   : t('fieldRuntime.relatedNoEditAccess')
               }
@@ -5196,9 +5433,16 @@ function FieldFeaturePopupSheet({
               (parentEditable.childLayers?.length ?? 0) > 0 ? (
                 <div className="border-t border-border bg-surface-0/50">
                   {(parentEditable.childLayers ?? []).map((c) => {
-                    const child = editableLayers.find(
-                      (e) => e.layerKey === c.layerKey,
+                    // Sublayer keys are unique only inside one data
+                    // layer, so match the parent's data layer too.
+                    const found = editableLayers.find(
+                      (e) =>
+                        e.dataLayerId === parentEditable.dataLayerId &&
+                        e.layerKey === c.layerKey,
                     );
+                    const child = canWriteLayer(found, currentUserId)
+                      ? found
+                      : undefined;
                     const rowsState = relatedRowsByChild[c.layerKey];
                     return (
                       <section
@@ -5481,6 +5725,7 @@ function FieldMoreMenu({
   gpsAccuracyM,
   onDownload,
   onRemoveCache,
+  onSaveCopy,
 }: {
   mapTitle: string;
   isOnline: boolean;
@@ -5499,6 +5744,7 @@ function FieldMoreMenu({
   gpsAccuracyM: number | null;
   onDownload: () => void;
   onRemoveCache: () => void;
+  onSaveCopy: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -5590,7 +5836,7 @@ function FieldMoreMenu({
                   {t('fieldRuntime.lastCached')}
                 </span>
                 <span className="text-ink-1">
-                  {formatRelativeTime(cachedAt)}
+                  <RelativeTime value={cachedAt} />
                 </span>
               </li>
             ) : null}
@@ -5710,6 +5956,20 @@ function FieldMoreMenu({
                     ? t('fieldOffline.refreshOfflineCache')
                     : t('fieldOffline.downloadForOffline')}
               </span>
+            </button>
+            <p className="px-2 pt-1 text-2xs text-ink-1">
+              {t('fieldOffline.deviceOnlyWarning')}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSaveCopy();
+              }}
+              disabled={queueCount === 0}
+              className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-50"
+            >
+              <span>{t('fieldOffline.saveUnsyncedCopy')}</span>
             </button>
             {/* Remove from device. Only meaningful when something is
                 cached, and we want a hard confirm step because the
@@ -5964,9 +6224,12 @@ function FieldAddressSearch({
   mapRef,
   canvasRef,
   layers,
+  isOnline = true,
   autoFocus,
   onClose,
 }: {
+  /** Online, v3 layers are searched on the server; see below. */
+  isOnline?: boolean;
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   // #249.12: passing the canvas handle lets a feature pick reuse the
   // same fly-and-highlight animation the desktop SearchBar fires, so a
@@ -6000,7 +6263,16 @@ function FieldAddressSearch({
       bbox: [number, number, number, number] | null;
     }>
   >([]);
-  const [featureResults, setFeatureResults] = useState<MapSearchResult[]>([]);
+  const [localFeatureResults, setLocalFeatureResults] = useState<
+    MapSearchResult[]
+  >([]);
+  const [serverFeatureResults, setServerFeatureResults] = useState<
+    MapSearchResult[]
+  >([]);
+  const featureResults = useMemo(
+    () => [...localFeatureResults, ...serverFeatureResults],
+    [localFeatureResults, serverFeatureResults],
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -6033,18 +6305,16 @@ function FieldAddressSearch({
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  // #249.12: layer-attribute search runs synchronously off the map's
-  // current source data on every keystroke. Cheap (one pass through
-  // up to MAX_ATTRIBUTE_HITS_PER_LAYER features per layer), no
-  // network. Snapshot featuresByLayer from MapLibre via
-  // querySourceFeatures: for the GeoJSON sources field-runtime uses
-  // (URL-backed online, geojson-inline offline) this returns every
-  // feature in the source. Re-runs whenever the query, layer list,
-  // or layer ids change.
+  // #249.12: layer-attribute search over the map's loaded source
+  // data, on every keystroke. This covers GeoJSON sources: the inline
+  // copies used offline and legacy single-table layers. Online, v3
+  // data layers are vector tiles, which querySourceFeatures cannot
+  // read without a source layer and which never hold every feature
+  // anyway; the effect after this one searches those on the server.
   useEffect(() => {
     const q = query.trim();
     if (q.length < 1 || !layers || layers.length === 0) {
-      setFeatureResults([]);
+      setLocalFeatureResults([]);
       return;
     }
     const map = mapRef.current;
@@ -6068,8 +6338,36 @@ function FieldAddressSearch({
         }
       }
     }
-    setFeatureResults(searchLayers(q, layers, featuresByLayer));
+    setLocalFeatureResults(searchLayers(q, layers, featuresByLayer));
   }, [query, layers, mapRef]);
+
+  // Online: search v3 data layers on the server, as the desktop search
+  // bar does, debounced so a large layer is not queried per keystroke.
+  // Offline the inline copies above already cover them.
+  useEffect(() => {
+    const q = query.trim();
+    const v3Layers = (layers ?? []).filter(
+      (l) => l.source.kind === 'data-layer' && l.search?.enabled,
+    );
+    if (!isOnline || q.length < 2 || v3Layers.length === 0) {
+      setServerFeatureResults([]);
+      return;
+    }
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      searchV3Layers(q, v3Layers, controller.signal)
+        .then((rows) => {
+          if (!controller.signal.aborted) setServerFeatureResults(rows);
+        })
+        .catch(() => {
+          /* aborted or offline mid-request; places still show */
+        });
+    }, 300);
+    return () => {
+      controller.abort();
+      clearTimeout(handle);
+    };
+  }, [query, layers, isOnline]);
 
   // Debounced geocode. Match the desktop SearchBar's 250 ms delay
   // and 3-character minimum so we don't hammer Nominatim.
@@ -6211,7 +6509,8 @@ function FieldAddressSearch({
               // re-expand starts clean.
               setQuery('');
               setPlaceResults([]);
-              setFeatureResults([]);
+              setLocalFeatureResults([]);
+              setServerFeatureResults([]);
               setOpen(false);
               onClose?.();
             }}
@@ -6356,27 +6655,6 @@ function groupFeatureResultsByLayer(
     out[i]!.results.push(r);
   }
   return out;
-}
-
-/**
- * Render an ISO timestamp as a relative-friendly string ("2 hours
- * ago", "yesterday", "3 days ago"). Used in the cached-deployment
- * line so the user knows how stale their offline data is at a
- * glance. Falls through to a date string past 30 days.
- */
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return iso;
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day === 1) return 'yesterday';
-  if (day < 30) return `${day}d ago`;
-  return formatDate(iso, DEFAULT_LOCALE);
 }
 
 /**

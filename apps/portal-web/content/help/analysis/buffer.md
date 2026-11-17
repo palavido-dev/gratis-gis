@@ -51,6 +51,18 @@ degree buffer. The Analyze SQL builder deliberately does **not**
 offer meter buffers in DuckDB-WASM (no PROJ data in that build),
 so this guide is the honest path.
 
+Share a direct link with `?tool=buffer` (and `&layer=<sublayerId>`
+on multi-layer items) plus `#data`, for example
+`/items/<id>?tool=buffer&layer=<key>#data`. The Data tab opens
+Analyze with the Buffer form already expanded.
+
+The Analyze **Past runs** shelf lists your earlier derived layers
+for this source. **Re-run** posts a new private copy of the same
+recipe; **Edit & re-run** opens this Buffer form again.
+
+From a map, open the layer kebab on a data-layer source and choose
+**Buffer…** — that opens the same deep link in a new tab.
+
 ### From the new-item wizard
 
 ![Derived layer recipe with a Buffer step: Fixed distance and units](/help/analysis/buffer-analyze-guide.png)
@@ -85,7 +97,8 @@ you...". Just buffer.
 - **Negative distances** only do something useful on polygon
  inputs. A negative-buffered point becomes the empty geometry
  (and is dropped from the output).
-- **Buffered geometry doesn't update live** if the source layer
- edits geometry. Buffered layers are materialized. Hit the
- **Refresh** button on the derived layer's detail page to
- recompute.
+- **Buffered geometry follows the source on the next read.** A
+ Buffer Analyze shortcut creates a derived layer that stores the
+ recipe and recomputes in PostGIS whenever the map or API reads
+ it. There is no separate Refresh button on the derived-layer
+ detail page.

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import type { Item, ItemShare, ItemType } from '@gratis-gis/shared-types';
+import type { Item, ItemType } from '@gratis-gis/shared-types';
 
 /**
  * One node in an editor's dependency chain. The matrix renders one
- * row per node. Carries enough metadata for the client-side
- * `hasAccess` predicate: item.access + orgId + share rows. The
+ * row per node. Whether a sharee can open it is asked of the server
+ * (lib/principal-access.ts): item reads no longer carry other
+ * people's share rosters. The
  * `rationale` line tells the author *why* this row is here -- the
  * referenced map, an editing target, a layer underneath the
  * referenced map -- so the chain reads as a story not a flat list.
@@ -15,7 +16,6 @@ export interface EditorDependencyNode {
   type: ItemType;
   access: 'private' | 'org' | 'public';
   orgId: string;
-  shares: ItemShare[];
   rationale: string;
 }
 
@@ -113,7 +113,7 @@ export async function loadEditorDependencyChain(
   }
 
   // 4. Dedupe (first-seen rationale wins) and fetch each surviving
-  //    item with its shares. Done in parallel; the matrix can
+  //    item. Done in parallel; the matrix can
   //    render incrementally if we wanted but the lists are small
   //    in practice (a referenced map with ~20 layers is the high
   //    end of normal). The editor item itself is excluded -- we're
@@ -140,9 +140,9 @@ export async function loadEditorDependencyChain(
       unresolvedCount += 1;
       continue;
     }
-    let item: (Item & { shares?: ItemShare[] }) | null = null;
+    let item: Item | null = null;
     try {
-      item = (await r.value.json()) as Item & { shares?: ItemShare[] };
+      item = (await r.value.json()) as Item;
     } catch {
       unresolvedCount += 1;
       continue;
@@ -157,59 +157,8 @@ export async function loadEditorDependencyChain(
       type: item.type,
       access: item.access,
       orgId: item.orgId,
-      shares: item.shares ?? [],
       rationale: seen.get(id) ?? '',
     });
   }
   return { nodes, unresolvedCount };
-}
-
-/**
- * Pure access predicate matching the server's visibleWhere logic
- * for a single (item, principal) pair. The matrix and the share-
- * time hard prompt both call this so the gap definition stays in
- * one place.
- *
- * Mirrors sharing.service.ts visibleWhere(): public, org-same,
- * direct user share, group share for any of the principal's
- * groups. Expired shares are filtered upstream by the API; if a
- * caller has stale share rows in hand they should drop expired
- * ones before passing them in.
- *
- * Org-access shortcut: GratisGIS shares only to in-org principals,
- * and an editor's dependencies are always in the editor's org
- * (Prisma scopes every item write by orgId). So the only case
- * we'd see at this call site is item.orgId === principal.orgId,
- * and `'org'` access always grants visibility. The caller passes
- * the principal/item through unmodified; we treat 'org' as a
- * pass without comparing org ids, matching the production
- * invariant.
- *
- * This is intentionally a pure function rather than a server call:
- * we want to evaluate it for every cell in the matrix without
- * issuing N x M HTTP probes. Trade-off: this duplicates the
- * server's predicate. That's fine because the server still
- * authoritatively gates access on the actual fetch -- the matrix
- * is a UI hint, not the security boundary.
- */
-export function principalHasItemAccess(
-  item: Pick<EditorDependencyNode, 'access' | 'shares'>,
-  principal: { type: 'user' | 'group'; id: string },
-  groupMemberships: Record<string, string[]>,
-): boolean {
-  if (item.access === 'public') return true;
-  if (item.access === 'org') return true;
-  for (const s of item.shares) {
-    if (s.principalType === principal.type && s.principalId === principal.id) {
-      return true;
-    }
-    if (
-      principal.type === 'user' &&
-      s.principalType === 'group' &&
-      (groupMemberships[principal.id] ?? []).includes(s.principalId)
-    ) {
-      return true;
-    }
-  }
-  return false;
 }

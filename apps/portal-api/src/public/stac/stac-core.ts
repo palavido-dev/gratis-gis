@@ -135,6 +135,17 @@ function tileData(row: StacItemRow): TileLayerData | null {
 }
 
 /**
+ * An item's footprint: the cached item.bbox, else the bbox in its
+ * tile data. The item document, the bbox / intersects filters and
+ * the collection extent all read it here, so a search can never
+ * disagree with the footprint an item reports.
+ */
+function footprintOf(row: StacItemRow): Bbox | null {
+  const data = tileData(row);
+  return parseBbox(row.bbox) ?? (data ? parseBbox(data.bbox) : null);
+}
+
+/**
  * The item's datetime is the upload time, falling back to the row's
  * createdAt. That is ingest time, not acquisition time; every
  * generic STAC producer falls back to this and it validates, but a
@@ -167,7 +178,7 @@ export function buildStacItem(
   apiRoot: string,
 ): Record<string, unknown> {
   const data = tileData(row);
-  const bbox = parseBbox(row.bbox) ?? (data ? parseBbox(data.bbox) : null);
+  const bbox = footprintOf(row);
   const dt = itemDatetime(row);
 
   const assets: Record<string, unknown> = {};
@@ -225,7 +236,11 @@ export function buildStacItem(
       title: 'Web map tiles (XYZ)',
     },
     {
-      href: `${base}/api/items/${row.id}`,
+      // The public STAC mount links the anonymous item mirror; the
+      // signed-in mount links the full item document.
+      href: apiRoot.endsWith('/api/public/stac')
+        ? `${base}/api/public/items/${row.id}`
+        : `${base}/api/items/${row.id}`,
       rel: 'alternate',
       type: 'application/json',
       title: 'Portal item document',
@@ -283,7 +298,7 @@ export function buildRasterCollection(
   let union: Bbox | null = null;
   let earliest: Date | null = null;
   for (const row of rows) {
-    const b = parseBbox(row.bbox);
+    const b = footprintOf(row);
     if (b) {
       union = union
         ? [
@@ -486,17 +501,49 @@ function parseIntersects(raw: unknown): GeoJsonGeometry {
     }
   }
   const geom = value as GeoJsonGeometry;
-  if (
-    !geom ||
-    typeof geom !== 'object' ||
-    typeof geom.type !== 'string' ||
-    !GEOMETRY_TYPES.has(geom.type)
-  ) {
+  if (!isWellFormedGeometry(geom, 0)) {
     throw new BadRequestException(
       'intersects must be a GeoJSON geometry object.',
     );
   }
   return geom;
+}
+
+/** Nesting depth of `coordinates` per geometry type. */
+const COORD_DEPTH: Record<string, number> = {
+  Point: 0,
+  MultiPoint: 1,
+  LineString: 1,
+  MultiLineString: 2,
+  Polygon: 2,
+  MultiPolygon: 3,
+};
+
+/**
+ * The type alone used to be checked, so `{"type":"Polygon",
+ * "coordinates":5}` reached the geometry walk and threw (500). Check
+ * the coordinate nesting all the way down to the numbers.
+ */
+function isWellFormedGeometry(geom: unknown, nesting: number): boolean {
+  if (!geom || typeof geom !== 'object') return false;
+  const g = geom as { type?: unknown; coordinates?: unknown; geometries?: unknown };
+  if (typeof g.type !== 'string' || !GEOMETRY_TYPES.has(g.type)) return false;
+  if (g.type === 'GeometryCollection') {
+    return (
+      nesting < 4 &&
+      Array.isArray(g.geometries) &&
+      g.geometries.every((c) => isWellFormedGeometry(c, nesting + 1))
+    );
+  }
+  return coordsAtDepth(g.coordinates, COORD_DEPTH[g.type]!);
+}
+
+function coordsAtDepth(c: unknown, depth: number): boolean {
+  if (!Array.isArray(c)) return false;
+  if (depth === 0) {
+    return c.length >= 2 && c.every((n) => typeof n === 'number' && Number.isFinite(n));
+  }
+  return c.every((x) => coordsAtDepth(x, depth - 1));
 }
 
 /**
@@ -794,14 +841,14 @@ export function filterAndPage(
           ]
         : [q];
     filtered = filtered.filter((r) => {
-      const b = parseBbox(r.bbox);
+      const b = footprintOf(r);
       return b !== null && queries.some((qq) => bboxesOverlap(b, qq));
     });
   }
   if (params.intersects) {
     const g = params.intersects;
     filtered = filtered.filter((r) => {
-      const b = parseBbox(r.bbox);
+      const b = footprintOf(r);
       return b !== null && bboxIntersectsGeometry(b, g);
     });
   }
@@ -851,6 +898,13 @@ export function buildItemCollection(args: {
   apiRoot: string;
   selfUrl: string;
   extraQuery?: Record<string, string>;
+  /**
+   * The body of a POST /search. When set, next and prev are POST
+   * links that carry the same body with the new offset, as the STAC
+   * item-search spec describes. A plain GET href would drop every
+   * filter in the body, so page 2 onward came back unfiltered.
+   */
+  postBody?: Record<string, unknown>;
 }): Record<string, unknown> {
   const { matched, page } = filterAndPage(args.rows, args.params);
   const features = page.map((r) => buildStacItem(r, args.base, args.apiRoot));
@@ -867,19 +921,21 @@ export function buildItemCollection(args: {
     }
     return url.toString();
   };
+  const pageLink = (rel: 'next' | 'prev', offset: number): Record<string, unknown> =>
+    args.postBody
+      ? {
+          href: args.selfUrl,
+          rel,
+          type: STAC_GEOJSON_MEDIA_TYPE,
+          method: 'POST',
+          body: { ...args.postBody, limit: args.params.limit, offset },
+        }
+      : { href: pageUrl(offset), rel, type: STAC_GEOJSON_MEDIA_TYPE };
   if (args.params.offset + args.params.limit < matched) {
-    links.push({
-      href: pageUrl(args.params.offset + args.params.limit),
-      rel: 'next',
-      type: STAC_GEOJSON_MEDIA_TYPE,
-    });
+    links.push(pageLink('next', args.params.offset + args.params.limit));
   }
   if (args.params.offset > 0) {
-    links.push({
-      href: pageUrl(Math.max(0, args.params.offset - args.params.limit)),
-      rel: 'prev',
-      type: STAC_GEOJSON_MEDIA_TYPE,
-    });
+    links.push(pageLink('prev', Math.max(0, args.params.offset - args.params.limit)));
   }
   return {
     type: 'FeatureCollection',

@@ -10,7 +10,10 @@ import type { Item, ItemShare } from '@prisma/client';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  featureScopeFilter,
+} from '../items/sharing.service.js';
 import { AiConfigService } from './ai-config.service.js';
 import { AiProviderClient, ProviderCallError } from './ai-provider.client.js';
 import { aiNotConfigured } from './ai-draft.service.js';
@@ -105,22 +108,13 @@ export class AiFeaturesService {
     }
 
     const shares = ((item as { shares?: ItemShare[] }).shares ?? []) as ItemShare[];
-    const rowScope = this.sharing.effectiveRowScope(
+    const scope = await this.sharing.featureScopeFor(
       user,
       item as unknown as Item,
       shares,
-      layer.editingPolicy ?? 'all-rows',
-      'read',
+      { action: 'read', layerPolicy: layer.editingPolicy ?? 'all-rows' },
     );
-    const geoLimit = await this.sharing.geoLimitFor(
-      user,
-      item as unknown as Item,
-      shares,
-    );
-    const shared = {
-      ...(rowScope === 'own' ? { ownRowsOnly: { userId: user.id } } : {}),
-      ...(geoLimit ? { geoLimit } : {}),
-    };
+    const shared = featureScopeFilter(scope);
 
     const byId = new Map<string, { line: string; attributes: Record<string, string> }>();
     const tokens = questionTokens(question);

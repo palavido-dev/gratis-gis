@@ -217,6 +217,34 @@ export const fishnetGenerator: ToolGenerator<FishnetParams> = {
     const cellPh = `$${paramOffset + 1}`;
     const meters = metersFor(params.cellSize, params.unit);
     const cellDegrees = meters / METERS_PER_DEGREE;
+    // The cell cap, enforced in the query itself. The save-time
+    // estimate (enrich) only sees the raw source extent: preview skips
+    // it, a step before fishnet (buffer) can grow the shapes, and a
+    // derived source has no table to measure. ST_SquareGrid builds the
+    // whole grid before any LIMIT applies, so an uncapped grid fills
+    // Postgres temp space. This guard counts the grid cells the rows
+    // that actually arrive would produce, once, before any grid is
+    // built (an uncorrelated condition runs as a one-time filter), and
+    // fails the query with a readable message when they are too many.
+    const guard = `
+          AND (
+            SELECT CASE
+              WHEN COALESCE(SUM(
+                (floor((ST_XMax(fg.geom) - ST_XMin(fg.geom)) / ${cellPh}) + 1) *
+                (floor((ST_YMax(fg.geom) - ST_YMin(fg.geom)) / ${cellPh}) + 1)
+              ), 0) > ${MAX_CELLS_PER_RECIPE}
+              -- Non-constant on purpose: Postgres folds a constant cast at
+              -- plan time and would fail every fishnet, not just this one.
+              THEN ('fishnet would create more than ${MAX_CELLS_PER_RECIPE} cells (' ||
+                    COALESCE(SUM(
+                      (floor((ST_XMax(fg.geom) - ST_XMin(fg.geom)) / ${cellPh}) + 1) *
+                      (floor((ST_YMax(fg.geom) - ST_YMin(fg.geom)) / ${cellPh}) + 1)
+                    ), 0)::bigint::text || '); use a larger cell size')::int
+              ELSE 1
+            END
+            FROM ${inputAlias} AS fg
+            WHERE fg.geom IS NOT NULL
+          ) = 1`;
 
     if (params.output === 'polygons') {
       // ST_SquareGrid(size, geom) -> setof (i, j, geom). Filter to
@@ -235,7 +263,7 @@ export const fishnetGenerator: ToolGenerator<FishnetParams> = {
         FROM ${inputAlias},
         LATERAL ST_SquareGrid(${cellPh}, ${inputAlias}.geom) AS grid
         WHERE ${inputAlias}.geom IS NOT NULL
-          AND ST_Intersects(grid.geom, ${inputAlias}.geom)
+          AND ST_Intersects(grid.geom, ${inputAlias}.geom)${guard}
       `;
       return { sql, params: [cellDegrees] };
     }
@@ -257,7 +285,7 @@ export const fishnetGenerator: ToolGenerator<FishnetParams> = {
       FROM ${inputAlias},
       LATERAL ST_SquareGrid(${cellPh}, ${inputAlias}.geom) AS grid
       WHERE ${inputAlias}.geom IS NOT NULL
-        AND ST_Intersects(grid.geom, ${inputAlias}.geom)
+        AND ST_Intersects(grid.geom, ${inputAlias}.geom)${guard}
     `;
     return { sql, params: [cellDegrees] };
   },

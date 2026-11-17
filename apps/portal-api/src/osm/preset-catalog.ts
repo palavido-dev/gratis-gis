@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { existsSync } from 'node:fs';
+import { BadRequestException } from '@nestjs/common';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -52,6 +53,9 @@ let cachedById: Map<string, OsmPreset> | null = null;
  */
 function resolveCatalogPath(): string {
   const candidates = [
+    // Explicit override via env var. Tried first: listed last, it
+    // could never override a catalog found on a default path.
+    process.env.GRATIS_GIS_OSM_PRESET_CATALOG_PATH ?? '',
     // Monorepo dev: portal-api cwd is apps/portal-api; walk to the
     // sibling portal-web content tree.
     path.resolve(
@@ -72,8 +76,6 @@ function resolveCatalogPath(): string {
       'osm',
       'preset-catalog.json',
     ),
-    // Direct override via env var for unusual deployments.
-    process.env.GRATIS_GIS_OSM_PRESET_CATALOG_PATH ?? '',
   ].filter(Boolean);
 
   for (const c of candidates) {
@@ -112,7 +114,7 @@ export async function getOsmPreset(id: string): Promise<OsmPreset> {
   if (!cached) await loadOsmPresetCatalog();
   const preset = cachedById?.get(id);
   if (!preset) {
-    throw new Error(`Unknown OSM preset id: ${id}`);
+    throw new BadRequestException(`Unknown OSM preset id: ${id}`);
   }
   return preset;
 }
@@ -131,7 +133,8 @@ export async function getOsmPresets(ids: string[]): Promise<OsmPreset[]> {
     else missing.push(id);
   }
   if (missing.length > 0) {
-    throw new Error(`Unknown OSM preset ids: ${missing.join(', ')}`);
+    // A caller's mistake, not a server fault: 400, not 500.
+    throw new BadRequestException(`Unknown OSM preset ids: ${missing.join(', ')}`);
   }
   return out;
 }

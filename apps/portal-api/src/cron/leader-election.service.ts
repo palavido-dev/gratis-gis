@@ -70,6 +70,7 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   private connecting = false;
   private stopped = false;
   private pollTimer: NodeJS.Timeout | null = null;
+  private readonly pauseProbes: Array<() => boolean> = [];
 
   async onModuleInit(): Promise<void> {
     // Some non-prod / test boots set ENABLE_CRONS=false explicitly
@@ -123,7 +124,39 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
    *   }
    */
   shouldRun(): boolean {
+    return this.isLeader && !this.isPaused();
+  }
+
+  /**
+   * Leadership alone, ignoring pauses. For boot-time decisions such
+   * as "register my schedules here", which must not be skipped just
+   * because maintenance happened to be on at boot. Per-run work uses
+   * shouldRun().
+   */
+  holdsLock(): boolean {
     return this.isLeader;
+  }
+
+  /**
+   * Pause recurring work while `probe` returns true. Maintenance mode
+   * registers here so leader crons (backups, housekeeping, purges,
+   * notification drains) do not write to a database that a restore
+   * is rewriting or that a failed restore left half applied.
+   */
+  pauseWhile(probe: () => boolean): void {
+    this.pauseProbes.push(probe);
+  }
+
+  private isPaused(): boolean {
+    return this.pauseProbes.some((probe) => {
+      try {
+        return probe();
+      } catch {
+        // A probe that cannot answer pauses rather than risking a
+        // write during a restore.
+        return true;
+      }
+    });
   }
 
   /**

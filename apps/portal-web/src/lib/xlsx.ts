@@ -75,7 +75,7 @@ export async function readXlsx(
     if (matrixCache.has(name)) return matrixCache.get(name)!;
     const sheet = sheets.find((s) => s.name === name);
     if (!sheet) throw new Error(`Sheet not found: ${name}`);
-    const sheetXml = await zip.readText(`xl/${sheet.target}`);
+    const sheetXml = await zip.readText(sheetPartPath(sheet.target));
     const matrix = parseSheetMatrix(sheetXml, sharedStrings);
     matrixCache.set(name, matrix);
     return matrix;
@@ -125,11 +125,11 @@ interface SheetRef {
 }
 
 function parseSheets(workbookXml: string, relsXml: string): SheetRef[] {
-  // <sheet name="X" sheetId="1" r:id="rId1"/>
+  // <sheet name="X" sheetId="1" r:id="rId1"/>. The attribute text may
+  // hold a `/` (openpyxl puts a namespace URL on the tag), so only `>`
+  // ends it.
   const sheetMatches = Array.from(
-    workbookXml.matchAll(
-      /<sheet\s+([^/>]+?)\s*\/>/g,
-    ),
+    workbookXml.matchAll(/<sheet\b([^>]*?)\/?>/g),
   );
   const sheets: SheetRef[] = [];
   for (const m of sheetMatches) {
@@ -139,9 +139,10 @@ function parseSheets(workbookXml: string, relsXml: string): SheetRef[] {
     if (!name || !rid) continue;
     sheets.push({ name, rid, target: '' });
   }
-  // <Relationship Id="rId1" Target="worksheets/sheet1.xml" .../>
+  // <Relationship Id="rId1" Target="worksheets/sheet1.xml" .../>.
+  // Type and Target are paths and URLs, so `/` inside the tag is normal.
   const relMatches = Array.from(
-    relsXml.matchAll(/<Relationship\s+([^/>]+?)\s*\/>/g),
+    relsXml.matchAll(/<Relationship\b([^>]*?)\/?>/g),
   );
   const targetByRid = new Map<string, string>();
   for (const m of relMatches) {
@@ -154,6 +155,13 @@ function parseSheets(workbookXml: string, relsXml: string): SheetRef[] {
     s.target = targetByRid.get(s.rid) ?? '';
   }
   return sheets.filter((s) => s.target);
+}
+
+/** Zip path of a worksheet. A relationship target is relative to xl/,
+ *  except that openpyxl (so pandas) writes it from the archive root,
+ *  starting with `/`. */
+function sheetPartPath(target: string): string {
+  return target.startsWith('/') ? target.slice(1) : `xl/${target}`;
 }
 
 function parseAttrs(input: string): Map<string, string> {
@@ -205,8 +213,16 @@ function decodeXmlEntities(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
+// Characters XML 1.0 does not allow at all, escaped or not: C0 controls
+// other than tab, LF and CR, and the two non-characters U+FFFE/U+FFFF.
+// One of them in a cell (stray 0x0B from a legacy DBF, pasted text) and
+// Excel refuses the whole workbook.
+// eslint-disable-next-line no-control-regex
+const XML_ILLEGAL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+
 function encodeXmlText(s: string): string {
   return s
+    .replace(XML_ILLEGAL_CHARS, '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -220,7 +236,10 @@ function parseSheetMatrix(
   // Find each <row r="N"> ... </row>. We don't trust the row
   // number for ordering (sparse rows are legal); we just walk
   // them in document order.
-  const rowRe = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  // An empty row can be written self-closing (`<row r="2" ht="15"/>`),
+  // so that form is matched first: as an opening tag it would swallow
+  // the next row up to its `</row>`.
+  const rowRe = /<row\b[^>]*?\/>|<row\b[^>]*>([\s\S]*?)<\/row>/g;
   const out: string[][] = [];
   let rm: RegExpExecArray | null;
   let maxCols = 0;
@@ -229,12 +248,15 @@ function parseSheetMatrix(
     // Each cell looks like <c r="A1" t="s"><v>4</v></c> or
     // <c r="B1"><v>123.45</v></c> or
     // <c r="C1" t="inlineStr"><is><t>foo</t></is></c>
+    // Self-closing first, for the same reason as rows: Excel writes
+    // `<c r="A3" s="2"/>` for every formatted blank cell, and read as
+    // an opening tag it took the next cell's value into its column.
     const cellRe =
-      /<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^/>]*)\/>/g;
+      /<c\b([^>]*?)\/>|<c\b([^>]*)>([\s\S]*?)<\/c>/g;
     let cm: RegExpExecArray | null;
     while ((cm = cellRe.exec(rm[1] ?? '')) !== null) {
-      const attrText = cm[1] ?? cm[3] ?? '';
-      const inner = cm[2] ?? '';
+      const attrText = cm[1] ?? cm[2] ?? '';
+      const inner = cm[3] ?? '';
       const attrs = parseAttrs(attrText);
       const ref = attrs.get('r') ?? '';
       const type = attrs.get('t') ?? 'n';

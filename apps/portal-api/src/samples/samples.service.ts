@@ -158,6 +158,8 @@ interface EnsuredItem {
   data: unknown;
   access: ItemAccess;
   wasCreated: boolean;
+  /** True when the caller owns the row and it is not in the trash. */
+  ownLive: boolean;
 }
 
 @Injectable()
@@ -214,7 +216,15 @@ export class SamplesService {
     // re-click never plants a duplicate workspace.
     const existingRows = await this.prisma.item.findMany({
       where: { orgId: user.orgId, seedKind: { startsWith: 'sample:' } },
-      select: { id: true, type: true, data: true, access: true, seedKind: true },
+      select: {
+        id: true,
+        type: true,
+        data: true,
+        access: true,
+        seedKind: true,
+        ownerId: true,
+        deletedAt: true,
+      },
     });
     const existingBySlug = new Map(
       existingRows
@@ -242,6 +252,7 @@ export class SamplesService {
           data: existing.data,
           access: existing.access,
           wasCreated: false,
+          ownLive: existing.ownerId === user.id && existing.deletedAt === null,
         };
       }
       const spec = build();
@@ -264,7 +275,13 @@ export class SamplesService {
         seedKind: slug,
       });
       created.push(slug);
-      return { id: row.id, data: row.data, access: row.access, wasCreated: true };
+      return {
+        id: row.id,
+        data: row.data,
+        access: row.access,
+        wasCreated: true,
+        ownLive: true,
+      };
     };
 
     // 1 + 2: pick lists first; the layer schemas reference them.
@@ -432,24 +449,35 @@ export class SamplesService {
         'The sample form has no paired submissions layer (data.linkedLayerId is missing). Delete the sample form item and load sample data again.',
       );
     }
-    // Mirror the form designer's save-time schema sync so the paired
-    // layer gains typed question columns and, crucially, a point
-    // geometry (the paired layer is born attribute-only; without the
-    // promotion every mirrored submission would land geometry-less
-    // and the field map would render nothing).
-    await this.syncPairedIssueLayer(user, linkedLayerId, linkedLayerKey);
+    // The form steps write to the form and its paired layer, so they
+    // run only on a form this caller owns and that is not in the
+    // trash. The org-wide dedupe hands back someone else's form to a
+    // second contributor, or a form the owner trashed, and writing to
+    // either failed the whole seed (403 / 404) on every click.
+    if (form.ownLive) {
+      // Mirror the form designer's save-time schema sync so the paired
+      // layer gains typed question columns and, crucially, a point
+      // geometry (the paired layer is born attribute-only; without the
+      // promotion every mirrored submission would land geometry-less
+      // and the field map would render nothing).
+      await this.syncPairedIssueLayer(user, linkedLayerId, linkedLayerKey);
 
-    // 10: four submissions. FormsService.submit upserts on
-    // (formId, clientId) so re-runs are no-ops, and it mirrors each
-    // first-write into the paired layer with the form's geometry
-    // binding.
-    for (const sub of assets.submissions) {
-      await this.forms.submit(form.id, user, {
-        clientId: sub.clientId,
-        schemaVersion: 1,
-        response: sub.response,
-        capturedAt: sub.capturedAt,
-      });
+      // 10: four submissions. FormsService.submit upserts on
+      // (formId, clientId) so re-runs are no-ops, and it mirrors each
+      // first-write into the paired layer with the form's geometry
+      // binding.
+      for (const sub of assets.submissions) {
+        await this.forms.submit(form.id, user, {
+          clientId: sub.clientId,
+          schemaVersion: 1,
+          response: sub.response,
+          capturedAt: sub.capturedAt,
+        });
+      }
+    } else {
+      this.log.log(
+        `Sample seed for org=${user.orgId}: form steps skipped (form not owned by the caller, or in the trash).`,
+      );
     }
 
     // 11: field operations map: facilities + the mirrored reports.
@@ -555,26 +583,28 @@ export class SamplesService {
     return { created, skipped };
   }
 
-  /** Set an item's access tier when it differs from the target.
-   *  Freshly created items are always 'private' (the seeder never
-   *  passes access at create time), so this is also the only write
-   *  that widens anything. */
+  /** Set a freshly created item's access tier. Freshly created items
+   *  are always 'private' (the seeder never passes access at create
+   *  time), so this is also the only write that widens anything. An
+   *  item that already existed keeps whatever tier its owner set: a
+   *  re-run used to force tiers back, re-publishing items the owner
+   *  had made private. */
   private async applyAccessTier(
     user: AuthUser,
     item: EnsuredItem,
     access: ItemAccess,
   ): Promise<void> {
-    const current: ItemAccess = item.wasCreated ? 'private' : item.access;
-    if (current === access) return;
+    if (!item.wasCreated || access === 'private') return;
     await this.items.update(user, item.id, { access });
   }
 
   /**
-   * Insert the bundled features for a layer unless it already has
-   * rows. The row-presence probe (LIMIT 1) rather than a per-feature
-   * upsert keeps re-runs from appending redundant create observations
-   * to the log; entity ids are still deterministic per feature slug
-   * so a future targeted repair can address individual rows.
+   * Insert the bundled features for a layer, batch by batch, skipping
+   * each batch whose last feature is already there. Entity ids are
+   * deterministic per feature slug and batches go in order, so a seed
+   * that stopped part way (restart, timeout) picks up where it left
+   * off on the next run. The old "does the layer have any row" probe
+   * left such a layer partial for good.
    */
   private async ensureLayerFeatures(
     user: AuthUser,
@@ -582,26 +612,17 @@ export class SamplesService {
     layerId: string,
     features: SampleFeature[],
   ): Promise<void> {
-    const current = await this.features.listFeatures(itemId, layerId, {
-      limit: 1,
+    await loadBatchesResumable({
+      features: this.features,
+      user,
+      itemId,
+      layerId,
+      rows: features.map((f) => ({
+        globalId: deterministicSampleUuid(`${itemId}:${f.id}`),
+        geometry: f.geometry,
+        properties: f.properties,
+      })),
     });
-    if (current.features.length > 0) return;
-    // Chunk the insert: the parcels layer alone is ~24k features, well
-    // past what a single multi-row insert can bind in one statement.
-    // Small layers fall through in a single batch.
-    const BATCH = 1000;
-    for (let i = 0; i < features.length; i += BATCH) {
-      await this.features.insertFeatures(
-        itemId,
-        layerId,
-        features.slice(i, i + BATCH).map((f) => ({
-          globalId: deterministicSampleUuid(`${itemId}:${f.id}`),
-          geometry: f.geometry,
-          properties: f.properties,
-        })),
-        user,
-      );
-    }
   }
 
   /**
@@ -1166,5 +1187,36 @@ export class SamplesService {
       template: 'custom',
       config: { template: 'custom', custom },
     };
+  }
+}
+
+/**
+ * Insert `rows` in batches of 1000, skipping a batch whose last row
+ * already exists. Shared by the sample and showcase seeds. Chunked
+ * because the parcels layer alone is ~24k features, well past what a
+ * single multi-row insert can bind in one statement; the insert is
+ * idempotent on globalId, so a batch that half landed is completed.
+ */
+export async function loadBatchesResumable(args: {
+  features: Pick<DataLayerFeaturesService, 'listFeatures' | 'insertFeatures'>;
+  user: AuthUser;
+  itemId: string;
+  layerId: string;
+  rows: Array<{ globalId: string; geometry: unknown; properties: Record<string, unknown> }>;
+}): Promise<void> {
+  const BATCH = 1000;
+  for (let i = 0; i < args.rows.length; i += BATCH) {
+    const batch = args.rows.slice(i, i + BATCH);
+    const last = batch[batch.length - 1]!;
+    const there = await args.features.listFeatures(args.itemId, args.layerId, {
+      entity: last.globalId,
+    });
+    if (there.features.length > 0) continue;
+    await args.features.insertFeatures(
+      args.itemId,
+      args.layerId,
+      batch as never,
+      args.user,
+    );
   }
 }

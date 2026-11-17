@@ -5,21 +5,32 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { validate } from '@gratis-gis/form-schema';
+import type { Item } from '@prisma/client';
+import { validate, withEvaluationClock } from '@gratis-gis/form-schema';
 import type { FormSchema, Response as FormResponse } from '@gratis-gis/form-schema';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DataLayerAttachmentsService } from '../data-layer/attachments.service.js';
+import { AuthSyncService } from '../auth/auth-sync.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { SharingService } from '../items/sharing.service.js';
+import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { dataLayerScope } from '../engine/data-layer.js';
 import {
   formatSubmissionReceipt,
   receiptFilename,
   renderSubmissionPdf,
 } from './submission-pdf.js';
+import { cleanSubmission } from './submission-clean.js';
+import { isPlainEmailAddress } from '../notifications/email-address.js';
+import { formExtraRecipients } from './form-notify-limits.js';
 
 /**
  * Persistence and access control for form submissions (#131).
@@ -36,58 +47,105 @@ import {
  *   - Listing submissions requires either ownership of the form or
  *     org-admin role.
  */
+/** How often a leader looks for submissions the mirror did not land. */
+const MIRROR_REPAIR_MS = 60_000;
+/** Submissions repaired per tick. */
+const MIRROR_REPAIR_BATCH = 20;
+/** Candidates read per tick, so rows still backing off do not fill the batch. */
+const MIRROR_REPAIR_SCAN = 200;
+/**
+ * Only submissions this recent are repaired. The pass exists to catch
+ * a mirror that failed at submit time, not to backfill a layer that was
+ * linked to a form long after its submissions came in.
+ */
+const MIRROR_REPAIR_WINDOW_DAYS = 7;
+/** First retry delay for a submission the repair could not mirror. */
+const MIRROR_REPAIR_BACKOFF_MS = 5 * 60_000;
+/** Longest wait between repair attempts for one submission. */
+const MIRROR_REPAIR_BACKOFF_MAX_MS = 6 * 60 * 60_000;
+
 @Injectable()
-export class FormsService {
+export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(FormsService.name);
+  private repairTimer: ReturnType<typeof setInterval> | null = null;
+  private stopping = false;
+  /**
+   * Submissions the repair failed to mirror, with when to try again.
+   * In memory on purpose: a restart or a leader change retries them
+   * once more, and a submission that keeps failing backs off instead
+   * of holding a batch slot every minute.
+   */
+  private readonly repairBackoff = new Map<
+    string,
+    { failures: number; nextAt: number }
+  >();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly dataLayerFeatures: DataLayerFeaturesService,
     private readonly dataLayerAttachments: DataLayerAttachmentsService,
+    private readonly sharing: SharingService,
+    private readonly authSync: AuthSyncService,
+    @Optional() private readonly leader?: LeaderElectionService,
   ) {}
 
+  /**
+   * Own the interval here. Leadership can move, so the tick itself
+   * checks shouldRun() instead of deciding once at boot. The timer
+   * is unref'd so a test process that constructs the service and
+   * starts it does not hold the event loop open.
+   */
+  onApplicationBootstrap(): void {
+    this.repairTimer = setInterval(() => {
+      void this.repairSafely();
+    }, MIRROR_REPAIR_MS);
+    this.repairTimer.unref?.();
+    void this.repairSafely();
+  }
+
+  onModuleDestroy(): void {
+    this.stopping = true;
+    if (this.repairTimer) clearInterval(this.repairTimer);
+    this.repairTimer = null;
+  }
+
+  private async repairSafely(): Promise<void> {
+    if (this.stopping) return;
+    try {
+      await this.reconcileFormMirrors();
+    } catch (err) {
+      this.log.warn(
+        `form mirror repair tick failed: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
+  }
+
   /** Fetch the form item, gating by visibility for the caller. Used
-   *  to look up the orgId we'll stamp on the submission. Selects
+   *  to look up the orgId we'll stamp on the submission. Returns
    *  `data` so submit() can read linkedLayerId / linkedLayerKey for
-   *  the paired-data_layer mirror write (#281e). */
-  private async getVisibleForm(formId: string, user: AuthUser) {
-    const item = await this.prisma.item.findUnique({
-      where: { id: formId },
-      select: {
-        id: true,
-        type: true,
-        orgId: true,
-        ownerId: true,
-        access: true,
-        title: true,
-        data: true,
-      },
-    });
-    if (!item || item.type !== 'form') {
+   *  the paired-data_layer mirror write (#281e).
+   *
+   *  Access is the same read rule every other item route uses
+   *  (SharingService.canRead), so an expired share or a trashed form
+   *  grants nothing here either. The org check stays on top of it:
+   *  a public form from another org is readable, but submissions are
+   *  only taken from members of the form's own org. */
+  private async getVisibleForm(formId: string, user: AuthUser): Promise<Item> {
+    const item = await this.prisma.item.findUnique({ where: { id: formId } });
+    if (!item || item.type !== 'form' || item.deletedAt !== null) {
       throw new NotFoundException('Form not found.');
     }
-    // Same org check is the cheap baseline. Org-wide-public forms
-    // pass; private forms only pass when the respondent has a share.
     if (item.orgId !== user.orgId) {
       throw new ForbiddenException('Form is not in your organization.');
     }
-    if (item.access === 'private' && item.ownerId !== user.id) {
-      const share = await this.prisma.itemShare.findFirst({
-        where: {
-          itemId: item.id,
-          OR: [
-            { principalType: 'user', principalId: user.id },
-            {
-              principalType: 'group',
-              principalId: { in: user.groupIds },
-            },
-          ],
-        },
-        select: { itemId: true },
-      });
-      if (!share) {
-        throw new ForbiddenException('You do not have access to this form.');
-      }
+    const shares = await this.prisma.itemShare.findMany({
+      where: { itemId: item.id },
+    });
+    if (!this.sharing.canRead(user, item, shares)) {
+      throw new ForbiddenException('You do not have access to this form.');
     }
     return item;
   }
@@ -100,6 +158,7 @@ export class FormsService {
       schemaVersion: number;
       response: Record<string, unknown>;
       capturedAt: string;
+      utcOffsetMinutes?: number;
     },
   ): Promise<{ id: string; created: boolean }> {
     const form = await this.getVisibleForm(formId, user);
@@ -146,7 +205,30 @@ export class FormsService {
           'Re-open the form to pick up the latest version and try again.',
       );
     }
-    const validation = validate(schema, dto.response as FormResponse);
+    // Recompute calculated answers and drop everything the form would
+    // not have sent: answers to questions hidden by their rules, and
+    // keys that match no question. Validation skips both, so storing
+    // the raw body would let a stale tab or a hand-crafted POST put
+    // unchecked values into the submission, the paired layer and the
+    // receipt email. The browser runtime does the same before it posts.
+    // today() and now() mean the moment of capture, in the
+    // respondent's time zone when the client says it. With this
+    // server's clock (UTC, at upload time) a valid "not before
+    // today" answer failed, and every offline capture synced after
+    // midnight failed again on each retry.
+    const offset =
+      typeof dto.utcOffsetMinutes === 'number' &&
+      Number.isInteger(dto.utcOffsetMinutes) &&
+      Math.abs(dto.utcOffsetMinutes) <= 14 * 60
+        ? dto.utcOffsetMinutes
+        : 0;
+    const { response, validation } = withEvaluationClock(
+      { now: captured, utcOffsetMinutes: offset },
+      () => {
+        const cleaned = cleanSubmission(schema, dto.response as FormResponse);
+        return { response: cleaned, validation: validate(schema, cleaned) };
+      },
+    );
     if (!validation.ok) {
       const details = validation.errors
         .map((e) => `${e.questionId}: ${e.message}`)
@@ -161,71 +243,81 @@ export class FormsService {
       });
     }
 
-    const result = await this.prisma.formSubmission.upsert({
-      where: { formId_clientId: { formId: form.id, clientId: dto.clientId } },
-      create: {
-        formId: form.id,
-        orgId: form.orgId,
-        clientId: dto.clientId,
-        schemaVersion: dto.schemaVersion,
-        response: dto.response as Prisma.InputJsonValue,
-        submittedBy: user.id,
-        capturedAt: captured,
-      },
-      update: {}, // idempotent on re-drain; never overwrite a stored row
-      select: { id: true, createdAt: true },
-    });
-    // `created` is true only when the row didn't already exist -- we
-    // proxy it via createdAt being equal to "right now" within
-    // tolerance, which is good enough for the UI and avoids a second
-    // query. Phase 2 may switch to a tx-level WAS-CREATED flag.
-    const justCreated =
-      Date.now() - result.createdAt.getTime() < 5_000;
+    // The attachment keys this submitter was issued, checked now while
+    // the upload grants are live. The repair pass may run after they
+    // are pruned and re-registers only these; a key the client named
+    // but was not issued is still stored in the answers, but never
+    // registered on a layer by repair.
+    const verifiedAttachmentKeys = await this.grantedAttachmentKeys(user.id, response);
+
+    // Plain insert, so only the request that actually wrote the row
+    // counts as created. Two copies of one capture racing (two tabs
+    // draining the same outbox, or a retry after a timeout) used to
+    // both pass the check above and both look "just created", which
+    // sent every notification twice. The loser now hits the unique
+    // key and answers like an idempotent re-drain.
+    let result: { id: string };
+    try {
+      result = await this.prisma.formSubmission.create({
+        data: {
+          formId: form.id,
+          orgId: form.orgId,
+          clientId: dto.clientId,
+          schemaVersion: dto.schemaVersion,
+          response: response as Prisma.InputJsonValue,
+          submittedBy: user.id,
+          capturedAt: captured,
+          verifiedAttachmentKeys,
+        },
+        select: { id: true },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const winner = await this.prisma.formSubmission.findUnique({
+          where: { formId_clientId: { formId: form.id, clientId: dto.clientId } },
+          select: { id: true },
+        });
+        if (winner) return { id: winner.id, created: false };
+      }
+      throw err;
+    }
     // form_submission_received fan-out (#229). Only fire on real
     // first-write so a re-drained offline queue doesn't re-spam the
     // form owner. Recipient for v1 is the form item's owner; per-
     // recipient lists land with the Phase B template editor. Fire-
     // and-forget so an SMTP outage never rolls back the submission
     // the user just made.
-    if (justCreated) {
-      void this.notifyFormSubmissionReceived({
-        formId: form.id,
-        formTitle: form.title ?? 'Form',
-        formOwnerId: form.ownerId,
-        formData: form.data,
-        submissionId: result.id,
-        submitter: user,
-        response: dto.response,
-      });
-      // Mirror the submission into the paired data_layer (#281e).
-      // V1 stores everything under `properties` on the layer's
-      // submissions sublayer (one row per submission). This gives
-      // the form a real, queryable, map-friendly home immediately;
-      // the schema-mutation API in #281b will later split the
-      // properties JSONB into typed columns per question.
-      //
-      // Only on first-write so an offline re-drain doesn't duplicate
-      // the layer row. Failures are non-fatal: form_submission is
-      // the durable source of truth; a missed mirror just means the
-      // layer is out of date until a backfill pass.
-      void this.mirrorToPairedLayer({
-        form,
-        clientId: dto.clientId,
-        submissionId: result.id,
-        schemaVersion: dto.schemaVersion,
-        response: dto.response,
-        submittedBy: user.id,
-        capturedAt: captured,
-        user,
-      }).catch((err) => {
-        this.log.warn(
-          `mirrorToPairedLayer failed for submission ${result.id}: ${
-            err instanceof Error ? err.message : err
-          }`,
-        );
-      });
-    }
-    return { id: result.id, created: justCreated };
+    void this.notifyFormSubmissionReceived({
+      formId: form.id,
+      formTitle: form.title ?? 'Form',
+      formOwnerId: form.ownerId,
+      formData: form.data,
+      submissionId: result.id,
+      submitter: user,
+      response,
+    });
+    // Mirror the submission into the paired data_layer (#281e).
+    // V1 stores everything under `properties` on the layer's
+    // submissions sublayer (one row per submission). This gives
+    // the form a real, queryable, map-friendly home immediately;
+    // the schema-mutation API in #281b will later split the
+    // properties JSONB into typed columns per question.
+    //
+    // Only on first-write so an offline re-drain doesn't duplicate
+    // the layer row. Failures are non-fatal: form_submission is
+    // the durable source of truth; a missed mirror just means the
+    // layer is out of date until a backfill pass.
+    void this.mirrorWithRetry({
+      form,
+      clientId: dto.clientId,
+      submissionId: result.id,
+      schemaVersion: dto.schemaVersion,
+      response,
+      submittedBy: user.id,
+      capturedAt: captured,
+      user,
+    });
+    return { id: result.id, created: true };
   }
 
   /**
@@ -243,8 +335,157 @@ export class FormsService {
    * v3 feature-tracking convention (#39 / #118) and stay distinct
    * from any user-defined question name.
    */
+  /**
+   * The submission row is already durable. Retry the paired-layer
+   * mirror a few times here. insertFeatures is idempotent on
+   * globalId = submission id, so a retry cannot duplicate the feature.
+   * A later leader pass picks up anything that still failed.
+   * Returns false when every attempt failed. It never throws.
+   */
+  /** Keys of the attachments in `response` that `userId` was issued. */
+  private async grantedAttachmentKeys(
+    userId: string,
+    response: Record<string, unknown>,
+  ): Promise<string[]> {
+    const keys = [...new Set(extractAttachments(response).map((a) => a.key))];
+    if (keys.length === 0) return [];
+    const rows = await this.prisma.storageUploadGrant.findMany({
+      where: { userId, key: { in: keys } },
+      select: { key: true },
+    });
+    return [...new Set(rows.map((r) => r.key))];
+  }
+
+  private async mirrorWithRetry(
+    args: Parameters<FormsService['mirrorToPairedLayer']>[0],
+  ): Promise<boolean> {
+    let last: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await this.mirrorToPairedLayer(args);
+        return true;
+      } catch (err) {
+        last = err;
+      }
+    }
+    this.log.warn(
+      `mirrorToPairedLayer failed for submission ${args.submissionId}: ${
+        last instanceof Error ? last.message : last
+      }`,
+    );
+    return false;
+  }
+
+  /**
+   * Leader-only repair. Finds submissions whose paired layer has no
+   * live observation for that submission id and mirrors them again.
+   * Followers return without writing. Missing leader (unit tests)
+   * also returns, so a test process does not scan the database.
+   * Called once a minute by the timer started in onApplicationBootstrap.
+   *
+   * Only recent submissions on live forms and live layers are
+   * considered. A submission that fails here backs off (5 minutes,
+   * doubling to 6 hours), so a few that can never mirror do not hold
+   * the batch and starve newer ones.
+   */
+  async reconcileFormMirrors(now: number = Date.now()): Promise<number> {
+    if (!this.leader?.shouldRun()) return 0;
+    // Leave out rows still backing off inside the query, before the
+    // LIMIT. Filtering them afterwards let 200 old rows that can never
+    // mirror fill every scan and hide newer misses on other forms.
+    const waiting = [...this.repairBackoff]
+      .filter(([, b]) => b.nextAt > now)
+      .map(([id]) => id);
+    const rows = await this.prisma.$queryRaw<
+      Array<{ id: string }>
+    >`
+      SELECT s.id
+      FROM form_submission s
+      JOIN item f ON f.id = s.form_id AND f.deleted_at IS NULL
+      JOIN item l ON l.id::text = f.data_json->>'linkedLayerId'
+        AND l.org_id = f.org_id
+        AND l.deleted_at IS NULL
+      WHERE jsonb_typeof(f.data_json->'linkedLayerId') = 'string'
+        AND s.created_at > now() - make_interval(days => ${MIRROR_REPAIR_WINDOW_DAYS})
+        AND NOT (s.id = ANY(${waiting}::uuid[]))
+        AND NOT EXISTS (
+          SELECT 1
+          FROM observation o
+          WHERE o.entity = s.id
+            AND o.scope = 'data_layer:' || (f.data_json->>'linkedLayerId')
+              || ':' || COALESCE(f.data_json->>'linkedLayerKey', 'submissions')
+            AND o.kind <> 'delete'
+        )
+      ORDER BY s.created_at
+      LIMIT ${MIRROR_REPAIR_SCAN}
+    `;
+    // Scope text must stay equal to dataLayerScope(layerId, layerKey).
+    if (dataLayerScope('a', 'b') !== 'data_layer:a:b') {
+      throw new Error('form mirror scope drifted from dataLayerScope');
+    }
+    const pending = new Set(rows.map((r) => r.id));
+    const stillWaiting = new Set(waiting);
+    for (const id of [...this.repairBackoff.keys()]) {
+      // Mirrored by someone else, aged out of the window, or trashed.
+      // Rows left out of the scan because they are waiting stay.
+      if (!pending.has(id) && !stillWaiting.has(id)) this.repairBackoff.delete(id);
+    }
+    const due = rows
+      .filter((r) => (this.repairBackoff.get(r.id)?.nextAt ?? 0) <= now)
+      .slice(0, MIRROR_REPAIR_BATCH);
+    let repaired = 0;
+    for (const row of due) {
+      const submission = await this.prisma.formSubmission.findUnique({
+        where: { id: row.id },
+      });
+      if (!submission) continue;
+      const form = await this.prisma.item.findUnique({
+        where: { id: submission.formId },
+      });
+      if (!form) continue;
+      const user = {
+        id: submission.submittedBy ?? 'system',
+        orgId: submission.orgId,
+        orgSlug: '',
+        username: 'mirror-repair',
+        email: '',
+        orgRole: 'admin' as const,
+        groupIds: [],
+        capabilities: new Set<string>(),
+      } as AuthUser;
+      const ok = await this.mirrorWithRetry({
+        form,
+        clientId: submission.clientId,
+        submissionId: submission.id,
+        schemaVersion: submission.schemaVersion,
+        response: submission.response as Record<string, unknown>,
+        submittedBy: user.id,
+        capturedAt: submission.capturedAt,
+        user,
+        fromStoredSubmission: true,
+        verifiedAttachmentKeys: submission.verifiedAttachmentKeys ?? [],
+      });
+      if (ok) {
+        this.repairBackoff.delete(submission.id);
+        repaired += 1;
+        continue;
+      }
+      const failures = (this.repairBackoff.get(submission.id)?.failures ?? 0) + 1;
+      const delay = Math.min(
+        MIRROR_REPAIR_BACKOFF_MS * 2 ** (failures - 1),
+        MIRROR_REPAIR_BACKOFF_MAX_MS,
+      );
+      this.repairBackoff.set(submission.id, { failures, nextAt: now + delay });
+      this.log.warn(
+        `form mirror repair failed for ${submission.id} ` +
+          `(attempt ${failures}, next in ${Math.round(delay / 60_000)} min)`,
+      );
+    }
+    return repaired;
+  }
+
   private async mirrorToPairedLayer(args: {
-    form: { id: string; data: Prisma.JsonValue };
+    form: Pick<Item, 'id' | 'orgId' | 'ownerId' | 'data'>;
     clientId: string;
     submissionId: string;
     schemaVersion: number;
@@ -252,6 +493,12 @@ export class FormsService {
     submittedBy: string;
     capturedAt: Date;
     user: AuthUser;
+    /** The response comes from a stored form_submission row (the
+     *  leader's repair pass), not from the request being served. */
+    fromStoredSubmission?: boolean;
+    /** With fromStoredSubmission: the keys checked against the
+     *  submitter's upload grants when the submission was stored. */
+    verifiedAttachmentKeys?: readonly string[];
   }): Promise<void> {
     const data = args.form.data as
       | { linkedLayerId?: unknown; linkedLayerKey?: unknown }
@@ -265,6 +512,7 @@ export class FormsService {
         ? data.linkedLayerKey
         : 'submissions';
     if (!layerId) return;
+    await this.assertMirrorTarget(args.form, layerId);
 
     // Pull every attachment descriptor (#292) recursively so we can
     // register them in the standard v3 feature_attachment table
@@ -380,6 +628,7 @@ export class FormsService {
       await this.mirrorRepeatGroupsToChildSublayers({
         formData: args.form.data,
         layerId,
+        parentLayerKey: layerKey,
         // #353: pass the full response (with attachment descriptors)
         // so per-instance child rows on the related sublayer get the
         // same inline-photo treatment the parent row does. The
@@ -433,6 +682,18 @@ export class FormsService {
             storageUrl: att.url,
           },
           args.submittedBy,
+          // No share scope: the mirror writes as the form, not as a
+          // caller with limited access.
+          undefined,
+          // The repair pass can run up to MIRROR_REPAIR_WINDOW_DAYS
+          // after the upload, past the presign grant's lifetime. It
+          // passes as already referenced only the keys submit checked
+          // against the submitter's grants. Every other key the stored
+          // answers name came straight from the client and still needs
+          // a live grant, so repair cannot attach someone else's file.
+          args.fromStoredSubmission
+            ? { storedKeys: [...(args.verifiedAttachmentKeys ?? [])] }
+            : {},
         );
         attachmentsOk += 1;
       } catch (err) {
@@ -446,6 +707,49 @@ export class FormsService {
     if (attachments.length > 0) {
       this.log.log(
         `submission ${args.submissionId}: ${attachmentsOk}/${attachments.length} attachment(s) registered`,
+      );
+    }
+  }
+
+  /**
+   * Re-check the link before writing into it. The save path already
+   * requires the person who set `linkedLayerId` to be able to edit
+   * the layer, but the link is stored and replayed later, by the
+   * submitter and by the repair pass, so the target is checked again
+   * at write time: it must be a live data layer in the form's own
+   * org, and owned by the form's owner or one the form's owner can
+   * still edit. Throws, so the repair pass backs off instead of
+   * writing.
+   */
+  private async assertMirrorTarget(
+    form: Pick<Item, 'id' | 'orgId' | 'ownerId'>,
+    layerId: string,
+  ): Promise<void> {
+    const layer = UUID_RE.test(layerId)
+      ? await this.prisma.item.findUnique({ where: { id: layerId } })
+      : null;
+    if (
+      !layer ||
+      layer.type !== 'data_layer' ||
+      layer.deletedAt !== null ||
+      layer.orgId !== form.orgId
+    ) {
+      throw new Error(
+        `form ${form.id} links to ${layerId}, which is not a live data layer in its org`,
+      );
+    }
+    // The form's owner may always write into a layer they own. The
+    // `form-paired` tag is not a reason to skip the check: tags are
+    // editable by anyone with edit on the layer, so a form linked by
+    // someone whose share was later revoked would keep writing.
+    if (layer.ownerId === form.ownerId) return;
+    const owner = await this.authSync.principalForUserId(form.ownerId);
+    const shares = await this.prisma.itemShare.findMany({
+      where: { itemId: layer.id },
+    });
+    if (!owner || !this.sharing.canEdit(owner, layer, shares)) {
+      throw new Error(
+        `form ${form.id} owner can no longer edit linked layer ${layerId}`,
       );
     }
   }
@@ -469,10 +773,14 @@ export class FormsService {
    * temporal versioning, as the latest valid_to range -- both
    * outcomes safe).
    *
+   * A group bound to an existing related table (bindTo.layerKey)
+   * writes into that table instead, with the table's parentFkColumn
+   * set to the parent row; see repeatGroupTargetSublayer.
+   *
    * Skipped groups:
-   *   - groups whose related sublayer the designer didn't create
-   *     (attachment-only, or no column-mapped children). Their
-   *     answers stay in the parent row's properties JSONB only.
+   *   - groups with no target sublayer (attachment-only or no
+   *     column-mapped children on a paired layer, or no binding).
+   *     Their answers stay in the parent row's properties JSONB only.
    *   - groups whose response value isn't an array (the form
    *     runtime always writes an array; defensive against partial
    *     drafts).
@@ -486,6 +794,8 @@ export class FormsService {
   private async mirrorRepeatGroupsToChildSublayers(args: {
     formData: Prisma.JsonValue;
     layerId: string;
+    /** The sublayer the parent row went into; never a child target. */
+    parentLayerKey: string;
     response: Record<string, unknown>;
     parentGlobalId: string;
     clientId: string;
@@ -511,6 +821,9 @@ export class FormsService {
       layers?: Array<{ id?: unknown; key?: unknown; geometryType?: unknown }>;
     };
     const sublayerKeys = new Set<string>();
+    // Column on each sublayer that holds its parent row's global id,
+    // when the layer declares one (an existing related table does).
+    const sublayerParentFk = new Map<string, string>();
     // #336: track each sublayer's geometryType so we can pick the
     // spatial vs. table insert branch per group. Indexed by id.
     const sublayerGeomTypes = new Map<
@@ -523,6 +836,8 @@ export class FormsService {
         const id = (l as { id?: unknown }).id;
         if (typeof id !== 'string') continue;
         sublayerKeys.add(id);
+        const fk = (l as { parentFkColumn?: unknown }).parentFkColumn;
+        if (typeof fk === 'string' && fk) sublayerParentFk.set(id, fk);
         const g = (l as { geometryType?: unknown }).geometryType;
         sublayerGeomTypes.set(
           id,
@@ -555,10 +870,13 @@ export class FormsService {
         id?: unknown;
         repeat?: unknown;
         children?: unknown;
+        bindTo?: { layerKey?: unknown };
       };
       if (q.type !== 'group' || !q.repeat) continue;
       if (typeof q.id !== 'string') continue;
-      if (!sublayerKeys.has(q.id)) continue;
+      const target = repeatGroupTargetSublayer(q, sublayerKeys, args.parentLayerKey);
+      if (!target) continue;
+      const parentFk = sublayerParentFk.get(target);
       const instances = args.response[q.id];
       if (!Array.isArray(instances) || instances.length === 0) continue;
 
@@ -567,7 +885,7 @@ export class FormsService {
       // was present at save time), pluck the matching value out of
       // each instance and pack it as GeoJSON; otherwise this stays
       // undefined and data-layer features rides the table insert branch.
-      const subGeomType = sublayerGeomTypes.get(q.id) ?? null;
+      const subGeomType = sublayerGeomTypes.get(target) ?? null;
       const isTable = subGeomType === null;
       const childGeoBinding =
         !isTable && Array.isArray(q.children)
@@ -600,6 +918,10 @@ export class FormsService {
           submitted_at: args.capturedAt.toISOString(),
           submitted_by: args.submittedBy,
           schema_version: args.schemaVersion,
+          // An existing related table links rows to their parent
+          // through its own column; fill it so the rows show up
+          // under the submission's feature.
+          ...(parentFk ? { [parentFk]: args.parentGlobalId } : {}),
         };
         const row: {
           globalId: string;
@@ -630,14 +952,14 @@ export class FormsService {
       try {
         await this.dataLayerFeatures.insertFeatures(
           args.layerId,
-          q.id,
+          target,
           inserts,
           args.user,
           { isTable },
         );
       } catch (err) {
         this.log.warn(
-          `repeat-group child-row insert failed (group=${q.id}, count=${inserts.length}): ${
+          `repeat-group child-row insert failed (group=${q.id}, sublayer=${target}, count=${inserts.length}): ${
             err instanceof Error ? err.message : err
           }`,
         );
@@ -704,12 +1026,10 @@ export class FormsService {
               | undefined)
           : undefined;
       const notifyOwner = notifyCfg?.notifyOwner !== false;
-      const extras = Array.isArray(notifyCfg?.extraRecipients)
-        ? (notifyCfg!.extraRecipients as unknown[])
-            .filter((e): e is string => typeof e === 'string')
-            .map((e) => e.trim())
-            .filter((e) => e.length > 0 && e.includes('@'))
-        : [];
+      const extras = formExtraRecipients(
+        notifyCfg?.extraRecipients,
+        isPlainEmailAddress,
+      );
 
       // Resolve the owner's email up front so we can de-dup against
       // extras: an author who lists themselves in extraRecipients
@@ -755,7 +1075,7 @@ export class FormsService {
   async list(
     formId: string,
     user: AuthUser,
-    opts: { limit?: number } = {},
+    opts: { limit?: number; before?: string } = {},
   ): Promise<
     Array<{
       id: string;
@@ -773,10 +1093,23 @@ export class FormsService {
         'Only the form owner or an org admin can view submissions.',
       );
     }
+    // Page with a cursor on the last id seen. The cursor row must be a
+    // submission of this form; ordering adds id so ties on createdAt
+    // still give every row exactly once.
+    if (opts.before !== undefined) {
+      const cursorRow = await this.prisma.formSubmission.findFirst({
+        where: { id: opts.before, formId: form.id },
+        select: { id: true },
+      });
+      if (!cursorRow) {
+        throw new BadRequestException('before must be the id of a submission of this form.');
+      }
+    }
     const rows = await this.prisma.formSubmission.findMany({
       where: { formId: form.id },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: Math.max(1, Math.min(opts.limit ?? 100, 500)),
+      ...(opts.before !== undefined ? { cursor: { id: opts.before }, skip: 1 } : {}),
       select: {
         id: true,
         clientId: true,
@@ -859,6 +1192,37 @@ export class FormsService {
  * be rendered by the runtime either, so refusing its submissions
  * is the consistent posture.
  */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The sublayer a top-level repeat group's rows go into, or null when
+ * it has none (its answers then stay on the parent row only).
+ *
+ * A group bound to a related table (`bindTo.layerKey`, which "Start
+ * from a data layer" sets) writes into that table: the form is linked
+ * to someone's existing layer, and the designer does not create new
+ * sublayers there. Otherwise the group writes into the sublayer named
+ * after its id, which the designer creates on the form's own paired
+ * layer. The parent sublayer is never a target. The designer refuses
+ * to save a form linked to an existing layer with a repeat group that
+ * resolves to nothing here (unboundRepeatGroups in portal-web).
+ */
+export function repeatGroupTargetSublayer(
+  q: { id?: unknown; bindTo?: { layerKey?: unknown } },
+  sublayerKeys: ReadonlySet<string>,
+  parentLayerKey: string,
+): string | null {
+  const bound = q.bindTo?.layerKey;
+  if (typeof bound === 'string' && bound !== parentLayerKey && sublayerKeys.has(bound)) {
+    return bound;
+  }
+  if (typeof q.id === 'string' && q.id !== parentLayerKey && sublayerKeys.has(q.id)) {
+    return q.id;
+  }
+  return null;
+}
+
 function readFormSchema(data: Prisma.JsonValue): FormSchema | null {
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   const d = data as { schemaVersion?: unknown; questions?: unknown };

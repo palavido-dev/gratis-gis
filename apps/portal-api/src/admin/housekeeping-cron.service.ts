@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 
@@ -16,10 +21,10 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  * schedule service's onConfigChange listener triggers re-registration
  * without a process restart.
  *
- * The job is registered only when the config actually has work to
- * do: scheduleMode != 'off' AND at least one of auto-trash /
- * auto-disable is enabled. This avoids spinning a cron just to do
- * nothing every night.
+ * The job is registered whenever scheduleMode != 'off'. Even with
+ * every toggle off a run still has work: users past their explicit
+ * end date are disabled and the Keycloak user mirror is reconciled,
+ * neither of which has a toggle (03-7).
  *
  * Why onApplicationBootstrap and not onModuleInit (#366): the
  * leader lock is acquired asynchronously inside
@@ -28,15 +33,31 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
  * graph looks like it should. Gating from onModuleInit raced the
  * leader-lock query and silently skipped cron registration on the
  * eventual leader, leaving housekeeping un-scheduled until the
- * next deploy. onApplicationBootstrap fires only after every
- * module's onModuleInit chain has resolved, so leader.shouldRun()
- * has its final value. Same fix shipped in
- * KeycloakAdminService for the same reason.
+ * next deploy. The schedule is now registered on every replica and
+ * each tick checks leadership, because leadership can move at
+ * runtime.
  */
 @Injectable()
-export class HousekeepingCronService implements OnApplicationBootstrap {
+export class HousekeepingCronService
+  implements OnApplicationBootstrap, OnModuleDestroy
+{
   private readonly log = new Logger(HousekeepingCronService.name);
   private static readonly JOB_NAME = 'housekeeping-scheduled';
+  /** Every replica re-reads housekeeping_config this often. */
+  private static readonly CONFIG_POLL_MS = 60_000;
+  private configTimer: ReturnType<typeof setInterval> | undefined;
+  /** What the current job was built from; null before the first apply. */
+  private appliedKey: string | null = null;
+  /** Boot time, for the interrupted-run sweep window. */
+  private readonly bootedAt = Date.now();
+  private interruptedSwept = false;
+  /**
+   * The interrupted-run sweep waits for this replica to hold the
+   * leader lock, which is taken asynchronously, but only this long
+   * after boot. A replica that gains leadership much later did not
+   * just restart, and a run in flight on the other replica is real.
+   */
+  private static readonly SWEEP_WINDOW_MS = 3 * 60_000;
 
   constructor(
     private readonly schedule: HousekeepingScheduleService,
@@ -45,44 +66,75 @@ export class HousekeepingCronService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    // Multi-replica safety: only the leader registers and runs the
-    // cron. Followers skip registration entirely so the dynamic
-    // SchedulerRegistry cron doesn't fire on every replica. We
-    // re-evaluate on config changes either way; a config change
-    // received by a follower replica is a no-op (apply() short-
-    // circuits below).
-    if (!this.leader.shouldRun()) {
-      this.log.log(
-        'Skipping housekeeping cron registration on this replica (not the cron leader).',
-      );
-      // Subscribe to config changes anyway so a future leader handoff
-      // would pick up the latest config -- safe because apply() also
-      // gates on shouldRun.
-      this.schedule.onConfigChange((next) => this.apply(next));
-      return;
-    }
+    // Every replica registers the schedule and each tick checks
+    // leadership (runSafely). Registering only on the boot-time leader
+    // left housekeeping unscheduled once leadership moved, and kept
+    // the ex-leader firing after a handoff.
     const cfg = await this.schedule.getConfig();
     this.apply(cfg);
     this.schedule.onConfigChange((next) => this.apply(next));
+    await this.sweepInterruptedRuns();
+    // A config save runs the listener only on the replica that served
+    // it. Every replica re-reads the row on a short poll so a save
+    // that landed on the other one still takes effect here.
+    this.configTimer = setInterval(() => {
+      void this.sweepInterruptedRuns();
+      void this.schedule
+        .getConfig()
+        .then((next) => this.apply(next))
+        .catch((e: unknown) =>
+          this.log.warn(
+            `Housekeeping config re-read failed: ${e instanceof Error ? e.message : e}`,
+          ),
+        );
+    }, HousekeepingCronService.CONFIG_POLL_MS);
+    this.configTimer.unref?.();
+  }
+
+  /**
+   * Once, on the leader, soon after boot: fail housekeeping runs a
+   * dead process left 'running' (03-12).
+   */
+  async sweepInterruptedRuns(): Promise<void> {
+    if (this.interruptedSwept) return;
+    if (Date.now() - this.bootedAt > HousekeepingCronService.SWEEP_WINDOW_MS) {
+      this.interruptedSwept = true;
+      return;
+    }
+    if (!this.leader.shouldRun()) return;
+    this.interruptedSwept = true;
+    try {
+      await this.schedule.failInterruptedRuns();
+    } catch (e) {
+      this.log.warn(
+        `Interrupted housekeeping run sweep failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.configTimer) clearInterval(this.configTimer);
+    this.unregister();
   }
 
   private apply(cfg: HousekeepingConfig) {
-    if (!this.leader.shouldRun()) return;
+    // Re-register only when something that decides the job changed,
+    // so the poll does not reset it every minute.
+    const key = [
+      cfg.scheduleMode,
+      cfg.effectiveCron ?? '',
+      cfg.autoTrashEnabled,
+      cfg.autoDisableEnabled,
+      cfg.recomputeExtentsEnabled,
+      cfg.fieldQueueAutoPruneEnabled,
+    ].join('|');
+    if (key === this.appliedKey) return;
+    this.appliedKey = key;
     this.unregister();
 
     if (cfg.scheduleMode === 'off') {
       this.log.log(
         'Scheduled housekeeping is off; the manual /admin/housekeeping page still works.',
-      );
-      return;
-    }
-    if (
-      !cfg.autoTrashEnabled &&
-      !cfg.autoDisableEnabled &&
-      !cfg.recomputeExtentsEnabled
-    ) {
-      this.log.log(
-        'Schedule set but no auto-actions enabled; nothing to register.',
       );
       return;
     }
@@ -133,6 +185,8 @@ export class HousekeepingCronService implements OnApplicationBootstrap {
   }
 
   private async runSafely() {
+    // Leadership is checked per tick: it can move at runtime.
+    if (!this.leader.shouldRun()) return;
     try {
       const res = await this.schedule.runOnce({
         trigger: 'scheduled',

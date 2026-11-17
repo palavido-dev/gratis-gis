@@ -6,13 +6,13 @@ import {
   parseExpression,
   validateExpression,
   ExpressionError,
-  collectFieldRefs,
   fieldRefTypeFor,
   isSqlSafeFieldName,
   SQL_SAFE_FIELD_NAME_RE,
 } from '@gratis-gis/shared-types';
 
-import type { ToolGenerator, ToolValidateContext } from './types.js';
+import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
+import { numericTextSql } from './numeric-text.js';
 
 export interface FilterParams {
   expression: string;
@@ -49,8 +49,9 @@ function columnForField(
   const raw = `(properties->>'${fieldName}')`;
   switch (ref?.type) {
     case 'number':
-      // NULLIF guards against empty-string-to-double cast errors.
-      return `NULLIF(${raw}, '')::double precision`;
+      // Non-numeric text (empty, "n/a") reads as NULL instead of
+      // failing the whole query.
+      return numericTextSql(raw);
     case 'boolean':
       return `(${raw}::boolean)`;
     default:
@@ -133,22 +134,21 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     return { itemIds: [], urls: [] };
   },
 
-  toSql(inputAlias: string, params: FilterParams, paramOffset: number) {
+  toSql(
+    inputAlias: string,
+    params: FilterParams,
+    paramOffset: number,
+    ctx?: ToolSqlContext,
+  ) {
     // Parse again at SQL time.  This is cheap (the AST is built from
     // a short string) and means save-time and read-time validation
     // stay in lockstep without persisting the AST.
     const ast = parseExpression(params.expression);
-    // We don't have the schema here (read-time path), so fall back
-    // to treating unreferenced fields as text.  Expression
-    // generation still works because the cast logic is keyed off
-    // the operator, not the column type.
-    const refs = collectFieldRefs(ast);
-    const schema: FeatureField[] = refs.map((name) => ({
-      name,
-      label: name,
-      type: 'string',
-      nullable: true,
-    }));
+    // The compiler emits no casts of its own, and properties->>'x' is
+    // always text, so `{{acres}} > 5` only works when the column is
+    // cast from the field's declared type. The caller threads the
+    // input schema for that; a field it does not know stays text.
+    const schema: FeatureField[] = ctx?.inputSchema ?? [];
     const compiled = compileExpression(
       ast,
       (name) => columnForField(name, schema),

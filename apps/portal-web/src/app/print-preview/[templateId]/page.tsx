@@ -15,9 +15,15 @@
  *      the token AND returns the resolved template + map items
  *      under the original requesting user's permissions.
  *   3. We mount PrintRenderer at the template's paper size.
- *   4. The inline MapSnapshot client component sets
- *      body[data-map-ready="true"] once tiles + layers settle.
+ *   4. PrintReadySignal sets body[data-map-ready="true"] once every
+ *      MapSnapshot on the sheet has settled (at once when there is
+ *      no map).
  *   5. Puppeteer's page.pdf captures the rendered HTML.
+ *
+ * Deliberately does NOT emit its own <html>/<body>: the root
+ * layout already owns those, and nesting a second document made
+ * headless Chrome capture a blank page. AppShellChrome renders
+ * this route as a bare fragment (no chrome, no feedback tab).
  */
 import { notFound } from 'next/navigation';
 import { Buffer } from 'node:buffer';
@@ -29,6 +35,7 @@ import type {
 import { resolvePaperInches } from '@gratis-gis/shared-types';
 
 import { PrintRenderer } from './print-renderer';
+import { printLocale, printTimeZone } from '@/lib/print-request-context';
 
 const PRIVATE_API_BASE =
   process.env.PORTAL_API_INTERNAL_URL ?? 'http://portal-api:4000';
@@ -39,6 +46,9 @@ interface Props {
     map?: string;
     renderToken?: string;
     p?: string;
+    /** Requester's IANA time zone and locale (see print-request-context). */
+    tz?: string;
+    lc?: string;
   }>;
 }
 
@@ -55,11 +65,13 @@ interface JobBundle {
    *  longer visible to the user; MapSnapshot falls back to a
    *  vanilla OSM raster in those cases. */
   basemap: BasemapData | null;
+  /** Per-job read credential for the snapshot's layer fetches. */
+  readCredential?: string;
 }
 
 export default async function PrintPreviewPage(props: Props) {
   const { templateId } = await props.params;
-  const { map: mapId, renderToken, p } = await props.searchParams;
+  const { map: mapId, renderToken, p, tz, lc } = await props.searchParams;
 
   if (!templateId || !mapId || !renderToken) notFound();
 
@@ -101,25 +113,23 @@ export default async function PrintPreviewPage(props: Props) {
   const inches = resolvePaperInches(bundle.template.data.paper);
 
   return (
-    <html lang="en">
-      <head>
-        <title>Print preview</title>
-        <style>{`
-          @page { size: ${inches.w}in ${inches.h}in; margin: 0; }
-          html, body { margin: 0; padding: 0; background: white; }
-          body { width: ${inches.w * 96}px; height: ${inches.h * 96}px; }
-        `}</style>
-      </head>
-      <body>
-        <PrintRenderer
-          template={bundle.template.data}
-          mapId={bundle.mapId}
-          mapData={bundle.map.data}
-          basemapData={bundle.basemap}
-          parameterValues={parameterValues}
-          userDisplayName={bundle.userDisplayName}
-        />
-      </body>
-    </html>
+    <>
+      <style>{`
+        @page { size: ${inches.w}in ${inches.h}in; margin: 0; }
+        html, body { margin: 0; padding: 0; background: white; }
+        body { width: ${inches.w * 96}px; height: ${inches.h * 96}px; overflow: hidden; }
+      `}</style>
+      <PrintRenderer
+        template={bundle.template.data}
+        mapId={bundle.mapId}
+        mapData={bundle.map.data}
+        basemapData={bundle.basemap}
+        readCredential={bundle.readCredential ?? null}
+        parameterValues={parameterValues}
+        userDisplayName={bundle.userDisplayName}
+        locale={printLocale(lc)}
+        timeZone={printTimeZone(tz)}
+      />
+    </>
   );
 }

@@ -6,11 +6,10 @@ import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
 import { TrashTable } from './trash-table';
 
-// Retention window shown in the UI. The backend auto-purge job reads
-// the same value from RECYCLE_BIN_RETENTION_DAYS; we default to 30 here
-// to match docs/soft-delete.md. When the endpoint that exposes this
-// setting lands we should read it from the server instead of hard-coding.
-const RETENTION_DAYS = 30;
+// Retention window shown when /users/me does not say (an older API).
+// The purge job reads RECYCLE_BIN_RETENTION_DAYS and /users/me reports
+// the same value as trashRetentionDays.
+const DEFAULT_RETENTION_DAYS = 30;
 
 // Explicit kind union. Future kinds (users, reports) slot in here.
 type Kind = 'items' | 'groups';
@@ -41,6 +40,10 @@ export default async function RecentlyDeletedPage(props: Props) {
       : [[] as Item[], await apiFetch<Group[]>('/api/groups/trash')];
 
   const activeList = kind === 'items' ? items : groups;
+  const me = await apiFetch<{ trashRetentionDays?: number }>('/api/users/me').catch(
+    () => null,
+  );
+  const retentionDays = me?.trashRetentionDays ?? DEFAULT_RETENTION_DAYS;
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -50,7 +53,7 @@ export default async function RecentlyDeletedPage(props: Props) {
           Recently deleted
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted">
-          Content you delete lives here for {RETENTION_DAYS} days so you can
+          Content you delete lives here for {retentionDays} days so you can
           bring it back if you change your mind. After that it is
           permanently removed.
         </p>
@@ -87,13 +90,13 @@ export default async function RecentlyDeletedPage(props: Props) {
               ? 'No items to recover'
               : 'No groups to recover'
           }
-          description={`Deleted ${kind} will appear here for ${RETENTION_DAYS} days before permanent removal.`}
+          description={`Deleted ${kind} will appear here for ${retentionDays} days before permanent removal.`}
         />
       ) : (
         <TrashTable
           kind={kind}
           records={kind === 'items' ? items : groups}
-          retentionDays={RETENTION_DAYS}
+          retentionDays={retentionDays}
         />
       )}
     </div>

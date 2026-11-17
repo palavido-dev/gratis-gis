@@ -3,7 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { effectiveCapabilities } from '../auth/capabilities.js';
-import { SAMPLE_KINDS, SamplesService } from './samples.service.js';
+import { SAMPLE_KINDS, SamplesService, loadBatchesResumable } from './samples.service.js';
 import {
   __resetSampleAssetsCacheForTests,
   loadSampleAssets,
@@ -76,6 +76,8 @@ interface FakeRow {
   data: unknown;
   access: 'private' | 'org' | 'public';
   seedKind: string;
+  ownerId?: string;
+  deletedAt?: Date | null;
 }
 
 /** One existing row per manifest slug, at the post-seed access tiers
@@ -137,6 +139,8 @@ function allExistingRows(): FakeRow[] {
     data,
     access,
     seedKind,
+    ownerId: 'user-1',
+    deletedAt: null,
   }));
 }
 
@@ -246,6 +250,34 @@ describe('SamplesService.seedSampleData', () => {
       'sample-sub-3',
       'sample-sub-4',
     ]);
+  });
+
+  it('leaves the tier of an existing item alone on a re-run', async () => {
+    // The owner made the public facilities layer private.
+    const rows = allExistingRows().map((r) =>
+      r.seedKind === SAMPLE_KINDS.layerFacilities ? { ...r, access: 'private' as const } : r,
+    );
+    const deps = makeDeps(rows);
+    await makeService(deps).seedSampleData(makeUser());
+    expect(deps.items.update).not.toHaveBeenCalled();
+  });
+
+  it('skips the form steps for a form someone else owns, instead of failing', async () => {
+    const rows = allExistingRows().map((r) =>
+      r.seedKind === SAMPLE_KINDS.form ? { ...r, ownerId: 'someone-else' } : r,
+    );
+    const deps = makeDeps(rows);
+    await expect(makeService(deps).seedSampleData(makeUser())).resolves.toBeDefined();
+    expect(deps.forms.submit).not.toHaveBeenCalled();
+  });
+
+  it('skips the form steps for a trashed form', async () => {
+    const rows = allExistingRows().map((r) =>
+      r.seedKind === SAMPLE_KINDS.form ? { ...r, deletedAt: new Date() } : r,
+    );
+    const deps = makeDeps(rows);
+    await expect(makeService(deps).seedSampleData(makeUser())).resolves.toBeDefined();
+    expect(deps.forms.submit).not.toHaveBeenCalled();
   });
 
   it('creates only the missing folder and reuses existing item ids in its children', async () => {
@@ -387,5 +419,36 @@ describe('deterministicSampleUuid', () => {
     expect(a1).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
+  });
+});
+
+describe('loadBatchesResumable', () => {
+  it('finishes a layer an earlier run left part way', async () => {
+    const present = new Set<string>();
+    const rows = Array.from({ length: 2500 }, (_, i) => ({
+      globalId: `g-${i}`,
+      geometry: {},
+      properties: {},
+    }));
+    // The first batch landed before the earlier run stopped.
+    for (let i = 0; i < 1000; i++) present.add(`g-${i}`);
+    const features = {
+      listFeatures: jest.fn(async (_i: string, _l: string, o: { entity: string }) => ({
+        features: present.has(o.entity) ? [{}] : [],
+      })),
+      insertFeatures: jest.fn(async (_i: string, _l: string, batch: Array<{ globalId: string }>) => {
+        for (const r of batch) present.add(r.globalId);
+        return { inserted: batch.length };
+      }),
+    };
+    await loadBatchesResumable({
+      features: features as never,
+      user: makeUser(),
+      itemId: 'i',
+      layerId: 'l',
+      rows,
+    });
+    expect(features.insertFeatures).toHaveBeenCalledTimes(2);
+    expect(present.size).toBe(2500);
   });
 });

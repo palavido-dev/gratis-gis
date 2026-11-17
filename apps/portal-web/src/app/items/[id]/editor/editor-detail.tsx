@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -18,6 +19,8 @@ import {
   X,
 } from 'lucide-react';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
+import { useT } from '@/lib/i18n/locale-context';
+import { clientUuid } from '@/lib/uuid';
 import Link from 'next/link';
 import type {
   DataLayerData,
@@ -34,9 +37,12 @@ import { AddTargetDialog } from './add-target-dialog';
 import { AddFromMapDialog } from './add-from-map-dialog';
 import { PickMapDialog } from './pick-map-dialog';
 import { ConvertToCustomButton } from '../convert-to-custom';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initial: EditorData;
   canEdit: boolean;
 }
@@ -52,8 +58,12 @@ interface Props {
  * Authorization is conjunctive (see docs/editing-and-collection.md):
  * this UI can NARROW from what the underlying data_layer's
  * `editingEnabled` + `editingPolicy` allows, but never widen. The
- * runtime (slice 3) re-checks at request time so a stale config that
- * lists a now-disabled layer fails closed.
+ * runtime (slice 3) re-checks when it loads, so a stale config that
+ * lists a now-disabled layer offers no edit tools for it. The API also
+ * refuses writes to a layer with `editingEnabled` off, except from the
+ * item owner and admins, who keep editing it. The target's capability flags,
+ * field list and row scope are checked by the API for requests the
+ * runtime sends (EditorPolicyService).
  *
  * Persistence: PATCH /api/portal/items/<id> with `{ data: editorData }`.
  * Same shape and dirty/save flow used by every other detail editor
@@ -65,18 +75,34 @@ interface Props {
  *   - Feature template authoring per target.
  *   - The actual editing canvas runtime.
  */
-export function EditorDetail({ itemId, initial, canEdit }: Props) {
-  // The working copy. We seed `tools` from the default palette when
-  // the persisted shape is older than slice 1 and missing the
-  // field, so users on legacy items see something instead of an
-  // empty palette.
-  const [editor, setEditor] = useState<EditorData>(() => ({
+/**
+ * The working copy for a stored Editor. `tools` is seeded from the
+ * default palette only when the stored shape has no tools field at
+ * all (items older than slice 1). An empty list is the author's
+ * choice and the runtime honours it, so it is kept.
+ */
+function seedEditor(initial: EditorData): EditorData {
+  return {
     ...initial,
-    tools:
-      initial.tools && initial.tools.length > 0
-        ? initial.tools
-        : DEFAULT_EDITOR_TOOLS,
-  }));
+    tools: Array.isArray(initial.tools) ? initial.tools : DEFAULT_EDITOR_TOOLS,
+  };
+}
+
+export function EditorDetail({ itemId, initial, canEdit, updatedAt }: Props) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
+  const t = useT();
+  // The working copy, seeded by seedEditor.
+  const [editor, setEditor] = useState<EditorData>(() => seedEditor(initial));
+  // The last version written to the server. Discard goes back to
+  // this, not to the page-load `initial`, which a save does not
+  // update: going back to `initial` dropped saved changes and the
+  // next save wrote the item without them.
+  const savedRef = useRef<EditorData | null>(null);
+  if (savedRef.current === null) savedRef.current = editor;
+  // The current working copy, for save() to tell whether the user
+  // changed something while the PATCH was in flight.
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -126,18 +152,40 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
   // human-readable names + warn when a target points at a layer
   // that has been deleted, renamed, or had editing turned off.
   // Keyed by `<dataLayerId>:<layerKey>`.
+  // `item: null` means the data layer could not be loaded (deleted,
+  // no access, network), which the card shows as a broken target.
   const [resolved, setResolved] = useState<
-    Record<string, { item: Item; layer: DataLayerSublayer | null }>
+    Record<string, { item: Item | null; layer: DataLayerSublayer | null }>
   >({});
   const [resolving, setResolving] = useState(false);
   const resolveSeqRef = useRef(0);
 
+  // The set of targets, as a stable string. The resolve effect keys
+  // on this and not on `editor.targets`, which is a new array after
+  // every checkbox or keystroke in a card and refetched every data
+  // layer each time.
+  const targetsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(editor.targets.map((t) => `${t.dataLayerId}:${t.layerKey}`)),
+      )
+        .sort()
+        .join('\n'),
+    [editor.targets],
+  );
+
   // Re-resolve metadata whenever the targets list changes ids.
   // Fetches each unique data_layer in parallel and indexes the
-  // matched sublayer per target. Failures fall through to a
-  // "couldn't load" warning row in the UI.
+  // matched sublayer per target. A failed fetch keeps what was
+  // already resolved for that target, or marks it as not loadable so
+  // the card shows the broken-target warning.
   useEffect(() => {
-    const ids = Array.from(new Set(editor.targets.map((t) => t.dataLayerId)));
+    const keys = targetsKey ? targetsKey.split('\n') : [];
+    const pairs = keys.map((k) => {
+      const at = k.indexOf(':');
+      return { dataLayerId: k.slice(0, at), layerKey: k.slice(at + 1) };
+    });
+    const ids = Array.from(new Set(pairs.map((p) => p.dataLayerId)));
     if (ids.length === 0) {
       setResolved({});
       return;
@@ -160,19 +208,24 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           const it = results[i];
           if (it) byId.set(ids[i]!, it);
         }
-        const next: Record<string, { item: Item; layer: DataLayerSublayer | null }> = {};
-        for (const t of editor.targets) {
-          const key = `${t.dataLayerId}:${t.layerKey}`;
-          const item = byId.get(t.dataLayerId);
-          if (!item) continue;
-          const data = item.data as DataLayerData | undefined;
-          const layer =
-            data && data.version === 3
-              ? (data.layers.find((l) => l.id === t.layerKey) ?? null)
-              : null;
-          next[key] = { item, layer };
-        }
-        setResolved(next);
+        setResolved((cur) => {
+          const next: typeof cur = {};
+          for (const t of pairs) {
+            const key = `${t.dataLayerId}:${t.layerKey}`;
+            const item = byId.get(t.dataLayerId);
+            if (!item) {
+              next[key] = cur[key] ?? { item: null, layer: null };
+              continue;
+            }
+            const data = item.data as DataLayerData | undefined;
+            const layer =
+              data && data.version === 3
+                ? (data.layers.find((l) => l.id === t.layerKey) ?? null)
+                : null;
+            next[key] = { item, layer };
+          }
+          return next;
+        });
       } finally {
         if (!cancelled && resolveSeqRef.current === seq) setResolving(false);
       }
@@ -180,7 +233,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [editor.targets]);
+  }, [targetsKey]);
 
   // Browser nag on unsaved changes. Same pattern as MapEditor.
   useEffect(() => {
@@ -359,31 +412,30 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
         template: 'editor',
         config: { template: 'editor', editor },
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
-      if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
         return;
       }
-      setDirty(false);
+      if (!res.ok) {
+        setError(await parseApiError(res, 'Save failed'));
+        return;
+      }
+      savedRef.current = editor;
+      // An edit made while the request was out was not sent, so it
+      // stays unsaved.
+      if (editorRef.current === editor) setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
   }
 
   function cancel() {
-    setEditor({
-      ...initial,
-      tools:
-        initial.tools && initial.tools.length > 0
-          ? initial.tools
-          : DEFAULT_EDITOR_TOOLS,
-    });
+    setEditor(savedRef.current ?? seedEditor(initial));
     setDirty(false);
     setError(null);
   }
@@ -398,20 +450,20 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
         <span className="rounded-full bg-warn/15 px-2 py-0.5 text-2xs font-medium text-warn">
-          Unsaved changes
+          {t('editorDetail.unsavedChanges')}
         </span>
       ) : canEdit && saved ? (
-        <span className="text-2xs text-success">Saved</span>
+        <span className="text-2xs text-success">{t('editorDetail.saved')}</span>
       ) : null}
       <a
         href={`/items/${itemId}/editor/run`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
-        title="Open this editor in a new tab"
+        title={t('editorDetail.openInWorkspaceTitle')}
       >
         <Play className="h-3.5 w-3.5" />
-        Open in workspace
+        {t('editorDetail.openInWorkspace')}
       </a>
       {canEdit ? (
         <>
@@ -427,7 +479,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             disabled={!dirty || saving}
             className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
           >
-            Discard
+            {t('editorDetail.discard')}
           </button>
           <button
             type="button"
@@ -436,7 +488,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Save
+            {t('common.save')}
           </button>
         </>
       ) : null}
@@ -454,10 +506,10 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             type="button"
             onClick={() => setAddingFromMap(true)}
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
-            title="Bulk-import editable layers from a map"
+            title={t('editorDetail.addFromMapTitle')}
           >
             <MapIcon className="h-3.5 w-3.5" />
-            Add from map
+            {t('editorDetail.addFromMap')}
           </button>
           <button
             type="button"
@@ -465,7 +517,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add target
+            {t('editorDetail.addTarget')}
           </button>
         </div>
       ) : null}
@@ -540,7 +592,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
                 type="button"
                 onClick={() => pickMap(null)}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Clear reference map"
+                aria-label={t('editorDetail.clearReferenceMapAria')}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -634,14 +686,14 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
       <BuilderShell
         storageKey="builder-shell:editor"
         backHref="/items"
-        title="Editor configuration"
+        title={t('editorDetail.configurationTitle')}
         icon={<PencilRuler className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={targetsPanel}
-        leftPanelTitle="Targets"
+        leftPanelTitle={t('editorRuntime.targetsPanelTitle')}
         leftRailIcon={<Layers className="h-4 w-4" />}
         rightPanel={settingsPanel}
-        rightPanelTitle="Settings"
+        rightPanelTitle={t('common.settings')}
         rightRailIcon={<Settings className="h-4 w-4" />}
       >
         <div className="absolute inset-0 flex flex-col gap-4 overflow-auto p-6">
@@ -656,7 +708,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
           <div className="mx-auto max-w-2xl rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center">
             <PencilRuler className="mx-auto h-8 w-8 text-purple-300" />
             <h2 className="mt-2 text-sm font-semibold text-ink-0">
-              Editor configuration
+              {t('editorDetail.configurationTitle')}
             </h2>
             <p className="mt-1 text-xs text-muted">
               Add target layers in the left panel, configure the
@@ -670,7 +722,7 @@ export function EditorDetail({ itemId, initial, canEdit }: Props) {
               className="mt-4 inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
             >
               <Play className="h-3.5 w-3.5" />
-              Open editor in a new tab
+              {t('editorDetail.openEditorNewTab')}
             </a>
           </div>
         </div>
@@ -705,8 +757,8 @@ const ALL_TOOLS: Array<{ key: EditorTool; label: string; hint: string }> = [
   { key: 'add', label: 'Add', hint: 'Create new features.' },
   {
     key: 'magic',
-    label: 'Magic outline-solid',
-    hint: 'Click a building or field on imagery; its outline-solid is drawn for you.',
+    label: 'Magic outline',
+    hint: 'Click a building or field on imagery; its outline is drawn for you.',
   },
   { key: 'edit', label: 'Edit', hint: 'Modify geometry or attributes.' },
   { key: 'snap', label: 'Snap toggle', hint: 'Surface a snap on/off button.' },
@@ -717,7 +769,7 @@ const ALL_TOOLS: Array<{ key: EditorTool; label: string; hint: string }> = [
 
 interface TargetRowProps {
   target: EditorTarget;
-  resolved: { item: Item; layer: DataLayerSublayer | null } | null;
+  resolved: { item: Item | null; layer: DataLayerSublayer | null } | null;
   resolving: boolean;
   canEdit: boolean;
   onPatch: (updater: (t: EditorTarget) => EditorTarget) => void;
@@ -739,6 +791,7 @@ function TargetRow({
   onPatch,
   onRemove,
 }: TargetRowProps) {
+  const t = useT();
   const layer = resolved?.layer ?? null;
   const item = resolved?.item ?? null;
   const broken = resolved !== null && layer === null;
@@ -766,7 +819,9 @@ function TargetRow({
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium text-ink-0">
               {item?.title ?? (
-                <span className="text-muted">Loading...</span>
+                <span className="text-muted">
+                  {broken ? target.dataLayerId : 'Loading...'}
+                </span>
               )}
             </span>
             <span className="text-muted">/</span>
@@ -814,8 +869,8 @@ function TargetRow({
             type="button"
             onClick={onRemove}
             className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-danger"
-            aria-label="Remove target"
-            title="Remove target"
+            aria-label={t('editorDetail.removeTargetAria')}
+            title={t('editorDetail.removeTargetAria')}
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -1041,13 +1096,11 @@ function TemplatesSection({
   canEdit,
   onPatch,
 }: TemplatesSectionProps) {
+  const t = useT();
   const [expanded, setExpanded] = useState<string | null>(null);
 
   function addTemplate() {
-    const id =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `tpl-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const id = clientUuid();
     const next: EditorFeatureTemplate = {
       id,
       label: `Template ${templates.length + 1}`,
@@ -1140,8 +1193,8 @@ function TemplatesSection({
                       type="button"
                       onClick={() => removeTemplate(tpl.id)}
                       className="shrink-0 rounded p-1 text-muted hover:bg-surface-2 hover:text-danger"
-                      aria-label="Remove template"
-                      title="Remove template"
+                      aria-label={t('editorDetail.removeTemplateAria')}
+                      title={t('editorDetail.removeTemplateAria')}
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>

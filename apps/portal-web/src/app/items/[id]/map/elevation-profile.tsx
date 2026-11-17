@@ -113,9 +113,16 @@ export function ElevationProfileTool({
   drawingRef.current = drawing;
   const activeDraw = open && line === null;
 
+  // Bumped by each new line, by "Draw again" and by closing the tool.
+  // A read that finishes after any of those belongs to a line that is
+  // no longer on the map, so its result is dropped.
+  const readSeqRef = useRef(0);
+
   const finishLine = useCallback(
     async (coords: Array<[number, number]>) => {
       if (coords.length < 2) return;
+      const seq = ++readSeqRef.current;
+      const current = () => seq === readSeqRef.current;
       setLine(coords);
       setBusy(true);
       setError(null);
@@ -130,25 +137,28 @@ export function ElevationProfileTool({
           Math.max(...lats),
         ];
         const dem = await resolveDemUrl(bbox);
+        if (!current()) return;
         if (!dem) {
           setError(t('mapElevationProfile.noCoverage'));
           return;
         }
         setDemTitle(dem.title ?? null);
         const profile = await sampleElevationProfile(dem.url, coords);
+        if (!current()) return;
         if (profile.points.every((p) => p.elev === null)) {
           setError(t('mapElevationProfile.noDataAlongLine'));
           return;
         }
         setResult(profile);
       } catch (err) {
+        if (!current()) return;
         setError(
           err instanceof Error
             ? err.message
             : t('mapElevationProfile.readFailed'),
         );
       } finally {
-        setBusy(false);
+        if (current()) setBusy(false);
       }
     },
     [resolveDemUrl, t],
@@ -282,6 +292,8 @@ export function ElevationProfileTool({
   // Reset transient state whenever the tool opens fresh.
   useEffect(() => {
     if (!open) {
+      readSeqRef.current += 1;
+      setBusy(false);
       setDrawing([]);
       setLine(null);
       setResult(null);
@@ -301,6 +313,8 @@ export function ElevationProfileTool({
   }
 
   function redraw() {
+    readSeqRef.current += 1;
+    setBusy(false);
     setLine(null);
     setResult(null);
     setError(null);
@@ -389,8 +403,7 @@ export function ElevationProfileTool({
             />
           ) : (
             <div className="flex h-36 items-center justify-center text-sm text-muted">
-              Draw a line on the map to see the ground elevation along
-              it.
+              {t('mapElevationProfile.emptyHint')}
             </div>
           )}
         </div>

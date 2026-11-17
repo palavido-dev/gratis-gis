@@ -42,6 +42,11 @@ interface Props {
   itemId: string;
   initial: GeocodingServiceData;
   canEdit: boolean;
+  /** Only an org admin may build the search indexes (the build locks
+   *  the shared observation table for every org). An owner who is not
+   *  an admin can still save; they are told to ask an admin instead
+   *  of getting a refused rebuild after every save. */
+  canRebuildIndexes?: boolean;
 }
 
 /** Compact shape for the source-layer picker. We pull the lite
@@ -61,7 +66,12 @@ interface SchemaFieldRow {
   label?: string;
 }
 
-export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
+export function GeocodingServiceEditor({
+  itemId,
+  initial,
+  canEdit,
+  canRebuildIndexes = false,
+}: Props) {
   const fmt = useFormat();
   const router = useRouter();
   const [draft, setDraft] = useState<GeocodingServiceData>(initial);
@@ -389,7 +399,7 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
    * save-triggered rebuild so the UX is consistent.
    */
   async function rebuildOnly() {
-    if (!canEdit) return;
+    if (!canEdit || !canRebuildIndexes) return;
     setError(null);
     setIndexBuilding(true);
     setIndexSummary(null);
@@ -475,7 +485,7 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
       // Trigger the index rebuild only for internal-mode geocoders.
       // External-arcgis mode has no PostGIS data to index; the
       // upstream server owns its own index strategy.
-      if (mode === 'internal') {
+      if (mode === 'internal' && canRebuildIndexes) {
         setIndexBuilding(true);
         try {
           const idxRes = await fetch(
@@ -1010,11 +1020,18 @@ export function GeocodingServiceEditor({ itemId, initial, canEdit }: Props) {
             ) : (
               <p className="text-muted">No changes.</p>
             )}
+            {mode === 'internal' && !canRebuildIndexes ? (
+              <p className="mt-1 text-muted">
+                Search indexes are built by an org admin. Ask one to
+                open this geocoder and choose Rebuild indexes; until
+                then queries work but are slower on large layers.
+              </p>
+            ) : null}
           </div>
           {/* Rebuild indexes (#74 perf followup). Internal mode only.
               External-arcgis geocoders have no local indexes to
               rebuild; the upstream owns its own index strategy. */}
-          {mode === 'internal' ? (
+          {mode === 'internal' && canRebuildIndexes ? (
             <button
               type="button"
               onClick={() => void rebuildOnly()}

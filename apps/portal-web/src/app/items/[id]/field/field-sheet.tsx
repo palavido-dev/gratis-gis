@@ -57,6 +57,39 @@ export type SnapPoint = number;
 let sheetSequence = 0;
 
 /**
+ * History bookkeeping shared by every sheet.
+ *
+ * history.back() is asynchronous. When one sheet replaced another in
+ * the same render (template picker to form, popup to Edit), the old
+ * sheet's cleanup called back(), the new sheet pushed its own entry,
+ * and the popstate from that back() then landed on the new sheet,
+ * which took it for the hardware back button and closed at once.
+ * React StrictMode's mount, unmount, mount did the same to a single
+ * sheet in development.
+ *
+ * So a closing sheet does not pop straight away. It releases its
+ * entry and pops on the next task; a sheet that opens before then
+ * adopts the released entry with replaceState instead of pushing,
+ * and no back() is issued at all. A back() that is issued is counted,
+ * and the popstate it causes is marked as ours so no sheet reacts.
+ */
+let releasedToken: number | null = null;
+let ownBacksPending = 0;
+let lastPopWasOwn = false;
+let popWatcherInstalled = false;
+
+function installPopWatcher(): void {
+  if (popWatcherInstalled || typeof window === 'undefined') return;
+  popWatcherInstalled = true;
+  // Registered before any sheet's own listener, so it runs first and
+  // the sheet can read lastPopWasOwn for the same event.
+  window.addEventListener('popstate', () => {
+    lastPopWasOwn = ownBacksPending > 0;
+    if (lastPopWasOwn) ownBacksPending -= 1;
+  });
+}
+
+/**
  * Height of the part of the screen not covered by the soft keyboard,
  * plus how far the sheet must lift to clear it.
  *
@@ -202,16 +235,26 @@ export function FieldSheet({
   const pushedTokenRef = useRef<number | null>(null);
   useEffect(() => {
     if (!open) return;
+    installPopWatcher();
     const token = ++sheetSequence;
     pushedTokenRef.current = token;
     try {
-      window.history.pushState({ __ggSheet: token }, '');
+      const top = window.history.state as { __ggSheet?: number } | null;
+      if (releasedToken !== null && top?.__ggSheet === releasedToken) {
+        // The sheet that just closed left its entry for us to reuse.
+        releasedToken = null;
+        window.history.replaceState({ __ggSheet: token }, '');
+      } else {
+        window.history.pushState({ __ggSheet: token }, '');
+      }
     } catch {
       // Some embedded webviews refuse pushState. The sheet still
       // works; back just leaves the page as it did before.
       pushedTokenRef.current = null;
     }
     const onPop = () => {
+      // A back() a closing sheet issued, not the user.
+      if (lastPopWasOwn) return;
       // Our entry is gone already; do not try to pop it again.
       pushedTokenRef.current = null;
       // Deliberately NOT routed through onBeforeClose. The user has
@@ -234,7 +277,17 @@ export function FieldSheet({
       pushedTokenRef.current = null;
       if (token === null) return;
       const state = window.history.state as { __ggSheet?: number } | null;
-      if (state && state.__ggSheet === token) window.history.back();
+      if (!state || state.__ggSheet !== token) return;
+      // Release rather than pop now; see releasedToken above.
+      releasedToken = token;
+      setTimeout(() => {
+        if (releasedToken !== token) return; // adopted by the next sheet
+        releasedToken = null;
+        const top = window.history.state as { __ggSheet?: number } | null;
+        if (top?.__ggSheet !== token) return;
+        ownBacksPending += 1;
+        window.history.back();
+      }, 0);
     };
   }, [open]);
 

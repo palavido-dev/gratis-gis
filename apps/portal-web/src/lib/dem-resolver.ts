@@ -23,6 +23,29 @@ export interface DemRef {
 }
 
 /**
+ * True when the map itself carries an elevation / terrain surface
+ * (a stack entry or the legacy single tileUrl). Used to gate the
+ * elevation-profile and visibility toolbar tools so they stay
+ * hidden on flat maps with no DEM wired in. Org-wide fallback
+ * lookup in `resolveDemForBbox` is intentionally NOT enough to
+ * show the tools — the map has to contain the source.
+ */
+export function mapHasElevationSource(
+  terrain:
+    | {
+        itemId?: string;
+        tileUrl?: string;
+        stack?: Array<{ itemId: string; tileUrl: string }>;
+      }
+    | undefined
+    | null,
+): boolean {
+  if (!terrain) return false;
+  if (terrain.stack && terrain.stack.length > 0) return true;
+  return Boolean(terrain.tileUrl);
+}
+
+/**
  * #211: with a multi-entry terrain stack, the entry that owns the
  * ground under the queried bbox is the first one (priority order)
  * whose stamped footprint touches it, mirroring the mosaic's

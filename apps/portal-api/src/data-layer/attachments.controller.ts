@@ -23,8 +23,13 @@ import {
   FEATURE_ATTACHMENT_MAX_BYTES,
   StorageService,
 } from '../storage/storage.service.js';
-import { assertAttachmentAccess } from './attachments-access.js';
+import {
+  assertAttachmentAccess,
+  assertFeatureVisible,
+} from './attachments-access.js';
+import { DataLayerEngine } from '../engine/data-layer.js';
 import { DataLayerAttachmentsService } from './attachments.service.js';
+import { contentDisposition } from '../common/content-disposition.js';
 
 class RegisterAttachmentDto implements RegisterFeatureAttachmentInput {
   @IsString() @MaxLength(500) fileName!: string;
@@ -57,6 +62,7 @@ export class DataLayerAttachmentsController {
     private readonly sharing: SharingService,
     private readonly attachments: DataLayerAttachmentsService,
     private readonly storage: StorageService,
+    private readonly engine: DataLayerEngine,
   ) {}
 
   @Get()
@@ -66,7 +72,7 @@ export class DataLayerAttachmentsController {
     @Param('layerId') layerId: string,
     @Param('fid') featureId: string,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -74,6 +80,7 @@ export class DataLayerAttachmentsController {
       layerId,
       'download',
     );
+    await assertFeatureVisible(this.engine, itemId, layerId, featureId, access);
     return this.attachments.list(itemId, layerId, featureId);
   }
 
@@ -85,7 +92,7 @@ export class DataLayerAttachmentsController {
     @Param('fid') featureId: string,
     @Body() dto: RegisterAttachmentDto,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -99,6 +106,7 @@ export class DataLayerAttachmentsController {
       featureId,
       dto,
       user.id,
+      access,
     );
   }
 
@@ -117,7 +125,7 @@ export class DataLayerAttachmentsController {
     @Headers('range') rangeHeader: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -125,6 +133,7 @@ export class DataLayerAttachmentsController {
       layerId,
       'download',
     );
+    await assertFeatureVisible(this.engine, itemId, layerId, featureId, access);
     const row = await this.attachments.getForDownload(
       itemId,
       layerId,
@@ -135,12 +144,15 @@ export class DataLayerAttachmentsController {
       row.storageKey,
       rangeHeader,
     );
+    // Registered before any header is set: if anything below threw,
+    // the open S3 stream would otherwise hold its socket until the
+    // SDK's idle timeout.
+    res.on('close', () => upstream.body.destroy());
     const servedType = (upstream.contentType ?? '')
       .split(';')[0]!
       .trim()
       .toLowerCase();
     const inlineSafe = /^image\/(png|jpeg|webp|gif|avif)$/.test(servedType);
-    const safeName = row.fileName.replace(/["\\\r\n]/g, '');
 
     res.status(upstream.statusCode);
     if (upstream.contentType) {
@@ -156,11 +168,10 @@ export class DataLayerAttachmentsController {
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader(
       'Content-Disposition',
-      `${inlineSafe ? 'inline' : 'attachment'}; filename="${safeName}"`,
+      contentDisposition(inlineSafe ? 'inline' : 'attachment', row.fileName),
     );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');
-    res.on('close', () => upstream.body.destroy());
     upstream.body.pipe(res);
   }
 
@@ -173,7 +184,7 @@ export class DataLayerAttachmentsController {
     @Param('fid') featureId: string,
     @Param('attId') attachmentId: string,
   ) {
-    await assertAttachmentAccess(
+    const access = await assertAttachmentAccess(
       this.items,
       this.sharing,
       user,
@@ -181,6 +192,9 @@ export class DataLayerAttachmentsController {
       layerId,
       'write',
     );
+    // An own-rows or geo-limited editor may only remove attachments
+    // on features they can edit.
+    await assertFeatureVisible(this.engine, itemId, layerId, featureId, access);
     await this.attachments.remove(itemId, layerId, featureId, attachmentId);
   }
 }

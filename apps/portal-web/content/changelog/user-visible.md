@@ -3,20 +3,153 @@
 User-visible changes shipped to GratisGIS. Plain-English summaries
 only; one entry per notable feature. Add new entries at the top.
 
-Format: `## YYYY-MM-DD - Short feature name` on one line, then one
-short paragraph of plain-English description on the next line.
+Format:
 
-This file is loaded by the public landing page at runtime, so
-keep entries short and accessible. Anything that reads like a
-release note ("Refactored the X service") doesn't belong here.
+- Optional release banner (Keep a Changelog style), once per tagged
+  release: `## [0.9.120] - 2026-10-28`. Entries below inherit that
+  version until the next banner or `## [earlier]` (clears the stamp
+  for pre-version history). The landing card and `/whats-new`
+  history page group by these banners.
+- Each feature: `## YYYY-MM-DD - Short feature name` on one line,
+  then one short paragraph of plain-English description.
+
+This file is loaded by the public landing page (five newest) and
+the full `/whats-new` history at runtime, so keep entries short and
+accessible. Anything that reads like a developer release note
+("Refactored the X service") doesn't belong here. Prefer starting a
+new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
-## 2026-10-28 - Help is easier to browse
+## 2026-11-17 - Help is easier to browse
 The help home page now leads with task cards (new here, publish, collect, analyze, build apps, automate, admin). The sidebar stays collapsed until you open a section, and Analysis / Items are grouped by job instead of one long flat list.
 
-## 2026-10-28 - Help pages show the real UI
+## 2026-11-17 - Help pages show the real UI
 Getting started, form designer, map and data layer detail, and the analysis recipe steps (Buffer, Clip, and the other guided tools) now include screenshots of the live portal instead of wireframe drawings.
+
+## [1.6.0] - 2026-11-13
+
+## 2026-11-13 - A new look, and tighter sharing
+GratisGIS has a new logo and brand colour. Printed maps now include your private and organization layers. Turning off editing on a layer now really stops shared editors, share lists are visible only to owners and admins, and dozens of smaller improvements land across forms, maps, apps and the Android app.
+
+## [1.5.0] - 2026-11-12
+
+## 2026-11-12 - A tighter, more reliable GratisGIS
+This release finishes a full review of the code. Offline edits are no longer lost or sent twice, field maps sync more reliably on weak signal, Viewer apps open large layers quickly by drawing them from map tiles, printed maps match the screen, and hundreds of smaller problems across maps, forms, apps and admin pages are fixed.
+
+## [1.4.3] - 2026-11-12
+
+## 2026-11-12 - Safer editing and a security update
+Clicking a second feature while an edit form is open now shows that feature's own values instead of saving the first one's onto it, and table edits always land on the row you changed. Offline edits keep the feature's real shape. This release also closes several security gaps found in a full review.
+
+## [1.4.2] - 2026-11-11
+
+## 2026-11-11 - Permanently deleting large layers works
+Permanently deleting a data layer from Recently deleted failed for large layers and left their data behind. It now finishes, however big the layer is.
+
+## [1.4.1] - 2026-11-10
+
+## 2026-11-10 - File imports work again
+In 1.4.0, importing a file from the new item wizard failed with "The portal API could not be reached" right after the upload finished. Imports, exports and backup restores now go through again.
+
+## [1.4.0] - 2026-11-10
+
+## 2026-11-10 - Upload files of any size
+Imports go straight to storage in parts, so multi-gigabyte files upload from the browser. If the connection drops or the tab closes, pick the same file again and the upload picks up where it stopped. The only limit is the server's free disk space, and you are told up front if a file will not fit.
+
+## 2026-11-10 - Sharper point symbols, and image symbols
+Point icons now sit centered inside their circle or square background and stay sharp when you change their color. You can also use your own PNG or JPEG images as point symbols.
+
+## [1.3.0] - 2026-11-09
+
+## 2026-11-09 - KML and KMZ keep all their fields
+Imported KML and KMZ files now keep every attribute stored on each placemark, not only Name and Description. Numbers and yes/no values keep their types.
+
+## 2026-11-09 - Large imports finish
+Big shapefiles and geodatabases no longer stop partway through. Files with date columns import with their dates instead of failing every row.
+
+## 2026-11-09 - Layers with many tables save
+A layer with dozens of related tables now saves. Before, a large schema was refused as too big.
+
+## 2026-11-09 - Vector tiles: TileJSON, labels and per-layer settings
+Each layer publishes a TileJSON document, carries a label layer, and has its own tile settings for fields, zoom range, cache age and feature cap. Tiles are also cached on disk, so a restart no longer starts cold.
+
+## 2026-11-08 - Address search works on a home NAS; GPS still needs HTTPS
+Finding an address works on the plain HTTP address. The browser was asking a path the proxy did not send to the portal. My location is GPS: browsers block it on http://192.168.x.x. The button explains that and points at Tailscale HTTPS. It does not turn GPS on for plain HTTP.
+
+## 2026-11-08 - Tailscale sign-in stays on the name you configure
+Signing in from a Tailscale name no longer sends the browser to the LAN address. Set GRATIS_BASE_URL to that name and restart. Keep the volumes. Until you do, the sign-in page shows the line to add instead of leaving the name you opened.
+
+## 2026-11-08 - Shapefile, KMZ, GeoPackage, and GeoJSON load into a data layer
+A zipped shapefile, KMZ, GeoPackage, or GeoJSON added to a data layer now keeps its features, not just an empty schema. Dashboards can use that layer after the import finishes. Updating the portal images is enough. You do not reset volumes.
+
+## 2026-11-06 - Pick a location on a map, and sign forms
+Location questions in forms now show a small map: tap it or drag the pin to report a spot you are not standing on. Signature questions show a pad to sign with a finger, stylus, or mouse; the signature is saved as an image with the response.
+
+## [1.2.0] - 2026-11-05
+
+## 2026-11-05 - Admin Updates page
+Signed-in admins get an Updates page that compares this install with GitHub and lists backup and restart steps. It does not update Docker for you.
+
+## 2026-11-05 - Showcase dashboards on Load sample
+Load showcase dashboards adds the public demo's storm-events and West Virginia water-quality dashboards plus Elkins in 3D, each with fresh ids for your install.
+
+## 2026-11-05 - Add layer works on plain HTTP NAS
+Opening GratisGIS at `http://` on a LAN address (typical TrueNAS) no longer breaks Add layer, Add group, or drawing. Failed layer creates also show the server reason.
+
+## [1.1.0] - 2026-11-03
+
+## 2026-11-03 - Install on a home NAS
+Paste one compose file into TrueNAS or Dockge; the first boot writes secrets and prints the LAN address and admin password. Listens on 8080 by default so your NAS UI can keep 80/443. Optional Tailscale, Cloudflare Tunnel, and public-domain modes are in the TrueNAS guide.
+
+## 2026-11-03 - Live markup with a teammate
+When you and a signed-in teammate both edit the same markup set on a map, new pins and sketches show up for each other without overwriting. Anonymous markup still saves the older way.
+
+## 2026-11-03 - @mentions in map comments
+On a map, type `@username` in a comment or reply to email that person when they can view the map and your portal has notifications turned on. Unknown names stay as plain text.
+
+## [1.0.0] - 2026-10-31
+
+## 2026-10-31 - Area square next to the scale bar
+Maps now show a small square beside the distance scale bar — typically 1 acre, 10 acres, 100 acres, and so on as you zoom — so you can judge area at a glance, not only length. Click the square to cycle units (acres, hectares, square meters, square kilometers, square miles, square feet); the scale bar stays in the matching metric or imperial family.
+
+## 2026-10-31 - Past runs on Analyze
+On a data layer's Analyze tab, **Past runs** lists your derived layers from that layer. Re-run creates a new private copy of the same recipe; Edit & re-run opens the matching guided form when one exists.
+
+## [0.9.126] - 2026-10-30
+
+## 2026-10-30 - Buffer from the map layer menu
+On a map, the layer ⋮ menu now includes Buffer, Centroids, and Convex hull for data layers. Each opens the guided Analyze form on that layer in a new tab. You can also share `?tool=buffer#data` (and the other Analyze tool ids) straight into the form.
+
+## [0.9.125] - 2026-10-29
+
+## 2026-10-29 - Measure locks top-down for ground area
+Opening Measure jumps the map flat and keeps tilt locked so a sketch that looks like it covers a parcel matches the acreage readout and the scale bar. Ground (slope) area stays the main number when terrain is on; horizontal planimetric acres stay listed underneath.
+
+## [0.9.124] - 2026-10-29
+
+## 2026-10-29 - Measure flattens pitched 3D
+Opening Measure eases the map to top-down so a sketch that looks like it covers a parcel matches the acreage readout and the scale bar. Ground (slope) area stays the main number when terrain is on; horizontal planimetric acres stay listed underneath. Public landing, item, and basemap gallery endpoints tighten anonymous rate limits further.
+
+## [0.9.123] - 2026-10-29
+
+## 2026-10-29 - Measure ground area on 3D terrain
+With elevation terrain on, Measure → Area shows ground (slope) surface acres as the main number, and still lists horizontal planimetric area underneath (the same basis as parcel acre fields). Pitched 3D makes sketches look larger than their map footprint — flatten the pitch and check the scale bar when comparing.
+
+## [0.9.122] - 2026-10-29
+
+## 2026-10-29 - Measure scale bar, more chrome languages, honest data-layer help
+The Measure pane no longer covers the map scale bar, so pitched 3D area sketches have ground truth next to the readout. Folder, item, and print-template chrome join the language catalogs. Data layer help drops the “native Esri feature service” claim. Public catalog, CSW, and zoom-to-filter endpoints tighten anonymous rate limits further.
+
+## [0.9.121] - 2026-10-28
+
+## 2026-10-28 - Measure, print preview, and elevation profile
+Maps gain a Measure tool for distances and areas, Print this map shows a layout preview before PDF download (with hover thumbnails), and the elevation Profile works again on Web Mercator DEMs — Profile and View From only appear when the map has terrain. Builder and sharing chrome keep expanding through Spanish, French, German, and Brazilian Portuguese. Public layer and catalogue endpoints tighten anonymous rate limits further.
+
+## 2026-10-28 - Full What's new history
+The landing What's new card now links to a scrollable `/whats-new` page that lists every past update, grouped by release when a version banner is present.
+
+## [0.9.120] - 2026-10-28
 
 ## 2026-10-28 - Analyze shortcuts, field chrome languages, and tighter public API limits
 Analyze can now create private PostGIS layers for Group by, Contour, Random sample, Top N, Fishnet, Nearest neighbor, and more from the layer tab. Field and map editor chrome keep growing into Spanish, French, German, and Brazilian Portuguese. Public list and search endpoints that used to share a loose global budget now rate-limit anonymous scans more tightly.
@@ -62,6 +195,8 @@ On a data layer's Analyze tab, **Bounding boxes for this layer** creates a priva
 
 ## 2026-10-28 - Field collect buttons follow your language
 On a field deployment, Add at GPS / Add at center (and Vertex at … for lines and polygons), Remove from device, and the map tool labels follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
+
+## [earlier]
 
 ## 2026-10-27 - Honest streaming note on large point clouds
 On a point cloud item, clouds over about 20 million points show a short note under the 3D viewer: lower in-view density and delayed rebuilds while you pan (stricter again over 100 million). This is a responsiveness tradeoff, not Potree-style LOD or 3D Tiles yet — see Point cloud help.

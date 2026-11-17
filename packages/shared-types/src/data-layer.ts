@@ -17,6 +17,7 @@
  */
 
 import type { ISODateString } from './ids';
+import type { LayerTileSettings } from './tile-settings';
 
 /**
  * Authoritative column types. Keep synced with the form-schema package.
@@ -220,7 +221,7 @@ export interface DataLayerDataV2 {
 export type LayerGeometryType = 'point' | 'line' | 'polygon' | null;
 
 export interface DataLayerSublayer {
-  /** Stable within the item. Used in table name + API paths. */
+  /** Stable within the item. Used in API paths and observation scopes. */
   id: string;
   /** Display name: what appears in the legend and layer list. */
   label: string;
@@ -243,6 +244,12 @@ export interface DataLayerSublayer {
    * so existing layers keep working unchanged.
    */
   editingPolicy?: 'all-rows' | 'own-rows-only';
+  /**
+   * Optional vector tile settings (fields carried, zoom range, feature
+   * cap, browser cache age). Absent keeps the server defaults. See
+   * tile-settings.ts for the bounds; the API validates on save.
+   */
+  tiles?: LayerTileSettings;
   /** Should features in this layer carry attachments (photos, docs)?
    *  Backend support is Phase E; the flag is stored today so Phase B
    *  UIs can read/write it without a second migration. */
@@ -339,7 +346,7 @@ export const DEFAULT_DATA_LAYER_V3: DataLayerDataV3 = {
  * Public record returned by the per-feature attachment list/register
  * endpoints and by the layer-wide bulk list. Bytes live in object
  * storage; this is metadata only. `storageKey` is intentionally
- * omitted from the public shape — clients download via
+ * omitted from the public shape; clients download via
  * `GET .../attachments/:attId/download` (or the private-asset proxy
  * for browser `<img>` tags) rather than reconstructing a key from
  * `storageUrl`.

@@ -10,25 +10,22 @@
  * what the chromium sidecar captures matches what the print
  * designer's WYSIWYG showed.
  *
- * Phase 2.1 scope:
+ * Elements:
  *   - Text elements render with the same font / color / align /
  *     border / background rules as the designer.
  *   - Image elements render via plain <img>.
  *   - Line + Rectangle elements render via styled divs.
- *   - Legend / Scalebar / North arrow elements render simplified
- *     visual stand-ins (real map-bound versions land in Phase
- *     2.2 alongside the in-page MapLibre snapshot).
- *   - Map element renders an iframe pointing at the
- *     /items/:mapId?view=embed surface so the chromium sidecar
- *     captures a real map. The same-network call stays cheap
- *     (portal-web hits portal-api over the docker bridge).
+ *   - Legend lists the bound map's visible layers; Scalebar and
+ *     North arrow follow the map as printed.
+ *   - Map element renders an inline MapLibre snapshot
+ *     (map-snapshot.tsx), and PrintReadySignal tells the pipeline
+ *     when every map on the sheet has finished.
  *
  * Token resolution: text segments referencing parameter tokens
  * resolve to the runtime-supplied value or the parameter's
  * declared defaultValue. Dynamic tokens (today_date, etc.)
- * resolve to the obvious computed value; map_extent_bbox stays
- * a string placeholder until Phase 2.2 wires the real map
- * extent through.
+ * resolve to the computed value in the requester's locale and time
+ * zone; the map_* tokens follow the map as printed.
  */
 import type { JSX } from 'react';
 import type {
@@ -52,6 +49,7 @@ import { resolvePaperInches } from '@gratis-gis/shared-types';
 import type { BasemapData } from '@gratis-gis/shared-types';
 
 import { MapSnapshot } from './map-snapshot';
+import { PrintReadySignal } from './print-ready-signal';
 import {
   PRINT_FONT,
   PRINT_INK as INK,
@@ -65,6 +63,12 @@ import {
 } from '@/lib/print-theme';
 import { formatDate, formatDateTime, formatNumber } from '@/lib/i18n/format';
 import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
+import {
+  metersPerPixel,
+  scaleBar,
+  scaleDenominator,
+  zoomForScale,
+} from '@/lib/web-mercator';
 
 const DESIGN_DPI = 96;
 
@@ -72,23 +76,79 @@ const DYNAMIC_RESOLVERS: Record<
   DynamicTokenId,
   (ctx: RenderContext) => string
 > = {
-  today_date: (ctx) => formatDate(new Date(), ctx.locale),
-  today_datetime: (ctx) => formatDateTime(new Date(), ctx.locale),
+  // This renders on the server, whose clock zone is UTC. The zone
+  // and locale of the person who asked for the PDF come with the
+  // request, so the sheet shows their date and time.
+  today_date: (ctx) => formatDate(new Date(), ctx.locale, dateOpts(ctx, { dateStyle: 'medium' })),
+  today_datetime: (ctx) =>
+    formatDateTime(
+      new Date(),
+      ctx.locale,
+      dateOpts(ctx, { dateStyle: 'medium', timeStyle: 'short' }),
+    ),
   now_time: (ctx) =>
-    new Intl.DateTimeFormat(ctx.locale, { timeStyle: 'short' }).format(
+    new Intl.DateTimeFormat(ctx.locale, dateOpts(ctx, { timeStyle: 'short' })).format(
       new Date(),
     ),
-  map_scale: () => '',
-  map_extent_bbox: () => '',
-  map_center_latlon: () => '',
+  // The map_* tokens follow the map as printed, including the Map
+  // element's scale override, and match the browser print path.
+  map_scale: (ctx) => {
+    if (!ctx.mapData || ctx.mapZoom === null) return '';
+    const denom = Math.round(
+      scaleDenominator(ctx.mapData.center?.[1] ?? 0, ctx.mapZoom),
+    );
+    return `1:${formatNumber(denom, ctx.locale)}`;
+  },
+  map_extent_bbox: (ctx) => {
+    if (!ctx.mapData?.center || ctx.mapZoom === null) return '';
+    const [lng, lat] = ctx.mapData.center;
+    return `center ${lat.toFixed(5)}, ${lng.toFixed(5)} z${ctx.mapZoom.toFixed(1)}`;
+  },
+  map_center_latlon: (ctx) => {
+    if (!ctx.mapData?.center) return '';
+    const [lng, lat] = ctx.mapData.center;
+    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  },
   user_display_name: (ctx) => ctx.userDisplayName,
   org_name: () => '',
   app_name: () => 'GratisGIS',
   page_number: () => '1',
 };
 
+function dateOpts(
+  ctx: RenderContext,
+  base: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormatOptions {
+  return ctx.timeZone ? { ...base, timeZone: ctx.timeZone } : base;
+}
+
+/**
+ * The zoom the map is printed at: the first Map element's scale
+ * override when it has one, else the map's saved zoom. The scale bar
+ * used the saved zoom even when the map was drawn at the override,
+ * so distances read off the bar were wrong.
+ */
+function printZoom(
+  template: PrintTemplateData,
+  mapData: MapData | null,
+): number | null {
+  if (!mapData) return null;
+  const mapEl = (template.elements ?? []).find(
+    (el): el is PrintMapElement => el.kind === 'map',
+  );
+  const override = mapEl?.scaleOverride;
+  if (typeof override === 'number' && override > 0) {
+    return zoomForScale(override, mapData.center?.[1] ?? 0);
+  }
+  return mapData.zoom;
+}
+
 interface RenderContext {
   locale: SupportedLocale;
+  /** IANA zone of the person who asked for the PDF, when known. */
+  timeZone: string | null;
+  /** Zoom the map is printed at; see printZoom. */
+  mapZoom: number | null;
   mapId: string;
   mapData: MapData | null;
   /** Resolved basemap blob for `mapData.basemap`. Null when the
@@ -96,6 +156,8 @@ interface RenderContext {
    *  one (e.g. the basemap item is no longer visible). The
    *  MapSnapshot falls back to OSM raster in that case. */
   basemapData: BasemapData | null;
+  /** Per-job read credential for the snapshot's layer fetches. */
+  readCredential: string | null;
   parameterValues: Record<string, string>;
   parameters: PrintTemplateParameter[];
   userDisplayName: string;
@@ -112,8 +174,14 @@ interface Props {
    *  load-job endpoint so the print PDF uses the bound map's own
    *  basemap rather than vanilla OSM. */
   basemapData: BasemapData | null;
+  /** Per-job print read credential from load-job, so layers that are
+   *  not public still load in the headless browser. */
+  readCredential?: string | null;
   parameterValues: Record<string, string>;
   userDisplayName: string;
+  /** Requester's locale and time zone, already validated. */
+  locale?: SupportedLocale;
+  timeZone?: string | null;
 }
 
 export function PrintRenderer({
@@ -121,8 +189,11 @@ export function PrintRenderer({
   mapId,
   mapData,
   basemapData,
+  readCredential = null,
   parameterValues,
   userDisplayName,
+  locale = DEFAULT_LOCALE,
+  timeZone = null,
 }: Props): JSX.Element {
   const inches = resolvePaperInches(template.paper);
   const pageStyle: React.CSSProperties = {
@@ -133,19 +204,27 @@ export function PrintRenderer({
     overflow: 'hidden',
   };
   const ctx: RenderContext = {
-    locale: DEFAULT_LOCALE,
+    locale,
+    timeZone,
+    mapZoom: printZoom(template, mapData),
     mapId,
     mapData,
     basemapData,
+    readCredential,
     parameterValues,
     parameters: template.parameters,
     userDisplayName,
   };
+  // MapBody draws a snapshot only when map data is bound.
+  const mapCount = mapData
+    ? (template.elements ?? []).filter((el) => el.kind === 'map').length
+    : 0;
   return (
     <div style={pageStyle}>
       {(template.elements ?? []).map((el) => (
         <ElementBlock key={el.id} element={el} ctx={ctx} />
       ))}
+      <PrintReadySignal mapCount={mapCount} />
     </div>
   );
 }
@@ -305,6 +384,7 @@ function MapBody({
       <MapSnapshot
         mapData={ctx.mapData}
         basemapData={ctx.basemapData}
+        readCredential={ctx.readCredential}
         {...(typeof element.scaleOverride === 'number' &&
         element.scaleOverride > 0
           ? { scaleOverride: element.scaleOverride }
@@ -445,35 +525,16 @@ function ScalebarBody({
   // The bar segment width is fixed at 80px on paper; we pick
   // the largest nice round number that fits within that width.
   const lat = ctx.mapData?.center?.[1] ?? 0;
-  const zoom = ctx.mapData?.zoom ?? 0;
-  const segPx = 80;
-  // Web-mercator meters per pixel at this latitude/zoom.
-  const mpp =
-    (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
-  const segMeters = mpp * segPx;
-  // Convert to nice round number in the right units.
-  const metric = element.units === 'metric';
-  let displayValue: number;
-  let unitLabel: string;
-  if (metric) {
-    if (segMeters >= 1000) {
-      displayValue = roundNice(segMeters / 1000);
-      unitLabel = 'km';
-    } else {
-      displayValue = roundNice(segMeters);
-      unitLabel = 'm';
-    }
-  } else {
-    // Imperial: switch between feet and miles at ~1000 ft.
-    const feet = segMeters * 3.28084;
-    if (feet >= 1000) {
-      displayValue = roundNice(feet / 5280);
-      unitLabel = 'mi';
-    } else {
-      displayValue = roundNice(feet);
-      unitLabel = 'ft';
-    }
-  }
+  const zoom = ctx.mapZoom ?? 0;
+  // Up to 80 px of bar; the bar is then drawn at the length of the
+  // round distance it is labelled with, so it stays to scale.
+  const bar = scaleBar(
+    metersPerPixel(lat, zoom),
+    80,
+    element.units === 'metric' ? 'metric' : 'imperial',
+  );
+  const displayValue = bar.value;
+  const unitLabel = bar.unit;
   return (
     <div
       style={{
@@ -487,37 +548,22 @@ function ScalebarBody({
         color: INK,
       }}
     >
-      <div style={{ display: 'flex', height: '7px', border: `1px solid ${INK}` }}>
-        <div style={{ flex: 1, background: INK }} />
-        <div style={{ flex: 1, background: CARD }} />
-        <div style={{ flex: 1, background: INK }} />
-        <div style={{ flex: 1, background: CARD }} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
-        <span>0</span>
-        <span>
-          {formatNumber(displayValue, ctx.locale)} {unitLabel}
-        </span>
+      <div style={{ width: `${Math.round(bar.px)}px`, maxWidth: '100%' }}>
+        <div style={{ display: 'flex', height: '7px', border: `1px solid ${INK}` }}>
+          <div style={{ flex: 1, background: INK }} />
+          <div style={{ flex: 1, background: CARD }} />
+          <div style={{ flex: 1, background: INK }} />
+          <div style={{ flex: 1, background: CARD }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+          <span>0</span>
+          <span>
+            {formatNumber(displayValue, ctx.locale)} {unitLabel}
+          </span>
+        </div>
       </div>
     </div>
   );
-}
-
-/**
- * Round to the largest "nice" number ≤ value, using a
- * 1 / 2 / 5 / 10 progression at the value's order of magnitude.
- * Keeps scalebar labels readable (250, 500, 1000 rather than
- * 487.32).
- */
-function roundNice(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 1;
-  const pow = Math.pow(10, Math.floor(Math.log10(value)));
-  const mantissa = value / pow;
-  let nice: number;
-  if (mantissa >= 5) nice = 5;
-  else if (mantissa >= 2) nice = 2;
-  else nice = 1;
-  return nice * pow;
 }
 
 function NorthArrowBody({

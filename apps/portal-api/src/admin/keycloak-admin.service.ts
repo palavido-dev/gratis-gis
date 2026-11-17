@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadGatewayException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -11,6 +12,10 @@ import {
 
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { SystemSettingsService } from '../notifications/system-settings.service.js';
+import {
+  qgisRedirectUris,
+  qgisRedirectsChanged,
+} from './qgis-redirects.js';
 
 /**
  * Thin wrapper around Keycloak's Admin REST API.
@@ -46,6 +51,7 @@ export interface KeycloakUserRep {
   lastName?: string;
   enabled: boolean;
   emailVerified?: boolean;
+  requiredActions?: string[];
   createdTimestamp?: number;
   attributes?: Record<string, string[]>;
   /** Convenience: combined name for display. */
@@ -138,7 +144,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     // bootstrap. Non-leaders rely on the leader's converged state
     // and, in the rare leader-handoff case, the next leader's own
     // boot wave will re-sync. See class doc above.
-    if (!this.leader.shouldRun()) {
+    if (!this.leader.holdsLock()) {
       this.logger.log(
         'Skipping Keycloak realm bootstrap on this replica: another process holds the cron-leader lock. ' +
           'The admin can still trigger a sync at any time via PUT /admin/notifications/smtp.',
@@ -158,6 +164,16 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
         `Could not auto-grant manage-realm to admin service-account: ` +
           `${String(err)}. The admin Keycloak client needs realm-admin ` +
           `(or just manage-realm directly) for SMTP sync to work.`,
+      );
+    }
+    // Tighten the QGIS client's loopback redirect on realms that were
+    // imported before that URI required a port separator. Idempotent.
+    // Failure does not stop startup.
+    try {
+      await this.ensureQgisRedirects();
+    } catch (err) {
+      this.logger.warn(
+        `Could not update the qgis-plugin redirect URIs: ${String(err)}.`,
       );
     }
     // Skip the sync when SMTP isn't configured yet (no DB row, no
@@ -277,7 +293,12 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     return json.access_token;
   }
 
-  /** Build an admin endpoint URL inside the target realm. */
+  /**
+   * Build an admin endpoint URL inside the target realm. Callers
+   * encode any id they splice in: the user routes take `:id` from the
+   * request, and a raw `../clients` would reach another admin path
+   * with the service account's token.
+   */
   private adminUrl(path: string): string {
     return `${this.keycloakUrl}/admin/realms/${this.realm}${path}`;
   }
@@ -312,6 +333,46 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   }
 
   /**
+   * Usernames (lowercased) of every client's service-account user.
+   * Keycloak leaves these users out of GET /users and /users/count, so
+   * a caller that treats "absent from the user list" as "deleted" has
+   * to exclude them using this set. One client listing plus one
+   * lookup per client that has service accounts enabled.
+   */
+  async listServiceAccountUsernames(): Promise<Set<string>> {
+    const token = await this.getAccessToken();
+    const headers = { authorization: `Bearer ${token}` };
+    const res = await fetch(this.adminUrl('/clients?first=0&max=1000'), {
+      headers,
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Keycloak client list failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const clients = (await res.json()) as Array<{
+      id: string;
+      serviceAccountsEnabled?: boolean;
+    }>;
+    const names = new Set<string>();
+    for (const c of clients) {
+      if (!c.serviceAccountsEnabled) continue;
+      const saRes = await fetch(
+        this.adminUrl(`/clients/${c.id}/service-account-user`),
+        { headers },
+      );
+      if (!saRes.ok) {
+        throw new BadGatewayException(
+          `Keycloak service-account lookup failed: ${saRes.status} ${saRes.statusText}`,
+        );
+      }
+      const sa = (await saRes.json()) as { username?: string };
+      if (sa.username) names.add(sa.username.toLowerCase());
+    }
+    return names;
+  }
+
+  /**
    * Resolve a Keycloak user id from a username via
    * GET /users?username=<exact>&exact=true. Returns null when nothing
    * matches. Seeded / pre-Keycloak local rows carry a different local
@@ -340,10 +401,39 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
     return rows[0]?.id ?? null;
   }
 
-  async getUser(id: string): Promise<KeycloakUserRep> {
+  /**
+   * Whether the Keycloak user with exactly this username exists and is
+   * enabled. One small request, for callers that would otherwise page
+   * through the whole realm to answer it.
+   */
+  async isUsernameEnabled(username: string): Promise<boolean> {
     const token = await this.getAccessToken();
-    const res = await fetch(this.adminUrl(`/users/${id}`), {
+    const qs = new URLSearchParams({
+      username,
+      exact: 'true',
+      max: '1',
+      briefRepresentation: 'true',
+    });
+    const res = await fetch(this.adminUrl(`/users?${qs.toString()}`), {
       headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new BadGatewayException(
+        `Keycloak isUsernameEnabled failed: ${res.status} ${res.statusText}`,
+      );
+    }
+    const rows = (await res.json()) as Array<{ enabled?: boolean }>;
+    return rows[0]?.enabled === true;
+  }
+
+  async getUser(
+    id: string,
+    opts: { timeoutMs?: number } = {},
+  ): Promise<KeycloakUserRep> {
+    const token = await this.getAccessToken();
+    const res = await fetch(this.adminUrl(`/users/${encodeURIComponent(id)}`), {
+      headers: { authorization: `Bearer ${token}` },
+      ...(opts.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
     if (res.status === 404) {
       throw new NotFoundException(`Keycloak user ${id} not found`);
@@ -390,10 +480,13 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const text = await res.text();
+      await res.text();
+      // Keycloak answers 409 when the username or email is taken. That
+      // is a client conflict, not an upstream failure, so the web UI can
+      // tell it apart from a Keycloak outage (502).
       if (res.status === 409) {
-        throw new BadGatewayException(
-          `A user with that username or email already exists (${text}).`,
+        throw new ConflictException(
+          'A user with that username or email already exists.',
         );
       }
       throw new BadGatewayException(
@@ -426,12 +519,9 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
           'UPDATE_PASSWORD',
           'VERIFY_EMAIL',
         ]);
-      } catch (err) {
-        setupEmailError =
-          err instanceof Error ? err.message : String(err);
-        this.logger.warn(
-          `User ${input.username} created in Keycloak but setup email failed: ${setupEmailError}`,
-        );
+      } catch {
+        setupEmailError = 'smtp_unavailable';
+        this.logger.warn(`Setup email failed for user id ${id}`);
       }
     }
     const rep = await this.getUser(id);
@@ -457,7 +547,20 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       enabled: patch.enabled ?? current.enabled,
       attributes,
     };
-    const res = await fetch(this.adminUrl(`/users/${id}`), {
+    // A new address is unproven. Keycloak's admin API keeps the old
+    // emailVerified flag on a PUT, so clear it and ask the user to
+    // verify on the next sign-in. Without this, whoever changed the
+    // address could use "Forgot password" on it straight away.
+    if (
+      patch.email !== undefined &&
+      patch.email.trim().toLowerCase() !== (current.email ?? '').trim().toLowerCase()
+    ) {
+      body.emailVerified = false;
+      body.requiredActions = Array.from(
+        new Set([...(current.requiredActions ?? []), 'VERIFY_EMAIL']),
+      );
+    }
+    const res = await fetch(this.adminUrl(`/users/${encodeURIComponent(id)}`), {
       method: 'PUT',
       headers: {
         authorization: `Bearer ${token}`,
@@ -478,7 +581,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
 
   async deleteUser(id: string): Promise<void> {
     const token = await this.getAccessToken();
-    const res = await fetch(this.adminUrl(`/users/${id}`), {
+    const res = await fetch(this.adminUrl(`/users/${encodeURIComponent(id)}`), {
       method: 'DELETE',
       headers: { authorization: `Bearer ${token}` },
     });
@@ -499,7 +602,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   ): Promise<void> {
     const token = await this.getAccessToken();
     const res = await fetch(
-      this.adminUrl(`/users/${id}/execute-actions-email`),
+      this.adminUrl(`/users/${encodeURIComponent(id)}/execute-actions-email`),
       {
         method: 'PUT',
         headers: {
@@ -730,6 +833,73 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   }
 
   /**
+   * Replace an open loopback redirect on the qgis-plugin client.
+   * Reads the client, edits redirectUris, and writes the same
+   * representation back. Users, credentials, and other clients are
+   * left as they are. A missing client is ignored so a realm that
+   * does not ship the plugin still boots.
+   *
+   * The service account normally has no manage-clients role, and it
+   * should not get one only for this: deploy.sh and restore-golden.sh
+   * make the same change with the master admin. A 403 therefore means
+   * "not this process's job" and is skipped with one log line, not
+   * reported as a failure on every boot.
+   */
+  async ensureQgisRedirects(): Promise<void> {
+    if (!this.isConfigured()) return;
+    const token = await this.getAccessToken();
+    const headers = {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+    };
+    const listRes = await fetch(
+      this.adminUrl(`/clients?clientId=qgis-plugin`),
+      { headers },
+    );
+    const notAllowed = (status: number): boolean => {
+      if (status !== 403) return false;
+      this.logger.log(
+        'Not checking the qgis-plugin redirect URIs: the admin service account ' +
+          'cannot manage clients. deploy.sh reconciles them with the master admin.',
+      );
+      return true;
+    };
+    if (notAllowed(listRes.status)) return;
+    if (!listRes.ok) {
+      throw new Error(`qgis-plugin lookup failed: ${listRes.status}`);
+    }
+    const clients = (await listRes.json()) as Array<{ id: string }>;
+    if (clients.length === 0) return;
+    const id = clients[0]!.id;
+    const getRes = await fetch(this.adminUrl(`/clients/${id}`), { headers });
+    if (notAllowed(getRes.status)) return;
+    if (!getRes.ok) {
+      throw new Error(`qgis-plugin read failed: ${getRes.status}`);
+    }
+    const client = (await getRes.json()) as {
+      redirectUris?: string[];
+    };
+    if (!qgisRedirectsChanged(client.redirectUris)) return;
+    client.redirectUris = qgisRedirectUris(client.redirectUris);
+    const putRes = await fetch(this.adminUrl(`/clients/${id}`), {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(client),
+    });
+    if (notAllowed(putRes.status)) {
+      await putRes.body?.cancel();
+      return;
+    }
+    if (!putRes.ok) {
+      const text = await putRes.text();
+      throw new Error(`qgis-plugin update failed: ${putRes.status} :: ${text}`);
+    }
+    this.logger.log(
+      `Updated qgis-plugin redirect URIs on realm '${this.realm}'.`,
+    );
+  }
+
+  /**
    * Identity providers configured on the realm. Secrets are not
    * returned. `domain` is the optional email domain this portal
    * stored on the provider so the sign-in page can hint it.
@@ -883,6 +1053,66 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
         `Could not update MFA (${updated.status}).`,
       );
     }
+    // A default action is only given to accounts created after it is
+    // set. Existing accounts get the action directly, so the switch
+    // means what the screen says: everyone sets up an authenticator
+    // on their next sign-in. Turning it off takes the pending action
+    // back off accounts that have not done it yet.
+    await this.applyMfaToExistingUsers(required, headers);
+  }
+
+  /**
+   * Add CONFIGURE_TOTP to every existing account that has no OTP
+   * credential (required) or remove a still pending one (not
+   * required). Service accounts are left alone: they never sign in
+   * through the browser. Returns how many accounts were changed.
+   */
+  private async applyMfaToExistingUsers(
+    required: boolean,
+    headers: Record<string, string>,
+  ): Promise<number> {
+    const PAGE = 100;
+    let changed = 0;
+    for (let first = 0; ; first += PAGE) {
+      const users = await this.listUsers({ first, max: PAGE });
+      for (const u of users) {
+        if (u.username.startsWith('service-account-')) continue;
+        const actions = u.requiredActions ?? [];
+        const pending = actions.includes('CONFIGURE_TOTP');
+        let next: string[] | null = null;
+        if (required && !pending) {
+          const creds = await fetch(this.adminUrl(`/users/${u.id}/credentials`), {
+            headers,
+          });
+          if (!creds.ok) {
+            throw new BadGatewayException(
+              `MFA was turned on, but existing accounts could not be checked (${creds.status}).`,
+            );
+          }
+          const rows = (await creds.json()) as Array<{ type?: string }>;
+          if (!rows.some((c) => c.type === 'otp')) {
+            next = [...actions, 'CONFIGURE_TOTP'];
+          }
+        } else if (!required && pending) {
+          next = actions.filter((a) => a !== 'CONFIGURE_TOTP');
+        }
+        if (!next) continue;
+        // Keycloak's PUT only changes the fields present in the body.
+        const res = await fetch(this.adminUrl(`/users/${u.id}`), {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ requiredActions: next }),
+        });
+        if (!res.ok && res.status !== 404) {
+          throw new BadGatewayException(
+            `MFA was changed, but account ${u.username} could not be updated (${res.status}).`,
+          );
+        }
+        changed += 1;
+      }
+      if (users.length < PAGE) break;
+    }
+    return changed;
   }
 
   private async addHardcodedMapper(

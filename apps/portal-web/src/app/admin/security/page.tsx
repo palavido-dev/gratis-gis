@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api';
 import { t } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
 import { SecurityForm, type SecurityState } from './security-form';
+import { EmbedOriginsForm } from './embed-origins-form';
 
 const EMPTY: SecurityState = { providers: [], mfaRequired: false };
 
@@ -24,6 +25,11 @@ export default async function AdminSecurityPage() {
 
   let state = EMPTY;
   let error: string | null = null;
+  // Loaded on its own so a Keycloak outage, which fails the sign-in
+  // settings above, does not hide the embed allow-list.
+  const embed = await apiFetch<{ origins: string[] }>(
+    '/api/admin/security/embed-origins',
+  ).catch(() => null);
   try {
     state = await apiFetch<SecurityState>('/api/admin/security');
   } catch (err) {
@@ -48,6 +54,11 @@ export default async function AdminSecurityPage() {
       ) : (
         <SecurityForm initial={state} />
       )}
+      {embed ? (
+        <div className="mt-8">
+          <EmbedOriginsForm initial={embed.origins} />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   grayscaleArgs,
   needsAlphaBand,
   needsRendering,
+  pngBandSelectArgs,
   tileBounds3857,
   tileBoundsWgs84,
   warpArgs,
@@ -124,7 +125,7 @@ export class CogTileService {
     // tiles sharing a path would overwrite each other's bytes.
     const token = randomUUID();
     try {
-      src = await gdal.openAsync(`/vsis3/${bucket}/${source.storageKey}`);
+      src = await gdal.openAsync(`/vsis3/${bucket}/${source.storageKey}`, 'r', ['GTiff']);
       const bandCount = src.bands.count();
       const dataType = String(src.bands.get(1).dataType);
       const lastInterp = String(
@@ -145,20 +146,27 @@ export class CogTileService {
         warpArgs(tileBounds3857(z, x, y), addAlpha),
       );
 
+      // The warp appended alpha when it was asked to, so the alpha
+      // band is last either way.
+      const warpedBands = addAlpha ? bandCount + 1 : bandCount;
       let out = warped;
       if (stretch) {
         rendered = await gdal.translateAsync(
           `/vsimem/cog-render-${token}`,
           warped,
-          grayscaleArgs(
-            // The warp appended alpha when it was asked to, so the
-            // alpha band is last either way.
-            addAlpha ? bandCount + 1 : bandCount,
-            stretch.low,
-            stretch.high,
-          ),
+          grayscaleArgs(warpedBands, stretch.low, stretch.high),
         );
         out = rendered;
+      } else {
+        const select = pngBandSelectArgs(warpedBands, warpedBands);
+        if (select) {
+          rendered = await gdal.translateAsync(
+            `/vsimem/cog-render-${token}`,
+            warped,
+            select,
+          );
+          out = rendered;
+        }
       }
 
       const path = `/vsimem/cog-tile-${token}.png`;

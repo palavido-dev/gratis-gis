@@ -7,11 +7,13 @@ import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
@@ -105,28 +107,53 @@ class PortalClient(
   /**
    * `GET /api/items/{id}/layers/{layerKey}/geojson`, as text. The
    * caller parses it; a layer can be tens of MB and the store keeps
-   * the raw feature JSON anyway.
+   * the raw feature JSON anyway. Pass `limit` (and then `cursor` and
+   * `at` from the previous page's `nextCursor` / `asOf`) for a keyset
+   * paged read, which a server with GRATIS_FEATURE_QUERY_PAGE=required
+   * insists on.
    */
-  suspend fun getLayerGeoJson(dataLayerId: String, layerKey: String, bbox: List<Double>? = null): String =
+  suspend fun getLayerGeoJson(
+    dataLayerId: String,
+    layerKey: String,
+    bbox: List<Double>? = null,
+    limit: Int? = null,
+    cursor: String? = null,
+    at: String? = null,
+  ): String =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/geojson") {
+      // A large page on a slow link can take longer than the client's
+      // 60 s whole-request limit; the socket timeout still catches a
+      // stalled transfer.
+      timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
       if (bbox != null) parameter("bbox", bbox.joinToString(","))
+      if (limit != null) parameter("limit", limit)
+      if (cursor != null) parameter("cursor", cursor)
+      if (at != null) parameter("at", at)
     }.bodyAsText()
 
   /**
    * `GET /api/items/{id}/layers/{layerKey}/delta?since=N`. Observation
    * log since the given syncVersion cursor (inclusive lower bound is
    * exclusive on the server: changes with syncVersion > since). Used
-   * by OfflineDownloader for incremental refresh; pass `limit=1` after
-   * a full GeoJSON pull to seed the head cursor without applying rows.
+   * by OfflineDownloader for incremental refresh; pass `limit=1`
+   * before a full GeoJSON pull to read the head cursor without applying
+   * rows. `after` is the previous truncated page's `nextAfter`, sent
+   * with `since = nextSince` (docs/sync-protocol.md).
    */
   suspend fun getLayerDelta(
     dataLayerId: String,
     layerKey: String,
     since: Long,
     limit: Int? = null,
+    after: String? = null,
+    /** Only changes inside this box, `[west, south, east, north]`;
+     *  used for a layer whose cache is limited to the offline areas. */
+    bbox: List<Double>? = null,
   ): LayerDeltaResponse =
     http.get("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/delta") {
       parameter("since", since)
+      if (bbox != null) parameter("bbox", bbox.joinToString(","))
+      if (after != null) parameter("after", after)
       if (limit != null) parameter("limit", limit)
     }.body()
 
@@ -142,7 +169,13 @@ class PortalClient(
     onProgress: (received: Long, total: Long?) -> Unit = { _, _ -> },
   ): Long {
     var received = 0L
-    http.prepareGet("items/$itemId/offline-packages/$packageId/file").execute { response ->
+    http.prepareGet("items/$itemId/offline-packages/$packageId/file") {
+      // The client-wide request timeout covers reading the body too,
+      // so a package that takes more than a minute would be cut off
+      // part way, every time. No overall limit here; the socket
+      // timeout still ends a download that stops moving.
+      timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
+    }.execute { response ->
       val total = response.headers[HttpHeaders.ContentLength]?.toLongOrNull()
       val channel = response.bodyAsChannel()
       val buffer = ByteArray(64 * 1024)
@@ -184,7 +217,12 @@ class PortalClient(
    *  `baseObservationId` the server refuses a stale edit with a 409
    *  (`PortalError.Conflict` carrying `current`). Pass `checkOnly =
    *  true` for a dry run that validates without writing (portal-web
-   *  offline-sync does the same before a real transfer). */
+   *  offline-sync does the same before a real transfer).
+   *
+   *  Returns the feature as the server now has it, or null when the
+   *  response carries no JSON object (an older server). The drain
+   *  reads its `_observation_id` to move later queued edits of the
+   *  same feature onto the head this write created. */
   suspend fun patchFeature(
     dataLayerId: String,
     layerKey: String,
@@ -193,17 +231,18 @@ class PortalClient(
     geometry: kotlinx.serialization.json.JsonElement?,
     baseObservationId: String? = null,
     checkOnly: Boolean = false,
-  ) {
+  ): JsonObject? {
     val body = buildJsonObject {
       put("properties", properties)
       if (geometry != null && geometry !is kotlinx.serialization.json.JsonNull) put("geometry", geometry)
       if (baseObservationId != null) put("baseObservationId", baseObservationId)
       if (checkOnly) put("checkOnly", true)
     }
-    http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
+    val text = http.patch("items/$dataLayerId/layers/${layerKey.encodeURLPathPart()}/features/$globalId") {
       contentType(ContentType.Application.Json)
       setBody(body)
-    }
+    }.bodyAsText()
+    return runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull()
   }
 
   /** `DELETE .../features/{globalId}`, with the same optional guard

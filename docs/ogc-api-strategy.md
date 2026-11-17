@@ -48,6 +48,9 @@ sub-paths:
   (OGC names: tileMatrix is the zoom band, tileRow is Y, tileCol is X.
   This doc previously said `{z}/{x}/{y}`, which reversed row and
   column; the code has always used the OGC order.)
+- `/api/public/ogc/collections/{collectionId}/tiles/{tmsId}/tilejson.json` -
+  TileJSON 3.0.0 for the tileset, linked from the tileset and tilesets
+  list as `rel: describedby` (see [vector-tiles.md](vector-tiles.md))
 - `/api/public/ogc/styles` - Styles list
 - `/api/public/ogc/styles/{styleId}` - one style
 - `/api/public/ogc/styles/{styleId}/metadata`

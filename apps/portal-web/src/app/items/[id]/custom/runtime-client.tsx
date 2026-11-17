@@ -10,9 +10,12 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type RefObject,
   type SetStateAction,
 } from 'react';
+import { safeHttpHref, safeNavigationUrl } from '@gratis-gis/shared-types';
+import { featuresBbox } from '@/lib/geo-bbox';
 import {
   ArrowLeft,
   Bookmark as BookmarkIcon,
@@ -94,15 +97,13 @@ import {
   RecipeRunPanel,
   type HostLayerOption,
 } from './recipe-run-panel';
-import {
-  OsmOverlayLayer,
-  type OsmOverlayFeature,
-} from './osm-overlay-layer';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { mobilePlacements, type MobilePlacement } from '@/lib/mobile-canvas';
 import { customBasemapToData } from '@/lib/custom-basemap';
 import {
   exportFeatures,
+  exportFilename,
+  fetchAllFeaturesPaged,
   type ExportFeature,
   // Client-side formats only: the Export widget + tool action build
   // files from features already in the browser. GeoParquet (the one
@@ -110,6 +111,11 @@ import {
   type ClientExportFormat,
 } from '@/lib/layer-export';
 import { BasemapPreview } from '@/components/basemap-preview';
+import { PRINT_SNAPSHOT_PREFIX, storePrintSnapshot } from '@/lib/print-snapshot';
+import {
+  toggleLayerVisibility,
+  type GroupVisibilityMemory,
+} from '@/lib/layer-group-toggle';
 import {
   resolveRefreshSeconds,
   useAutoRefresh,
@@ -117,6 +123,7 @@ import {
 import {
   aggKey,
   binFilterFor,
+  clampDigits,
   defaultIndicatorLabel,
   fetchAggregate,
   fetchFilteredExtent,
@@ -152,8 +159,13 @@ import {
 } from '../map/map-canvas';
 import { ElevationProfileTool } from '../map/elevation-profile';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
+import {
+  geolocationBlock,
+  isInsecureGeolocationMessage,
+} from '@/lib/geolocation-context';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { showLayerAndParents } from '@/lib/search-hidden-layers';
 import {
   Dialog,
   DialogContent,
@@ -181,8 +193,8 @@ import {
  *   - Text: markdown-rendered. Tiny inline parser (bold + italic +
  *     links + lists + headings) keeps the bundle small.
  *
- * Chart is a deferred placeholder; the runtime renders it as a
- * "ships next" tile rather than a broken widget.
+ * Chart: server-side aggregates (bar, line, pie, binned
+ *   histograms) drawn with Recharts.
  *
  * Architecture:
  *
@@ -207,6 +219,9 @@ interface ResolvedAppTarget {
   dataLayerId: string;
   layerKey: string;
   title: string;
+  /** The sublayer's declared geometry, when known.  Tool layer
+   *  pickers use it to honour a parameter's geometry restriction. */
+  geometryType?: string;
   /**
    * Pre-built MapLayer descriptor for this target. Each Map widget
    * starts with all of these in its mapData.layers; LayerList +
@@ -398,6 +413,42 @@ function useWidgetSource(cfg: {
 
 /** Source ids in author order, for the legacy index fallback. */
 const AppSourceOrderContext = createContext<string[]>([]);
+
+/**
+ * Map layer ids drawn from a source that RELATES to the selection's
+ * source. They cannot be narrowed by an expression over the tile, so
+ * the predicate goes onto their relate and travels with the tile
+ * request instead. See applySelectionToLayers. Shared by the map and
+ * the attribute table so both narrow the same layers.
+ *
+ * #77: a relate whose parent reads the same LAYER as the selection's
+ * source is narrowed too, matching what resolveSourceScope does for
+ * charts. The clauses are facts about the layer, not about the one
+ * source the publishing widget was bound to.
+ */
+const NO_LAYER_IDS: string[] = [];
+function relatedLayerIdsFor(
+  selection: { sourceId: string } | null | undefined,
+  resolvedTargets: ResolvedAppTarget[] | undefined,
+  sourcesById: Record<string, AppDataSource>,
+): string[] {
+  if (!selection || !resolvedTargets) return NO_LAYER_IDS;
+  const selLayer = sourcesById[selection.sourceId]?.layer;
+  return resolvedTargets
+    .filter((t) => {
+      const via = sourcesById[t.sourceId]?.via;
+      if (!via) return false;
+      if (via.sourceId === selection.sourceId) return true;
+      const parentLayer = sourcesById[via.sourceId]?.layer;
+      return (
+        selLayer !== undefined &&
+        parentLayer !== undefined &&
+        parentLayer.dataLayerId === selLayer.dataLayerId &&
+        parentLayer.layerKey === selLayer.layerKey
+      );
+    })
+    .map((t) => t.mapLayer.id);
+}
 
 /**
  * Source id for a widget config, without calling a hook.
@@ -1757,6 +1808,11 @@ function ToolPopover({
       <div
         role="dialog"
         aria-label={title}
+        // Marks a tool panel that is portaled out of its trigger's DOM
+        // tree. A stack menu holding the trigger checks for it so a
+        // click inside the panel does not count as a click outside
+        // the menu.
+        data-gg-tool-popover=""
         style={{
           ...positionStyle,
           position: positionMode,
@@ -1859,6 +1915,7 @@ function DockedBottomPopover({
     <div
       role="dialog"
       aria-label={title}
+      data-gg-tool-popover=""
       style={{
         position: 'absolute',
         left: 0,
@@ -2120,29 +2177,15 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // source. They cannot be narrowed by an expression over the tile,
   // so the predicate goes onto their relate and travels with the tile
   // request instead. See applySelectionToLayers.
-  const relatedLayerIds = useMemo(() => {
-    if (!selection || !ctx) return [];
-    // #77: a relate whose parent reads the same LAYER as the
-    // selection's source is narrowed too, matching what
-    // resolveSourceScope does for charts. The clauses are facts
-    // about the layer, not about the one source the publishing
-    // widget was bound to.
-    const selLayer = sourcesById[selection.sourceId]?.layer;
-    return ctx.resolvedTargets
-      .filter((t) => {
-        const via = sourcesById[t.sourceId]?.via;
-        if (!via) return false;
-        if (via.sourceId === selection.sourceId) return true;
-        const parentLayer = sourcesById[via.sourceId]?.layer;
-        return (
-          selLayer !== undefined &&
-          parentLayer !== undefined &&
-          parentLayer.dataLayerId === selLayer.dataLayerId &&
-          parentLayer.layerKey === selLayer.layerKey
-        );
-      })
-      .map((t) => t.mapLayer.id);
-  }, [selection, ctx, sourcesById]);
+  //
+  // Keyed on resolvedTargets, not the whole context: the context
+  // changes on every pan, and a fresh array here re-ran the layer
+  // projection below and MapCanvas's overlay sync with it.
+  const resolvedTargets = ctx?.resolvedTargets;
+  const relatedLayerIds = useMemo(
+    () => relatedLayerIdsFor(selection, resolvedTargets, sourcesById),
+    [selection, resolvedTargets, sourcesById],
+  );
 
   // #77: fly to the union extent of the filtered features when a
   // selection lands. On by default, off via the widget's
@@ -2213,21 +2256,32 @@ function MapWidgetRender({ widget }: { widget: CustomWidget }) {
   // already carries every declared field, so the features are all
   // there to hide, and re-cutting tiles per selection would throw
   // away the tile cache and make a click feel slow.
-  const mapData = useMemo(() => {
-    if (!state) return null;
-    const base = state.mapData.layers ?? [];
-    const layers = applySelectionToLayers({
+  //
+  // The projection is keyed on the layer array, not the whole map
+  // state: a pan replaces the state (camera) but keeps the layers,
+  // and MapCanvas keys its overlay sync on `map.layers` identity.
+  // Keyed on the state, every pan with a selection active rebuilt
+  // the array and re-synced every overlay.
+  const baseLayers = state?.mapData.layers;
+  const targetLayerId = target?.mapLayer.id;
+  const projectedLayers = useMemo(() => {
+    const base = baseLayers ?? [];
+    return applySelectionToLayers({
       layers: base,
-      targetLayerId: target?.mapLayer.id,
+      targetLayerId,
       relatedLayerIds,
       selection,
-    });
+    }) as MapLayer[];
+  }, [baseLayers, selection, targetLayerId, relatedLayerIds]);
+  const mapData = useMemo(() => {
+    if (!state) return null;
     // Identity is the signal that nothing applied; returning the
     // original object keeps MapCanvas from remounting its sources on
     // every pan.
-    if (layers === base) return state.mapData;
-    return { ...state.mapData, layers: layers as MapLayer[] };
-  }, [state, selection, target, relatedLayerIds]);
+    if (projectedLayers === (state.mapData.layers ?? [])) return state.mapData;
+    if (projectedLayers === baseLayers) return state.mapData;
+    return { ...state.mapData, layers: projectedLayers };
+  }, [state, projectedLayers, baseLayers]);
 
   if (!ctx || !state || !mapData) return null;
 
@@ -2357,7 +2411,7 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
       const safe =
         layer.title
           .replace(/[^A-Za-z0-9._-]+/g, '_')
-          .replace(/^_+|_+$/g, '')
+          .replace(/^_+|(?<!_)_+$/g, '')
           .slice(0, 80) || 'layer';
       // GeoJSON.Feature['id'] is string | number | undefined; the
       // exporter's ExportFeature uses an optional `id?: string` with
@@ -2410,40 +2464,31 @@ function LayerListWidgetRender({ widget }: { widget: CustomWidget }) {
     return m;
   }, [layers, layerById]);
 
+  // What each hidden group's descendants looked like when it was
+  // hidden, so showing the group again restores them.
+  const groupMemory = useRef<GroupVisibilityMemory>(new Map());
   const toggleVisible = useCallback(
     (id: string, next: boolean) => {
       // Cascading toggle: flipping a group OFF hides every
-      // descendant; flipping a group ON shows the group itself
-      // but does NOT force every child back on (the children
-      // remember their own visibility state).  That mirrors how
-      // the map item's layer panel behaves and matches what users
-      // expect from "turn the whole flood overlay off, then back
-      // on" -- the floods don't all suddenly become visible if
-      // some were hidden before.
-      const affected = new Set<string>([id]);
-      if (next === false) {
-        // Walk descendants and turn them off too.
-        const stack = [id];
-        while (stack.length > 0) {
-          const parent = stack.pop()!;
-          for (const child of childrenByParent.get(parent) ?? []) {
-            if (affected.has(child.id)) continue;
-            affected.add(child.id);
-            stack.push(child.id);
-          }
-        }
-      }
+      // descendant (the map canvas knows nothing about groups);
+      // flipping it back ON restores each descendant to what it was
+      // before, so "turn the whole flood overlay off, then back on"
+      // neither leaves every child hidden nor shows ones that were
+      // hidden before.
       update((cur) => ({
         ...cur,
         mapData: {
           ...cur.mapData,
-          layers: (cur.mapData.layers ?? []).map((x) =>
-            affected.has(x.id) ? { ...x, visible: next } : x,
+          layers: toggleLayerVisibility(
+            cur.mapData.layers ?? [],
+            id,
+            next,
+            groupMemory.current,
           ),
         },
       }));
     },
-    [childrenByParent, update],
+    [update],
   );
 
   return (
@@ -2560,7 +2605,7 @@ function LegendSwatch({ layer }: { layer: MapLayer }) {
 
   // Polygon-style swatch: filled square at fillOpacity, bordered
   // in strokeColor. Handles outline-only polygons (fillOpacity=0)
-  // as a hollow square that reads as "outline-solid only".
+  // as a hollow square that reads as "outline only".
   if (poly) {
     const fill = poly.fillColor ?? 'transparent';
     const fillOpacity = typeof poly.fillOpacity === 'number' ? poly.fillOpacity : 1;
@@ -2792,6 +2837,13 @@ function LayerRowKebabMenu({
   const [symbologyOpen, setSymbologyOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const wrapperRef = useRef<HTMLSpanElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  // The menu is placed with viewport coordinates, so it is portaled
+  // out to the runtime container.  Rendered in place, a LayerList
+  // opened as a toolbar tool sits in a scaled, overflow-hidden
+  // popover, which becomes the containing block for `fixed`: the menu
+  // landed offset by the popover's position and was clipped.
+  const runtimeContainer = useContext(CustomMapsContext)?.runtimeContainerRef.current ?? null;
 
   // Eligibility per-action. Inline FCs get the full set; non-inline
   // (data-layer, arcgis-rest, wms, etc) get Symbology + Properties
@@ -2815,7 +2867,8 @@ function LayerRowKebabMenu({
       if (
         wrapperRef.current &&
         e.target instanceof Node &&
-        !wrapperRef.current.contains(e.target)
+        !wrapperRef.current.contains(e.target) &&
+        !menuRef.current?.contains(e.target)
       ) {
         setMenuOpen(false);
         setPos(null);
@@ -2861,7 +2914,9 @@ function LayerRowKebabMenu({
       </button>
 
       {menuOpen && pos ? (
+        maybePortal(
         <div
+          ref={menuRef}
           role="menu"
           aria-label={`Actions for ${layer.title}`}
           style={{
@@ -2887,7 +2942,7 @@ function LayerRowKebabMenu({
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               <ZoomInIcon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-              Zoom to layer
+              {t('customRuntime.common.zoomToLayer')}
             </button>
           ) : null}
           {canExport ? (
@@ -2911,7 +2966,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
                 <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-                Export as GeoJSON
+                {t('customRuntime.common.exportGeojson')}
               </button>
               <button
                 type="button"
@@ -2923,7 +2978,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
                 <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-                Export as CSV
+                {t('customRuntime.common.exportCsv')}
               </button>
               <button
                 type="button"
@@ -2935,7 +2990,7 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               >
                 <Download className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-                Export as Excel (.xlsx)
+                {t('customRuntime.common.exportExcel')}
               </button>
             </>
           ) : null}
@@ -2950,7 +3005,7 @@ function LayerRowKebabMenu({
               className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
             >
               <Palette className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-              Symbology...
+              {t('customRuntime.common.symbologyMenu')}
             </button>
           ) : null}
           <button
@@ -2963,7 +3018,7 @@ function LayerRowKebabMenu({
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
           >
             <InfoIcon className="h-3.5 w-3.5 text-[hsl(var(--app-muted))]" />
-            Properties
+            {t('customRuntime.common.properties')}
           </button>
           {canRemove ? (
             <>
@@ -2978,11 +3033,13 @@ function LayerRowKebabMenu({
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[hsl(var(--app-danger))] hover:bg-[hsl(var(--app-danger)/0.05)]"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Remove from map
+                {t('customRuntime.common.removeFromMap')}
               </button>
             </>
           ) : null}
-        </div>
+        </div>,
+        runtimeContainer,
+        )
       ) : null}
 
       {propsOpen ? (
@@ -3307,10 +3364,10 @@ function LegendWidgetRender({ widget }: { widget: CustomWidget }) {
           const hi = i < r.stops.length ? r.stops[i] : null;
           const label =
             lo === null || lo === undefined
-              ? `under ${hi}`
+              ? t('customRuntime.legend.under', { value: String(hi) })
               : hi === null || hi === undefined
-                ? `${lo} and up`
-                : `${lo} to ${hi}`;
+                ? t('customRuntime.legend.andUp', { value: String(lo) })
+                : t('customRuntime.legend.range', { lo: String(lo), hi: String(hi) });
           return swatch(`${l.id}-cb${i}`, color, label);
         }),
       ];
@@ -3374,7 +3431,7 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
         <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">{t('customRuntime.empty.noBasemaps')}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-1.5 p-2">
-          {visibleBasemaps.map((b) => (
+          {visibleBasemaps.map((b, i) => (
             <li key={b.id}>
               <button
                 type="button"
@@ -3402,11 +3459,26 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
                     MapLibre canvases, only mounted while the
                     picker is open. */}
                 <div className="h-12 w-full overflow-hidden rounded">
-                  <BasemapPreview
-                    data={customBasemapToData(b)}
-                    ariaLabel={`Preview of ${b.label}`}
-                    className="h-full w-full"
-                  />
+                  {/* Each live preview is its own WebGL context, and
+                      browsers drop the oldest context past roughly
+                      16 per page, which is the app's main map.  So
+                      only the first few are live; the rest use the
+                      item thumbnail. */}
+                  {i < MAX_LIVE_BASEMAP_PREVIEWS ? (
+                    <BasemapPreview
+                      data={customBasemapToData(b)}
+                      ariaLabel={`Preview of ${b.label}`}
+                      className="h-full w-full"
+                    />
+                  ) : b.thumbnailUrl ? (
+                    <img
+                      src={b.thumbnailUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full w-full bg-[hsl(var(--app-surface-2))]" />
+                  )}
                 </div>
                 <span className="truncate text-[hsl(var(--app-ink-1))]">{b.label}</span>
               </button>
@@ -3417,6 +3489,19 @@ function BasemapGalleryWidgetRender({ widget }: { widget: CustomWidget }) {
     </WidgetFrame>
   );
 }
+
+/** Portal `node` into `target` when there is one, else render it in
+ *  place. */
+function maybePortal(node: ReactNode, target: Element | null): ReactNode {
+  return target ? createPortal(node, target) : node;
+}
+
+/** ODbL credit for OSM-derived results that carry no attribution
+ *  string of their own. */
+const OSM_ATTRIBUTION = '© OpenStreetMap contributors';
+
+/** Live MapLibre previews the basemap gallery mounts at most. */
+const MAX_LIVE_BASEMAP_PREVIEWS = 8;
 
 // ---- Search widget ---------------------------------------------------------
 
@@ -3534,6 +3619,15 @@ function SearchWidgetRender({ widget }: { widget: CustomWidget }) {
           geocodingEnabled={geocodingEnabled}
           {...(geocoderItemId ? { geocoderItemId } : {})}
           viewportBbox={viewportBbox}
+          onShowLayer={(id) =>
+            ctx?.update(mapWidgetId, (cur) => ({
+              ...cur,
+              mapData: {
+                ...cur.mapData,
+                layers: showLayerAndParents(cur.mapData.layers ?? [], id),
+              },
+            }))
+          }
           onPick={(r) => {
             if (!ctx) return;
             if (r.bbox) {
@@ -3743,6 +3837,7 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
       // sessionStorage keyed by a one-shot token because URL-
       // encoded data URLs blow past most browser URL length caps
       // for anything past a tiny tile.
+      let snapshotLost = false;
       if (liveMapForPrint && typeof window !== 'undefined') {
         try {
           const canvas = liveMapForPrint.getCanvas();
@@ -3761,9 +3856,20 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
             heightPx: canvas.height,
             capturedAt: Date.now(),
           };
-          const token = `print-snap-${selected.id}-${Date.now()}`;
-          window.sessionStorage.setItem(token, JSON.stringify(payload));
-          params.set('snap', token);
+          const token = `${PRINT_SNAPSHOT_PREFIX}${selected.id}-${Date.now()}`;
+          if (
+            storePrintSnapshot(
+              window.sessionStorage,
+              token,
+              JSON.stringify(payload),
+            )
+          ) {
+            params.set('snap', token);
+          } else {
+            // Say so: the print tab will show a placeholder map, and
+            // a console warning alone left the user guessing.
+            snapshotLost = true;
+          }
         } catch (snapErr) {
           // Snapshot failed (cross-origin tile, drawing buffer
           // cleared, etc.).  Print page falls back to the
@@ -3789,13 +3895,14 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
       const opened = window.open(url, '_blank');
       if (!opened) {
         throw new Error(
-          'Could not open the print preview window.  Allow popups for this site and try again.',
+          t('customRuntime.errors.printPopupBlocked'),
         );
       }
       setResults((cur) => [
         { url, templateTitle: selected.title, createdAt: Date.now() },
         ...cur,
       ]);
+      if (snapshotLost) setRenderError(t('customRuntime.errors.printSnapshotTooLarge'));
     } catch (err) {
       setRenderError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -3939,8 +4046,13 @@ function PrintWidgetRender({ widget }: { widget: CustomWidget }) {
                 <a
                   key={i}
                   href={r.url}
-                  target="_blank"
-                  rel="noreferrer"
+                  // Opened like the first print, without noopener: a
+                  // noopener tab gets empty sessionStorage and cannot
+                  // read the map snapshot.  Same-origin page.
+                  onClick={(e) => {
+                    e.preventDefault();
+                    window.open(r.url, '_blank');
+                  }}
                   className="block truncate rounded px-1 py-0.5 text-2xs text-[hsl(var(--app-accent))] hover:underline"
                 >
                   {r.templateTitle} · {fmt.dateTime(r.createdAt)}
@@ -4036,18 +4148,30 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
     ? ctx?.states?.[cfg.mapWidgetId] ?? null
     : null;
   const resolved = ctx?.resolvedTargets ?? [];
-  const [targetIndex, setTargetIndex] = useState<number>(
-    cfg.defaultTargetIndex ?? 0,
-  );
+  const order = useContext(AppSourceOrderContext);
+  // The author's default is a position in the app's source list.
+  // resolvedTargets drops sources this viewer cannot read, so map the
+  // position to a source id first, then find that id here.  Indexing
+  // resolvedTargets directly read one layer too far after a gap, and
+  // an index past the end left the picker showing a layer it would
+  // not export.
+  const [targetIndex, setTargetIndex] = useState<number>(() => {
+    const id =
+      typeof cfg.defaultTargetIndex === 'number'
+        ? order[cfg.defaultTargetIndex]
+        : undefined;
+    const i = id !== undefined ? resolved.findIndex((r) => r.sourceId === id) : -1;
+    return i >= 0 ? i : 0;
+  });
   const [format, setFormat] = useState<ClientExportFormat>(cfg.defaultFormat ?? 'xlsx');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function runExport(scope: 'all' | 'selection'): void {
+  async function runExport(scope: 'all' | 'selection'): Promise<void> {
     setError(null);
     const target = resolved[targetIndex];
     if (!target || !boundMap || !boundState) {
-      setError('No bound map / target.');
+      setError(t('customRuntime.errors.noBoundMapTarget'));
       return;
     }
     setBusy(true);
@@ -4057,10 +4181,18 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       // is currently loaded into the tile cache around the
       // viewport.  This is the same set the LayerList / popups see,
       // so the export matches what the user is looking at.
-      const sourceId = target.mapLayer.id;
-      const queried = boundMap.querySourceFeatures(sourceId, {
-        sourceLayer: target.mapLayer.id,
-      });
+      //
+      // MapCanvas names every overlay source `gg:<layer id>` and every
+      // vector tile source-layer `features`.  Querying the bare layer
+      // id found no source, so the export always reported an empty
+      // viewport.  A GeoJSON source takes no sourceLayer.
+      const sourceId = `gg:${target.mapLayer.id}`;
+      const isVector =
+        (boundMap.getSource(sourceId)?.type as string | undefined) === 'vector';
+      const queried = boundMap.querySourceFeatures(
+        sourceId,
+        isVector ? { sourceLayer: 'features' } : {},
+      );
       // De-dup by feature id (a single feature can land in multiple
       // tiles when it spans tile boundaries).  MVT promoteId puts
       // the canonical id in `id`; fall back to a stringified
@@ -4078,7 +4210,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       if (scope === 'selection') {
         const sel = boundState.selection[target.mapLayer.id];
         if (!sel || sel.size === 0) {
-          setError('No features selected on the bound map.');
+          setError(t('customRuntime.errors.noFeaturesSelected'));
           setBusy(false);
           return;
         }
@@ -4089,8 +4221,8 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       if (working.length === 0) {
         setError(
           scope === 'selection'
-            ? 'Selected features are not in the current viewport.'
-            : 'No features in the current viewport.',
+            ? t('customRuntime.errors.selectedNotInViewport')
+            : t('customRuntime.errors.noFeaturesInViewport'),
         );
         setBusy(false);
         return;
@@ -4102,7 +4234,11 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       // enough for the v1 viewport-export workflow.  A future
       // polish can plumb the layer schema through here so column
       // labels match the layer designer's intent.
-      exportFeatures(
+      //
+      // Tile features carry geometry clipped at tile edges, and the
+      // de-dup above keeps only one fragment, so a WKT column from a
+      // vector source would hold cut-off shapes.  Leave it out there.
+      await exportFeatures(
         working.map((f) => ({
           ...(f.id !== undefined ? { id: String(f.id) } : {}),
           geometry: f.geometry,
@@ -4110,8 +4246,8 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
         })),
         format,
         {
-          filename: sanitizeExportFilename(target.title),
-          includeGeometryWkt: format === 'xlsx',
+          filename: exportFilename(target.title),
+          includeGeometryWkt: format === 'xlsx' && !isVector,
         },
       );
     } catch (err) {
@@ -4127,7 +4263,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
       <div className="flex flex-col gap-3 p-3 text-xs">
         <label className="block">
           <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
-            Layer
+            {t('customRuntime.common.layer')}
           </span>
           <select
             value={targetIndex}
@@ -4141,13 +4277,13 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
               </option>
             ))}
             {noTargets ? (
-              <option value={-1}>(no targets configured)</option>
+              <option value={-1}>{t('customRuntime.empty.noTargetsConfigured')}</option>
             ) : null}
           </select>
         </label>
         <label className="block">
           <span className="block text-2xs font-medium uppercase tracking-wide text-[hsl(var(--app-muted))]">
-            Format
+            {t('customRuntime.common.format')}
           </span>
           <div className="mt-1 inline-flex rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-2))] p-0.5">
             <button
@@ -4159,7 +4295,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
                   : 'text-[hsl(var(--app-muted))]'
               }`}
             >
-              Excel
+              {t('customRuntime.common.excel')}
             </button>
             <button
               type="button"
@@ -4170,7 +4306,7 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
                   : 'text-[hsl(var(--app-muted))]'
               }`}
             >
-              CSV
+              {t('customRuntime.common.csv')}
             </button>
           </div>
         </label>
@@ -4183,35 +4319,27 @@ function ExportWidgetRender({ widget }: { widget: CustomWidget }) {
           <button
             type="button"
             disabled={busy || noTargets}
-            onClick={() => runExport('all')}
+            onClick={() => void runExport('all')}
             className="inline-flex h-7 items-center gap-1 rounded-md bg-[hsl(var(--app-accent))] px-3 text-2xs font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
             <Download className="h-3 w-3" />
-            Export visible
+            {t('customRuntime.common.exportVisible')}
           </button>
           <button
             type="button"
             disabled={busy || noTargets}
-            onClick={() => runExport('selection')}
+            onClick={() => void runExport('selection')}
             className="inline-flex h-7 items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-3 text-2xs font-medium text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))] disabled:opacity-50"
           >
-            Export selection
+            {t('customRuntime.common.exportSelection')}
           </button>
         </div>
         <p className="text-2xs text-[hsl(var(--app-muted))]">
-          Exports the features currently loaded for this layer (the
-          map viewport plus its surrounding tile cache).  For a
-          full-layer dump including related tables + attachments,
-          use the bundle export on the data layer&apos;s detail page.
+          {t('customRuntime.export.hint')}
         </p>
       </div>
     </WidgetFrame>
   );
-}
-
-function sanitizeExportFilename(raw: string): string {
-  const s = raw.trim().replace(/[^\w.\- ]+/g, '_').replace(/\s+/g, '_');
-  return (s.slice(0, 60) || 'export').replace(/^_+|_+$/g, '');
 }
 
 // ---- Splash Screen widget (#111) ------------------------------------------
@@ -4486,35 +4614,57 @@ function AttributeTableWidgetRender({ widget }: { widget: CustomWidget }) {
   // map: all the map's layers (the rich AttributeTable filters down
   // to queryable ones internally). Unbound: just the configured
   // target as a synthetic single-layer array.
+  //
+  // Layers related to the selection's source are narrowed through
+  // their relate, the same as on the map (relatedLayerIdsFor); the
+  // table used to skip that and list rows the map had hidden.
+  //
+  // Keyed on the pieces it reads rather than the whole map state and
+  // context, which change on every pan.
+  const appSourcesById = useContext(AppSourcesContext);
+  const resolvedTargets = ctx?.resolvedTargets;
+  const sourceOrder = ctx?.sourceOrder;
+  const boundLayers = boundMapState?.mapData.layers;
+  const tableRelatedLayerIds = useMemo(
+    () => relatedLayerIdsFor(crossFilter, resolvedTargets, appSourcesById),
+    [crossFilter, resolvedTargets, appSourcesById],
+  );
+  const selectionTargetLayerId = selectionTarget?.mapLayer.id;
   const layers = useMemo<MapLayer[]>(() => {
-    const projectTargetId = selectionInScope
-      ? null
-      : selectionTarget?.mapLayer.id;
-    if (boundMapState?.mapData.layers) {
+    const projectTargetId = selectionInScope ? null : selectionTargetLayerId;
+    if (boundLayers) {
       return applySelectionToLayers({
-        layers: boundMapState.mapData.layers,
+        layers: boundLayers,
         targetLayerId: projectTargetId,
+        relatedLayerIds: tableRelatedLayerIds,
         selection: crossFilter,
       }) as MapLayer[];
     }
-    if (!ctx) return [];
-    const target = ctx.resolvedTargets.find(
-      (t) => t.sourceId === sourceIdOf(ctx, cfg),
-    );
+    if (!resolvedTargets || !sourceOrder) return [];
+    const ownId =
+      cfg.sourceId !== undefined
+        ? cfg.sourceId
+        : typeof cfg.targetIndex === 'number'
+          ? sourceOrder[cfg.targetIndex]
+          : undefined;
+    const target = resolvedTargets.find((t) => t.sourceId === ownId);
     if (!target) return [];
     return applySelectionToLayers({
       layers: [target.mapLayer],
       targetLayerId: projectTargetId,
+      relatedLayerIds: tableRelatedLayerIds,
       selection: crossFilter,
     }) as MapLayer[];
   }, [
-    boundMapState,
-    ctx,
+    boundLayers,
+    resolvedTargets,
+    sourceOrder,
     cfg.sourceId,
     cfg.targetIndex,
     crossFilter,
-    selectionTarget,
+    selectionTargetLayerId,
     selectionInScope,
+    tableRelatedLayerIds,
   ]);
 
   // Selection state. Shared with the bound map when present; the
@@ -4831,16 +4981,21 @@ function renderInline(s: string): React.ReactNode {
         </span>,
       );
     } else if (m[4]) {
+      const href = safeHttpHref(m[6] ?? '');
       tokens.push(
-        <a
-          key={key++}
-          href={m[6]}
-          target="_blank"
-          rel="noreferrer"
-          className="text-[hsl(var(--app-accent))] hover:underline"
-        >
-          {m[5]}
-        </a>,
+        href ? (
+          <a
+            key={key++}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[hsl(var(--app-accent))] hover:underline"
+          >
+            {m[5]}
+          </a>
+        ) : (
+          <span key={key++}>{m[5]}</span>
+        ),
       );
     } else if (m[7]) {
       tokens.push(
@@ -4960,7 +5115,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
         loading: false,
         rows: [],
         truncated: false,
-        error: 'No target',
+        error: t('customRuntime.empty.noTarget'),
       });
       return;
     }
@@ -5067,7 +5222,7 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           loading: false,
           rows: [],
           truncated: false,
-          error: err instanceof Error ? err.message : 'Could not load data.',
+          error: err instanceof Error ? err.message : t('customRuntime.errors.couldNotLoadData'),
         });
       }
     })();
@@ -5192,15 +5347,16 @@ function ChartWidgetRender({ widget }: { widget: CustomWidget }) {
           {activeValue !== undefined ? (
             <button
               type="button"
-              onClick={() =>
-                toggle({
-                  widgetId: widget.id,
-                  sourceId: source!.id,
-                  field: selectField!,
-                  value: activeValue,
-                  label: '',
-                })
-              }
+              // Toggle with the selection that is actually active.
+              // Rebuilding it from this chart's own source and field
+              // missed one published through selectionTarget (other
+              // source, other field), so the chip replaced the filter
+              // instead of clearing it.
+              onClick={() => {
+                if (selection && selection.widgetId === widget.id) {
+                  toggle(selection);
+                }
+              }}
               className="ml-1 rounded-full border border-[hsl(var(--app-accent))] px-1.5 align-middle text-[hsl(var(--app-accent))] hover:bg-[hsl(var(--app-accent)/0.1)]"
             >
               {t('customRuntime.chart.showingOnly')}{' '}
@@ -5373,7 +5529,7 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
         setState({
           loading: false,
           value: null,
-          error: err instanceof Error ? err.message : 'Could not load data.',
+          error: err instanceof Error ? err.message : t('customRuntime.errors.couldNotLoadData'),
         });
       }
     })();
@@ -5458,84 +5614,6 @@ function IndicatorWidgetRender({ widget }: { widget: CustomWidget }) {
       </div>
     </WidgetFrame>
     </SuppressFrameHeaderContext.Provider>
-  );
-}
-
-function ChartCanvas({
-  rows,
-  cfg,
-}: {
-  rows: Array<{ id: string | number; props: Record<string, unknown> }>;
-  cfg: Extract<CustomWidget['config'], { kind: 'chart' }>;
-}) {
-  // Aggregate. Group rows by `groupBy` value, then apply `aggregate`
-  // per bucket. 'count' is the only aggregate that doesn't need a
-  // value field; everything else falls back to count if valueField
-  // is missing or non-numeric (the runtime warns inline rather than
-  // throwing).
-  const aggregated = useMemo(() => {
-    const groupBy = cfg.groupBy ?? '';
-    const aggregate = cfg.aggregate ?? 'count';
-    const valueField = cfg.valueField ?? '';
-    const buckets = new Map<string, number[]>();
-    for (const row of rows) {
-      const groupRaw = groupBy ? row.props[groupBy] : '(all)';
-      const groupKey =
-        groupRaw === undefined || groupRaw === null ? '(missing)' : String(groupRaw);
-      const valueRaw =
-        aggregate === 'count' ? 1 : valueField ? row.props[valueField] : 1;
-      const num =
-        typeof valueRaw === 'number' && Number.isFinite(valueRaw)
-          ? valueRaw
-          : Number(valueRaw);
-      const arr = buckets.get(groupKey) ?? [];
-      if (Number.isFinite(num)) arr.push(num);
-      buckets.set(groupKey, arr);
-    }
-    const out: Array<{ name: string; value: number }> = [];
-    for (const [name, vals] of buckets) {
-      if (vals.length === 0) continue;
-      let value: number;
-      switch (aggregate) {
-        case 'count':
-          value = vals.length;
-          break;
-        case 'sum':
-          value = vals.reduce((a, b) => a + b, 0);
-          break;
-        case 'avg':
-          value = vals.reduce((a, b) => a + b, 0) / vals.length;
-          break;
-        case 'min':
-          value = Math.min(...vals);
-          break;
-        case 'max':
-          value = Math.max(...vals);
-          break;
-        default:
-          value = vals.length;
-      }
-      out.push({ name, value });
-    }
-    // Stable order: bar / pie sort by value desc; line keeps insert
-    // order so a numeric x-axis renders monotonically.
-    if (cfg.chartType !== 'line') out.sort((a, b) => b.value - a.value);
-    return out;
-  }, [rows, cfg.groupBy, cfg.aggregate, cfg.valueField, cfg.chartType]);
-
-  if (aggregated.length === 0) {
-    return (
-      <p className="p-2 text-xs italic text-[hsl(var(--app-muted))]">
-        No data to chart. Bind a target with at least one feature
-        and pick a group-by field.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex-1 p-2">
-      <ChartPlot rows={aggregated} kind={cfg.chartType} />
-    </div>
   );
 }
 
@@ -5794,7 +5872,13 @@ function ChartPlot({
             }}
             labelLine={false}
             cursor={cursor}
-            onClick={(_d, index) => pickAt(sliced, index)}
+            // The "Other" bucket is not a value any row has, so a
+            // click on it would publish a filter that matches
+            // nothing.  Only real slices pick.
+            onClick={(_d, index) => {
+              if (sliced !== rows && index >= MAX_SLICES) return;
+              pickAt(sliced, index);
+            }}
           >
             {sliced.map((r, i) => (
               <Recharts.Cell
@@ -6099,7 +6183,7 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
         setState({
           loading: false,
           options: [],
-          error: err instanceof Error ? err.message : 'Could not load values.',
+          error: err instanceof Error ? err.message : t('customRuntime.errors.couldNotLoadValues'),
         });
       }
     })();
@@ -6181,10 +6265,15 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
         </div>
       ) : (
         <select
-          value={activeIndex}
+          // -2: this control's own pick is no longer among the options
+          // (the map moved, the time changed). It is shown as its own
+          // entry so the box does not read "All" while the filter is
+          // on, and choosing "All" can still clear it.
+          value={mine && activeIndex === -1 ? -2 : activeIndex}
           disabled={state.loading && state.options.length === 0}
           onChange={(e) => {
             const i = Number(e.target.value);
+            if (i === -2) return;
             if (i === -1) {
               // "All values": clear this widget's own selection by
               // re-toggling it; a selection owned elsewhere is not
@@ -6202,6 +6291,9 @@ function FilterWidgetRender({ widget }: { widget: CustomWidget }) {
               ? t('customRuntime.common.loadingEllipsis')
               : `All ${label ? label.toLowerCase() : 'values'}`}
           </option>
+          {mine && activeIndex === -1 ? (
+            <option value={-2}>{displayOf(mine.value as string | null)}</option>
+          ) : null}
           {state.options.map((o, i) => (
             <option key={i} value={i}>
               {displayOf(o.value)}
@@ -6276,7 +6368,14 @@ function ButtonWidgetRender({ widget }: { widget: CustomWidget }) {
   }`;
   const text = label || t('customRuntime.common.button');
   if ((linkKind ?? 'url') === 'tool') {
-    return <ToolButtonRender toolId={toolId} text={text} className={className} />;
+    return (
+      <ToolButtonRender
+        toolId={toolId}
+        text={text}
+        textIsDefault={!label}
+        className={className}
+      />
+    );
   }
   if ((linkKind ?? 'url') === 'page') {
     // Page-link path. Resolves to setActivePageIdx via the runtime
@@ -6381,6 +6480,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
     <ToolButtonRender
       toolId={toolId}
       text={label?.trim() || t('customRuntime.common.tool')}
+      textIsDefault={!label?.trim()}
       className={className}
       {...(iconHtml ? { iconHtml } : {})}
       hideText={hideText}
@@ -6400,6 +6500,7 @@ function ToolWidgetRender({ widget }: { widget: CustomWidget }) {
 function ToolButtonRender({
   toolId,
   text,
+  textIsDefault = false,
   className,
   iconHtml,
   hideText,
@@ -6407,6 +6508,11 @@ function ToolButtonRender({
 }: {
   toolId: string | undefined;
   text: string;
+  /** True when `text` is a placeholder rather than the author's own
+   *  label, so the tool's title may replace it once loaded.  Passed
+   *  explicitly: comparing `text` with one translated placeholder
+   *  missed the other ("Tool" vs "Button"). */
+  textIsDefault?: boolean;
   className: string;
   /** #144: optional pre-rendered icon SVG markup. When provided,
    *  rendered alongside (or in place of) the text inside the
@@ -6452,17 +6558,32 @@ function ToolButtonRender({
   // selection has been applied.  Local state lives on the button
   // because each button independently triggers its own run.
   const [recipePanelOpen, setRecipePanelOpen] = useState(false);
+  // Error from the last direct action (export-layer), shown on the
+  // button's tooltip and under it.
+  const [actionError, setActionError] = useState<string | null>(null);
+  // Map the tool panel is drawing an area on.  While set, that map's
+  // feature popups (and click select) are held off so placing a
+  // vertex over a feature does not open its popup.
+  const [aoiDrawMap, setAoiDrawMap] = useState<maplibregl.Map | null>(null);
+  const setSuppressed = ctx?.setPopupSuppressed;
+  const aoiMapWidgetId = aoiDrawMap
+    ? Object.entries(ctx?.maps ?? {}).find(([, m]) => m === aoiDrawMap)?.[0] ?? null
+    : null;
+  useEffect(() => {
+    if (!setSuppressed || !aoiMapWidgetId) return;
+    setSuppressed(aoiMapWidgetId, true);
+    return () => setSuppressed(aoiMapWidgetId, false);
+  }, [setSuppressed, aoiMapWidgetId]);
   // Active OSM overlay produced by the latest tool run, if any.
   // Reset on a fresh run; stays mounted on the host map until the
   // user dismisses it via the attribution chip's close button or
   // re-runs the tool.
   const [osmOverlay, setOsmOverlay] = useState<{
     id: string;
-    /** MapLayer id pushed into every map's state by
-     *  pushOsmResultLayerToAllMaps. Used by the chip's dismiss
-     *  button to clean up both the layer entry AND the chip in
-     *  one click. */
-    layerId: string;
+    /** MapLayer ids pushed into every map's state for this result.
+     *  Used by the chip's dismiss button to clean up the layers AND
+     *  the chip in one click. */
+    layerIds: string[];
     features: OsmOverlayFeature[];
     attribution: string;
     featureCount: number;
@@ -6516,11 +6637,15 @@ function ToolButtonRender({
       return;
     }
     if (action.kind === 'open-url') {
-      if (!action.url) return;
+      // The URL is author data. Only an app-relative path or an
+      // http(s) URL may navigate; `javascript:` would run on the
+      // portal origin with the viewer's session.
+      const url = safeNavigationUrl(action.url);
+      if (!url) return;
       if (action.newTab) {
-        window.open(action.url, '_blank', 'noopener,noreferrer');
+        window.open(url, '_blank', 'noopener,noreferrer');
       } else {
-        window.location.assign(action.url);
+        window.location.assign(url);
       }
       return;
     }
@@ -6532,25 +6657,21 @@ function ToolButtonRender({
       // is what differentiates the tool action from the Export
       // widget: tools are "give me everything", widget is "give
       // me what I'm looking at".
+      //
+      // Reads through the paged route: the unpaged read is refused on
+      // installs that require paging, and the button then did nothing.
+      // Failures show on the button instead of only in the console.
+      setActionError(null);
       void (async () => {
         try {
-          const res = await fetch(
+          const rows = await fetchAllFeaturesPaged(
             `/api/portal/items/${encodeURIComponent(action.targetItemId)}/layers/${encodeURIComponent(action.layerKey)}/features`,
-            { cache: 'no-store' },
           );
-          if (!res.ok) {
-            console.warn('[tool:export-layer] HTTP', res.status);
-            return;
-          }
-          const body = (await res.json()) as
-            | { features?: Array<{ id?: string; geometry?: unknown; properties?: Record<string, unknown> | null }> }
-            | Array<{ id?: string; geometry?: unknown; properties?: Record<string, unknown> | null }>;
-          const rows = Array.isArray(body) ? body : body.features ?? [];
           if (rows.length === 0) {
-            console.info('[tool:export-layer] no features');
+            setActionError(t('customRuntime.errors.exportNoFeatures'));
             return;
           }
-          exportFeatures(
+          await exportFeatures(
             rows.map((f) => ({
               ...(f.id !== undefined ? { id: String(f.id) } : {}),
               geometry: f.geometry,
@@ -6560,12 +6681,16 @@ function ToolButtonRender({
             })),
             action.format,
             {
-              filename: sanitizeExportFilename(tool.title || 'export'),
+              filename: exportFilename(tool.title || 'export'),
               includeGeometryWkt: action.format === 'xlsx',
             },
           );
         } catch (err) {
-          console.warn('[tool:export-layer] failed', err);
+          setActionError(
+            t('customRuntime.errors.exportFailed', {
+              message: err instanceof Error ? err.message : String(err),
+            }),
+          );
         }
       })();
       return;
@@ -6577,8 +6702,7 @@ function ToolButtonRender({
   // fall back to the tool's title once we've loaded it.  Loading
   // state keeps the existing text so the runtime doesn't flash a
   // placeholder.
-  const visibleText =
-    text && text !== t('customRuntime.common.button') ? text : tool?.title ?? text;
+  const visibleText = text && !textIsDefault ? text : tool?.title ?? text;
   const disabled = status !== 'ok' || !tool?.data?.action;
 
   // In-bar: edge-to-edge wrapper that the button fills with h-full,
@@ -6609,7 +6733,7 @@ function ToolButtonRender({
         title={
           status === 'missing'
             ? t('customRuntime.errors.toolUnavailable')
-            : tool?.title ?? t('customRuntime.common.tool')
+            : actionError ?? tool?.title ?? t('customRuntime.common.tool')
         }
         aria-label={hideText ? visibleText : undefined}
         className={`${className} ${
@@ -6627,6 +6751,14 @@ function ToolButtonRender({
           <span className={labelClass}>{visibleText}</span>
         ) : null}
       </button>
+      {actionError ? (
+        <span role="alert" className="sr-only">
+          {actionError}
+        </span>
+      ) : null}
+      {actionError && !inAppBar ? (
+        <p className="ml-2 text-2xs text-[hsl(var(--app-danger))]">{actionError}</p>
+      ) : null}
       {recipePanelOpen &&
       tool &&
       (tool.data?.action?.kind === 'recipe' ||
@@ -6649,6 +6781,7 @@ function ToolButtonRender({
               hostLayers={buildHostLayerOptions(ctx)}
               {...(bbox ? { hostBbox: bbox } : {})}
               getDrawMap={() => firstMapInstance(ctx)}
+              onDrawingChange={setAoiDrawMap}
               onClose={() => setRecipePanelOpen(false)}
               onResult={(result) => {
                 if (result.output.kind === 'selection') {
@@ -6670,6 +6803,22 @@ function ToolButtonRender({
                     toolTitle: tool?.title ?? t('customRuntime.osm.defaultTitle'),
                     output: result.output,
                   });
+                  // These layers are OSM-derived too, and ODbL needs
+                  // the credit on any view that shows them, so the
+                  // same attribution chip is mounted for them.
+                  setOsmOverlay({
+                    id: `tool-${toolId}`,
+                    layerIds: [
+                      `osm-relational-anchor/${toolId}`,
+                      `osm-relational-supporting/${toolId}`,
+                      `osm-relational-buffers/${toolId}`,
+                      `osm-relational-bearings/${toolId}`,
+                    ],
+                    features: result.output.anchor.features as OsmOverlayFeature[],
+                    attribution: OSM_ATTRIBUTION,
+                    featureCount: result.output.anchor.features.length,
+                    truncated: false,
+                  });
                 } else if (result.output.kind === 'osm-features-overlay') {
                   // #141 wave B: push the result as a real MapLayer
                   // into every Map widget's state so the LayerList,
@@ -6678,6 +6827,11 @@ function ToolButtonRender({
                   // The attribution chip stays mounted alongside for
                   // the ODbL credit + Save-as-layer + result count;
                   // it no longer drives the rendering itself.
+                  // An empty run removes the previous run's layer, so
+                  // "No matches" is not shown above old results.
+                  if (ctx && result.output.features.length === 0) {
+                    removeLayerFromAllMaps(ctx, `osm-result/${toolId}`);
+                  }
                   if (ctx && result.output.features.length > 0) {
                     const newLayer = buildOsmResultLayer({
                       toolId,
@@ -6698,7 +6852,7 @@ function ToolButtonRender({
                     // inside the host MapData so dismiss can clean
                     // both up in one shot.
                     id: `tool-${toolId}`,
-                    layerId: `osm-result/${toolId}`,
+                    layerIds: [`osm-result/${toolId}`],
                     features: result.output.features as OsmOverlayFeature[],
                     attribution: result.output.attribution,
                     featureCount: result.output.featureCount,
@@ -6753,7 +6907,7 @@ function ToolButtonRender({
             // doesn't have to also delete it from the LayerList.
             // A LayerList delete still works for the manual path;
             // this is just the chip's one-click cleanup.
-            removeLayerFromAllMaps(ctx, osmOverlay.layerId);
+            for (const id of osmOverlay.layerIds) removeLayerFromAllMaps(ctx, id);
             setOsmOverlay(null);
           }}
         />
@@ -6807,7 +6961,7 @@ function OsmAttributionChip({
     // into a tray we can replace this with an inline input.
     const defaultTitle = `OSM overlay (${fmt.dateTime(new Date())})`;
     const title = window.prompt(
-      'Save these features as a new data layer. Choose a name:',
+      t('customRuntime.errors.savePrompt'),
       defaultTitle,
     );
     if (!title || title.trim().length === 0) return;
@@ -7015,6 +7169,13 @@ function buildHostLayerOptions(
       itemId: target.dataLayerId,
       layerKey: target.layerKey,
       title: target.title,
+      // Without this the picker's geometry filter let every layer
+      // through, so a polygons-only parameter offered point layers.
+      ...(target.geometryType === 'point' ||
+      target.geometryType === 'line' ||
+      target.geometryType === 'polygon'
+        ? { geometryType: target.geometryType }
+        : {}),
       ...(selected.size > 0 ? { selectedIds: Array.from(selected) } : {}),
       ...(mapBbox ? { mapBbox } : {}),
     });
@@ -7048,6 +7209,16 @@ function firstMapInstance(
 ): maplibregl.Map | null {
   if (!ctx) return null;
   return Object.values(ctx.maps).find((x) => x) ?? null;
+}
+
+/** One feature of an OSM tool-run result, as the runner returns it.
+ *  (It lived with the old standalone overlay component, which had
+ *  stopped being rendered once results became ordinary map layers.) */
+interface OsmOverlayFeature {
+  type: 'Feature';
+  id: string;
+  properties: Record<string, unknown>;
+  geometry: unknown;
 }
 
 /**
@@ -7108,9 +7279,8 @@ function buildOsmResultLayer(args: {
     ],
   };
   // Purple-ish accent so OSM results read as distinct from
-  // PostGIS-backed data layers.  Same color the standalone
-  // OsmOverlayLayer used so users who saw OSM results in wave A
-  // get a consistent visual identity.
+  // PostGIS-backed data layers.  Same color the wave A overlay used
+  // so OSM results keep a consistent visual identity.
   const OSM_COLOR = '#7c3aed';
   const style: MapLayer['style'] = {
     ...structuredClone(DEFAULT_LAYER_STYLE),
@@ -7625,55 +7795,15 @@ function removeLayerFromAllMaps(
 }
 
 /**
- * Compute a [west, south, east, north] bbox over a feature
- * collection. Walks every coordinate so it works regardless of
- * geometry type (point, line, polygon, multi*).  Returns null
- * when the input is empty or when no geometry yields a real
- * coordinate (defensive: a malformed feature shouldn't crash
- * the fly-to). The result is shaped for maplibregl.Map.fitBounds.
- *
- * Used by #141 (OSM result handling) to zoom the host map to
- * the extent of a recipe's OSM features.
+ * Bounds of `features` shaped for maplibregl.Map.fitBounds, or null
+ * when nothing has a real coordinate. Used by #141 (OSM result
+ * handling) to zoom the host map to a recipe's OSM features.
  */
 function bboxOfFeatures(
   features: readonly { geometry: unknown }[],
 ): [[number, number], [number, number]] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let count = 0;
-  const visit = (coord: unknown): void => {
-    if (
-      Array.isArray(coord) &&
-      coord.length >= 2 &&
-      typeof coord[0] === 'number' &&
-      typeof coord[1] === 'number'
-    ) {
-      const x = coord[0];
-      const y = coord[1];
-      if (Number.isFinite(x) && Number.isFinite(y)) {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        count += 1;
-      }
-      return;
-    }
-    if (Array.isArray(coord)) {
-      for (const c of coord) visit(c);
-    }
-  };
-  for (const f of features) {
-    const g = f.geometry as { coordinates?: unknown } | null | undefined;
-    if (g && 'coordinates' in g) visit(g.coordinates);
-  }
-  if (count === 0) return null;
-  return [
-    [minX, minY],
-    [maxX, maxY],
-  ];
+  const b = featuresBbox(features);
+  return b ? [[b[0], b[1]], [b[2], b[3]]] : null;
 }
 
 /**
@@ -8012,6 +8142,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
   const map = ctx?.maps[cfg.mapWidgetId] ?? null;
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -8080,7 +8211,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
           const text = await res.text().catch(() => '');
           throw new Error(text || `HTTP ${res.status}`);
         }
-        setStatus('Outline added.');
+        setStatus(t('customRuntime.errors.outlineAdded'));
         ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
         window.setTimeout(() => setStatus(null), 2000);
       } catch (err) {
@@ -8116,14 +8247,14 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         (l) => l.visible !== false && l.source.kind === 'tile',
       );
       if (!imagery || imagery.source.kind !== 'tile') {
-        setStatus('Add an imagery layer to this map to outline-solid from it.');
+        setStatus(t('customRuntime.errors.needImageryLayer'));
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
       const tgts = mutRef.current?.targets ?? [];
       const target = tgts[targetIdxRef.current] ?? tgts[0];
       if (!target) {
-        setStatus('No editable layer set. Add one in the app settings.');
+        setStatus(t('customRuntime.errors.noEditableLayer'));
         window.setTimeout(() => !cancelled && setStatus(null), 3500);
         return;
       }
@@ -8146,7 +8277,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
             // Preview it and wait for Save / Discard.
             drawMagicPreview(map, ring);
             setPending({ ring, targetIdx: targetIdxRef.current });
-            setStatus('Review the outline, then Save or Discard.');
+            setStatus(t('customRuntime.errors.outlineReview'));
           } else {
             await doSaveRef.current(ring, targetIdxRef.current);
           }
@@ -8156,7 +8287,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
           setStatus(
             err instanceof Error
               ? err.message
-              : 'The outline-solid tool hit a problem.',
+              : t('customRuntime.errors.outlineToolProblem'),
           );
           window.setTimeout(() => !cancelled && setStatus(null), 4000);
         })
@@ -8171,7 +8302,12 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
       canvas.style.cursor = prev;
       clearMagicPreview(map);
     };
-  }, [map, active, cfg.mapWidgetId, ctx]);
+    // Only the map and the on/off state.  Everything else is read
+    // through refs.  The whole context used to be a dependency, and it
+    // changes on any map update (a layer toggle, a selection), which
+    // ran the cleanup: the pending preview vanished and a result still
+    // in flight was dropped.
+  }, [map, active]);
 
   // Drop any pending preview when the tool turns off.
   useEffect(() => {
@@ -8190,7 +8326,7 @@ function MagicOutlineWidgetRender({ widget }: { widget: CustomWidget }) {
         onClick={() => setActive((v) => !v)}
         disabled={!map}
         aria-pressed={active}
-        title={t('customRuntime.widgets.magicOutlineSolid')}
+        title={t('customRuntime.widgets.magicOutline')}
         // Match the app-bar tool chrome (Search / Select / etc.).
         style={active ? BAR_TOOL_ACTIVE_STYLE : undefined}
         className={`${BAR_TOOL_CLASS} ${active ? '' : BAR_TOOL_IDLE}`}
@@ -8310,7 +8446,9 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   const { mapWidgetId, format, precision, showZoom } = widget.config;
   const map = ctx?.maps[mapWidgetId] ?? null;
   const fmt = format ?? 'dd';
-  const prec = precision ?? (fmt === 'dd' ? 5 : 0);
+  // Clamped: toFixed throws a RangeError outside 0..100, and a bad
+  // saved value crashed the app on the first mouse move.
+  const prec = clampDigits(precision ?? (fmt === 'dd' ? 5 : 0));
   const [pos, setPos] = useState<{ lng: number; lat: number } | null>(null);
   const [zoom, setZoom] = useState<number | null>(null);
 
@@ -8348,9 +8486,9 @@ function CoordinatesWidgetRender({ widget }: { widget: CustomWidget }) {
   }
 
   const display = !map
-    ? 'Bind a map widget'
+    ? t('customRuntime.empty.bindMapWidgetShort')
     : !pos
-      ? 'Move cursor over the bound map'
+      ? t('customRuntime.errors.moveCursorOverMap')
       : fmt === 'dms'
         ? `${formatDms(pos.lat, true)}  ${formatDms(pos.lng, false)}`
         : `${pos.lat.toFixed(prec)}, ${pos.lng.toFixed(prec)}`;
@@ -8385,8 +8523,12 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
   useEffect(() => {
     return () => {
       if (!map) return;
+      // The halo layer too: MapLibre refuses to remove a source a
+      // layer still uses, so leaving the halo kept the source alive
+      // and the next locate only ran setData, never re-adding the dot.
       try {
         if (map.getLayer(layerId)) map.removeLayer(layerId);
+        if (map.getLayer(`${layerId}-halo`)) map.removeLayer(`${layerId}-halo`);
         if (map.getSource(sourceId)) map.removeSource(sourceId);
       } catch {
         /* map already torn down */
@@ -8459,8 +8601,13 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
       setError('Bind a map widget.');
       return;
     }
-    if (!('geolocation' in navigator)) {
-      setError('Geolocation is not available in this browser.');
+    const blocked = geolocationBlock();
+    if (blocked === 'insecure-context') {
+      setError(t('common.geolocationInsecure'));
+      return;
+    }
+    if (blocked === 'unsupported') {
+      setError(t('customRuntime.errors.geolocationUnavailable'));
       return;
     }
     setBusy(true);
@@ -8482,7 +8629,11 @@ function MyLocationWidgetRender({ widget }: { widget: CustomWidget }) {
       },
       (err) => {
         setBusy(false);
-        setError(err.message || 'Could not get location.');
+        setError(
+          isInsecureGeolocationMessage(err.message)
+            ? t('common.geolocationInsecure')
+            : err.message || t('customRuntime.errors.couldNotGetLocation'),
+        );
       },
       { enableHighAccuracy: true, timeout: 10000 },
     );
@@ -8663,6 +8814,7 @@ type WriteBusyState =
  */
 interface MutationTarget {
   index: number;
+  sourceId: string;
   dataLayerId: string;
   layerKey: string;
   title: string;
@@ -8683,6 +8835,7 @@ interface MutationTarget {
  */
 function useMutationTargets(args: {
   mapWidgetId: string;
+  sourceId?: string | undefined;
   targetIndex?: number;
 }): {
   targets: MutationTarget[];
@@ -8692,49 +8845,86 @@ function useMutationTargets(args: {
   setEditClaim: CustomMapsCtx['setEditClaim'];
 } | null {
   const ctx = useContext(CustomMapsContext);
-  if (!ctx) return null;
+  const order = useContext(AppSourceOrderContext);
   const mapWidgetIdResolved = args.mapWidgetId || null;
-  const boundState = mapWidgetIdResolved
-    ? ctx.states[mapWidgetIdResolved] ?? null
-    : null;
-  const mapInstance = mapWidgetIdResolved
-    ? ctx.maps[mapWidgetIdResolved] ?? null
-    : null;
-  if (!boundState) {
+  const boundState =
+    ctx && mapWidgetIdResolved ? ctx.states[mapWidgetIdResolved] ?? null : null;
+  const mapInstance =
+    ctx && mapWidgetIdResolved ? ctx.maps[mapWidgetIdResolved] ?? null : null;
+  const boundLayers = boundState?.mapData.layers;
+  const selection = boundState?.selection;
+  const resolvedTargets = ctx?.resolvedTargets;
+  // The "Only <layer>" pin, as a source id.  Same precedence as
+  // useWidgetSource: the id wins, the legacy index is read through
+  // the author's source order.  It used to be compared with the
+  // position in resolvedTargets, which drops sources the viewer
+  // cannot read and table-only sublayers, so the pin could land on a
+  // different layer.  undefined = no pin (every editable target);
+  // null = pinned to a source that is gone (nothing is editable).
+  const pinnedId: string | null | undefined =
+    args.sourceId !== undefined
+      ? args.sourceId
+      : typeof args.targetIndex === 'number'
+        ? order[args.targetIndex] ?? null
+        : undefined;
+  // Memoized so callers get the same array (and the same result
+  // object) between renders.  The Edit widget's claim effect depends
+  // on these; a fresh object every render re-ran that effect, which
+  // updated root state, which rendered again, forever.
+  const targets = useMemo<MutationTarget[]>(() => {
+    if (!resolvedTargets || !boundLayers) return [];
+    // Build the list of targets from resolvedTargets, filtering to
+    // those whose MapLayer.id exists on the bound map (an author can
+    // hide a target from a Map widget; hidden targets are not
+    // editable here).
+    const layerIds = new Set(boundLayers.map((l) => l.id));
+    let pool: MutationTarget[] = resolvedTargets
+      .map((t, index) => ({
+        index,
+        sourceId: t.sourceId,
+        dataLayerId: t.dataLayerId,
+        layerKey: t.layerKey,
+        title: t.title,
+        mapLayer: t.mapLayer,
+      }))
+      .filter((t) => layerIds.has(t.mapLayer.id));
+    if (pinnedId !== undefined) {
+      pool = pool.filter((t) => t.sourceId === pinnedId);
+    }
+    return pool;
+  }, [resolvedTargets, boundLayers, pinnedId]);
+  const ctxFlyTo = ctx?.flyTo;
+  const setEditClaim = ctx?.setEditClaim;
+  const hasState = boundState !== null;
+  return useMemo(() => {
+    if (!setEditClaim || !ctxFlyTo) return null;
+    if (!hasState) {
+      return {
+        targets: [],
+        mapInstance,
+        selectionByLayerId: {},
+        flyTo: () => {},
+        setEditClaim,
+      };
+    }
     return {
-      targets: [],
+      targets,
       mapInstance,
-      selectionByLayerId: {},
-      flyTo: () => {},
-      setEditClaim: ctx.setEditClaim,
+      selectionByLayerId: selection ?? {},
+      flyTo: (bbox: [number, number, number, number]) => {
+        if (mapWidgetIdResolved) ctxFlyTo(mapWidgetIdResolved, bbox);
+      },
+      setEditClaim,
     };
-  }
-  // Build the list of targets from resolvedTargets, filtering to
-  // those whose MapLayer.id exists on the bound map (an author can
-  // hide a target from a Map widget; hidden targets are not
-  // editable here).
-  const layerIds = new Set(boundState.mapData.layers.map((l) => l.id));
-  let pool: MutationTarget[] = ctx.resolvedTargets
-    .map((t, index) => ({
-      index,
-      dataLayerId: t.dataLayerId,
-      layerKey: t.layerKey,
-      title: t.title,
-      mapLayer: t.mapLayer,
-    }))
-    .filter((t) => layerIds.has(t.mapLayer.id));
-  if (typeof args.targetIndex === 'number') {
-    pool = pool.filter((t) => t.index === args.targetIndex);
-  }
-  return {
-    targets: pool,
+  }, [
+    setEditClaim,
+    ctxFlyTo,
+    hasState,
+    targets,
     mapInstance,
-    selectionByLayerId: boundState.selection,
-    flyTo: (bbox) => {
-      if (mapWidgetIdResolved) ctx.flyTo(mapWidgetIdResolved, bbox);
-    },
-    setEditClaim: ctx.setEditClaim,
-  };
+    selection,
+    mapWidgetIdResolved,
+  ]);
 }
 
 /**
@@ -8872,8 +9062,10 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   if (widget.config.kind !== 'create-feature') return null;
   const cfg = widget.config;
   const appAt = useAppTime();
+  const ctx = useContext(CustomMapsContext);
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -8906,6 +9098,22 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     schema.geometryType !== 'none';
   const isPointLayer =
     schema.geometryType === 'point' || schema.geometryType === 'Point';
+  // Only single-point placement exists.  For a line or polygon layer
+  // the widget used to take one click anyway and save a Point into
+  // the layer (the server does not check the geometry family), so
+  // those layers are refused until sketching exists.
+  const unsupportedGeometry = needsGeometry && !isPointLayer;
+  const waitingForClick =
+    phase.kind === 'placing' && needsGeometry && isPointLayer && !phase.point;
+
+  // While waiting for the placement click, the map must not also
+  // open the popup of whatever feature is under the cursor.
+  const setSuppressed = ctx?.setPopupSuppressed;
+  useEffect(() => {
+    if (!setSuppressed || !cfg.mapWidgetId || !waitingForClick) return;
+    setSuppressed(cfg.mapWidgetId, true);
+    return () => setSuppressed(cfg.mapWidgetId, false);
+  }, [setSuppressed, cfg.mapWidgetId, waitingForClick]);
 
   // Click-to-place handler.  Only attached during the placing phase
   // for a point-geometry target whose location hasn't been picked
@@ -8913,7 +9121,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   // is now waiting for a click.
   useEffect(() => {
     if (phase.kind !== 'placing') return;
-    if (!needsGeometry) return;
+    if (!needsGeometry || !isPointLayer) return;
     if (phase.point) return;
     if (!mut?.mapInstance) return;
     const map = mut.mapInstance;
@@ -8931,10 +9139,10 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       map.off('click', onClick);
       map.getCanvas().style.cursor = '';
     };
-  }, [phase, needsGeometry, mut?.mapInstance]);
+  }, [phase, needsGeometry, isPointLayer, mut?.mapInstance]);
 
   async function submit(values: Record<string, unknown>) {
-    if (phase.kind !== 'placing') return;
+    if (phase.kind !== 'placing' || unsupportedGeometry) return;
     const target = phase.target;
     setBusy({ state: 'submitting' });
     try {
@@ -8964,12 +9172,15 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         const text = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}${text ? `: ${text}` : ''}`);
       }
+      // Refetch the layer's tiles so the new feature shows at once,
+      // as the Edit and Delete widgets do after their writes.
+      ctx?.refreshMapLayer(cfg.mapWidgetId, target.mapLayer.id);
       setBusy({ state: 'idle' });
       setPhase({ kind: 'closed' });
     } catch (e) {
       setBusy({
         state: 'error',
-        message: e instanceof Error ? e.message : 'Submit failed',
+        message: e instanceof Error ? e.message : t('customRuntime.errors.submitFailed'),
       });
     }
   }
@@ -8978,8 +9189,8 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
-          ? 'No editable target layers in the bound map.'
-          : 'Bind this widget to a Map widget.'}
+          ? t('customRuntime.empty.noEditableTargets')
+          : t('customRuntime.empty.bindMapWidgetToMap')}
       </p>
     );
   }
@@ -9005,7 +9216,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         className="inline-flex items-center gap-1 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] px-2 py-1 text-xs font-medium text-[hsl(var(--app-ink-0))] hover:bg-[hsl(var(--app-surface-2))] disabled:cursor-not-allowed disabled:opacity-50"
         title={
           inTimeTravel
-            ? 'Editing is disabled while viewing a past snapshot. Reset the time slider to enable.'
+            ? t('customRuntime.features.timeTravelDisabled')
             : undefined
         }
       >
@@ -9060,16 +9271,17 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
               <p>
                 Adding to <strong>{phase.target.title}</strong>.
               </p>
-              <p>
-                <strong>{t('customRuntime.common.step1')}</strong> {t('customRuntime.features.placeOnMap', { geometryType: schema.geometryType?.toLowerCase() ?? '' })}
-              </p>
-              {!isPointLayer ? (
+              {unsupportedGeometry ? (
                 <p className="text-[hsl(var(--app-muted))]">
-                  (Note: only single-point placement is supported in
-                  this first cut; multi-vertex sketching for lines /
-                  polygons is queued as a follow-up.)
+                  {t('customRuntime.features.sketchUnsupported', {
+                    geometryType: schema.geometryType?.toLowerCase() ?? '',
+                  })}
                 </p>
-              ) : null}
+              ) : (
+                <p>
+                  <strong>{t('customRuntime.common.step1')}</strong> {t('customRuntime.features.placeOnMap', { geometryType: schema.geometryType?.toLowerCase() ?? '' })}
+                </p>
+              )}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -9088,6 +9300,7 @@ function CreateFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
             </div>
           ) : (
             <AttributeForm
+              key={`${phase.target.dataLayerId}:${phase.target.layerKey}`}
               fields={schema.fields}
               editableFieldNames={null}
               layerTitle={phase.target.title}
@@ -9139,6 +9352,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   const container = ctx?.maps[cfg.mapWidgetId]?.getContainer() ?? null;
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -9166,6 +9380,8 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return out;
   }, [mut?.targets]);
 
+  const editClickSeq = useRef(0);
+
   // Schema for whichever target is in editing state.
   const schema = useLayerSchema(
     editing?.target.dataLayerId ?? '',
@@ -9176,9 +9392,9 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   // toggle flips.  The click callback opens the editing dialog
   // pre-filled with a feature lookup (in case the tile-side props
   // are partial -- MVT tiles strip non-trivial properties for size).
+  const setEditClaim = mut?.setEditClaim;
   useEffect(() => {
-    if (!mut || !active) return;
-    const setEditClaim = mut.setEditClaim;
+    if (!setEditClaim || !active) return;
     setEditClaim(cfg.mapWidgetId, {
       layerIds: editableLayerIds,
       onClick: (info) => {
@@ -9187,13 +9403,19 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         // Refetch the canonical feature so the form is filled with
         // the full row (the tile-side properties can be partial).
         const fid = String(info.featureId);
+        // Only the latest click may open the form: a slow lookup for an
+        // earlier click must not land last and swap the record back.
+        const seq = ++editClickSeq.current;
         fetch(
           `/api/portal/items/${target.dataLayerId}/layers/${encodeURIComponent(
             target.layerKey,
-          )}/features/${encodeURIComponent(fid)}`,
+          )}/features?entity=${encodeURIComponent(fid)}`,
+          { cache: 'no-store' },
         )
           .then((r) => (r.ok ? r.json() : null))
-          .then((row: { properties?: Record<string, unknown> } | null) => {
+          .then((fc: { features?: Array<{ properties?: Record<string, unknown> }> } | null) => {
+            if (seq !== editClickSeq.current) return;
+            const row = fc?.features?.[0] ?? null;
             setEditing({
               target,
               featureId: fid,
@@ -9202,6 +9424,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
             setBusy({ state: 'idle' });
           })
           .catch(() => {
+            if (seq !== editClickSeq.current) return;
             setEditing({
               target,
               featureId: fid,
@@ -9215,7 +9438,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
       setEditClaim(cfg.mapWidgetId, null);
     };
   }, [
-    mut,
+    setEditClaim,
     active,
     cfg.mapWidgetId,
     editableLayerIds,
@@ -9260,7 +9483,7 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     } catch (e) {
       setBusy({
         state: 'error',
-        message: e instanceof Error ? e.message : 'Update failed',
+        message: e instanceof Error ? e.message : t('customRuntime.errors.updateFailed'),
       });
     }
   }
@@ -9269,17 +9492,17 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
-          ? 'No editable target layers in the bound map.'
-          : 'Bind this widget to a Map widget.'}
+          ? t('customRuntime.empty.noEditableTargets')
+          : t('customRuntime.empty.bindMapWidgetToMap')}
       </p>
     );
   }
 
   const buttonTitle = inTimeTravel
-    ? 'Editing is disabled while viewing a past snapshot.'
+    ? t('customRuntime.features.timeTravelDisabledShort')
     : active
-      ? 'Click an editable feature on the map to edit it. Click here again to exit edit mode.'
-      : 'Enter edit mode, then click any editable feature on the map.';
+      ? t('customRuntime.features.clickEditable')
+      : t('customRuntime.features.enterEditMode');
 
   const formCard = editing ? (
     <div className="overflow-auto rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))]">
@@ -9289,6 +9512,10 @@ function EditFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
         <p className="p-3 text-xs text-[hsl(var(--app-danger))]">{schema.error}</p>
       ) : (
         <AttributeForm
+          // One form per record: AttributeForm seeds its values once,
+          // so switching features without a new key saved feature A's
+          // values onto feature B.
+          key={`${editing.target.dataLayerId}:${editing.target.layerKey}:${editing.featureId}`}
           fields={schema.fields}
           editableFieldNames={null}
           initial={editing.properties}
@@ -9398,6 +9625,7 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
   const appAt = useAppTime();
   const mut = useMutationTargets({
     mapWidgetId: cfg.mapWidgetId,
+    sourceId: cfg.sourceId,
     ...(typeof cfg.targetIndex === 'number'
       ? { targetIndex: cfg.targetIndex }
       : {}),
@@ -9520,18 +9748,18 @@ function DeleteFeatureWidgetRender({ widget }: { widget: CustomWidget }) {
     return (
       <p className="p-3 text-xs italic text-[hsl(var(--app-muted))]">
         {cfg.mapWidgetId
-          ? 'No editable target layers in the bound map.'
-          : 'Bind this widget to a Map widget.'}
+          ? t('customRuntime.empty.noEditableTargets')
+          : t('customRuntime.empty.bindMapWidgetToMap')}
       </p>
     );
   }
 
   const buttonTitle = inTimeTravel
-    ? 'Editing is disabled while viewing a past snapshot.'
+    ? t('customRuntime.features.timeTravelDisabledShort')
     : totalSelected === 0
       ? unmatched > 0
-        ? 'Reselect the features on the map, then try again.'
-        : 'Select feature(s) on the bound map first.'
+        ? t('customRuntime.features.reselectFeatures')
+        : t('customRuntime.features.selectOnMapFirst')
       : undefined;
 
   // Solid surface + normal ink (#194): the confirm card renders over
@@ -9755,6 +9983,13 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
   );
 
   function onSliderChange(newValue: number) {
+    // Far right is "now".  When the step does not divide the range,
+    // the last position lands short of maxDate (yesterday for a year
+    // in weekly steps), so it used to publish a past date instead.
+    if (newValue >= sliderMax) {
+      setAt(null);
+      return;
+    }
     const offsetDays = newValue * stepDays;
     const d = new Date(minMs);
     d.setDate(d.getDate() + offsetDays);
@@ -9838,7 +10073,13 @@ function TimeSliderWidgetRender({ widget }: { widget: CustomWidget }) {
           {playableCfg ? (
             <button
               type="button"
-              onClick={() => setPlaying((p) => !p)}
+              onClick={() => {
+                // Starting from the far right (live) restarts from
+                // the beginning; with endBehavior 'pause' the first
+                // tick otherwise saw the end and stopped at once.
+                if (!playing && sliderValue >= sliderMax) onSliderChange(0);
+                setPlaying((p) => !p);
+              }}
               className="shrink-0 inline-flex h-6 w-6 items-center justify-center rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-0))] text-[hsl(var(--app-ink-1))] hover:bg-[hsl(var(--app-surface-2))]"
               aria-label={playing ? t('customRuntime.a11y.pause') : t('customRuntime.a11y.play')}
               title={playing ? t('customRuntime.a11y.pause') : t('customRuntime.a11y.play')}

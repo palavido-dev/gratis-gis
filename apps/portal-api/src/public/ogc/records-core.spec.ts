@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   CATALOG_COLLECTION_ID,
-  MAX_RECORDS_BBOX_SCAN,
+  assertRecordsQuery,
+  queryPublicRecords,
   bboxesIntersect,
   buildRecord,
   catalogCollectionDoc,
-  filterAndPageRecords,
   parseBboxQuery,
   type ItemRow,
 } from './records-core.js';
@@ -115,80 +115,43 @@ describe('records-core', () => {
     ).toBe(false);
   });
 
-  it('filters by bbox then pages with honest numberMatched', () => {
-    const rows = [
-      row({
-        id: '11111111-1111-1111-1111-111111111111',
-        title: 'Inside',
-        bbox: [-80.2, 39.1, -80.0, 39.3],
-      }),
-      row({
-        id: '22222222-2222-2222-2222-222222222222',
-        title: 'Outside',
-        bbox: [-70, 30, -69, 31],
-      }),
-      row({
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'No bbox',
-        bbox: null,
-      }),
-    ];
-    const page = filterAndPageRecords(
-      rows,
-      'http://portal.test',
-      'http://portal.test/api/public/ogc/collections/catalog/items',
+  it('tests a bbox in SQL and counts the whole match, not a capped scan', async () => {
+    const queryRaw = jest.fn(async () => [{ id: '11111111-1111-1111-1111-111111111111' }]);
+    const count = jest.fn(async () => 1);
+    const findMany = jest.fn(async () => [
+      row({ id: '11111111-1111-1111-1111-111111111111', title: 'Inside' }),
+    ]);
+    const out = await queryPublicRecords(
+      { $queryRaw: queryRaw, item: { count, findMany } } as never,
       {
-        limit: 10,
+        where: { access: 'public', deletedAt: null },
+        orderBy: undefined,
         offset: 0,
+        limit: 10,
         bbox: '-80.5,39.0,-80.0,39.5',
       },
-      'http://portal.test/api/public/ogc/',
     );
-    expect(page.numberMatched).toBe(1);
-    expect(page.numberReturned).toBe(1);
-    expect(page.features[0]?.id).toBe(
-      '11111111-1111-1111-1111-111111111111',
-    );
-    expect(page.features[0]?.links).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          rel: 'self',
-          href: 'http://portal.test/api/public/ogc/collections/catalog/items/11111111-1111-1111-1111-111111111111',
-        }),
-      ]),
-    );
+    const sql = (queryRaw.mock.calls[0] as unknown as [{ strings: string[]; values: unknown[] }])[0];
+    expect(sql.strings.join('?')).toContain('bbox_geom &&');
+    expect(sql.values).toEqual([-80.5, 39.0, -80.0, 39.5]);
+    const where = (count.mock.calls[0] as unknown as [{ where: unknown }])[0].where;
+    expect(JSON.stringify(where)).toContain('11111111-1111-1111-1111-111111111111');
+    expect(out.total).toBe(1);
+    expect((findMany.mock.calls[0] as unknown as [{ take: number }])[0].take).toBe(10);
   });
 
-  it('exports a hard ceiling for in-memory bbox scans', () => {
-    // Controllers pass take: MAX_RECORDS_BBOX_SCAN so a public
-    // ?bbox= cannot pull every public item into Node heap
-    // (SEC-records-bbox-throttle).
-    expect(MAX_RECORDS_BBOX_SCAN).toBe(5_000);
-  });
-
-  it('numberMatched reflects only the capped scan slice', () => {
-    // Simulate a controller that already applied the scan cap:
-    // matches beyond the loaded window are invisible, and
-    // numberMatched must not invent a larger catalogue count.
-    const capped = Array.from({ length: 3 }, (_, i) =>
-      row({
-        id: `aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa${i}`,
-        title: `Hit ${i}`,
-        bbox: [-80.2, 39.1, -80.0, 39.3],
-      }),
+  it('refuses a filter it cannot apply instead of dropping it', () => {
+    expect(() => assertRecordsQuery(['bbox'], { bbox: 'abc', offset: 0 })).toThrow(
+      /bbox/,
     );
-    const page = filterAndPageRecords(
-      capped,
-      'http://portal.test',
-      'http://portal.test/api/public/ogc/records',
-      {
-        limit: 10,
-        offset: 0,
-        bbox: '-80.5,39.0,-80.0,39.5',
-      },
-      'http://portal.test/api/public/ogc/',
-    );
-    expect(page.numberMatched).toBe(capped.length);
-    expect(page.numberReturned).toBe(capped.length);
+    expect(() =>
+      assertRecordsQuery(['type'], { type: 'not_a_type', offset: 0 }),
+    ).toThrow(/Unknown type/);
+    expect(() => assertRecordsQuery(['nope'], { offset: 0 })).toThrow(/Unknown query/);
+    expect(() => assertRecordsQuery([], { offset: 10_000_000 })).toThrow(/offset/);
+    // Any real item type is accepted, including ones the old list missed.
+    expect(() =>
+      assertRecordsQuery(['type'], { type: 'tile_layer', offset: 0 }),
+    ).not.toThrow();
   });
 });

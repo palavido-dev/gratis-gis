@@ -187,3 +187,24 @@ export function buildCalculateGeometryDerivedLayerCreatePayload(args: {
     }),
   };
 }
+
+const LENGTH_SUFFIX: Record<string, string> = {
+  meters: 'm',
+  kilometers: 'km',
+  feet: 'ft',
+  yards: 'yd',
+  miles: 'mi',
+};
+
+/**
+ * Default output column name for a measurement and unit. The guide
+ * uses it until the user types their own name; a fixed `acres` stayed
+ * put when the unit changed and named a column of hectares `acres`.
+ */
+export function defaultCalculateGeometryFieldName(
+  measurement: string,
+  unit: string,
+): string {
+  if (measurement === 'area') return unit.replace(/-/g, '_');
+  return `${measurement}_${LENGTH_SUFFIX[unit] ?? unit.replace(/-/g, '_')}`;
+}

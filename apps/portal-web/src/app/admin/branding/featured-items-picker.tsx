@@ -190,8 +190,8 @@ export function FeaturedItemsPicker({ value, onChange }: Props) {
       {featuredRows.length === 0 ? (
         <p className="rounded-md border border-dashed border-border bg-surface-0 px-3 py-4 text-center text-xs text-muted">
           No featured items. The landing page will show all public
-          items in your org, newest first. Add items below to pin
-          specific ones to the top in the order you want.
+          items in your org, newest first. Add items below to show
+          only those, in the order you want.
         </p>
       ) : (
         <ul className="space-y-1.5">

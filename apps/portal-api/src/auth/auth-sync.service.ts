@@ -52,8 +52,12 @@ export interface AuthUser {
    * not, both enforced in the auth layer rather than in services:
    * keys are refused on /admin/* by AdminGuard, and a read-only key
    * is refused on unsafe HTTP methods by JwtAuthGuard. See #219.
+   *
+   * `print_read` is the server-side print's per-job credential. The
+   * guard accepts it only on @PrintReadable() read handlers and only
+   * for the item ids it carries (see print-read-credential.ts).
    */
-  authKind?: 'jwt' | 'api_key';
+  authKind?: 'jwt' | 'api_key' | 'print_read';
   /** Set only when `authKind === 'api_key'`; drives the method gate. */
   apiKeyReadOnly?: boolean;
 }
@@ -99,6 +103,37 @@ export interface AuthUser {
  * the org, leaving only the group and override read to save, for
  * traffic that is scripts rather than dashboards.
  */
+/**
+ * Display name for an organization created on first sign-in. The
+ * install's own organization (DEFAULT_ORG_SLUG, gratis-gis by default)
+ * takes DEFAULT_ORG_NAME, which bootstrap.sh asks for. Any other org
+ * starts with its slug; admins rename it on the Branding page.
+ */
+export function initialOrgName(
+  orgSlug: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const installSlug = env.DEFAULT_ORG_SLUG?.trim() || 'gratis-gis';
+  const name = env.DEFAULT_ORG_NAME?.trim();
+  return orgSlug === installSlug && name ? name : orgSlug;
+}
+
+/**
+ * True for the install's master admin account: an org admin whose
+ * username is PORTAL_MASTER_ADMIN ("admin" by default, the account
+ * bootstrap creates). Such a row gets `is_protected`, which the admin
+ * API checks before any change to it. An empty PORTAL_MASTER_ADMIN
+ * turns this off, for an operator who manages the flag by hand.
+ */
+export function isMasterAdminAccount(
+  username: string,
+  orgRole: OrgRole,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const master = (env.PORTAL_MASTER_ADMIN ?? 'admin').trim();
+  return master !== '' && orgRole === 'admin' && username === master;
+}
+
 @Injectable()
 export class AuthSyncService {
   constructor(private readonly prisma: PrismaService) {}
@@ -353,7 +388,7 @@ export class AuthSyncService {
         (await this.prisma.organization.upsert({
           where: { slug: orgSlug },
           update: {},
-          create: { slug: orgSlug, name: orgSlug },
+          create: { slug: orgSlug, name: initialOrgName(orgSlug) },
         }));
     }
 
@@ -412,10 +447,27 @@ export class AuthSyncService {
         'This account is deleted. Contact your organization admin.',
       );
     }
+    // A disabled account's access token is still valid offline until
+    // it expires. The API key path already refuses disabled_at; the
+    // JWT path let a just-offboarded user keep working for minutes.
+    if (existing !== null && (existing.disabledAt ?? null) !== null) {
+      throw new UnauthorizedException(
+        'This account is disabled. Contact your organization admin.',
+      );
+    }
     // fullName only counts as changed when the token carries a name:
     // Prisma skips undefined fields, so the old upsert also left
     // fullName untouched for tokens without a `name` claim.
+    // The master admin is marked protected the first time it is seen.
+    // The migration that added the flag only marked rows that already
+    // existed, and on a fresh install the user table is empty at that
+    // point, so without this no install made later ever had a
+    // protected account.
+    const protectNow =
+      isMasterAdminAccount(claims.preferred_username, normalisedRole) &&
+      (existing === null || !existing.isProtected);
     const claimsChanged =
+      protectNow ||
       existing === null ||
       existing.email !== email ||
       (claims.name !== undefined && existing.fullName !== claims.name) ||
@@ -441,6 +493,7 @@ export class AuthSyncService {
                     orgId: org.id,
                   }
                 : {}),
+              ...(protectNow ? { isProtected: true } : {}),
               ...(writeLastSeen ? { lastSeenAt: new Date() } : {}),
             },
             create: {
@@ -452,6 +505,7 @@ export class AuthSyncService {
               email,
               fullName: claims.name,
               orgRole: normalisedRole,
+              isProtected: protectNow,
               lastSeenAt: new Date(),
             },
           });
@@ -655,6 +709,19 @@ export class AuthSyncService {
   }
 
   /**
+   * Starters this org purged, as "<item type>/<seed kind>" (04-8).
+   * An item that still exists, even in the trash, already stops a
+   * reseed; this covers the ones the trash purge removed for good.
+   */
+  private async dismissedSeedKinds(orgId: string): Promise<Set<string>> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { dismissedSeedKinds: true },
+    });
+    return new Set(org?.dismissedSeedKinds ?? []);
+  }
+
+  /**
    * For each built-in basemap seed, insert an item row if the org
    * doesn't already have one with that `seededKey`. The caller passes
    * `fallbackOwnerId` (the user who just signed in) to use when the
@@ -674,8 +741,13 @@ export class AuthSyncService {
       const key = (row.data as { seededKey?: unknown } | null)?.seededKey;
       if (typeof key === 'string') have.add(key);
     }
-    const missing = BUILTIN_BASEMAP_SEEDS.filter(
+    let missing = BUILTIN_BASEMAP_SEEDS.filter(
       (s) => !have.has(s.seededKey),
+    );
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter(
+      (s) => !dismissed.has(`basemap/basemap:${s.seededKey}`),
     );
     if (missing.length === 0) return;
 
@@ -686,11 +758,19 @@ export class AuthSyncService {
     });
     const ownerId = admin?.id ?? fallbackOwnerId;
 
+    // seedKind puts each basemap under the partial unique index on
+    // (org_id, type, seed_kind) that the other starters use, and
+    // skipDuplicates turns a second replica's identical insert into a
+    // no-op. The in-flight map only coalesced callers in one process,
+    // so a new org's first sign-in burst across two replicas used to
+    // get every basemap twice.
     await this.prisma.item.createMany({
+      skipDuplicates: true,
       data: missing.map((seed) => ({
         orgId,
         ownerId,
         type: 'basemap' as const,
+        seedKind: `basemap:${seed.seededKey}`,
         title: seed.title,
         description: seed.description,
         tags: ['built-in'],
@@ -710,7 +790,8 @@ export class AuthSyncService {
    * #22: For each built-in starter app template, insert an
    * `app_template` item row if the org doesn't already have one
    * with that `seed_kind`.  Idempotent: if the admin previously
-   * deleted a starter, this will not re-create it (the housekeeping
+   * deleted a starter, this will not re-create it, in the trash or
+   * after a purge (dismissedSeedKinds; the housekeeping
    * "Restore starter templates" button is the explicit way to bring
    * them back).  Idempotent on first-run: the seed_kind check
    * prevents duplicates if two processes race.
@@ -732,7 +813,10 @@ export class AuthSyncService {
     for (const row of existing) {
       if (row.seedKind) have.add(row.seedKind);
     }
-    const missing = STARTERS.filter((s) => !have.has(s.kind));
+    let missing = STARTERS.filter((s) => !have.has(s.kind));
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter((s) => !dismissed.has(`app_template/${s.kind}`));
     if (missing.length === 0) return;
 
     // Prefer the org's first admin so the seed items match the
@@ -788,7 +872,10 @@ export class AuthSyncService {
     for (const row of existing) {
       if (row.seedKind) have.add(row.seedKind);
     }
-    const missing = THEME_STARTERS.filter((s) => !have.has(s.kind));
+    let missing = THEME_STARTERS.filter((s) => !have.has(s.kind));
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter((s) => !dismissed.has(`theme/${s.kind}`));
     if (missing.length === 0) return;
 
     const admin = await this.prisma.user.findFirst({
@@ -838,7 +925,10 @@ export class AuthSyncService {
     for (const row of existing) {
       if (row.seedKind) have.add(row.seedKind);
     }
-    const missing = PRINT_TEMPLATE_STARTERS.filter((s) => !have.has(s.kind));
+    let missing = PRINT_TEMPLATE_STARTERS.filter((s) => !have.has(s.kind));
+    if (missing.length === 0) return;
+    const dismissed = await this.dismissedSeedKinds(orgId);
+    missing = missing.filter((s) => !dismissed.has(`print_template/${s.kind}`));
     if (missing.length === 0) return;
 
     const admin = await this.prisma.user.findFirst({

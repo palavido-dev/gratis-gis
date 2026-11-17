@@ -1,0 +1,596 @@
+# GratisGIS for a home NAS. Paste this whole file.
+#
+# TrueNAS SCALE 25.10: Apps, Discover Apps, the three dots next to
+# Custom App, Install via YAML. Name the app gratis-gis.
+# Dockge: new stack, paste this file, leave the env box empty.
+#
+# You do not need a domain name, a git checkout, or ports 80/443.
+# The TrueNAS web UI stays on 80/443.
+#
+# WEB PORT. This is the only line that sets the port on the NAS.
+# 8080 is the default. If something else already uses it (an IP
+# camera is a common one), change the number below to 8085.
+# The address in the bootstrap log, Keycloak, and sign-in redirects
+# follow this number. Leave every later 8080 alone: that is the
+# port inside the container.
+#
+# UPLOAD PORT. Signed uploads need their own port. Change it here.
+#
+# ANALYSIS. on runs lidar and terrain processing. It needs about
+# 2.5 GB of RAM and free disk for scratch. Set it to off on a
+# small box. TrueNAS Install via YAML cannot turn a Compose
+# profile on, so this is a plain value.
+#
+# IMPORT MEMORY. Big imports (a shapefile of several hundred MB,
+# for example) need about 3 GB for the import worker. The default
+# below is a ceiling, not a reservation. On a box with 4 GB of RAM
+# or less, lower it in Dockge's env box:
+#   GRATIS_WORKER_MEMORY=1536m
+#   GRATIS_WORKER_HEAP_MB=1024
+# Keep the heap about 512 MB below the memory limit.
+#
+# IMAGE CHANNEL. edge (the default) tracks main. For the newest
+# stable release, set GG_IMAGE_TAG to latest before the first
+# start, or in Dockge's env box:
+#   GG_IMAGE_TAG=latest
+# A tag such as v1.2.3 pins that release. The admin Updates page
+# follows this channel.
+#
+# Optional, before the first start:
+#   GRATIS_BASE_URL   example http://192.168.1.20:8080
+#                     or your Tailscale address http://100.x.x.x:8080
+#                     Use the same port as GRATIS_HTTP_PORT.
+#   GRATIS_S3_URL     only if uploads are not http://<same-host>:<upload port>
+#   GRATIS_MODE       lan (default) or public
+#   GRATIS_TLS        empty, or internal (browser certificate warning)
+#
+# After it starts, open the bootstrap logs. They show the address
+# and the admin password. That log is private. Do not post it.
+# Nothing here is a default password.
+
+x-gratis:
+  GRATIS_HTTP_PORT: &GRATIS_HTTP_PORT "${GRATIS_HTTP_PORT:-8080}"
+  GRATIS_S3_PORT: &GRATIS_S3_PORT "${GRATIS_S3_PORT:-8900}"
+  GRATIS_ANALYSIS: &GRATIS_ANALYSIS "${GRATIS_ANALYSIS:-on}"
+  # Import worker ceiling. Was 1536m with a 1 GB heap, which a
+  # 700 MB shapefile of detailed polygons outgrew on its second batch
+  # (#573): the worker was killed and the import sat at 5,000 rows.
+  # Same numbers as the VPS stack (docker-compose.prod.yml).
+  GRATIS_WORKER_MEMORY: &GRATIS_WORKER_MEMORY "${GRATIS_WORKER_MEMORY:-3584m}"
+  # Bump this together with REQUIRED_COMPOSE_REV in the Dockerfiles
+  # whenever this file's contract changes. CI checks they match.
+  # 2: portal-api and portal-worker share the gg-staging volume.
+  # 3: optional settings pass through; email links use the portal
+  #    address; portal-worker leaves crons to portal-api.
+  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "3"
+  # Written into /boot/ready by bootstrap, and every service waits for
+  # a marker that matches its own copy (58-4). The marker lives on a
+  # volume and survives restarts, so a plain "file exists" test let
+  # services start on the previous boot's env after an upgrade or a
+  # change to the settings above. The image tag and every bootstrap
+  # input are in it, so changing any of them also makes Compose
+  # recreate every service that waits on it.
+  GRATIS_BOOT_STAMP: &GRATIS_BOOT_STAMP "tag=${GG_IMAGE_TAG:-edge};mode=${GRATIS_MODE:-lan};base=${GRATIS_BASE_URL:-};http=${GRATIS_HTTP_PORT:-8080};s3=${GRATIS_S3_PORT:-8900};s3url=${GRATIS_S3_URL:-};tls=${GRATIS_TLS:-};acme=${GRATIS_ACME_EMAIL:-};auth=${GRATIS_AUTH_DOMAIN:-};storage=${GRATIS_STORAGE_DOMAIN:-};analysis=${GRATIS_ANALYSIS:-on}"
+
+name: gratis-gis
+
+services:
+  bootstrap:
+    # Pinned by digest: this container generates every secret.
+    image: python:3.12-alpine@sha256:e064671ca452259bab50e8e2c7bd896e39e9a343bb06ca25234adf6fe18d0fc7
+    container_name: gratis-gis-bootstrap
+    restart: unless-stopped
+    # So the first boot can see the NAS address on the host, while
+    # this container still joins the compose network below and can
+    # reach Keycloak by name. It reads the host route table on every
+    # start (the address can change), so pid: host stays for the
+    # container's life. It runs only nas-init.py from this file.
+    pid: host
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      GRATIS_MODE: ${GRATIS_MODE:-lan}
+      GRATIS_BASE_URL: ${GRATIS_BASE_URL:-}
+      GRATIS_HTTP_PORT: *GRATIS_HTTP_PORT
+      GRATIS_S3_PORT: *GRATIS_S3_PORT
+      GRATIS_S3_URL: ${GRATIS_S3_URL:-}
+      GRATIS_ANALYSIS: *GRATIS_ANALYSIS
+      GRATIS_TLS: ${GRATIS_TLS:-}
+      GRATIS_ACME_EMAIL: ${GRATIS_ACME_EMAIL:-}
+      GRATIS_AUTH_DOMAIN: ${GRATIS_AUTH_DOMAIN:-}
+      GRATIS_STORAGE_DOMAIN: ${GRATIS_STORAGE_DOMAIN:-}
+      GG_IMAGE_TAG: ${GG_IMAGE_TAG:-edge}
+      GRATIS_COMPOSE_REV: *GRATIS_COMPOSE_REV
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+      UPDATE_CHECK: ${UPDATE_CHECK:-on}
+      BOOT_DIR: /boot
+      CHROMIUM_ENV_DIR: /svc/chromium
+      POINTCLOUD_ENV_DIR: /svc/pointcloud
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        python - <<'END_NAS_INIT'
+__NAS_INIT_BODY__
+        END_NAS_INIT
+    volumes:
+      - boot:/boot
+      - chromium-env:/svc/chromium
+      - pointcloud-env:/svc/pointcloud
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(cat /boot/ready 2>/dev/null)\" = \"$$GRATIS_BOOT_STAMP\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - gratis-net
+
+  postgres:
+    image: ghcr.io/palavido-dev/gratis-gis/postgres:${GG_IMAGE_TAG:-edge}
+    pull_policy: always
+    restart: unless-stopped
+    shm_size: 512mb
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec docker-entrypoint.sh postgres \
+          -c shared_preload_libraries=pg_partman_bgw,pg_stat_statements \
+          -c pg_partman_bgw.interval=3600 \
+          -c pg_partman_bgw.role=gratisgis \
+          -c pg_partman_bgw.dbname=gratisgis \
+          -c shared_buffers=256MB \
+          -c effective_cache_size=1GB \
+          -c work_mem=16MB \
+          -c maintenance_work_mem=256MB \
+          -c jit=off
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+    volumes:
+      - boot:/boot:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gratisgis -d gratisgis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    networks:
+      - gratis-net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /opt/keycloak/bin/kc.sh start --http-enabled=true --health-enabled=true --proxy-headers=xforwarded --import-realm
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+      JAVA_OPTS_APPEND: "-Xms256m -Xmx768m"
+    volumes:
+      # /boot holds /boot/env and /boot/ready. The import directory
+      # is the same volume so --import-realm still sees
+      # realm-gratis-gis.json. Keycloak imports only *.json.
+      - boot:/boot:ro
+      - boot:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Port open is enough for Compose to proceed. The bootstrap
+    # container waits for /health/ready before it touches the realm.
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/9000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 120s
+    networks:
+      - gratis-net
+
+  minio:
+    # pgsty/silo ships /usr/bin/silo, not a `minio` binary. Starting
+    # `minio` exits 127. The image also has no credentials of its own:
+    # if the process starts before /boot/env exists it formats /data
+    # as minioadmin. Wait, source the generated env, then exec silo.
+    # Unset the image's *_FILE defaults so a missing relative file
+    # cannot replace the generated password.
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        unset MINIO_ROOT_USER_FILE MINIO_ROOT_PASSWORD_FILE MINIO_ACCESS_KEY_FILE MINIO_SECRET_KEY_FILE MINIO_CONFIG_ENV_FILE
+        exec /usr/bin/silo server /data --console-address ":9001"
+    ports:
+      # Browser uploads. The host port is GRATIS_S3_PORT at the top
+      # of this file. 9000 stays the port inside the container.
+      # Do not forward this on your router.
+      - target: 9000
+        published: *GRATIS_S3_PORT
+        protocol: tcp
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+    volumes:
+      - boot:/boot:ro
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks:
+      - gratis-net
+
+  portal-api:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 1536m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/main.js
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+      NODE_OPTIONS: --max-old-space-size=1024
+      # Empty keeps unpaged feature reads streaming; `required` refuses
+      # them and points at the csv export.
+      GRATIS_FEATURE_QUERY_PAGE: ${GRATIS_FEATURE_QUERY_PAGE:-}
+      # Uploaded files wait here for the import worker. The worker
+      # mounts the same volume at the same path. Without it, every
+      # queued import fails with "Source file expired".
+      STAGING_DIR: /var/lib/gg-staging
+      # Optional settings. Empty means the default. In Dockge, set
+      # them in the env box. See docs/truenas.md.
+      # Email notifications are off unless this is true. Configure
+      # SMTP on the admin Notifications page.
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
+      PORTAL_NAME: ${PORTAL_NAME:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      GRATIS_DISABLE_BACKUP_UI: ${GRATIS_DISABLE_BACKUP_UI:-}
+      POSTGIS_LIVE_DENY_HOSTS: ${POSTGIS_LIVE_DENY_HOSTS:-}
+      POSTGIS_LIVE_ALLOW_HOSTS: ${POSTGIS_LIVE_ALLOW_HOSTS:-}
+      SMTP_ALLOW_PLAINTEXT_AUTH: ${SMTP_ALLOW_PLAINTEXT_AUTH:-}
+      GEOPARQUET_EXPORT_CONCURRENCY: ${GEOPARQUET_EXPORT_CONCURRENCY:-}
+      SEARCH_INDEX_BUILD_TIMEOUT_MS: ${SEARCH_INDEX_BUILD_TIMEOUT_MS:-}
+      BACKUP_ALLOWED_DIRS: ${BACKUP_ALLOWED_DIRS:-}
+      NOTIFICATIONS_MAX_QUEUED_HOURS: ${NOTIFICATIONS_MAX_QUEUED_HOURS:-}
+      NOTIFY_ADDRESS_HOURLY_LIMIT: ${NOTIFY_ADDRESS_HOURLY_LIMIT:-}
+      PORTAL_MASTER_ADMIN: ${PORTAL_MASTER_ADMIN:-}
+      SCRIPT_RUN_KEEP: ${SCRIPT_RUN_KEEP:-}
+      PORTAL_LOCK_ADMIN_TIER: ${PORTAL_LOCK_ADMIN_TIER:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      AUTH_ALLOWED_ORIGINS: ${AUTH_ALLOWED_ORIGINS:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      JWT_ALLOWED_AZP: ${JWT_ALLOWED_AZP:-}
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-}
+      GRATIS_OPERATOR_ORG_ID: ${GRATIS_OPERATOR_ORG_ID:-}
+      GRATIS_ADMIN_AUDIT_RETENTION_DAYS: ${GRATIS_ADMIN_AUDIT_RETENTION_DAYS:-}
+      RECYCLE_BIN_RETENTION_DAYS: ${RECYCLE_BIN_RETENTION_DAYS:-}
+      NOTIFICATIONS_RETENTION_DAYS: ${NOTIFICATIONS_RETENTION_DAYS:-}
+      ITEM_SNAPSHOT_TTL_DAYS: ${ITEM_SNAPSHOT_TTL_DAYS:-}
+      ITEM_SNAPSHOT_CAP_PER_ITEM: ${ITEM_SNAPSHOT_CAP_PER_ITEM:-}
+      HOUSEKEEPING_STALE_ITEM_DAYS: ${HOUSEKEEPING_STALE_ITEM_DAYS:-}
+      HOUSEKEEPING_STALE_USER_DAYS: ${HOUSEKEEPING_STALE_USER_DAYS:-}
+      HOUSEKEEPING_TOP_N: ${HOUSEKEEPING_TOP_N:-}
+      HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS: ${HOUSEKEEPING_ORPHAN_UPLOAD_MIN_AGE_HOURS:-}
+      HOUSEKEEPING_FIELD_QUEUE_STALE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_STALE_DAYS:-}
+      HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS:-}
+      PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      # Vector tiles are also kept on disk, so maps load quickly after
+      # a restart or an update. Set TILE_CACHE_DISK_MAX_BYTES=0 to turn
+      # it off. The default cap is 1 GiB.
+      TILE_CACHE_DIR: ${TILE_CACHE_DIR:-/var/cache/gg-tiles}
+      TILE_CACHE_DISK_MAX_BYTES: ${TILE_CACHE_DISK_MAX_BYTES:-}
+      TILE_CACHE_DISK_MAX_FILES: ${TILE_CACHE_DISK_MAX_FILES:-}
+    volumes:
+      - boot:/boot:ro
+      # Admin backup archives. Recreating the container keeps them.
+      - portal-api-backups:/app/backups
+      - gg-staging:/var/lib/gg-staging
+      - tile-cache:/var/cache/gg-tiles
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 90s
+    networks:
+      - gratis-net
+
+  portal-worker:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-api:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: *GRATIS_WORKER_MEMORY
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        export SKIP_MIGRATE=true
+        exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/worker.main.js
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+      NODE_OPTIONS: --max-old-space-size=${GRATIS_WORKER_HEAP_MB:-3072}
+      # Same path and volume as portal-api, so the worker can read
+      # the files portal-api staged for import.
+      STAGING_DIR: /var/lib/gg-staging
+      # Crons run on portal-api. Without this the worker could win
+      # the cron lock and portal-api's scheduled jobs would not run.
+      ENABLE_CRONS: "false"
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
+      PORTAL_NAME: ${PORTAL_NAME:-}
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
+      # 06-5: search index builds run here now, queued by portal-api.
+      SEARCH_INDEX_BUILD_TIMEOUT_MS: ${SEARCH_INDEX_BUILD_TIMEOUT_MS:-}
+    volumes:
+      - boot:/boot:ro
+      - gg-staging:/var/lib/gg-staging
+    depends_on:
+      portal-api:
+        condition: service_healthy
+    healthcheck:
+      # tini is pid 1. Look for the worker in /proc. $$ so Compose
+      # leaves the regex dollar sign for node.
+      test:
+        - CMD
+        - node
+        - -e
+        - 'const fs=require("fs"); const n="worker"+".main.js"; let ok=false; for (const p of fs.readdirSync("/proc")) { if (!/^[0-9]+$$/.test(p)) continue; try { if (fs.readFileSync("/proc/"+p+"/cmdline").includes(n)) ok=true; } catch (e) {} } process.exit(ok?0:1)'
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
+    networks:
+      - gratis-net
+
+  # Lidar and terrain processing. GRATIS_ANALYSIS at the top of this
+  # file is the switch. off leaves the container sleeping so the API
+  # can answer 503 instead of queueing work nothing will run.
+  pointcloud-worker:
+    image: ghcr.io/palavido-dev/gratis-gis/pointcloud-worker:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pull_policy: always
+    restart: unless-stopped
+    mem_limit: 2560m
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /svc/env.pointcloud ]; do sleep 1; done
+        # Only what runner.py reads. PDAL and GDAL parse uploaded
+        # files here, so this process does not get Keycloak, NextAuth
+        # or credential-encryption secrets, and the boot volume that
+        # holds them is not mounted here.
+        set -a
+        . /svc/env.pointcloud
+        set +a
+        if [ "$$ANALYSIS_TIERS" != "server-heavy" ]; then exec sleep infinity; fi
+        echo "pointcloud-worker starting"
+        exec /usr/local/bin/_entrypoint.sh python /app/runner.py
+    environment:
+      SCRATCH_DIR: /scratch
+      # GDAL network lockdown. The worker builds local VRTs and reads
+      # /vsis3/. /vsicurl/ stays refused via the HTTP timeouts.
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_HTTP_CONNECTTIMEOUT: "2"
+      GDAL_HTTP_TIMEOUT: "5"
+      CPL_VSIL_CURL_USE_HEAD: "NO"
+    volumes:
+      - pointcloud-env:/svc:ro
+      - pointcloud-scratch:/scratch
+    depends_on:
+      portal-api:
+        condition: service_healthy
+    healthcheck:
+      # runner.py while analysis is on, sleep infinity while it is off.
+      # The needle is split so this check does not match its own command.
+      test:
+        - CMD
+        - /opt/conda/bin/python
+        - -c
+        - |
+          import os
+          def line(p):
+              try:
+                  return open("/proc/"+p+"/cmdline","rb").read().replace(b"\0", b" ")
+              except OSError:
+                  return b""
+          n=("runner"+"."+"py").encode()
+          ok=False
+          for p in os.listdir("/proc"):
+              if not p.isdigit():
+                  continue
+              raw=line(p)
+              if n in raw or (b"sleep" in raw and b"infinity" in raw):
+                  ok=True
+          raise SystemExit(0 if ok else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
+    networks:
+      - gratis-net
+
+  portal-web:
+    image: ghcr.io/palavido-dev/gratis-gis/portal-web:${GG_IMAGE_TAG:-edge}
+    # Runs as a non-root user and needs no Linux capabilities.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pull_policy: always
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        set -a
+        . /boot/env
+        set +a
+        # /boot/env sets PORT for the API. This server listens on 3000,
+        # which is where Caddy sends the web UI.
+        export PORT=3000
+        exec /usr/bin/tini -- node apps/portal-web/server.js
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+      # Map address search. Empty NOMINATIM_URL sends searches to the
+      # public nominatim.openstreetmap.org unless
+      # NOMINATIM_PUBLIC_FALLBACK is 0.
+      NOMINATIM_URL: ${NOMINATIM_URL:-}
+      NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
+      GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
+      GRATIS_SESSION_IDLE_SECONDS: ${GRATIS_SESSION_IDLE_SECONDS:-}
+    volumes:
+      - boot:/boot:ro
+    depends_on:
+      portal-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
+    networks:
+      - gratis-net
+
+  chromium:
+    image: ghcr.io/browserless/chromium:latest@sha256:bcad9a1c271ddb9d95f7de5981c68cb2fcc9fd1f07e8da07c4e5c9d1ef4fc099
+    restart: unless-stopped
+    mem_limit: 768m
+    # Chrome's namespace sandbox needs SYS_ADMIN.
+    cap_add:
+      - SYS_ADMIN
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ -f /svc/env.chromium ]; do sleep 1; done
+        # Only the print token. Chrome renders user-authored map
+        # styles, so it does not get the database or storage secrets,
+        # and the boot volume that holds them is not mounted here.
+        set -a
+        . /svc/env.chromium
+        set +a
+        export PORT=3000
+        export TOKEN="$$CHROMIUM_TOKEN"
+        if [ -f /usr/src/app/scripts/start.sh ]; then cd /usr/src/app && exec ./scripts/start.sh; fi
+        if [ -f /usr/src/app/start.sh ]; then cd /usr/src/app && exec ./start.sh; fi
+        echo "Chromium start script was not found. Printing will not work." >&2
+        exec sleep infinity
+    volumes:
+      - chromium-env:/svc:ro
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/3000'"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 40s
+    networks:
+      - gratis-net
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        exec caddy run --config /boot/Caddyfile --adapter caddyfile
+    ports:
+      # Host port -> Caddy's port 8080 inside the container.
+      # The host port is GRATIS_HTTP_PORT at the top of this file.
+      # Not 80 or 443, so the TrueNAS web UI can stay where it is.
+      # A public domain (GRATIS_MODE=public) needs 80 and 443 instead:
+      #   - "80:80"
+      #   - "443:443"
+      # and you remove this published port. See docs/truenas.md.
+      - target: 8080
+        published: *GRATIS_HTTP_PORT
+        protocol: tcp
+    environment:
+      GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+    volumes:
+      - boot:/boot:ro
+      - caddy-data:/data
+    depends_on:
+      portal-web:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
+    networks:
+      - gratis-net
+
+volumes:
+  boot:
+  # One reduced env file each (see nas-init.py SERVICE_ENV_DIRS).
+  chromium-env:
+  pointcloud-env:
+  pgdata:
+  miniodata:
+  caddy-data:
+  portal-api-backups:
+  pointcloud-scratch:
+  # Upload staging shared by portal-api and portal-worker. Files here
+  # expire after an hour, so it holds nothing you need to back up.
+  gg-staging:
+  # Vector tile disk cache. Safe to delete; tiles are rebuilt on use.
+  tile-cache:
+
+networks:
+  gratis-net:
+    driver: bridge

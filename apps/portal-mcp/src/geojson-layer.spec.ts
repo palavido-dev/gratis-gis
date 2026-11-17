@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   APPEND_BATCH_SIZE,
+  appendInBatches,
   buildV3LayerData,
+  capFeatureCollection,
   chunk,
   inferFields,
   inferGeometryType,
@@ -112,5 +114,53 @@ describe('isUuid', () => {
   it('accepts v4-shaped ids', () => {
     assert.equal(isUuid('11111111-1111-4111-8111-111111111111'), true);
     assert.equal(isUuid('not-a-uuid'), false);
+  });
+});
+
+describe('appendInBatches', () => {
+  const batches = [[{}], [{}], [{}]] as Parameters<typeof appendInBatches>[0];
+
+  it('sums counts across batches', async () => {
+    const out = await appendInBatches(batches, async () => ({ inserted: 1, deduplicated: 0 }));
+    assert.deepEqual(out, { inserted: 3, deduplicated: 0, batchesDone: 3, batches: 3 });
+  });
+
+  it('stops at a failed batch and reports progress instead of throwing', async () => {
+    let n = 0;
+    const out = await appendInBatches(batches, async () => {
+      n += 1;
+      if (n === 2) throw new Error('GratisGIS 500: boom');
+      return { inserted: 1 };
+    });
+    assert.equal(out.failedBatch, 2);
+    assert.equal(out.batchesDone, 1);
+    assert.equal(out.inserted, 1);
+    assert.match(out.error!, /boom/);
+    assert.equal(n, 2);
+  });
+
+  it('does not count a batch as inserted when the body has no count', async () => {
+    const out = await appendInBatches(batches, async () => null);
+    assert.equal(out.inserted, 0);
+    assert.equal(out.batchesDone, 3);
+  });
+});
+
+describe('capFeatureCollection', () => {
+  const fc = { type: 'FeatureCollection', features: [1, 2, 3, 4, 5] };
+
+  it('trims to the limit and says so', () => {
+    assert.deepEqual(capFeatureCollection(fc, 2), {
+      type: 'FeatureCollection',
+      features: [1, 2],
+      truncated: true,
+      returned: 2,
+      receivedFromPortal: 5,
+    });
+  });
+
+  it('leaves a collection within the limit untouched', () => {
+    assert.equal(capFeatureCollection(fc, 5), fc);
+    assert.equal(capFeatureCollection(null, 5), null);
   });
 });

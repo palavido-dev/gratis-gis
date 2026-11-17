@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
 import type { ItemType } from '@gratis-gis/shared-types';
 import { authOptions } from '@/lib/auth';
 import { getPortalUrl } from '@/lib/portal-url';
+import { serializeJsonLd } from '@/lib/json-ld';
 import { isSessionStale } from '@/lib/session-state';
 import { loadWhatsNewEntries } from '@/lib/whats-new';
 import { PublicLanding } from './public-landing';
+import { forwardedForHeader } from '@/lib/api';
+import { GG_VERSION } from '@/lib/version';
+
+// The canonical link for the home page only. Declared in the root
+// layout it was inherited by every page that did not set its own, so
+// /credits and /whats-new told crawlers they were copies of /.
+export const metadata: Metadata = {
+  alternates: { canonical: '/' },
+};
 
 /**
  * SoftwareApplication JSON-LD for the landing page (#SEO).  Makes
@@ -17,6 +28,8 @@ import { PublicLanding } from './public-landing';
  * the apex page; sub-routes shouldn't impersonate the application
  * description.
  */
+const RELEASE_VERSION = /^v?(\d+\.\d+\.\d+)/.exec(GG_VERSION)?.[1] ?? null;
+
 function landingJsonLd() {
   const base = getPortalUrl();
   return {
@@ -30,7 +43,9 @@ function landingJsonLd() {
     applicationSubCategory: 'Geographic Information System',
     operatingSystem: 'Web, Linux server',
     license: 'https://www.gnu.org/licenses/agpl-3.0.html',
-    softwareVersion: 'pre-v1',
+    // From the build, so it cannot go stale on the next release. A
+    // dev build has no release number and leaves the field out.
+    ...(RELEASE_VERSION ? { softwareVersion: RELEASE_VERSION } : {}),
     offers: {
       '@type': 'Offer',
       price: '0',
@@ -83,7 +98,7 @@ export default async function HomePage(
   const [data, whatsNew] = await Promise.all([
     loadLandingData(),
     // Cap at 5 entries so the landing card stays compact; the
-    // markdown file can carry more for future-proofing.
+    // full history (and release grouping) lives at /whats-new.
     loadWhatsNewEntries(5),
   ]);
   return (
@@ -95,7 +110,7 @@ export default async function HomePage(
         type="application/ld+json"
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(landingJsonLd()),
+          __html: serializeJsonLd(landingJsonLd()),
         }}
       />
       <PublicLanding
@@ -128,6 +143,9 @@ async function loadLandingData(): Promise<
       // Server-to-server call; always fresh data (no Next cache)
       // since the admin might have just flipped a toggle.
       cache: 'no-store',
+      // The visitor's address, so the per-address rate limit counts
+      // this visitor and not every visitor at once.
+      headers: await forwardedForHeader(),
     });
     if (!res.ok) throw new Error(`landing fetch ${res.status}`);
     return (await res.json()) as React.ComponentProps<

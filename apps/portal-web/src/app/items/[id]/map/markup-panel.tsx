@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
  * Markup panel (#154 Phase 1 + 1.5 + annotation kinds).
@@ -48,7 +47,12 @@ import {
 } from '@gratis-gis/shared-types';
 import type * as maplibregl from 'maplibre-gl';
 import { readAnonDrawingDisplay } from '@/lib/anon-drawing-session';
+import { clientUuid } from '@/lib/uuid';
 import { downloadDrawingSetGeoJson } from '@/lib/drawings-geojson-export';
+import {
+  openDrawingsCollabSession,
+  type DrawingsCollabSession,
+} from '@/lib/drawings-collab-session';
 import {
   drawModeFor,
   setDrawMode,
@@ -57,6 +61,7 @@ import {
   useTerraDraw,
   type MarkupDrawTool,
 } from './use-terra-draw';
+import { portalJson } from '@/lib/portal-json';
 
 type MarkupTool = 'off' | MarkupDrawTool;
 
@@ -122,6 +127,11 @@ interface Props {
    * re-fetches on focus to pick up other viewers' edits.
    */
   initialDrawings: DrawingSet[];
+  /**
+   * Bumped by the parent when another map tool (select, feature
+   * editing) takes over the clicks; the armed markup tool stands down.
+   */
+  standDownSignal?: number;
 }
 
 export function MarkupPanel({
@@ -137,8 +147,10 @@ export function MarkupPanel({
   onPromoted,
   onDrawActiveChange,
   initialDrawings,
+  standDownSignal,
 }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const [drawings, setDrawings] = useState<DrawingSet[]>(initialDrawings);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -160,6 +172,66 @@ export function MarkupPanel({
   drawingsRef.current = drawings;
   const activeSetIdRef = useRef(activeSetId);
   activeSetIdRef.current = activeSetId;
+  const collabRef = useRef<DrawingsCollabSession | null>(null);
+  // Bumped to reopen the room after the socket drops on its own.
+  const [collabEpoch, setCollabEpoch] = useState(0);
+  const collabRetriesRef = useRef(0);
+
+  // R1-presence-crdt: signed-in co-editors share a Yjs room for the
+  // active markup set. Anonymous stays on REST LWW.
+  useEffect(() => {
+    if (!open || !currentUser || !activeSetId) {
+      collabRef.current?.close();
+      collabRef.current = null;
+      return;
+    }
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    void (async () => {
+      try {
+        const session = await openDrawingsCollabSession({
+          // A dropped socket used to leave a dead session in place:
+          // its stale doc kept feeding the panel and the next save
+          // overwrote other editors' shapes. Drop it and reopen after
+          // a growing pause (one try a minute at most); the new
+          // room's sync replaces the stale features.
+          onClosed: () => {
+            if (cancelled) return;
+            collabRef.current = null;
+            const wait = Math.min(2000 * 2 ** collabRetriesRef.current, 60_000);
+            collabRetriesRef.current += 1;
+            retryTimer = setTimeout(() => setCollabEpoch((n) => n + 1), wait);
+          },
+          mapId,
+          drawingSetId: activeSetId,
+          onFeatures: (features) => {
+            if (cancelled) return;
+            setDrawings((prev) => {
+              const next = prev.map((s) =>
+                s.id === activeSetId ? { ...s, features } : s,
+              );
+              onDrawingsChange(next);
+              return next;
+            });
+          },
+        });
+        if (cancelled) {
+          session?.close();
+          return;
+        }
+        collabRef.current?.close();
+        collabRef.current = session;
+      } catch {
+        /* collab is best-effort; REST path remains */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      collabRef.current?.close();
+      collabRef.current = null;
+    };
+  }, [open, currentUser, activeSetId, mapId, onDrawingsChange, collabEpoch]);
   const toolRef = useRef(tool);
   toolRef.current = tool;
 
@@ -173,6 +245,15 @@ export function MarkupPanel({
   useEffect(() => {
     if (!open && tool !== 'off') setTool('off');
   }, [open, tool]);
+
+  // Another tool was chosen after this one: disarm. Skips the first
+  // run so mounting does not count as a signal.
+  const standDownSeen = useRef(standDownSignal);
+  useEffect(() => {
+    if (standDownSeen.current === standDownSignal) return;
+    standDownSeen.current = standDownSignal;
+    setTool('off');
+  }, [standDownSignal]);
 
   const drawActive = open && tool !== 'off';
   useEffect(() => {
@@ -223,7 +304,7 @@ export function MarkupPanel({
         label = typed.trim() || undefined;
       }
       const feature: DrawingFeature = {
-        id: cryptoRandomUuid(),
+        id: clientUuid(),
         kind,
         geometry: f.geometry,
         ...(label !== undefined ? { label } : {}),
@@ -291,22 +372,27 @@ export function MarkupPanel({
     async (setId: string, feature: DrawingFeature) => {
       const set = drawingsRef.current.find((s) => s.id === setId);
       if (!set || !canEditSet(set)) return;
-      const nextFeatures = [...set.features, feature];
       setBusy(true);
       setError(null);
       try {
+        // Ask the server to append to the set as it stands. Sending
+        // the whole array built from this page's copy erased any pin
+        // added since: a second quick pin from the same base, or
+        // another reviewer's pins on a page loaded earlier.
         const updated = await portalJson<DrawingSet>(
           `/api/portal/items/${mapId}/drawings/${setId}`,
           {
             method: 'PATCH',
-            body: JSON.stringify({ features: nextFeatures }),
+            body: JSON.stringify({ appendFeatures: [feature] }),
           },
         );
+        // Responses can land out of order; keep the newer copy.
         const nextSets = drawingsRef.current.map((s) =>
-          s.id === setId ? updated : s,
+          s.id === setId && !(s.updatedAt > updated.updatedAt) ? updated : s,
         );
         setDrawings(nextSets);
         onDrawingsChange(nextSets);
+        collabRef.current?.upsertFeature(feature);
       } catch (e) {
         setError(message(e, t('mapMarkup.somethingWrong')));
       } finally {
@@ -365,7 +451,7 @@ export function MarkupPanel({
       const [lng, lat] = mapCenterRef.current;
       const now = new Date().toISOString();
       await appendFeature(setId, {
-        id: cryptoRandomUuid(),
+        id: clientUuid(),
         kind: 'pin',
         geometry: { type: 'Point', coordinates: [lng, lat] },
         createdAt: now,
@@ -559,15 +645,24 @@ export function MarkupPanel({
     if (!firstEditable) setTool('off');
   }, [drawings, activeSetId, canEditSet]);
 
-  // Silence unused refresh warning (kept for future focus refetch).
-  void refresh;
+  // Pick up other viewers' markup when the tab regains focus, as the
+  // prop doc above promises. Nothing called refresh before, so a page
+  // open for an hour kept showing (and building on) its first copy.
+  useEffect(() => {
+    if (!open) return;
+    const onFocus = () => {
+      void refresh();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [open, refresh]);
 
   if (!open) return null;
   return (
     <div
       role="dialog"
       aria-label={t('mapMarkup.panelAria')}
-      className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-80 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
+      className="absolute right-14 top-3 z-30 flex max-h-[70vh] w-80 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:top-16 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
@@ -675,7 +770,7 @@ export function MarkupPanel({
                         </button>
                       )}
                       <p className="truncate text-2xs text-muted">
-                        {set.authorDisplay} - {formatRelative(set.updatedAt)}
+                        {set.authorDisplay} - {fmt.relativeTime(set.updatedAt)}
                         {' - '}
                         {t('mapMarkup.features', {
                           count: set.features.length,
@@ -835,7 +930,7 @@ export function MarkupPanel({
               type="button"
               onClick={addSet}
               disabled={busy}
-              className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
             >
               <Plus className="h-4 w-4" />
               {t('mapMarkup.addMarkup')}
@@ -932,74 +1027,3 @@ function message(e: unknown, fallback: string): string {
   return fallback;
 }
 
-/**
- * Tiny client-side wrapper around fetch for the BFF surface. Lives
- * here rather than in a shared lib because most other map editor
- * panels inline their fetches and we don't want to pull them all
- * into a refactor right now. Returns parsed JSON on success or
- * undefined for empty responses (e.g. 204 on DELETE).
- */
-async function portalJson<T = unknown>(
-  url: string,
-  init: RequestInit = {},
-): Promise<T> {
-  const headers: Record<string, string> = {
-    ...((init.headers as Record<string, string>) ?? {}),
-  };
-  if (init.body && !headers['content-type'] && !headers['Content-Type']) {
-    headers['content-type'] = 'application/json';
-  }
-  const res = await fetch(url, { ...init, headers });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${res.status}: ${body || res.statusText}`);
-  }
-  const text = await res.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
-}
-
-/**
- * UUID v4 generator. Browser crypto.randomUUID is available in
- * every modern browser; the polyfill handles the (vanishingly
- * rare) older environment without throwing.
- */
-function cryptoRandomUuid(): string {
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof (crypto as Crypto & { randomUUID?: () => string }).randomUUID ===
-      'function'
-  ) {
-    return (crypto as Crypto & { randomUUID: () => string }).randomUUID();
-  }
-  // Fallback: timestamp + random bits. Not RFC 4122 compliant
-  // but unique enough for our short-lived client-side ids; the
-  // server will replace any malformed id on next persist anyway.
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
-  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-/**
- * Render a UTC ISO timestamp as a human-readable relative time
- * ("3 min ago", "yesterday"). Falls back to the date for anything
- * older than a week so the panel doesn't drift into useless
- * "47 days ago" text.
- */
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return iso;
-  const diff = Date.now() - then;
-  if (diff < 0) return 'just now';
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} d ago`;
-  return formatDate(iso, DEFAULT_LOCALE);
-}

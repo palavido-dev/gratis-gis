@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -35,9 +36,18 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { getGeneratorForStep } from '../derived-layers/tools/registry.js';
+import { leafSchema } from '../derived-layers/derived-layers.service.js';
+import { featureIdsAsUuids } from '../derived-layers/tools/spatial-filter.js';
 import { OsmService } from '../osm/osm.service.js';
 import type { OsmGeoJsonFeature } from '../osm/osm-to-geojson.js';
 import { getOsmPreset } from '../osm/preset-catalog.js';
+import {
+  OSM_QUERY_MAX_CONDITIONS,
+  OSM_QUERY_MAX_DISTANCE_METERS,
+  OSM_QUERY_MAX_FEATURES,
+  OSM_QUERY_MAX_PRESETS,
+  validateOsmQueryBounds,
+} from '../osm/osm-query.limits.js';
 
 /**
  * Narrow GeoJSON-geometry shape used by post-fetch spatial passes
@@ -462,6 +472,9 @@ export class RecipeRunnerService {
 
     // Build CTEs: source from the target data_layer + each step.
     const layerKey = targetSource.layerKey ?? 'default';
+    // The SQL below reads the whole layer from the observation log, so
+    // a share limited to some rows or an area cannot be honoured here.
+    await this.assertFullyReadableLayer(user, targetSource.itemId, layerKey);
     const sqlParams: unknown[] = [];
     const sourceScope = dataLayerScope(targetSource.itemId, layerKey);
     const sourceConditions = ['valid_to IS NULL'];
@@ -473,8 +486,11 @@ export class RecipeRunnerService {
       // Selection-from-current-selection workflow: the target
       // parameter resolved to "these specific features" rather than
       // "the whole layer", so we pre-restrict the source rows.
-      sqlParams.push(targetSource.featureIds);
-      sourceConditions.push(`entity = ANY($${sqlParams.length}::text[])`);
+      sqlParams.push(
+        featureIdsAsUuids(targetSource.featureIds, 'The selected feature ids'),
+      );
+      // entity is a uuid column; a text[] here failed every run.
+      sourceConditions.push(`entity = ANY($${sqlParams.length}::uuid[])`);
     }
     const sourceFragment = dataLayerSourceSqlFragment(sourceScope, {
       collapseConditions: sourceConditions,
@@ -490,15 +506,25 @@ export class RecipeRunnerService {
     const concretePipeline = recipe.pipeline.map((step) =>
       substituteStep(step, resolved),
     );
+    // Threaded so filter and calculate-field can cast numeric fields.
+    let schema = leafSchema(targetItem.data, layerKey);
     for (let i = 0; i < concretePipeline.length; i++) {
       const step = concretePipeline[i]!;
       const generator = getGeneratorForStep(step);
       const stepParams = generator.validate(step.params);
-      const fragment = generator.toSql(inputAlias, stepParams, sqlParams.length);
+      // Every other layer a step reads (spatial filter, join, clip,
+      // erase) is compiled straight into SQL: check it like the target.
+      for (const depId of generator.extractDependencies(stepParams).itemIds) {
+        await this.assertFullyReadableLayer(user, depId);
+      }
+      const fragment = generator.toSql(inputAlias, stepParams, sqlParams.length, {
+        inputSchema: schema,
+      });
       const cteName = `tool_step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
       sqlParams.push(...fragment.params);
       inputAlias = cteName;
+      schema = generator.outputSchema(schema, stepParams);
     }
 
     const cap = recipe.selectionLimit ?? DEFAULT_TOOL_SELECTION_LIMIT;
@@ -529,8 +555,10 @@ export class RecipeRunnerService {
       this.logger.warn(
         `recipe-runner SQL failure for tool ${toolId}: ${(err as Error).message}`,
       );
+      // Fixed text: the route is public, and a Postgres message carries
+      // column names, types, and the offending values.
       throw new BadRequestException(
-        `Tool execution failed: ${(err as Error).message}`,
+        'Tool execution failed. Check the tool inputs and try again.',
       );
     }
 
@@ -635,13 +663,10 @@ export class RecipeRunnerService {
           'osm-features-overlay with pointParameterRef requires a distance parameter for the search radius',
         );
       }
-      const radDegrees = distance / 111_000;
-      bbox = [
-        pointVal.lng - radDegrees,
-        pointVal.lat - radDegrees,
-        pointVal.lng + radDegrees,
-        pointVal.lat + radDegrees,
-      ];
+      bbox = padBboxMeters(
+        [pointVal.lng, pointVal.lat, pointVal.lng, pointVal.lat],
+        distance,
+      );
     } else {
       if (!recipe.aoiParameterRef) {
         throw new BadRequestException(
@@ -663,7 +688,7 @@ export class RecipeRunnerService {
           'This tool requires sign-in: layer-based AOIs are not available to anonymous viewers. Draw an area on the map instead.',
         );
       }
-      bbox = await this.computeAoiBbox(aoiVal.value);
+      bbox = await this.computeAoiBbox(user, aoiVal.value);
       if (!bbox) {
         throw new BadRequestException(
           `Could not compute a bbox from AOI parameter '${recipe.aoiParameterRef}'. Draw an area on the map, or pick a layer/selection that has geometry you can read.`,
@@ -687,14 +712,8 @@ export class RecipeRunnerService {
     // AOI but within distance are still returned.  Point-AOI tools
     // already baked the radius into the bbox above, so don't pad
     // again here.
-    const padDegrees =
-      !centerPoint && distance ? distance / 111_000 : 0;
-    const paddedBbox: [number, number, number, number] = [
-      bbox[0] - padDegrees,
-      bbox[1] - padDegrees,
-      bbox[2] + padDegrees,
-      bbox[3] + padDegrees,
-    ];
+    const paddedBbox =
+      !centerPoint && distance ? padBboxMeters(bbox, distance) : bbox;
 
     // #101: per-recipe TTL override. Clamped to a sane range so a
     // typo in the recipe (e.g. 999999) can't permanently pin a stale
@@ -707,18 +726,41 @@ export class RecipeRunnerService {
       ttlMs = minutes * 60 * 1000;
     }
 
-    const result = await this.osm.resolve({
-      presetIds: sourceVal.presetIds,
-      ...(sourceVal.tagFilters && sourceVal.tagFilters.length > 0
-        ? { tagFilters: sourceVal.tagFilters }
-        : {}),
-      bbox: paddedBbox,
-      ...(ttlMs !== undefined ? { ttlMs } : {}),
-      // #103: per-org Overpass endpoint lookup happens inside
-      // OsmService when orgId is supplied. The user is the running
-      // principal so their org is the one whose setting wins.
-      ...(user?.orgId ? { orgId: user.orgId } : {}),
+    const osmMax = assertOsmRunBounds(paddedBbox, {
+      presets: sourceVal.presetIds.length,
+      tagFilters: sourceVal.tagFilters?.length ?? 0,
     });
+    let result;
+    try {
+      result = await this.osm.resolve({
+        maxFeatures: osmMax,
+        presetIds: sourceVal.presetIds,
+        ...(sourceVal.tagFilters && sourceVal.tagFilters.length > 0
+          ? { tagFilters: sourceVal.tagFilters }
+          : {}),
+        bbox: paddedBbox,
+        ...(ttlMs !== undefined ? { ttlMs } : {}),
+        // #103: per-org Overpass endpoint lookup happens inside
+        // OsmService when orgId is supplied. The user is the running
+        // principal so their org is the one whose setting wins.
+        ...(user?.orgId ? { orgId: user.orgId } : {}),
+      });
+    } catch (err) {
+      // Caller mistakes (unknown preset, a bad tag filter, a
+      // degenerate area) already arrive as 400s. An overloaded
+      // Overpass is the caller's query being too big, so it is a 400
+      // with fixed text too, as on the relational path.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (
+        !(err instanceof BadRequestException) &&
+        /timed out|timeout|too many requests|429|504|Overpass rejected|rejected the query|overloaded/i.test(msg)
+      ) {
+        throw new BadRequestException(
+          'The OSM query was too large or complex for Overpass to finish. Try a smaller area of interest or fewer feature types.',
+        );
+      }
+      throw err;
+    }
 
     // Resolve human labels for the preset ids that were actually
     // queried so the client can title the result layer with the OSM
@@ -743,11 +785,22 @@ export class RecipeRunnerService {
     // param is configured (degenerate corridor with zero width).
     let features = result.features;
     if (lineAoiGeom && distance && distance > 0) {
-      features = await this.filterByCorridor(
-        features,
-        lineAoiGeom,
-        distance,
-      );
+      try {
+        features = await this.filterByCorridor(
+          features,
+          lineAoiGeom,
+          distance,
+        );
+      } catch (err) {
+        // The line is the caller's GeoJSON; PostGIS refusing it is a
+        // bad request, and its message is not for a public route.
+        this.logger.warn(
+          `recipe-runner corridor filter failed: ${(err as Error).message}`,
+        );
+        throw new BadRequestException(
+          'The area of interest line could not be read. Redraw it and try again.',
+        );
+      }
     }
 
     // #150 Nearest N: when the recipe carries a pointParameterRef,
@@ -768,6 +821,18 @@ export class RecipeRunnerService {
         return { feature: f, meters, props };
       });
       annotated.sort((a, b) => a.meters - b.meters);
+      // The fetch was a square around the point. A point feature in a
+      // corner of it is up to 1.41 times the radius away; drop those.
+      // Other shapes are measured from their first vertex only, so they
+      // are kept rather than guessed at.
+      if (distance && distance > 0) {
+        const inside = annotated.filter(
+          (a) =>
+            (a.feature.geometry as { type?: string } | null)?.type !== 'Point' ||
+            a.meters <= distance,
+        );
+        annotated.splice(0, annotated.length, ...inside);
+      }
       let n = annotated.length;
       if (recipe.nearestLimitParameterRef) {
         const limitVal = resolved.get(recipe.nearestLimitParameterRef);
@@ -829,6 +894,11 @@ export class RecipeRunnerService {
     // adjacent road, the immediately-adjacent POIs."
     const distance = findDistanceParam(recipe.parameters, resolved);
     const radius = distance && distance > 0 ? distance : 50;
+    if (radius > OSM_POINT_MAX_RADIUS_METERS) {
+      throw new BadRequestException(
+        `The search radius is limited to ${OSM_POINT_MAX_RADIUS_METERS / 1000} km.`,
+      );
+    }
 
     const result = await this.osm.resolveAtPoint({
       lng: pointVal.lng,
@@ -906,7 +976,7 @@ export class RecipeRunnerService {
         'This tool requires sign-in: layer-based AOIs are not available to anonymous viewers. Draw an area on the map instead.',
       );
     }
-    const bbox = await this.computeAoiBbox(aoiVal.value);
+    const bbox = await this.computeAoiBbox(user, aoiVal.value);
     if (!bbox) {
       throw new BadRequestException(
         `Could not compute a bbox from AOI parameter '${action.aoiParameterRef}'. Draw an area on the map, or pick a layer/selection that has geometry you can read.`,
@@ -915,21 +985,12 @@ export class RecipeRunnerService {
 
     // Pad the bbox by the largest condition distance so anchors near
     // the AOI edge can still pick up matches that sit just outside
-    // the polygon.  Cheap meters->degrees conversion (1deg ~ 111km)
-    // over-pads at high latitudes; acceptable for the "schools near
-    // parks within my city" use case where the latitude band is
-    // small relative to the search radius.
+    // the polygon.
     const conditionDistancesMeters = action.conditions.map((c) =>
       relationalDistanceToMeters(c.distance),
     );
     const maxDistanceMeters = Math.max(...conditionDistancesMeters);
-    const padDegrees = maxDistanceMeters / 111_000;
-    const paddedBbox: [number, number, number, number] = [
-      bbox[0] - padDegrees,
-      bbox[1] - padDegrees,
-      bbox[2] + padDegrees,
-      bbox[3] + padDegrees,
-    ];
+    const paddedBbox = padBboxMeters(bbox, maxDistanceMeters);
 
     // Per-recipe TTL clamp, same semantics as osm-features-overlay.
     let ttlMs: number | undefined;
@@ -950,6 +1011,11 @@ export class RecipeRunnerService {
     const negationDistancesMeters = (action.negations ?? []).map((n) =>
       relationalDistanceToMeters(n.distance),
     );
+    const relMax = assertOsmRunBounds(paddedBbox, {
+      presets: 1 + action.conditions.length + (action.negations?.length ?? 0),
+      conditions: action.conditions.length + (action.negations?.length ?? 0),
+      distancesMeters: [...conditionDistancesMeters, ...negationDistancesMeters],
+    });
     let result;
     try {
       result = await this.osm.resolveRelational({
@@ -971,9 +1037,7 @@ export class RecipeRunnerService {
           : {}),
         bbox: paddedBbox,
         ...(user?.orgId ? { orgId: user.orgId } : {}),
-        ...(action.anchorMaxResults
-          ? { maxFeatures: action.anchorMaxResults }
-          : {}),
+        maxFeatures: Math.min(action.anchorMaxResults ?? relMax, relMax),
       });
     } catch (err) {
       // Relational queries over large bboxes with multiple
@@ -1194,18 +1258,67 @@ export class RecipeRunnerService {
    * geometry, layer empty), so callers can surface a sensible "your
    * AOI is empty" error instead of a silent zero-area query.
    */
+  /**
+   * Refuse a layer the caller cannot read in full. Tool SQL reads the
+   * observation log directly, outside the per-share row and area
+   * scopes the feature routes apply, so a layer must be readable and
+   * not limited for this user. Throws 404/403 like items.get.
+   */
+  private async assertFullyReadableLayer(
+    user: AuthUser,
+    itemId: string,
+    layerKey?: string,
+  ): Promise<void> {
+    const item = await this.items.get(user, itemId);
+    if (item.type !== 'data_layer' && item.type !== 'derived_layer') {
+      throw new BadRequestException(`Item ${itemId} is not a layer`);
+    }
+    if (await this.items.isFeatureReadLimited(user, itemId, layerKey)) {
+      throw new ForbiddenException(
+        'A layer this tool reads is shared to you with a row or area limit, so the tool cannot run on it.',
+      );
+    }
+  }
+
   private async computeAoiBbox(
+    user: AuthUser | null,
     value: FeatureSourceValue,
   ): Promise<[number, number, number, number] | null> {
     if (value.kind === 'inline-geojson' && value.geojson) {
       return bboxOfGeoJson(value.geojson);
     }
-    if (
-      (value.kind === 'data_layer' || value.kind === 'derived_layer') &&
-      value.itemId &&
-      value.layerKey
-    ) {
-      const scope = dataLayerScope(value.itemId, value.layerKey);
+    if (value.kind === 'derived_layer') {
+      // A derived layer has no rows of its own in the observation log,
+      // so its extent always came back empty and the user was told to
+      // pick a layer with geometry. Say what is actually wrong.
+      throw new BadRequestException(
+        'A derived layer cannot be used as an area of interest yet. Pick a data layer or draw an area on the map.',
+      );
+    }
+    if (value.kind === 'data_layer' && value.itemId) {
+      // Same default as the selection path and spatial filter.
+      const layerKey = value.layerKey ?? 'default';
+      // The extent below is read straight from the observation log,
+      // so the caller must be able to read the layer, and in full: an
+      // extent over rows outside their share would leak where those
+      // rows are.
+      if (!user) {
+        throw new UnauthorizedException(
+          'Layer-based AOIs require sign-in. Draw an area on the map instead.',
+        );
+      }
+      if (
+        await this.items.isFeatureReadLimited(
+          user,
+          value.itemId,
+          layerKey,
+        )
+      ) {
+        throw new ForbiddenException(
+          'That layer is shared to you with a row or area limit, so it cannot be used as an area of interest. Draw an area on the map instead.',
+        );
+      }
+      const scope = dataLayerScope(value.itemId, layerKey);
       // Read the latest-truth bbox over the observation log: a row
       // is "current" when its entity has no later observation, the
       // observation is a create / update (not a delete), and its
@@ -1214,7 +1327,7 @@ export class RecipeRunnerService {
       // into the lat/lng pair the OSM resolver expects.
       const ids =
         value.featureIds && value.featureIds.length > 0
-          ? value.featureIds.map((id) => String(id))
+          ? featureIdsAsUuids(value.featureIds, 'The area of interest feature ids')
           : null;
       type ExtentRow = { extent: string | null };
       const rows: ExtentRow[] = ids
@@ -1231,7 +1344,7 @@ export class RecipeRunnerService {
                   AND valid_from <= now()
                   AND (valid_to IS NULL OR valid_to > now())
                   AND entity = ANY(${ids}::uuid[])
-                ORDER BY entity, valid_from DESC, tx_time DESC
+                ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
               ) latest
               WHERE latest.kind != 'delete' AND latest.geom IS NOT NULL
             `,
@@ -1245,7 +1358,7 @@ export class RecipeRunnerService {
                 WHERE scope = ${scope}
                   AND valid_from <= now()
                   AND (valid_to IS NULL OR valid_to > now())
-                ORDER BY entity, valid_from DESC, tx_time DESC
+                ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
               ) latest
               WHERE latest.kind != 'delete' AND latest.geom IS NOT NULL
             `,
@@ -1360,6 +1473,16 @@ function resolvePointParam(
       lat?: unknown;
     };
     if (typeof p.lng === 'number' && typeof p.lat === 'number') {
+      if (
+        !Number.isFinite(p.lng) ||
+        !Number.isFinite(p.lat) ||
+        Math.abs(p.lng) > 180 ||
+        Math.abs(p.lat) > 90
+      ) {
+        throw new BadRequestException(
+          `Parameter '${param.name}': lng must be within -180..180 and lat within -90..90`,
+        );
+      }
       return { kind: 'point', lng: p.lng, lat: p.lat };
     }
   }
@@ -1409,9 +1532,32 @@ function resolveOsmFeatureParam(
       presetIds?: string[];
       tagFilters?: OsmTagFilter[];
     };
-    if (!Array.isArray(input.presetIds) || input.presetIds.length === 0) {
+    if (
+      !Array.isArray(input.presetIds) ||
+      input.presetIds.length === 0 ||
+      !input.presetIds.every((id) => typeof id === 'string')
+    ) {
       throw new BadRequestException(
-        `Parameter '${param.name}': presetIds must be a non-empty array`,
+        `Parameter '${param.name}': presetIds must be a non-empty array of strings`,
+      );
+    }
+    if (
+      input.tagFilters !== undefined &&
+      (!Array.isArray(input.tagFilters) ||
+        !input.tagFilters.every(
+          (f) =>
+            !!f &&
+            typeof f === 'object' &&
+            typeof f.key === 'string' &&
+            typeof f.value === 'string' &&
+            (f.op === undefined ||
+              f.op === 'equals' ||
+              f.op === 'contains' ||
+              f.op === 'regex'),
+        ))
+    ) {
+      throw new BadRequestException(
+        `Parameter '${param.name}': each tagFilter needs a string key and value`,
       );
     }
     if (
@@ -1475,6 +1621,11 @@ function resolveFeatureSource(
   param: Extract<ToolParameter, { kind: 'feature-source' }>,
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
+  // Hardcoded means hardcoded: the client cannot swap in another layer
+  // or area (a public tool's fixed layer, a fixed facility AOI).
+  if (param.binding.mode === 'hardcoded') {
+    return { kind: 'feature-source', value: param.binding.value };
+  }
   if (provided !== undefined && typeof provided === 'object' && provided !== null) {
     const v = provided as FeatureSourceValue;
     if (
@@ -1487,10 +1638,6 @@ function resolveFeatureSource(
       );
     }
     return { kind: 'feature-source', value: v };
-  }
-  // Fall back to binding-defined defaults.
-  if (param.binding.mode === 'hardcoded') {
-    return { kind: 'feature-source', value: param.binding.value };
   }
   if (
     param.binding.mode === 'runtime-host' &&
@@ -1505,6 +1652,9 @@ function resolvePredicateParam(
   param: Extract<ToolParameter, { kind: 'predicate' }>,
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
+  if (param.binding.mode === 'hardcoded') {
+    return { kind: 'predicate', value: param.binding.value };
+  }
   if (typeof provided === 'string') {
     const value = provided as SpatialPredicate;
     if (
@@ -1518,9 +1668,6 @@ function resolvePredicateParam(
     }
     return { kind: 'predicate', value };
   }
-  if (param.binding.mode === 'hardcoded') {
-    return { kind: 'predicate', value: param.binding.value };
-  }
   if (param.binding.mode === 'runtime-pick') {
     return { kind: 'predicate', value: param.binding.defaultValue };
   }
@@ -1532,10 +1679,10 @@ function resolveDistanceParam(
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
   let meters: number | undefined;
-  if (typeof provided === 'number') {
-    meters = provided;
-  } else if (param.binding.mode === 'hardcoded') {
+  if (param.binding.mode === 'hardcoded') {
     meters = param.binding.meters;
+  } else if (typeof provided === 'number') {
+    meters = provided;
   } else if (param.binding.mode === 'runtime-input') {
     meters = param.binding.defaultMeters;
   }
@@ -1566,8 +1713,8 @@ function resolveNumberParam(
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
   let value: number | undefined;
-  if (typeof provided === 'number') value = provided;
-  else if (param.binding.mode === 'hardcoded') value = param.binding.value;
+  if (param.binding.mode === 'hardcoded') value = param.binding.value;
+  else if (typeof provided === 'number') value = provided;
   else if (param.binding.mode === 'runtime-input')
     value = param.binding.defaultValue;
   if (value === undefined) return undefined;
@@ -1596,11 +1743,11 @@ function resolveTextParam(
   param: Extract<ToolParameter, { kind: 'text' }>,
   provided: ToolRunInput | undefined,
 ): ResolvedValue | undefined {
-  if (typeof provided === 'string') {
-    return { kind: 'text', value: provided };
-  }
   if (param.binding.mode === 'hardcoded') {
     return { kind: 'text', value: param.binding.value };
+  }
+  if (typeof provided === 'string') {
+    return { kind: 'text', value: provided };
   }
   if (
     param.binding.mode === 'runtime-input' &&
@@ -1818,6 +1965,32 @@ function bboxOfGeoJson(
  * proper edge distance for big polygons we move this to PostGIS
  * `ST_Distance(geography)`.
  */
+/**
+ * Grow a [w, s, e, n] bbox by `meters` on every side. A degree of
+ * longitude is 111 km times cos(latitude), so the east and west pad
+ * uses the box's most poleward edge, where degrees are shortest. A
+ * flat 111 km for both axes left features out east and west everywhere
+ * off the equator (about a quarter of the radius at 40 degrees). The
+ * result is clamped to the valid range, which the Overpass query
+ * builder requires.
+ */
+export function padBboxMeters(
+  bbox: readonly [number, number, number, number],
+  meters: number,
+): [number, number, number, number] {
+  const latPad = meters / 111_320;
+  const south = Math.max(-90, bbox[1] - latPad);
+  const north = Math.min(90, bbox[3] + latPad);
+  const poleward = Math.min(89, Math.max(Math.abs(south), Math.abs(north)));
+  const lonPad = latPad / Math.cos((poleward * Math.PI) / 180);
+  return [
+    Math.max(-180, bbox[0] - lonPad),
+    south,
+    Math.min(180, bbox[2] + lonPad),
+    north,
+  ];
+}
+
 function approxDistanceMeters(
   center: { lng: number; lat: number },
   geom: unknown,
@@ -1990,5 +2163,40 @@ function linearizeIfGraph(
   const pipeline: ToolStep[] = sorted.order.map((id) => byId.get(id)!.step);
   const { graph: _omitted, ...rest } = action;
   return { ...rest, pipeline };
+}
+
+/** Radius cap for point-based OSM lookups (about 1 square degree). */
+const OSM_POINT_MAX_RADIUS_METERS = 50_000;
+
+/**
+ * The same caps the authenticated OSM query route applies (area,
+ * presets, conditions, feature count). Tool runs reach Overpass and
+ * write the result into the observation log, and public tools run for
+ * anonymous callers, so they must not be looser than that route.
+ * Returns the feature cap to pass on.
+ */
+export function assertOsmRunBounds(
+  bbox: [number, number, number, number],
+  counts: {
+    presets: number;
+    tagFilters?: number;
+    conditions?: number;
+    distancesMeters?: number[];
+  },
+): number {
+  const r = validateOsmQueryBounds({ bbox, limit: OSM_QUERY_MAX_FEATURES });
+  if (!r.ok) throw new BadRequestException(r.message);
+  if (counts.presets > OSM_QUERY_MAX_PRESETS) {
+    throw new BadRequestException(`A tool run may use at most ${OSM_QUERY_MAX_PRESETS} presets.`);
+  }
+  if ((counts.tagFilters ?? 0) > OSM_QUERY_MAX_CONDITIONS || (counts.conditions ?? 0) > OSM_QUERY_MAX_CONDITIONS) {
+    throw new BadRequestException(`A tool run may use at most ${OSM_QUERY_MAX_CONDITIONS} conditions.`);
+  }
+  if ((counts.distancesMeters ?? []).some((d) => !(d <= OSM_QUERY_MAX_DISTANCE_METERS))) {
+    throw new BadRequestException(
+      `A tool run may use distances of at most ${OSM_QUERY_MAX_DISTANCE_METERS} meters.`,
+    );
+  }
+  return r.maxFeatures;
 }
 

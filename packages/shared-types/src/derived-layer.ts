@@ -732,7 +732,7 @@ export interface DerivedLayerData {
   /** Schema version. Bump when the shape changes incompatibly. */
   version: 1;
 
-  /** The single input layer (v1: data_layer only). */
+  /** The single input layer (a data_layer or another derived_layer). */
   source: DerivedLayerSource;
 
   /**

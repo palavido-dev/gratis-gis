@@ -46,13 +46,14 @@ import { SamplesModule } from './samples/samples.module.js';
 import { ScriptsModule } from './scripts/scripts.module.js';
 import { ScriptScheduleModule } from './scripts/script-schedule.module.js';
 import { LeaderElectionModule } from './cron/leader-election.module.js';
+import { MetricsModule } from './metrics/metrics.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // Global per-IP rate limit.  ThrottlerGuard runs after JwtAuthGuard
-    // (declared below); each route gets the default 300 requests / 60s
+    // Global per-IP rate limit.  ThrottlerGuard runs before JwtAuthGuard
+    // (see the APP_GUARD order below); each route gets the default 300 requests / 60s
     // bucket unless it overrides via @Throttle on the controller.  Public
     // controllers (PublicModule, FeedbackModule, GeocodingModule) declare
     // their own tighter limits per-route.  Memory-backed, per-process;
@@ -107,6 +108,8 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     RealtimeModule,
     PostgisLiveModule,
     PrintRenderModule,
+    // Prometheus /metrics, off unless METRICS_TOKEN is set (main.ts).
+    MetricsModule,
   ],
   controllers: [HealthController, PortalInfoController],
   providers: [

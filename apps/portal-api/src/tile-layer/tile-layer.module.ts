@@ -16,8 +16,9 @@ import { TileLayerService } from './tile-layer.service.js';
  * uploads / cleanup deletes against MinIO, and EngineModule for
  * the shared tile cache behind the elevation mosaic (#211).
  *
- * Exports the service so ItemsService can wire it into the
- * cross-storage cleanup path that runs on item purge.
+ * Exports the service for the other modules that serve tiles. Purge
+ * cleanup of tile-layer objects lives in ItemsService, which deletes
+ * every storage key the item's data names.
  */
 @Module({
   imports: [ItemsModule, StorageModule, EngineModule],

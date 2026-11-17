@@ -5,17 +5,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
+  Activity,
   Archive,
   ArrowRightLeft,
   Bell,
   Bot,
   ClipboardList,
+  ListChecks,
+  ScrollText,
+  Stethoscope,
   Folder as FolderIcon,
   LayoutGrid,
   Map as MapIcon,
   Menu as MenuIcon,
   MessageSquarePlus,
   Paintbrush,
+  RefreshCw,
   Rocket,
   Shield,
   Sparkles,
@@ -26,12 +31,14 @@ import {
 import { useSession } from 'next-auth/react';
 
 import { useT } from '@/lib/i18n/locale-context';
+import { NotificationsLink } from './notifications-link';
 import { isSessionStale } from '@/lib/session-state';
 
 import { TopBarSearch } from './top-bar-search';
 import { HelpButton } from './help-button';
 import { FeedbackWidget } from './feedback-widget';
 import { UserMenu } from './user-menu';
+import { UpdateBanner } from './update-banner';
 import { BrandWordmark } from './brand-mark';
 import { Sheet, SheetContent } from './ui/sheet';
 
@@ -137,6 +144,15 @@ export function AppShellChrome({
   // makes the print dialog capture the wrong viewport.  Render
   // bare so the page IS the paper.
   const isPrintRender = /^\/print\/[^/]+(?:\/|$)/.test(pathname);
+  // #159 server-side Puppeteer capture. Chromium navigates here
+  // without a user session; any AppShell chrome (or the unsigned
+  // FeedbackWidget path below) ends up in the PDF. Render as a
+  // bare fragment — no wrapper, no feedback tab — so page.pdf
+  // captures only the paper.
+  const isPrintPreview = /^\/print-preview(?:\/|$)/.test(pathname);
+  if (isPrintPreview) {
+    return <>{children}</>;
+  }
   if (
     isFieldRuntime ||
     isAppRuntime ||
@@ -203,12 +219,7 @@ export function AppShellChrome({
           </div>
           <div className="flex items-center gap-2">
             <HelpButton />
-            <button
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted hover:bg-surface-2"
-              aria-label={t('shell.notificationsLabel')}
-            >
-              <Bell className="h-4 w-4" />
-            </button>
+            <NotificationsLink />
             {/* Stale sessions never reach this branch anymore: the
                 bare-render gate above treats them as signed out, so
                 the chrome (and this identity slot) only exists for a
@@ -222,6 +233,7 @@ export function AppShellChrome({
           </div>
         </header>
 
+        <UpdateBanner admin={me?.orgRole === 'admin'} />
         <main className="flex-1 animate-fade-in">{children}</main>
       </div>
       <FeedbackWidget
@@ -264,7 +276,10 @@ function NavList({
         {t('nav.items')}
       </NavLink>
       <NavLink href="/assistant" icon={<Bot className="h-4 w-4" />} onNavigate={cb}>
-        {t('nav.build')}
+        <span className="flex min-w-0 flex-col">
+          <span>{t('nav.build')}</span>
+          <span className="text-xs font-normal text-muted">{t('nav.buildHint')}</span>
+        </span>
       </NavLink>
       <NavLink
         href="/items?folders=open"
@@ -321,11 +336,53 @@ function NavList({
             {t('nav.landingPage')}
           </NavLink>
           <NavLink
+            href="/admin/audit"
+            icon={<ScrollText className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.audit')}
+          </NavLink>
+          <NavLink
+            href="/admin/permissions"
+            icon={<ListChecks className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.permissions')}
+          </NavLink>
+          <NavLink
+            href="/admin/diagnostics"
+            icon={<Stethoscope className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.diagnostics')}
+          </NavLink>
+          <NavLink
+            href="/admin/jobs"
+            icon={<ClipboardList className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.jobs')}
+          </NavLink>
+          <NavLink
+            href="/admin/operations"
+            icon={<Activity className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.operations')}
+          </NavLink>
+          <NavLink
             href="/admin/backup"
             icon={<Archive className="h-4 w-4" />}
             onNavigate={cb}
           >
             {t('nav.backup')}
+          </NavLink>
+          <NavLink
+            href="/admin/updates"
+            icon={<RefreshCw className="h-4 w-4" />}
+            onNavigate={cb}
+          >
+            {t('nav.updates')}
           </NavLink>
           <NavLink
             href="/admin/housekeeping"

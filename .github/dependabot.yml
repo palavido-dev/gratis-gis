@@ -6,6 +6,11 @@
 #   exists.
 # - Grouped updates keep PR volume reasonable: one PR per ecosystem
 #   per week instead of one PR per package.
+# - Patch and minor pull requests are squash-merged by
+#   .github/workflows/dependabot-automerge.yml after CI and Security
+#   are green. A grouped pull request merges only when every
+#   dependency in it is patch or minor. A major, or a group that
+#   contains one, stays open.
 # - All PRs are assigned to palavido-dev so they don't sit unowned.
 # - Docker scanning lists each Dockerfile path explicitly because
 #   Dependabot doesn't recurse on its own.
@@ -148,5 +153,37 @@ updates:
       prefix: "chore(infra)"
     groups:
       docker-infra:
+        patterns:
+          - "*"
+    ignore:
+      # Major postgis/postgis tags move the Postgres major (17-3.5 to
+      # 18-3.6). That is a data-directory upgrade, not a drop-in image
+      # bump. See docs/upgrades/postgres-18.md. Minor and patch updates
+      # still open.
+      - dependency-name: "postgis/postgis"
+        update-types:
+          - "version-update:semver-major"
+
+  # Docker base image for the PDAL/GDAL analysis worker. It parses
+  # uploaded point clouds and rasters, so its base image gets the same
+  # weekly check as the others.
+  - package-ecosystem: "docker"
+    directory: "/tools/pointcloud-worker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    labels:
+      - "dependencies"
+      - "docker"
+    reviewers:
+      - "palavido-dev"
+    assignees:
+      - "palavido-dev"
+    commit-message:
+      prefix: "chore(docker)"
+    groups:
+      docker-pointcloud:
         patterns:
           - "*"

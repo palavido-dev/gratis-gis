@@ -48,8 +48,13 @@ export function clampDensifySegmentLength(
 ): number {
   if (!Number.isFinite(maxSegmentLength) || maxSegmentLength <= 0) return 0;
   const meters = maxSegmentLength * METERS_PER_UNIT[unit];
-  const capped = Math.min(meters, MAX_DENSIFY_SEGMENT_METERS);
-  return capped / METERS_PER_UNIT[unit];
+  // Under the cap, hand the value back untouched. Converting to
+  // metres and back does not round-trip in floating point for feet,
+  // miles or yards (7 ft came back as 6.999999999999999), and the
+  // guide runs this on every keystroke, so the box rewrote what the
+  // user was typing.
+  if (meters <= MAX_DENSIFY_SEGMENT_METERS) return maxSegmentLength;
+  return MAX_DENSIFY_SEGMENT_METERS / METERS_PER_UNIT[unit];
 }
 
 /**

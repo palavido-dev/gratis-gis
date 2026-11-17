@@ -63,7 +63,7 @@ provisioning afterwards; the item takes features straight away.
 | `PATCH /api/items/:id/layers/:layer/features/:fid` | Update one feature's geometry or properties. |
 | `DELETE /api/items/:id/layers/:layer/features/:fid` | Remove one feature. |
 | `GET /api/items/:id/layers/:layer/features-search?q=&fields=` | Text containment search. |
-| `GET /api/items/:id/layers/:layer/delta?since=N` | Observation-log changes (including deletes) since sync version `N`, for O(changes) field / QGIS sync. |
+| `GET /api/items/:id/layers/:layer/delta?since=N` | Observation-log changes (including deletes) since sync version `N`, for O(changes) field / QGIS sync. When `truncated` is true, call again with `since=nextSince&after=nextAfter` from the response. |
 
 Feature `PATCH` / `DELETE` accept `checkOnly=true` to validate
 optimistic concurrency (`baseObservationId`) and schema without
@@ -106,7 +106,7 @@ API never handles the bytes.
 | | |
 |---|---|
 | `GET /api/items/:id/layers/:layer/features/:fid/attachments` | List. A bare array, unpaginated. |
-| `POST /api/storage/presign-upload` | `{kind: "feature-attachment", contentType}` → `{uploadUrl, publicUrl, key, contentType, maxBytes}`. |
+| `POST /api/storage/presign-upload` | `{kind: "feature-attachment", contentType, sizeBytes}` → `{uploadUrl, publicUrl, key, contentType, maxBytes}`. `sizeBytes` is required. |
 | `PUT <uploadUrl>` | The bytes, straight to object storage. |
 | `POST /api/items/:id/layers/:layer/features/:fid/attachments` | Register: `{fileName, mime, sizeBytes, storageKey, storageUrl}`. |
 | `GET /api/storage/private/feature-attachment/:key` | Download. Streams, supports `Range`. |
@@ -121,18 +121,22 @@ Three things that catch people out:
 - **`storageUrl` on a record is a path into the web app**, not the API.
   To download, take the UUID from the end of it and call
   `/api/storage/private/feature-attachment/{uuid}`.
-- **`maxBytes` is advisory.** Nothing rejects a larger upload
-  server-side, so check it yourself.
+- **The size is part of the signature.** The presign refuses a
+  `sizeBytes` above the cap for that kind, and the `PUT` must send
+  exactly that many bytes (a matching `Content-Length`) or object
+  storage rejects it. `maxBytes` in the response is the cap.
 
-Listing and downloading need read access; registering and deleting need
-edit access and a key without the read-only option.
+Listing needs read access. Downloading needs **download** permission,
+the same as the exports below, so a collaborator who can only view the
+layer gets 403. Registering and deleting need edit access and a key
+without the read-only option.
 
 ### Export
 
 | | |
 |---|---|
 | `GET /api/items/:id/layers/:layer/geoparquet` | GeoParquet. Streams the whole layer. |
-| `GET /api/items/:id/layers/:layer/csv?geometry=none\|wkt\|lonlat\|auto` | CSV. Caps at 100,000 rows. |
+| `GET /api/items/:id/layers/:layer/csv?geometry=none\|wkt\|lonlat\|auto` | CSV. Streams the whole layer. |
 | `GET /api/items/:id/layers/:layer/geojson` | GeoJSON. |
 
 The first two need **download** permission and return 403 without it.
@@ -156,7 +160,9 @@ Core, GeoJSON, and CRS conformance classes. CQL2 filtering is not
 on the roadmap for v1 (parked for a later major). `sortby` is
 intentionally rejected with HTTP 400 until a real `ORDER BY` path
 exists; items stay in stable feature-id order for paging. Do not
-treat either as "coming soon."
+treat either as "coming soon." Anonymous OGC landing, conformance,
+and OpenAPI docs (`GET /api/public/ogc`, `/conformance`, `/api`)
+are rate-limited at **60 requests per minute** per IP.
 
 ### OGC API Tiles
 
@@ -167,12 +173,16 @@ mvt.
 ### OGC API Styles
 
 A MapLibre style document per collection, served as
-`application/vnd.mapbox.style+json`.
+`application/vnd.mapbox.style+json`. Anonymous styles list and
+per-style / metadata GETs are rate-limited at **60 requests per
+minute** per IP.
 
 ### OGC API Records
 
-Catalogue records for discovery. QGIS MetaSearch and similar
-clients should prefer the searchable-catalog collection:
+Catalogue records for discovery. Anonymous list and single-record
+GETs are rate-limited at **60 requests per minute** per IP. QGIS
+MetaSearch and similar clients should prefer the searchable-catalog
+collection:
 
 ```
 GET /api/public/ogc/collections/catalog
@@ -180,11 +190,15 @@ GET /api/public/ogc/collections/catalog/items
 GET /api/public/ogc/records
 ```
 
-`/records` stays as an alias. Data-layer records include a
-`FILE:GEO` GeoJSON enclosure so MetaSearch Add Data can load
-features. Curated DCAT / Aardvark themes live on items as
-`dcat_theme_sm` (separate from free-form keywords); harvest tools
-can also fetch `GET /api/public/ogc/aardvark/{id}.json`.
+`/records` stays as an alias. The searchable-catalog collection
+document at `GET /api/public/ogc/collections/catalog` is also
+rate-limited at **60 requests per minute** per IP. Data-layer
+records include a `FILE:GEO` GeoJSON enclosure so MetaSearch Add
+Data can load features. Curated DCAT / Aardvark themes live on
+items as `dcat_theme_sm` (separate from free-form keywords);
+harvest tools can also fetch
+`GET /api/public/ogc/aardvark/{id}.json` (rate-limited at
+**60 requests per minute** per IP).
 
 ### Citation export
 
@@ -205,12 +219,43 @@ Cite menu.
 A full STAC API root at `/api/public/stac`, with collections and both
 GET and POST item search. This is the endpoint newer QGIS releases use
 to browse rasters without a plugin. Step-by-step setup is in
-**Browse public rasters from QGIS with STAC**.
+**Browse public rasters from QGIS with STAC**. Anonymous STAC root,
+conformance, and OpenAPI docs (`GET /api/public/stac`,
+`/conformance`, `/api`), plus collections landing
+(`GET /collections` and `GET /collections/:id`), items, and search
+are rate-limited at **60 requests per minute** per IP.
 
 ### CSW 2.0.2
 
 A Catalog Service for the Web endpoint at `/api/public/csw`, for
-clients that expect the older OGC catalogue protocol.
+clients that expect the older OGC catalogue protocol. Anonymous
+GetCapabilities / GetRecords calls are rate-limited at **60 requests
+per minute** per IP.
+
+### Portal landing and public items
+
+The anonymous org landing payload at `GET /api/public/landing`
+(optional `?org=` slug), single public item GETs at
+`GET /api/public/items/:id`, the public basemap gallery at
+`GET /api/public/items?type=basemap`, the vendored OSM presets
+catalog at `GET /api/public/osm/presets`, and per-item thumbnail
+SVGs at `GET /api/portal/items/:id/thumbnail.svg` are rate-limited
+at **60 requests per minute** per IP.
+
+### Print render tokens
+
+The Chromium print sidecar consumes single-use render tokens at
+`POST /api/print/consume-render-token` and
+`POST /api/print/internal/load-job` (both `@Public`, authorized by
+token rather than Keycloak). Those routes are rate-limited at
+**60 requests per minute** per IP in addition to single-use token
+semantics.
+
+### DCAT catalog.json
+
+A Project Open Data–shaped JSON catalog of every public item at
+`GET /api/public/catalog.json` (optional `?org=` slug). Anonymous
+calls are rate-limited at **60 requests per minute** per IP.
 
 Authenticated equivalents of Features and STAC live at `/api/ogc` and
 `/api/stac` and apply the caller's own sharing rules, so an API key

@@ -20,6 +20,11 @@ import { ChartSpline, Loader2, Mountain, Shapes, Waves } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
 
 const M_TO_FT = 3.28084;
+/** The API clamps the contour interval to at least 0.5 m
+ *  (analysis.service.ts). The input's minimum matches it per unit so a
+ *  smaller value is not quietly raised. */
+const MIN_INTERVAL_M = 0.5;
+const MIN_INTERVAL_FT = Math.ceil(MIN_INTERVAL_M * M_TO_FT * 10) / 10;
 
 interface QueuedResult {
   targetItemId: string;
@@ -39,10 +44,24 @@ export function DemAnalysisSection({
   canEdit: boolean;
 }) {
   const t = useT();
-  const metric =
-    typeof window !== 'undefined' &&
-    window.localStorage.getItem('gg-profile-units') === 'metric';
-  const [intervalVal, setIntervalVal] = useState(metric ? '3' : '10');
+  // Read after mount, not during render: the server has no storage,
+  // so reading it in render made the server and a metric client
+  // render different labels (a hydration mismatch), and a blocked
+  // storage threw and took the section down. Imperial until known.
+  const [metric, setMetric] = useState(false);
+  const [intervalVal, setIntervalVal] = useState('10');
+  useEffect(() => {
+    let isMetric = false;
+    try {
+      isMetric = window.localStorage.getItem('gg-profile-units') === 'metric';
+    } catch {
+      /* storage blocked: keep imperial */
+    }
+    if (isMetric) {
+      setMetric(true);
+      setIntervalVal((v) => (v === '10' ? '3' : v));
+    }
+  }, []);
   const [busy, setBusy] = useState<
     'contours' | 'steepness' | 'zonal-stats' | null
   >(null);
@@ -56,7 +75,9 @@ export function DemAnalysisSection({
     void (async () => {
       try {
         const res = await fetch(
-          '/api/portal/items?type=data_layer&limit=100',
+          // The list's own cap. 100 left the rest of a larger org's
+          // layers out of the zone picker.
+          '/api/portal/items?type=data_layer&limit=1000',
         );
         if (!res.ok || cancelled) return;
         const rows = (await res.json()) as Array<{
@@ -123,6 +144,14 @@ export function DemAnalysisSection({
       return;
     }
     const intervalM = metric ? v : v / M_TO_FT;
+    if (intervalM < MIN_INTERVAL_M) {
+      setError(
+        t('demAnalysis.intervalTooSmall', {
+          min: metric ? `${MIN_INTERVAL_M} m` : `${MIN_INTERVAL_FT} ft`,
+        }),
+      );
+      return;
+    }
     void queueJob(
       'contours',
       { intervalM },
@@ -149,7 +178,8 @@ export function DemAnalysisSection({
             <input
               type="number"
               value={intervalVal}
-              min={1}
+              min={metric ? MIN_INTERVAL_M : MIN_INTERVAL_FT}
+              step="any"
               onChange={(e) => setIntervalVal(e.target.value)}
               disabled={!canEdit || busy !== null}
               className="mt-1 block w-32 rounded-md border border-border bg-surface-2 px-2 py-1.5 text-sm text-ink-0 disabled:opacity-50"

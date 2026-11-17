@@ -4,12 +4,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import type { ImportJob, ImportJobStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 
 /**
  * Persistence + lifecycle helpers for ImportJob rows (#115).
@@ -31,11 +33,31 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  * controller doesn't claim or finish jobs, and the worker doesn't
  * care about org-scoped visibility.
  */
+/**
+ * How often a worker beats while it runs a job, on a timer, separate
+ * from the per-batch progress beat. A slow batch or a long commit used
+ * to leave the heartbeat untouched for minutes, so the stale threshold
+ * had to be 5 minutes, and a worker killed mid-import (#573) left the
+ * job showing "running" at its last count for that long.
+ */
+export const IMPORT_HEARTBEAT_EVERY_MS = 20_000;
+
+/** A running job whose heartbeat is older than this has no live worker. */
+export const IMPORT_STALE_AFTER_MS = 2 * 60 * 1000;
+
+/** Shown on a job the stale sweep fails. */
+export const IMPORT_WORKER_STOPPED_MESSAGE =
+  'The import worker stopped partway through this import, most likely because it ran out of memory. ' +
+  'Upload the file again to retry. On a NAS, raising GRATIS_WORKER_MEMORY gives large imports more room.';
+
 @Injectable()
 export class ImportJobsService {
   private readonly log = new Logger(ImportJobsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly quota?: ResourceQuotaService,
+  ) {}
 
   /** Enqueue a new ingest job. Worker will pick it up on the next poll. */
   async enqueue(input: {
@@ -48,21 +70,50 @@ export class ImportJobsService {
     totalFeatures: number | null;
     userId: string;
     orgId: string;
+    /** Staged file size. Zero is a concurrency hold only. */
+    bytes?: bigint;
   }): Promise<ImportJob> {
-    return this.prisma.importJob.create({
-      data: {
-        itemId: input.itemId,
-        layerId: input.layerId,
-        stagingId: input.stagingId,
-        sourceFileName: input.sourceFileName,
-        sourceLayerName: input.sourceLayerName,
-        mode: input.mode,
-        createdBy: input.userId,
-        orgId: input.orgId,
-        totalFeatures: input.totalFeatures,
-        status: 'queued',
-      },
+    // Reserve first, then insert. The worker claims any queued row
+    // within a second, so inserting first let it start an import the
+    // reservation then refused (and whose row this method deleted).
+    await this.quota?.reserve(input.orgId, input.bytes ?? 0n, input.stagingId);
+    let created: ImportJob;
+    try {
+      created = await this.prisma.importJob.create({
+        data: {
+          itemId: input.itemId,
+          layerId: input.layerId,
+          stagingId: input.stagingId,
+          sourceFileName: input.sourceFileName,
+          sourceLayerName: input.sourceLayerName,
+          mode: input.mode,
+          createdBy: input.userId,
+          orgId: input.orgId,
+          totalFeatures: input.totalFeatures,
+          status: 'queued',
+        },
+      });
+    } catch (err) {
+      await this.releaseHoldIfIdle(input.stagingId);
+      throw err;
+    }
+    return created;
+  }
+
+  /**
+   * Drop the disk hold for a staged file once no queued or running
+   * job still needs it. A multi-layer file queues one job per layer
+   * on one staging and one hold, so releasing on the first job's end
+   * freed space the other layers were still going to use. (If two
+   * jobs end at once and both see the other live, the next reserve's
+   * cleanup removes the hold.)
+   */
+  private async releaseHoldIfIdle(stagingId: string): Promise<void> {
+    if (!this.quota) return;
+    const live = await this.prisma.importJob.count({
+      where: { stagingId, status: { in: ['queued', 'running'] } },
     });
+    if (live === 0) await this.quota.releasePurpose(stagingId);
   }
 
   /**
@@ -109,13 +160,15 @@ export class ImportJobsService {
   async cancel(user: AuthUser, jobId: string): Promise<ImportJob> {
     const row = await this.get(user, jobId);
     if (row.status === 'queued' || row.status === 'running') {
-      return this.prisma.importJob.update({
+      const updated = await this.prisma.importJob.update({
         where: { id: jobId },
         data: {
           status: 'cancelled',
           finishedAt: new Date(),
         },
       });
+      await this.releaseHoldIfIdle(updated.stagingId);
+      return updated;
     }
     return row;
   }
@@ -178,12 +231,24 @@ export class ImportJobsService {
     });
   }
 
+  /**
+   * Timer heartbeat. Only touches lastHeartbeatAt, and only while the
+   * job is still running, so it can never revive a cancelled or
+   * finished row.
+   */
+  async touchHeartbeat(jobId: string): Promise<void> {
+    await this.prisma.importJob.updateMany({
+      where: { id: jobId, status: 'running' },
+      data: { lastHeartbeatAt: new Date() },
+    });
+  }
+
   /** Final status flip + final counts. */
   async markSucceeded(
     jobId: string,
     insertedFeatures: number,
   ): Promise<void> {
-    await this.prisma.importJob.update({
+    const done = await this.prisma.importJob.update({
       where: { id: jobId },
       data: {
         status: 'succeeded',
@@ -191,6 +256,7 @@ export class ImportJobsService {
         insertedFeatures,
       },
     });
+    if (done?.stagingId) await this.releaseHoldIfIdle(done.stagingId);
     this.log.log(
       `Import job ${jobId} succeeded with ${insertedFeatures} features.`,
     );
@@ -200,7 +266,7 @@ export class ImportJobsService {
    *  detail-page banner can show it; the worker has already logged
    *  the full stack. */
   async markFailed(jobId: string, errorMessage: string): Promise<void> {
-    await this.prisma.importJob.update({
+    const done = await this.prisma.importJob.update({
       where: { id: jobId },
       data: {
         status: 'failed',
@@ -208,6 +274,7 @@ export class ImportJobsService {
         errorMessage,
       },
     });
+    if (done?.stagingId) await this.releaseHoldIfIdle(done.stagingId);
     this.log.warn(`Import job ${jobId} failed: ${errorMessage}`);
   }
 
@@ -269,13 +336,14 @@ export class ImportJobsService {
    * than the threshold and the boot pass alone would skip it
    * forever, stranding the job as 'running'.
    *
-   * Threshold default 5 minutes is generous; a healthy worker beats
-   * every batch (~10s). If the heartbeat is older than that, the
-   * worker is gone or wedged and the job is effectively dead. The
+   * Threshold default 2 minutes. A live worker beats on a timer every
+   * IMPORT_HEARTBEAT_EVERY_MS whatever its batches are doing, so a
+   * heartbeat older than that means the worker is gone or wedged and
+   * the job is effectively dead. The
    * heartbeat guard also makes concurrent sweeps safe: a job a live
    * worker is actively processing keeps beating and never matches.
    */
-  async recoverStaleRunning(maxAgeMs: number = 5 * 60 * 1000): Promise<void> {
+  async recoverStaleRunning(maxAgeMs: number = IMPORT_STALE_AFTER_MS): Promise<void> {
     const cutoff = new Date(Date.now() - maxAgeMs);
     const stale = await this.prisma.importJob.findMany({
       where: {
@@ -307,8 +375,7 @@ export class ImportJobsService {
         // to retry" is the honest instruction either way; the
         // pre-crash counter was wrong in the common case.)
         insertedFeatures: 0,
-        errorMessage:
-          'Worker crashed before completing this import. Re-upload to retry.',
+        errorMessage: IMPORT_WORKER_STOPPED_MESSAGE,
       },
     });
     this.log.warn(

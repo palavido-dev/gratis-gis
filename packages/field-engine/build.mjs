@@ -38,6 +38,14 @@ const result = await build({
   outfile: outFile,
   sourcemap: true,
   minify: true,
+  // re2js (the form pattern engine) feature-detects TextEncoder and
+  // TextDecoder and has a pure JavaScript fallback. The embedded engine
+  // has neither, so pin the detection to "absent": the minifier then
+  // drops the native branch and the bundle names no platform global.
+  define: {
+    'globalThis.TextEncoder': 'undefined',
+    'globalThis.TextDecoder': 'undefined',
+  },
   legalComments: 'none',
   logLevel: 'info',
   metafile: true,

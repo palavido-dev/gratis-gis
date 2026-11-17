@@ -13,6 +13,7 @@ import { AgoHostedFsImportService } from './hosted-fs.js';
 import { AgoImportService } from './import.js';
 import { AgoImportJobsService } from './jobs.service.js';
 import { ImportAgoController } from './import-ago.controller.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 
 /**
  * Wires the AGO migration importer. Depends on:
@@ -35,6 +36,7 @@ import { ImportAgoController } from './import-ago.controller.js';
   ],
   controllers: [ImportAgoController],
   providers: [
+    OperatorOrgGuard,
     AgoConnectionsService,
     AgoDryRunService,
     AgoHostedFsImportService,

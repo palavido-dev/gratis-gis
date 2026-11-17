@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 
 import { EmailTransport } from '../notifications/email-transport.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -81,15 +82,22 @@ export class FeedbackService {
    * everything on every deploy.
    */
   async isRateLimited(ip: string, now: Date = new Date()): Promise<boolean> {
-    const ipHash = hashIp(ip);
+    return this.overBudget(this.prisma, hashIp(ip), now);
+  }
+
+  private async overBudget(
+    db: Pick<Prisma.TransactionClient, 'feedback'>,
+    ipHash: string,
+    now: Date,
+  ): Promise<boolean> {
     const [shortCount, longCount] = await Promise.all([
-      this.prisma.feedback.count({
+      db.feedback.count({
         where: {
           ipHash,
           createdAt: { gte: new Date(now.getTime() - SHORT_WINDOW_MS) },
         },
       }),
-      this.prisma.feedback.count({
+      db.feedback.count({
         where: {
           ipHash,
           createdAt: { gte: new Date(now.getTime() - LONG_WINDOW_MS) },
@@ -100,6 +108,38 @@ export class FeedbackService {
   }
 
   async submit(input: FeedbackInput): Promise<{ id: string }> {
+    // Count and insert under one per-source lock. Checking first and
+    // inserting after the screenshot upload let a parallel burst all
+    // see a count under the limit and all get stored.
+    const ipHash = hashIp(input.ip);
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'feedback:' + ipHash}))`;
+      if (await this.overBudget(tx, ipHash, new Date())) return null;
+      return tx.feedback.create({
+        data: {
+          message: input.message,
+          ...(input.name ? { name: input.name } : {}),
+          ...(input.email ? { email: input.email } : {}),
+          ...(input.pageUrl ? { pageUrl: input.pageUrl } : {}),
+          ...(input.appVersion ? { appVersion: input.appVersion } : {}),
+          ...(input.userAgent ? { userAgent: input.userAgent } : {}),
+          ...(input.viewport ? { viewport: input.viewport } : {}),
+          ...(input.userId ? { userId: input.userId } : {}),
+          ...(input.orgId ? { orgId: input.orgId } : {}),
+          ipHash,
+        },
+        select: { id: true },
+      });
+    });
+    if (!row) {
+      throw new HttpException(
+        'Too many submissions from your network. Try again in a few minutes.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // The screenshot goes up only once the row holds a slot, so a
+    // refused burst never reaches object storage.
     let screenshotKey: string | null = null;
     if (input.screenshot) {
       try {
@@ -108,6 +148,10 @@ export class FeedbackService {
           input.screenshot.body,
           input.screenshot.contentType,
         );
+        await this.prisma.feedback.update({
+          where: { id: row.id },
+          data: { screenshotKey: key },
+        });
         screenshotKey = key;
       } catch (err) {
         // An image we could not store must not cost us the words.
@@ -121,28 +165,14 @@ export class FeedbackService {
       }
     }
 
-    const row = await this.prisma.feedback.create({
-      data: {
-        message: input.message,
-        ...(input.name ? { name: input.name } : {}),
-        ...(input.email ? { email: input.email } : {}),
-        ...(input.pageUrl ? { pageUrl: input.pageUrl } : {}),
-        ...(input.appVersion ? { appVersion: input.appVersion } : {}),
-        ...(input.userAgent ? { userAgent: input.userAgent } : {}),
-        ...(input.viewport ? { viewport: input.viewport } : {}),
-        ...(input.userId ? { userId: input.userId } : {}),
-        ...(input.orgId ? { orgId: input.orgId } : {}),
-        ipHash: hashIp(input.ip),
-        ...(screenshotKey ? { screenshotKey } : {}),
-      },
-      select: { id: true },
-    });
-
     // PII-light: the body is in the database and the email, not in
     // the logs, which are shipped and retained differently.
     this.log.log(
       `feedback stored id=${row.id} from=${input.email ?? '(anonymous)'} ` +
-        `page="${truncate(input.pageUrl ?? '', 80)}" len=${input.message.length}` +
+        // Control characters stripped: pageUrl comes from anonymous
+        // callers, and a newline in it could forge a whole log line.
+        // eslint-disable-next-line no-control-regex
+        `page="${truncate((input.pageUrl ?? '').replace(/[\u0000-\u001f\u007f]/g, ' '), 80)}" len=${input.message.length}` +
         `${screenshotKey ? ' +screenshot' : ''}`,
     );
 
@@ -262,7 +292,7 @@ function renderBody(
 function portalBaseUrl(): string {
   const raw = process.env.PORTAL_BASE_URL?.trim();
   return (raw && raw.length > 0 ? raw : 'http://localhost:3000').replace(
-    /\/+$/,
+    /(?<!\/)\/+$/,
     '',
   );
 }

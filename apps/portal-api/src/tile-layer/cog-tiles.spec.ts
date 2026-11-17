@@ -20,6 +20,7 @@ import {
   isValidTileAddress,
   needsAlphaBand,
   needsRendering,
+  pngBandSelectArgs,
   tileBounds3857,
   tileBoundsWgs84,
   warpArgs,
@@ -85,6 +86,21 @@ describe('needsAlphaBand', () => {
     // Adding a fifth band to an RGBA source makes the PNG driver
     // refuse the write, so every tile of that layer would 500.
     expect(needsAlphaBand('Alpha')).toBe(false);
+  });
+});
+
+describe('pngBandSelectArgs', () => {
+  it('leaves RGBA and smaller results alone', () => {
+    expect(pngBandSelectArgs(4, 4)).toBeNull();
+    expect(pngBandSelectArgs(2, 2)).toBeNull();
+  });
+
+  it('keeps RGB plus alpha for an RGB+NIR source', () => {
+    // 4 bands with band 4 Undefined gains a fifth from -dstalpha,
+    // which the PNG driver refuses.
+    const args = pngBandSelectArgs(5, 5)!;
+    expect(args.filter((a, i) => args[i - 1] === '-b')).toEqual(['1', '2', '3', '5']);
+    expect(argAfter(args, '-of')).toBe('MEM');
   });
 });
 

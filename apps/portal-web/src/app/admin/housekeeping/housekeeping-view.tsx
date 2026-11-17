@@ -28,6 +28,7 @@ import { getItemTypeAccent, getItemTypeIcon } from '@/lib/item-type-icon';
 import { ReassignOwnerDialog } from '@/components/reassign-owner-dialog';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Wire shapes returned by /admin/housekeeping endpoints. Kept
@@ -65,7 +66,11 @@ export interface HousekeepingBundle {
     ownerLabel: string;
   }>;
   staleUsers: Array<{
+    /** Portal user id: what items use as owner. */
     id: string;
+    /** Keycloak id: what PATCH /admin/users/:id takes. They differ
+     *  for seeded accounts. */
+    keycloakId?: string;
     username: string;
     fullName: string;
     email: string;
@@ -76,7 +81,7 @@ export interface HousekeepingBundle {
   }>;
   /** Storage telemetry (#161). Rendered as a single card at the top
    *  of the page so the operator can answer "are we running low" at
-   *  a glance. */
+   *  a glance. Null for admins outside the operator organization. */
   storage: {
     postgres: {
       databaseName: string;
@@ -98,7 +103,7 @@ export interface HousekeepingBundle {
       totalBytes: number;
       freeBytes: number;
     } | null;
-  };
+  } | null;
   /** Top 50 data_layer scopes by approximate observation footprint
    *  (#115 P10 follow-up). After the engine pivot the per-table
    *  list is dominated by `observation_p202xxxxx` partitions that
@@ -138,6 +143,8 @@ export interface HousekeepingBundle {
   }>;
   expiringUsers: Array<{
     id: string;
+    /** See staleUsers.keycloakId. */
+    keycloakId?: string;
     username: string;
     fullName: string;
     email: string;
@@ -171,6 +178,11 @@ export function HousekeepingView({ bundle }: Props) {
   // ambiguous. Each set is the id of a ticked row.
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  // One action at a time. Every trigger is disabled while any of
+  // them runs: with each button checking only its own value, starting
+  // a second action re-enabled the first, and the first one's finally
+  // cleared the flag of the second, so an org-wide recompute or index
+  // build could be started twice at once.
   const [busy, setBusy] = useState<
     'items' | 'users' | 'extents' | 'search-indexes' | null
   >(null);
@@ -237,12 +249,38 @@ export function HousekeepingView({ bundle }: Props) {
     setBusy('search-indexes');
     setError(null);
     try {
+      // The build runs in the worker (it can take minutes on big
+      // layers), so queue it and poll until it ends.
       const r = await fetch(
         '/api/portal/admin/housekeeping/build-search-indexes',
         { method: 'POST' },
       );
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const result = (await r.json()) as {
+      type Build = {
+        id: string;
+        status: 'queued' | 'running' | 'succeeded' | 'failed';
+        result: unknown;
+        error: string | null;
+      };
+      let build = (await r.json()) as Build;
+      while (build.status === 'queued' || build.status === 'running') {
+        await new Promise((res) => setTimeout(res, 3000));
+        const p = await fetch(
+          '/api/portal/admin/housekeeping/search-index-build',
+        );
+        if (!p.ok) throw new Error(`HTTP ${p.status}`);
+        // The org's newest build. It is ours until it ends, because a
+        // second click joins the active build instead of queuing one.
+        const latest = (await p.json()) as Build | null;
+        if (!latest) throw new Error(t('adminHousekeeping.errBuildSearchIndexes'));
+        build = latest;
+      }
+      if (build.status === 'failed') {
+        throw new Error(
+          build.error ?? t('adminHousekeeping.errBuildSearchIndexes'),
+        );
+      }
+      const result = build.result as {
         scannedItems: number;
         indexedLayers: number;
         created: string[];
@@ -349,7 +387,10 @@ export function HousekeepingView({ bundle }: Props) {
    */
   async function disableUsers(ids: string[]) {
     await runBatched(ids, 4, async (id) => {
-      const res = await fetch(`/api/portal/admin/users/${id}`, {
+      // `ids` are portal ids (they also drive the owned items lookup);
+      // the admin users API wants the Keycloak id.
+      const kcId = staleUsers.find((u) => u.id === id)?.keycloakId ?? id;
+      const res = await fetch(`/api/portal/admin/users/${kcId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ enabled: false }),
@@ -480,13 +521,24 @@ export function HousekeepingView({ bundle }: Props) {
   // (POST /items/:id/share, DELETE /items/:id/share, PATCH
   // /admin/users/:id) so the audit log treats these as if the
   // admin had used the per-item / per-user surfaces directly.
+  /** fetch for the row actions below. A dropped connection rejects
+   *  fetch, and these handlers had no catch, so the click did nothing
+   *  visible. Reports it and returns null instead. */
+  async function fetchOrReport(url: string, init: RequestInit): Promise<Response | null> {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  }
   async function extendShare(
     row: HousekeepingBundle['expiringShares'][number],
     days: number,
   ) {
     setError(null);
     const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/portal/items/${row.itemId}/share`, {
+    const res = await fetchOrReport(`/api/portal/items/${row.itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -496,6 +548,7 @@ export function HousekeepingView({ bundle }: Props) {
         expiresAt: next,
       }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(t('adminHousekeeping.errExtendShare', { status: res.status }));
       return;
@@ -511,7 +564,7 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function cancelShare(row: HousekeepingBundle['expiringShares'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/items/${row.itemId}/share`, {
+    const res = await fetchOrReport(`/api/portal/items/${row.itemId}/share`, {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -519,6 +572,7 @@ export function HousekeepingView({ bundle }: Props) {
         principalId: row.principalId,
       }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(t('adminHousekeeping.errCancelShare', { status: res.status }));
       return;
@@ -535,11 +589,12 @@ export function HousekeepingView({ bundle }: Props) {
   ) {
     setError(null);
     const next = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ autoDisableAt: next }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminHousekeeping.errExtendUser', {
@@ -560,11 +615,12 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function clearUserExpiry(row: HousekeepingBundle['expiringUsers'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ autoDisableAt: null }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminHousekeeping.errClearAutoDisable', { status: res.status }),
@@ -581,11 +637,12 @@ export function HousekeepingView({ bundle }: Props) {
   }
   async function disableUserNow(row: HousekeepingBundle['expiringUsers'][number]) {
     setError(null);
-    const res = await fetch(`/api/portal/admin/users/${row.id}`, {
+    const res = await fetchOrReport(`/api/portal/admin/users/${row.keycloakId ?? row.id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: false }),
     });
+    if (!res) return;
     if (!res.ok) {
       setError(
         t('adminHousekeeping.errDisableUser', {
@@ -616,7 +673,7 @@ export function HousekeepingView({ bundle }: Props) {
         <button
           type="button"
           onClick={recomputeExtents}
-          disabled={busy === 'extents'}
+          disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === 'extents' ? (
@@ -640,7 +697,7 @@ export function HousekeepingView({ bundle }: Props) {
         <button
           type="button"
           onClick={buildSearchIndexes}
-          disabled={busy === 'search-indexes'}
+          disabled={busy !== null}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 py-1 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
         >
           {busy === 'search-indexes' ? (
@@ -669,7 +726,7 @@ export function HousekeepingView({ bundle }: Props) {
           per-store readouts (Postgres + MinIO). The disk gauge is
           the "are we running low" signal at a glance; the readouts
           tell the operator which store dominates. */}
-      <StorageCard storage={storage} />
+      {storage ? <StorageCard storage={storage} /> : null}
 
       {/* Soon-to-expire shares (#86). Mixes already-expired
           (red) and within-window (amber) rows so the admin can
@@ -754,6 +811,7 @@ export function HousekeepingView({ bundle }: Props) {
               count={selectedItems.size}
               selectionKind="items"
               busy={busy === 'items'}
+              locked={busy !== null}
               onClear={() => setSelectedItems(new Set())}
               actions={[
                 {
@@ -804,6 +862,7 @@ export function HousekeepingView({ bundle }: Props) {
               count={selectedUsers.size}
               selectionKind="users"
               busy={busy === 'users'}
+              locked={busy !== null}
               onClear={() => setSelectedUsers(new Set())}
               actions={[
                 {
@@ -913,12 +972,16 @@ function BulkBar({
   count,
   selectionKind,
   busy,
+  locked,
   actions,
   onClear,
 }: {
   count: number;
   selectionKind: 'items' | 'users';
   busy: boolean;
+  /** True while any action on the page runs. `busy` is only this
+   *  bar's own action and drives the spinner. */
+  locked: boolean;
   actions: Array<{
     label: string;
     icon: React.ReactNode;
@@ -939,7 +1002,7 @@ function BulkBar({
         <button
           type="button"
           onClick={onClear}
-          disabled={busy}
+          disabled={locked}
           className="inline-flex items-center gap-1 text-muted hover:text-ink-1 disabled:opacity-50"
         >
           <X className="h-3 w-3" />
@@ -952,7 +1015,7 @@ function BulkBar({
             key={a.label}
             type="button"
             onClick={a.onClick}
-            disabled={busy}
+            disabled={locked}
             className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
               a.tone === 'danger'
                 ? 'border-danger bg-danger/10 text-danger hover:bg-danger/20'
@@ -1362,7 +1425,7 @@ function StaleUsersTable({
 function StorageCard({
   storage,
 }: {
-  storage: HousekeepingBundle['storage'];
+  storage: NonNullable<HousekeepingBundle['storage']>;
 }) {
   const fmt = useFormat();
   const t = useT();
@@ -1599,10 +1662,10 @@ function ExpiringSharesTable({
                 }
                 title={fmt.dateTime(r.expiresAt)}
               >
-                {r.isExpired
-                  ? t('adminHousekeeping.expired')
-                  : t('adminHousekeeping.expiryIn')}{' '}
-                {formatRelativeShort(r.expiresAt)}
+                {/* relativeTime already reads "in 3 days", so only the
+                    expired case gets a prefix ("In in 3 days" before). */}
+                {r.isExpired ? <>{t('adminHousekeeping.expired')} </> : null}
+                {fmt.relativeTime(r.expiresAt)}
               </span>
             </td>
             <td className="px-4 py-2 text-right">
@@ -1688,10 +1751,8 @@ function ExpiringUsersTable({
                 }
                 title={fmt.dateTime(r.autoDisableAt)}
               >
-                {r.isExpired
-                  ? t('adminHousekeeping.pastDue')
-                  : t('adminHousekeeping.expiryIn')}{' '}
-                {formatRelativeShort(r.autoDisableAt)}
+                {r.isExpired ? <>{t('adminHousekeeping.pastDue')} </> : null}
+                {fmt.relativeTime(r.autoDisableAt)}
               </span>
             </td>
             <td className="px-4 py-2 text-muted">
@@ -1738,28 +1799,3 @@ function ExpiringUsersTable({
   );
 }
 
-/**
- * Compact "in 3d", "in 12h", "23m" relative time. Used by the
- * expiry chips: a full date is on the title attribute for hover.
- */
-function formatRelativeShort(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return iso;
-  const diffMs = t - Date.now();
-  const abs = Math.abs(diffMs);
-  const minutes = Math.floor(abs / 60_000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 60) return `${days}d`;
-  const months = Math.floor(days / 30);
-  return `${months}mo`;
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}

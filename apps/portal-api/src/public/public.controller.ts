@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { absoluteBase } from './ogc/url.js';
+import { isUuidShape } from '../common/uuid-shape.js';
 import {
   BadRequestException,
   Controller,
@@ -25,6 +27,7 @@ import {
   parseAggregateQuery,
   parseVia,
   parseWhere,
+  whereFieldNames,
   rejectUnknownAggregateParams,
   type ParsedVia,
 } from '../data-layer/aggregate-params.js';
@@ -41,8 +44,21 @@ import {
   tileOverloadRetryAfterSeconds,
 } from '../engine/tile-cache.service.js';
 import { requestAbortSignal } from '../common/request-signal.js';
+import {
+  buildTileJson,
+  layerAttribution,
+  parseIncludeParam,
+  planTile,
+  readTileSettings,
+  storedLayerBounds,
+  tileCacheControl,
+  tileJsonBase,
+} from '../data-layer/tile-settings.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import { withMetaUi } from '../items/meta-ui.js';
+import { readEmbedOrigins } from '../admin/embed-origins.js';
+import { ItemsService } from '../items/items.service.js';
+import { redactItemData } from '../items/item-data-redact.js';
 import {
   PUBLIC_TIER_SELECT,
   publicTierGeoLimit,
@@ -65,6 +81,7 @@ export class PublicController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly v3: DataLayerFeaturesService,
+    private readonly itemsService: ItemsService,
   ) {}
 
   /**
@@ -80,6 +97,9 @@ export class PublicController {
    * not because a portal ever serves more than one.
    */
   @Public()
+  // Tighter than the global 300/min: org resolve + optional
+  // publicItemsFor findMany (SEC-public-landing-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('landing')
   async landing(@Query('org') orgSlug?: string) {
     const org = orgSlug
@@ -123,6 +143,9 @@ export class PublicController {
    * for most aggregators that just want a list of URLs + metadata.
    */
   @Public()
+  // Tighter than the global 300/min: unbounded public-item findMany
+  // for the DCAT dump (SEC-public-catalog-json-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('catalog.json')
   async catalog(@Req() req: Request, @Query('org') orgSlug?: string) {
     const org = orgSlug
@@ -136,18 +159,9 @@ export class PublicController {
       );
     }
 
-    // Best-effort self URL for the catalog so clients can deref.
-    // We honour X-Forwarded-* because portals are typically behind
-    // a reverse proxy.
-    const proto =
-      (req.headers['x-forwarded-proto'] as string | undefined) ??
-      req.protocol ??
-      'http';
-    const host =
-      (req.headers['x-forwarded-host'] as string | undefined) ??
-      req.headers.host ??
-      'localhost';
-    const portalBase = `${proto}://${host}`;
+    // Self URLs come from PORTAL_BASE_URL like every OGC document;
+    // the request headers are only a dev fallback (see ogc/url.ts).
+    const portalBase = absoluteBase(req);
 
     const items = await this.prisma.item.findMany({
       where: {
@@ -223,6 +237,10 @@ export class PublicController {
    * when an operator runs scripts/sync-osm-presets.mjs.
    */
   @Public()
+  // Tighter than the global 300/min: vendored iD catalog load
+  // (SEC-osm-presets-throttle). Browser force-cache still coalesces
+  // recipe opens; Nest budget covers anonymous hammering.
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('osm/presets')
   async osmPresets(@Res() res: Response) {
     const catalog = await loadOsmPresetCatalog();
@@ -235,6 +253,9 @@ export class PublicController {
   }
 
   @Public()
+  // Tighter than the global 300/min: anon UUID Prisma get used by
+  // public viewers for map + each layer + basemap (SEC-public-item-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id')
   async item(@Param('id') id: string) {
     // Anonymous endpoint: malformed input must produce 404, not
@@ -270,15 +291,49 @@ export class PublicController {
     // meta.ui is the shared presentation contract for web / QGIS /
     // MCP (docs/meta-ui.md); computed here so anon detail matches
     // the authenticated GET /api/items/:id shape.
-    return withMetaUi(synthesizeThumbnailUrl(item));
+    // Same reader view a signed-in non-editor gets: per-layer access
+    // applied to a map (custom-access layers and their rosters do not
+    // reach an anonymous reader), and server-only fields such as
+    // anonymous markup tokens removed. Without this, signing out
+    // showed more than signing in.
+    const data =
+      item.type === 'map'
+        ? await this.itemsService.filterMapForViewer(null, item.data)
+        : item.data;
+    const safe = {
+      ...item,
+      data: redactItemData(item.type, data, { canEdit: false }) as typeof item.data,
+    };
+    return withMetaUi(synthesizeThumbnailUrl(safe));
+  }
+
+  /**
+   * Sites the Embed widget may frame on app runtime pages (review
+   * 28b-5). portal-web's middleware reads this to build `frame-src`
+   * for /items/:id/custom/run, so it must answer without a session.
+   * The list is site addresses an admin chose to allow; it holds
+   * nothing private.
+   */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 120 } })
+  @Get('embed-origins')
+  async embedOrigins(): Promise<{ origins: string[] }> {
+    return { origins: await readEmbedOrigins(this.prisma) };
   }
 
   /**
    * Anonymous list of items, intended for the viewer runtime to
    * pull a list of public basemaps without a session. Limited to
-   * type=basemap today; callers asking for any other type get an
-   * empty list rather than the full public catalog (the dedicated
-   * landing / catalog feeds are the right surface for that).
+   * type=basemap and type=theme; callers asking for any other type
+   * get an empty list rather than the full public catalog (the
+   * dedicated landing / catalog feeds are the right surface for
+   * that).
+   *
+   * type=theme lets an anonymous viewer of a public app get the
+   * admin's customised starter theme ('forest') instead of the stock
+   * colours. Only themes shared publicly are served. `?orgId=` scopes
+   * the list to the app's organization, so one org's "forest" never
+   * colours another org's app.
    *
    * Mirrors the authed list's paging contract so the runtime pages
    * can swap one for the other without branching: data_json is
@@ -287,6 +342,9 @@ export class PublicController {
    * unpaged total. The body stays a plain JSON array.
    */
   @Public()
+  // Tighter than the global 300/min: public basemap gallery findMany
+  // (SEC-public-basemap-items-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items')
   async items(
     @Res({ passthrough: true }) res: Response,
@@ -294,17 +352,23 @@ export class PublicController {
     @Query('full') full?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('orgId') orgId?: string,
   ) {
-    if (type !== 'basemap') {
+    if (type !== 'basemap' && type !== 'theme') {
       // Keep the header present on the refusal path too so a pager
       // that trusts it never mistakes "not allowed" for "more pages".
       res.setHeader('X-Total-Count', '0');
       return [];
     }
+    // A malformed orgId would make Postgres reject the uuid cast, so
+    // it is treated as "no org filter" rather than a 500.
+    const orgFilter =
+      orgId && isUuidShape(orgId) ? { orgId } : {};
     const where = {
-      type: 'basemap',
+      type,
       access: 'public',
       deletedAt: null,
+      ...orgFilter,
     } as const;
     const parsedLimit = Number.parseInt(limit ?? '', 10);
     const take =
@@ -363,6 +427,10 @@ export class PublicController {
    * deliberately scoped to a region.
    */
   @Public()
+  // Tighter than the global 300/min: whole-collection stream path
+  // (SEC-public-features-geojson-throttle). MVT tiles stay unthrottled
+  // at this decorator (byte/high-frequency class).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/features')
   async layerFeatures(
     @Param('id') itemId: string,
@@ -415,8 +483,22 @@ export class PublicController {
         opts.bbox = [w, s, e, n];
       }
     }
-    if (at) opts.at = at;
-    if (entity) opts.entity = entity;
+    if (at) {
+      // Same check as the features-page mirror: an unparseable value
+      // became new Date(NaN) in the engine and a 500.
+      if (!Number.isFinite(new Date(at).getTime())) {
+        throw new BadRequestException(
+          'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+        );
+      }
+      opts.at = at;
+    }
+    if (entity) {
+      if (!isUuidShape(entity)) {
+        throw new BadRequestException('entity must be a feature id (uuid).');
+      }
+      opts.entity = entity;
+    }
 
     const paging = parsePagingParams(limit, cursor);
     if (paging !== null) {
@@ -457,6 +539,7 @@ export class PublicController {
    *  controller exposes. Some callers ask for /geojson, others for
    *  /features; both return the same FeatureCollection. */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/geojson')
   async layerGeojson(
     @Param('id') itemId: string,
@@ -578,6 +661,9 @@ export class PublicController {
    * becomes a side channel around the clip.
    */
   @Public()
+  // Tighter than the global 300/min: aggregate can scan a public
+  // layer (SEC-public-aggregate-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/aggregate')
   async layerAggregate(
     @Req() req: Request,
@@ -609,7 +695,7 @@ export class PublicController {
     for (const name of [
       ...parsed.groupBy,
       ...parsed.aggs.map((a) => a.field).filter((f): f is string => !!f),
-      ...(parsed.where?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsed.where),
       ...(parsed.via ? [parsed.via.myField] : []),
       ...(parsed.bin ? [parsed.bin.field] : []),
     ]) {
@@ -734,7 +820,7 @@ export class PublicController {
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
     for (const name of [
-      ...(parsedWhere?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsedWhere),
     ]) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
@@ -805,6 +891,9 @@ export class PublicController {
    * the features-page mirror above.
    */
   @Public()
+  // Tighter than the global 300/min: filtered-extent runs PostGIS
+  // extent work with where/via/asOf (SEC-public-filtered-extent-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('items/:id/layers/:layerId/filtered-extent')
   async layerFilteredExtent(
     @Param('id') itemId: string,
@@ -835,7 +924,7 @@ export class PublicController {
     } = {};
     const allowed = new Set(layer.fields.map((f) => f.name));
     const parsedWhere = parseWhere(where);
-    for (const name of (parsedWhere?.clauses ?? []).map((c) => c.field)) {
+    for (const name of whereFieldNames(parsedWhere)) {
       if (!allowed.has(name)) {
         throw new BadRequestException(
           `"${name}" is not a field on this layer.`,
@@ -911,7 +1000,7 @@ export class PublicController {
     const parentAllowed = new Set(parentLayer.fields.map((f) => f.name));
     for (const name of [
       parsed.parentField,
-      ...(parsed.parentWhere?.clauses ?? []).map((c) => c.field),
+      ...whereFieldNames(parsed.parentWhere),
     ]) {
       if (!parentAllowed.has(name)) {
         throw new BadRequestException(
@@ -963,6 +1052,7 @@ export class PublicController {
     @Param('y') yStr: string,
     @Query('where') whereRaw?: string,
     @Query('via') viaRaw?: string,
+    @Query('include') includeRaw?: string,
   ) {
     if (!isUuidShape(itemId)) {
       throw new NotFoundException('Item not found');
@@ -995,7 +1085,9 @@ export class PublicController {
       z < 0 ||
       z > 24 ||
       x < 0 ||
-      y < 0
+      y < 0 ||
+      x >= 2 ** z ||
+      y >= 2 ** z
     ) {
       throw new BadRequestException('Invalid tile coordinates.');
     }
@@ -1006,8 +1098,27 @@ export class PublicController {
       geoLimit?: unknown;
       where?: MapLayerFilter;
       via?: EngineVia;
+      maxFeaturesPerTile?: number;
+      zoomRange?: { min: number; max: number };
+      labelPoints?: boolean;
     } = {};
-    if (layer.fields.length > 0) opts.fields = layer.fields;
+    // The layer's tile settings narrow the field list (keeping what
+    // this map says it reads), cap the feature count and bound the
+    // zoom range, exactly as on the authenticated route.
+    const tileSettings = readTileSettings(layer.tiles);
+    const plan = planTile({
+      declared: layer.fields,
+      settings: tileSettings,
+      include: parseIncludeParam(includeRaw),
+      geometryType: layer.geometryType,
+    });
+    if (layer.fields.length > 0) opts.fields = plan.fields;
+    if (plan.maxFeaturesPerTile !== undefined) {
+      opts.maxFeaturesPerTile = plan.maxFeaturesPerTile;
+    }
+    if (plan.zoomRange) opts.zoomRange = plan.zoomRange;
+    if (plan.labelPoints) opts.labelPoints = true;
+    const cacheControl = tileCacheControl(tileSettings, 'public');
     if (layer.geometryType === null) opts.isTable = true;
     // The predicate an anonymous viewer's map sends. A relate is the
     // one that matters: without it the map layer drawn from a related
@@ -1017,10 +1128,10 @@ export class PublicController {
     const where = parseWhere(whereRaw);
     if (where) {
       const allowed = new Set(layer.fields.map((f) => f.name));
-      for (const c of where.clauses) {
-        if (!allowed.has(c.field)) {
+      for (const name of whereFieldNames(where)) {
+        if (!allowed.has(name)) {
           throw new BadRequestException(
-            `"${c.field}" is not a field on this layer.`,
+            `"${name}" is not a field on this layer.`,
           );
         }
       }
@@ -1052,16 +1163,83 @@ export class PublicController {
     }
     if (matchesIfNoneMatch(req.headers['if-none-match'], etag)) {
       res.setHeader('ETag', etag);
-      res.setHeader('Cache-Control', 'public, max-age=300');
+      res.setHeader('Cache-Control', cacheControl);
       res.status(304).end();
       return;
     }
     res.setHeader('Content-Type', 'application/vnd.mapbox-vector-tile');
     res.setHeader('ETag', etag);
     // Public tiles can sit in shared caches; same posture as the
-    // OGC tile endpoint (5-min public window).
-    res.setHeader('Cache-Control', 'public, max-age=300');
+    // OGC tile endpoint (5-min public window unless the layer's tile
+    // settings choose another max-age, bounded to an hour).
+    res.setHeader('Cache-Control', cacheControl);
     res.end(mvt);
+  }
+
+  /**
+   * Anonymous TileJSON 3.0.0 for a layer of a public data_layer item,
+   * describing the tile route above. Same gate (access='public', not
+   * deleted, layer in the v3 schema): a private or org item answers
+   * 404 exactly as its tiles do, so the document leaks nothing the
+   * tiles would not. `bounds` is left out when a public tier boundary
+   * clips the layer, because the stored extent is then the unclipped
+   * one.
+   */
+  @Public()
+  @Get('items/:id/layers/:layerId/tilejson.json')
+  async layerTileJson(
+    @Res() res: Response,
+    @Param('id') itemId: string,
+    @Param('layerId') layerId: string,
+  ) {
+    if (!isUuidShape(itemId)) {
+      throw new NotFoundException('Item not found');
+    }
+    const item = await this.prisma.item.findFirst({
+      where: {
+        id: itemId,
+        type: 'data_layer',
+        access: 'public',
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        data: true,
+        bbox: true,
+        ...PUBLIC_TIER_SELECT,
+      },
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    const layer = pickV3Layer(item.data, layerId);
+    if (!layer) throw new NotFoundException('Layer not found');
+    if (layer.geometryType === null) {
+      throw new NotFoundException('A table sublayer has no tiles.');
+    }
+    const settings = readTileSettings(layer.tiles);
+    const plan = planTile({
+      declared: layer.fields,
+      settings,
+      geometryType: layer.geometryType,
+    });
+    const doc = buildTileJson({
+      name:
+        layer.layerCount > 1 ? `${item.title} / ${layer.label}` : item.title,
+      description: item.description,
+      tileUrl:
+        `${tileJsonBase()}/api/public/items/${encodeURIComponent(itemId)}` +
+        `/layers/${encodeURIComponent(layerId)}/tile/{z}/{x}/{y}.mvt`,
+      settings,
+      fields: plan.fields,
+      bounds: item.publicGeoBoundaryId
+        ? null
+        : storedLayerBounds(layer.bbox, item.bbox),
+      attribution: layerAttribution(layer.raw, item.data),
+      labelPoints: plan.labelPoints === true,
+    });
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.json(doc);
   }
 
   /**
@@ -1083,57 +1261,35 @@ export class PublicController {
    * an admin didn't mean to publish.
    */
   private async publicItemsFor(orgId: string, featuredIds: string[]) {
-    const rows = await this.prisma.item.findMany({
-      where: {
-        orgId,
-        access: 'public',
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        type: true,
-        thumbnailUrl: true,
-        // Designer-baked thumbnail JSON. Rows without a static
-        // thumbnailUrl run through synthesizeThumbnailUrl below
-        // to get the /thumbnail.svg cache-busted URL so the
-        // landing tile shows the same baked card the authed
-        // items list shows.
-        thumbnailDesign: true,
-        updatedAt: true,
-        tags: true,
-        // Open-data license URL when the item carries one. Used
-        // by the landing's Schema.org Dataset JSON-LD (Google Rich
-        // Results flags Datasets without a license as a missing
-        // recommended field, and aggregators like data.gov filter
-        // their crawls to license-bearing rows).
-        license: true,
-        // Include the data payload so the landing tile can route a
-        // templated web_app (editor / viewer) straight to its
-        // runtime URL. Without `data`, getItemHref / isViewerItem
-        // can't read the `template` discriminator and falls through
-        // to /items/:id, which middleware then redirects to sign-in
-        // for anonymous visitors. The payload is already public-by-
-        // construction (we only emit access='public' rows) and the
-        // data shape across the supported types is small.
-        data: true,
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const all = rows.map((r) => synthesizeThumbnailUrl(r));
-    if (featuredIds.length === 0) return all;
+    const where = { orgId, access: 'public' as const, deletedAt: null };
+    const select = {
+      id: true,
+      title: true,
+      description: true,
+      type: true,
+      thumbnailUrl: true,
+      // Designer-baked thumbnail JSON. Rows without a static
+      // thumbnailUrl run through synthesizeThumbnailUrl below
+      // to get the /thumbnail.svg cache-busted URL so the
+      // landing tile shows the same baked card the authed
+      // items list shows.
+      thumbnailDesign: true,
+      updatedAt: true,
+      tags: true,
+      // Open-data license URL when the item carries one. Used
+      // by the landing's Schema.org Dataset JSON-LD (Google Rich
+      // Results flags Datasets without a license as a missing
+      // recommended field, and aggregators like data.gov filter
+      // their crawls to license-bearing rows).
+      license: true,
+    } as const;
 
     // Featured = strict filter when it resolves to anything: when the
     // admin curates a list, the landing shows ONLY those items, in
     // the admin's chosen order. Items no longer public (or moved to
-    // trash) drop out silently. If the admin wants the full public
-    // catalog they leave the featured list empty, which falls through
-    // to the "all public items, newest first" branch above.
-    const byId = new Map(all.map((i) => [i.id, i]));
-    const featured = featuredIds
-      .map((id) => byId.get(id))
-      .filter((i): i is NonNullable<typeof i> => !!i);
+    // trash) drop out silently. The filter runs in SQL, so a curated
+    // landing reads only its own rows.
+    //
     // Safety net: if EVERY featured id is stale (none resolve to a
     // live public item) but public items DO exist, fall back to the
     // full catalog rather than rendering a blank "nothing shared
@@ -1142,8 +1298,48 @@ export class PublicController {
     // otherwise silently hide real public content. Featuring is a
     // presentation preference; it must never suppress the catalog
     // entirely when the underlying items are gone.
-    if (featured.length === 0) return all;
-    return featured;
+    let rows: Array<{ id: string; type: string } & Record<string, unknown>> = [];
+    const validFeatured = featuredIds.filter((id) => isUuidShape(id));
+    if (validFeatured.length > 0) {
+      const found = await this.prisma.item.findMany({
+        where: { ...where, id: { in: validFeatured } },
+        select,
+      });
+      const byId = new Map(found.map((r) => [r.id, r]));
+      rows = validFeatured
+        .map((id) => byId.get(id))
+        .filter((r): r is NonNullable<typeof r> => !!r);
+    }
+    if (rows.length === 0) {
+      rows = await this.prisma.item.findMany({
+        where,
+        select,
+        orderBy: { updatedAt: 'desc' },
+      });
+    }
+
+    // A landing tile routes a templated web_app straight to its
+    // runtime URL, which needs only the `template` field of its data.
+    // Read just that field for just those rows: loading every public
+    // item's whole blob on each anonymous home page view was the cost,
+    // and the blob also carries things a visitor must not see.
+    const webAppIds = rows.filter((r) => r.type === 'web_app').map((r) => r.id);
+    const templates = new Map<string, string>();
+    if (webAppIds.length > 0) {
+      const t = await this.prisma.$queryRaw<Array<{ id: string; template: string | null }>>`
+        SELECT id, data_json->>'template' AS template
+        FROM "item"
+        WHERE id = ANY(${webAppIds}::uuid[])`;
+      for (const r of t) if (typeof r.template === 'string') templates.set(r.id, r.template);
+    }
+    return rows.map((r) =>
+      synthesizeThumbnailUrl({
+        ...(r as typeof r & { updatedAt: Date; thumbnailUrl: string | null }),
+        data: landingItemData(
+          templates.has(r.id) ? { template: templates.get(r.id) } : null,
+        ),
+      }),
+    );
   }
 }
 
@@ -1157,15 +1353,19 @@ export class PublicController {
  * non-UUID path segment from a crawler or typo returns a clean
  * 404 instead of leaking Prisma's parser error message.
  */
-export function isUuidShape(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    id,
-  );
-}
+export { isUuidShape };
 
 interface V3LayerInfo {
   geometryType: string | null;
   fields: Array<{ name: string; type?: string }>;
+  label: string;
+  /** How many layers the item has, for the TileJSON name. */
+  layerCount: number;
+  /** Raw stored tile settings; read with readTileSettings. */
+  tiles?: unknown;
+  bbox?: unknown;
+  /** The raw layer object, for layerAttribution. */
+  raw: unknown;
 }
 
 /**
@@ -1182,7 +1382,10 @@ function pickV3Layer(data: unknown, layerId: string): V3LayerInfo | null {
     layers?: Array<{
       id?: unknown;
       geometryType?: unknown;
+      label?: unknown;
       fields?: Array<{ name?: unknown; type?: unknown }>;
+      tiles?: unknown;
+      bbox?: unknown;
     }>;
   };
   if (d.version !== 3 || !Array.isArray(d.layers)) return null;
@@ -1205,5 +1408,24 @@ function pickV3Layer(data: unknown, layerId: string): V3LayerInfo | null {
       }
     }
   }
-  return { geometryType, fields };
+  return {
+    geometryType,
+    fields,
+    label: typeof match.label === 'string' ? match.label : layerId,
+    layerCount: d.layers.length,
+    ...(match.tiles !== undefined ? { tiles: match.tiles } : {}),
+    ...(match.bbox !== undefined ? { bbox: match.bbox } : {}),
+    raw: match,
+  };
+}
+
+/**
+ * The part of a public item's `data` the landing page needs: the
+ * web_app `template` discriminator that getItemHref routes on.
+ * Everything else is dropped.
+ */
+export function landingItemData(data: unknown): { template: string } | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const template = (data as { template?: unknown }).template;
+  return typeof template === 'string' ? { template } : null;
 }

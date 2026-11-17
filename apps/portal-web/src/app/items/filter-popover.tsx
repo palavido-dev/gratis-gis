@@ -86,6 +86,10 @@ interface Props {
   accessFilter?: Set<ItemAccess>;
   accessCounts?: Array<[ItemAccess, number]>;
   onToggleAccess?: (a: ItemAccess) => void;
+  /** Tags picked from item cards. They have no chips in here, but
+   *  they narrow the list, so they count in the badge and Clear all
+   *  removes them. */
+  tagCount?: number;
 }
 
 /** Per-access-level chip icon so the levels are scannable at a
@@ -116,6 +120,7 @@ export function FilterPopover({
   accessFilter,
   accessCounts,
   onToggleAccess,
+  tagCount = 0,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -131,7 +136,8 @@ export function FilterPopover({
     templateFilter.size +
     (areaActive ? 1 : 0) +
     (ownerFilter?.size ?? 0) +
-    (accessFilter?.size ?? 0);
+    (accessFilter?.size ?? 0) +
+    tagCount;
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639px)');
@@ -366,21 +372,15 @@ export function FilterPopover({
             {areaActive ? t('filter.filteringByArea') : t('filter.filterByArea')}
           </button>
 
-          {(typeFilter.size > 0 ||
-            templateFilter.size > 0 ||
-            (accessFilter?.size ?? 0) > 0 ||
-            areaActive) ? (
+          {activeCount > 0 ? (
             <button
               type="button"
               onClick={() => {
-                // onClearTypes clears type, template, and access
-                // together (the shared clearFilters in ItemsView), so
-                // one call covers all three facets.
-                if (
-                  typeFilter.size > 0 ||
-                  templateFilter.size > 0 ||
-                  (accessFilter?.size ?? 0) > 0
-                ) {
+                // onClearTypes clears type, template, access, owner
+                // and tags together (the shared clearFilters in
+                // ItemsView), so one call covers every facet but the
+                // area.
+                if (activeCount - (areaActive ? 1 : 0) > 0) {
                   onClearTypes();
                 }
                 if (areaActive) onClearAreaSearch();

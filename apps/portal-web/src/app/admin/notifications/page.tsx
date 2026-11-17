@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { ArrowLeft, Bell } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
+import { loadNotificationsAdmin } from '@/lib/admin-notifications-load';
 import { t } from '@/lib/i18n';
 import { getServerLocale } from '@/lib/i18n/server';
 import {
@@ -32,33 +33,26 @@ export default async function AdminNotificationsPage() {
   if (me.orgRole !== 'admin') redirect('/items');
   const locale = await getServerLocale();
 
-  let stats: Stats | null = null;
-  let recent: RecentRow[] = [];
-  let smtp: SmtpState | null = null;
-  let defaults: DefaultsRow[] = [];
-  let templateOverrides: TemplateOverrideRow[] = [];
-  let error: string | null = null;
-  try {
-    const [s, r, sm, df, tpl] = await Promise.all([
-      apiFetch<Stats>('/api/admin/notifications/stats'),
-      apiFetch<RecentRow[]>('/api/admin/notifications/recent'),
-      apiFetch<SmtpState>('/api/admin/notifications/smtp'),
+  // A 403 on the install-wide calls (stats, recent, SMTP) hides those
+  // sections only; see loadNotificationsAdmin.
+  const loaded = await loadNotificationsAdmin({
+    stats: () => apiFetch<Stats>('/api/admin/notifications/stats'),
+    recent: () => apiFetch<RecentRow[]>('/api/admin/notifications/recent'),
+    smtp: () => apiFetch<SmtpState>('/api/admin/notifications/smtp'),
+    defaults: () =>
       apiFetch<{ rows: DefaultsRow[] }>('/api/admin/notifications/defaults'),
+    templates: () =>
       apiFetch<{ rows: TemplateOverrideRow[] }>(
         '/api/admin/notifications/templates',
       ),
-    ]);
-    stats = s;
-    recent = r;
-    smtp = sm;
-    defaults = df.rows;
-    templateOverrides = tpl.rows;
-  } catch (err) {
-    error =
-      err instanceof Error
-        ? err.message
+  });
+  const { operator, stats, recent, smtp, defaults, templateOverrides } = loaded;
+  const error: string | null =
+    loaded.error === null
+      ? null
+      : loaded.error instanceof Error
+        ? loaded.error.message
         : t('adminNotifications.loadErrorFallback', undefined, locale);
-  }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
@@ -95,8 +89,9 @@ export default async function AdminNotificationsPage() {
         </div>
       ) : null}
 
-      {stats && smtp ? (
+      {defaults && templateOverrides ? (
         <NotificationsAdminView
+          operator={operator}
           initialStats={stats}
           initialRecent={recent}
           initialSmtp={smtp}

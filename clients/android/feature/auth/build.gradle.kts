@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // :feature:auth: sign-in against the portal's Keycloak realm as the
 // `field-app` public client. Authorization code + PKCE in a Custom
 // Tab, offline_access refresh tokens in Keystore-encrypted storage.

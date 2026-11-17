@@ -1,17 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {
-  Injectable,
-  Logger,
-  type OnApplicationBootstrap,
-} from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { OrgRole } from '@prisma/client';
 
 import { AuthSyncService } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import {
-  KeycloakAdminService,
-  type KeycloakUserRep,
-} from './keycloak-admin.service.js';
+import { KeycloakAdminService, type KeycloakUserRep } from './keycloak-admin.service.js';
+import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 
 /**
  * Eager Keycloak -> Prisma user mirror.
@@ -73,9 +67,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
    */
   onApplicationBootstrap(): void {
     void this.reconcileAll().catch((err) => {
-      this.log.warn(
-        `boot reconcile threw: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.log.warn(`boot reconcile threw: ${err instanceof Error ? err.message : String(err)}`);
     });
   }
 
@@ -122,9 +114,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     skippedUnknownOrg: number;
   }> {
     if (!this.kc.isConfigured()) {
-      this.log.warn(
-        'reconcileAll skipped: Keycloak admin client is not configured',
-      );
+      this.log.warn('reconcileAll skipped: Keycloak admin client is not configured');
       return {
         skipped: true,
         pagesScanned: 0,
@@ -151,6 +141,14 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
       select: { id: true, slug: true },
     });
     const orgIdBySlug = new Map(orgs.map((o) => [o.slug, o.id]));
+    // Accounts invited before the slug fix carry the org's id in the
+    // `org` attribute. auth-sync and the admin controller accept that
+    // form, so reconcile has to as well; otherwise the user counts as
+    // unseen and the soft-delete pass locks them out on every run.
+    const orgIds = new Set(orgs.map((o) => o.id));
+    // Every username the realm scan returned, whatever its attributes.
+    // A row is only tombstoned when the realm has no such user at all.
+    const seenInRealm = new Set<string>();
 
     // Track "username -> Keycloak id (sub)" we've seen across all
     // pages, scoped by org. We need this set at the end to identify
@@ -168,6 +166,9 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     let pageCount = 0;
     while (realmUsersSeen < KeycloakSyncService.MAX_USERS_PER_RUN) {
       let page: KeycloakUserRep[];
+      // Taken before the request: anything changed locally after this
+      // moment is newer than what Keycloak is about to tell us.
+      const fetchedAt = new Date();
       try {
         page = await this.kc.listUsers({
           first,
@@ -196,18 +197,18 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
       realmUsersSeen += page.length;
 
       for (const kcUser of page) {
+        seenInRealm.add(kcUser.username.toLowerCase());
         // Some users may legitimately be disabled (offboarding in
-        // progress); they should still mirror as a soft-delete-style
-        // dead row OR an enabled=false row. We keep them in the
-        // mirror so existing FKs / shares can resolve their display
-        // name, but treat `enabled === false` like a tombstone for
-        // picker purposes (filtered out via deletedAt below).
+        // progress). They stay in the mirror so existing FKs / shares
+        // can resolve their display name, and `enabled` is copied to
+        // the local `disabled_at` below so API keys and scheduled
+        // scripts follow a disable made in the Keycloak console.
         const orgSlug = readSingleAttr(kcUser, 'org');
         if (!orgSlug) {
           skippedNoOrgAttr++;
           continue;
         }
-        const orgId = orgIdBySlug.get(orgSlug);
+        const orgId = orgIdBySlug.get(orgSlug) ?? (orgIds.has(orgSlug) ? orgSlug : undefined);
         if (!orgId) {
           // The user is in a realm org we've never seen locally.
           // A deployment serves one organization, so in practice this
@@ -223,11 +224,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         }
 
         const role = readRole(kcUser);
-        const fullName = combineName(
-          kcUser.firstName,
-          kcUser.lastName,
-          kcUser.username,
-        );
+        const fullName = combineName(kcUser.firstName, kcUser.lastName, kcUser.username);
 
         // Mirror auth-sync's choice: key by username so a seeded
         // row and a realm-authenticated row resolve to the same
@@ -238,39 +235,63 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         // local row is currently tombstoned (deletedAt set), clear
         // the tombstone so they reappear in the picker. This
         // matters for the rename / temporary-disable flow.
-        const result = await this.prisma.user.upsert({
-          where: { username: kcUser.username },
-          update: {
-            email: kcUser.email ?? '',
-            fullName,
-            orgRole: role,
-            orgId,
-            // Clear tombstone if previously soft-deleted: the user
-            // is back in the realm so they should be visible again.
-            // Don't touch lastSeenAt here -- this is a sync from
-            // Keycloak metadata, not a real user request, and we
-            // don't want to falsely refresh the activity signal.
-            deletedAt: null,
-          },
-          create: {
-            id: kcUser.id,
-            orgId,
-            username: kcUser.username,
-            email: kcUser.email ?? '',
-            fullName,
-            orgRole: role,
-            // No lastSeenAt on create either: the user hasn't hit
-            // the API yet from our perspective. Leaving it null
-            // means /admin/housekeeping renders them as "Never"
-            // which is the truth.
-          },
-        });
-        // Track which username was reconciled in which org. Keyed
-        // by username (lowercased) since username is what the
-        // soft-delete pass keys on. Not by id: a username-keyed
-        // upsert may resolve to a different id than `kcUser.id`
-        // when a seed row predates the realm.
+        // auth-sync's placeholder for an account with no email, so the
+        // two writers do not overwrite each other on every pass.
+        const email = kcUser.email ?? `${kcUser.username}@local.gratisgis`;
+        // Counted as seen before the write: a user whose row fails to
+        // write below must not be tombstoned by the soft-delete pass.
         seenByOrg.get(orgId)?.add(kcUser.username.toLowerCase());
+        let result: Awaited<ReturnType<typeof this.prisma.user.upsert>>;
+        try {
+          result = await this.prisma.user.upsert({
+            where: { username: kcUser.username },
+            update: {
+              email,
+              fullName,
+              orgRole: role,
+              orgId,
+              // Clear tombstone if previously soft-deleted: the user
+              // is back in the realm so they should be visible again.
+              // Don't touch lastSeenAt here: this is a sync from
+              // Keycloak metadata, not a real user request, and we
+              // don't want to falsely refresh the activity signal.
+              deletedAt: null,
+            },
+            create: {
+              id: kcUser.id,
+              orgId,
+              username: kcUser.username,
+              email,
+              fullName,
+              orgRole: role,
+              // No lastSeenAt on create either: the user hasn't hit
+              // the API yet from our perspective. Leaving it null
+              // means /admin/housekeeping renders them as "Never"
+              // which is the truth.
+            },
+          });
+        } catch (err) {
+          // One bad row (for example a user renamed in Keycloak whose
+          // id is already taken locally) used to abort the whole run,
+          // so later users and the soft-delete pass never ran.
+          this.log.warn(
+            `Keycloak sync skipped user ${kcUser.username}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+
+        // Keycloak is the source of truth for `enabled`. Disabling
+        // revokes the user's keys; enabling clears the marker only.
+        if (kcUser.enabled === false && result.disabledAt === null) {
+          await disableLocalAccount(this.prisma, result.id);
+          this.authSync.invalidate(result.id);
+        } else if (kcUser.enabled === true && result.disabledAt !== null) {
+          // Only a disable older than this page. An admin may have
+          // disabled the user after Keycloak answered.
+          if (await enableLocalAccount(this.prisma, result.id, fetchedAt)) {
+            this.authSync.invalidate(result.id);
+          }
+        }
 
         // The upsert helper doesn't tell us whether it inserted or
         // updated. We approximate by comparing createdAt to now:
@@ -298,7 +319,26 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     // FK references (items, share rows, group memberships) stay
     // valid, and a future admin action can purge for real.
     let softDeleted = 0;
-    for (const [orgId, seenUsernames] of seenByOrg) {
+    // Keycloak leaves client service-account users out of the user
+    // list, so the scan never "sees" them. Without this set the pass
+    // tombstoned them on every run (the snapshot tooling's
+    // portal-api-admin account was locked out on each boot). If the
+    // set cannot be read, skip the pass for this run: tombstoning on
+    // a guess locks live accounts out, and the next run retries.
+    let serviceAccounts: Set<string> | null;
+    try {
+      serviceAccounts = await this.kc.listServiceAccountUsernames();
+    } catch (err) {
+      serviceAccounts = null;
+      this.log.warn(
+        `reconcileAll: service-account lookup failed (${
+          err instanceof Error ? err.message : String(err)
+        }); skipping the soft-delete pass this run`,
+      );
+    }
+    const serviceAccountNames = serviceAccounts ?? new Set<string>();
+    const passOrgs = serviceAccounts ? seenByOrg : new Map<string, Set<string>>();
+    for (const [orgId, seenUsernames] of passOrgs) {
       const candidates = await this.prisma.user.findMany({
         where: {
           orgId,
@@ -306,9 +346,10 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         },
         select: { id: true, username: true },
       });
-      const stale = candidates.filter(
-        (u) => !seenUsernames.has(u.username.toLowerCase()),
-      );
+      const stale = candidates.filter((u) => {
+        const name = u.username.toLowerCase();
+        return !seenUsernames.has(name) && !seenInRealm.has(name) && !serviceAccountNames.has(name);
+      });
       if (stale.length === 0) continue;
       const now = new Date();
       const result = await this.prisma.user.updateMany({
@@ -346,10 +387,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
 }
 
 /** Read a single-valued user attribute from Keycloak's array shape. */
-function readSingleAttr(
-  user: KeycloakUserRep,
-  key: string,
-): string | undefined {
+function readSingleAttr(user: KeycloakUserRep, key: string): string | undefined {
   const arr = user.attributes?.[key];
   if (!Array.isArray(arr)) return undefined;
   const first = arr[0];

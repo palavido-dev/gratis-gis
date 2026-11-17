@@ -20,3 +20,14 @@ export function parseIntEnv(
   const n = parseInt(raw, 10);
   return Number.isFinite(n) && n >= min ? n : fallback;
 }
+
+/**
+ * A text setting, where unset, empty and whitespace-only all mean "use
+ * the default". Compose passes optional settings as `KEY: ${KEY:-}`,
+ * which puts an empty string in the environment rather than leaving the
+ * key out, so a plain `??` fallback never applies there.
+ */
+export function textEnv(raw: string | undefined, fallback: string): string {
+  const trimmed = raw?.trim();
+  return trimmed ? trimmed : fallback;
+}

@@ -124,6 +124,7 @@ async function getServiceToken() {
 async function listAllItems(token) {
   const headers = { Authorization: `Bearer ${token}` };
   const byId = new Map();
+  let pageInfo = { count: 0, total: NaN };
   async function pull(path, { tolerate404 = false } = {}) {
     const r = await fetch(`${API}${path}`, { headers });
     if (r.status === 404 && tolerate404) {
@@ -137,6 +138,7 @@ async function listAllItems(token) {
     }
     const j = await r.json();
     const arr = Array.isArray(j) ? j : (j.items ?? j.data ?? []);
+    pageInfo = { count: arr.length, total: Number(r.headers.get('x-total-count') ?? '') };
     for (const it of arr) {
       // Shape guard: the keep/purge decision keys on owner.username.
       // If the API ever stops serializing the owner projection, every
@@ -150,13 +152,21 @@ async function listAllItems(token) {
       byId.set(it.id, it);
     }
   }
-  // limit=1000 is the API's hard page cap (pageSize was never a real
-  // parameter). The demo org sits far below it; if it ever grows past
-  // the cap, unfetched items are simply left alone, which fails in
-  // the safe direction for a purge (leftover content, never a wrong
-  // delete). Note the live list also pages by default now; keep this
-  // in mind before reusing the script against a large org.
-  await pull('/api/items?limit=1000');
+  // limit=1000 is the API's hard page cap, so page with offset until a
+  // short page. Leaving items unfetched is not safe here: whatever the
+  // public tester accounts made past the first page would be baked
+  // into the golden snapshot and come back every night.
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    await pull(`/api/items?limit=${PAGE}&offset=${offset}`);
+    if (pageInfo.count < PAGE) break;
+  }
+  const live = [...byId.values()].filter((it) => !it.deletedAt).length;
+  if (Number.isFinite(pageInfo.total) && live < pageInfo.total) {
+    throw new Error(
+      `listed ${live} live items but the API reports ${pageInfo.total}; refusing to snapshot a partial purge`,
+    );
+  }
   await pull('/api/items/trash', { tolerate404: true });
   return [...byId.values()];
 }

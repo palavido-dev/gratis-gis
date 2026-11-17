@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import { Crosshair, MapPin, X } from 'lucide-react';
+import { geolocationBlock } from '@/lib/geolocation-context';
 import { useT } from '@/lib/i18n/locale-context';
 
 /**
@@ -58,6 +59,7 @@ export function AreaSearchPanel({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [bufferKm, setBufferKm] = useState<number>(initialBufferKm);
+  const [locationNote, setLocationNote] = useState<string | null>(null);
   const [bufferText, setBufferText] = useState<string>(String(initialBufferKm));
 
   // Boot a single map instance for the lifetime of this panel.
@@ -76,9 +78,14 @@ export function AreaSearchPanel({
 
     // Fit to seed bbox if we have one. Padding keeps the bbox edges
     // off the canvas border so the user sees a bit of context.
+    // The seed fit fires a moveend of its own. Applying that would
+    // widen the filter to the padded view on every reopen, so the
+    // first moveend after the seed is skipped.
+    let skipNextMoveEnd = false;
     if (initialBbox) {
       const [w, s, e, n] = initialBbox;
       map.once('load', () => {
+        skipNextMoveEnd = true;
         map.fitBounds(
           [
             [w, s],
@@ -92,12 +99,15 @@ export function AreaSearchPanel({
     // #86: live area filter. As the user pans / zooms, fire onApply
     // with the new viewport so the items list updates without a
     // separate "Use this area" click. Debounced ~350ms so a drag
-    // settles before the parent fetches; the existing parent-side
-    // logic cancels in-flight requests when a newer apply
-    // supersedes them, so out-of-order responses can't paint stale
-    // results.
+    // settles before the parent fetches; the parent ignores any
+    // response a newer apply (or a clear) has superseded, so
+    // out-of-order responses can't paint stale results.
     let debounceHandle: number | null = null;
     const onMoveEnd = () => {
+      if (skipNextMoveEnd) {
+        skipNextMoveEnd = false;
+        return;
+      }
       if (debounceHandle !== null) window.clearTimeout(debounceHandle);
       debounceHandle = window.setTimeout(() => {
         const m = mapRef.current;
@@ -136,6 +146,11 @@ export function AreaSearchPanel({
 
   function flyToMyLocation() {
     const map = mapRef.current;
+    if (geolocationBlock() === 'insecure-context') {
+      setLocationNote(t('common.geolocationInsecure'));
+      return;
+    }
+    setLocationNote(null);
     if (!map || typeof navigator === 'undefined' || !navigator.geolocation) {
       return;
     }
@@ -209,6 +224,9 @@ export function AreaSearchPanel({
           <MapPin className="h-3 w-3" />
           {t('areaSearch.myLocation')}
         </button>
+        {locationNote ? (
+          <p className="w-full text-xs text-muted">{locationNote}</p>
+        ) : null}
         <label className="inline-flex items-center gap-2 text-xs text-muted">
           {t('areaSearch.padAreaBy')}
           <input

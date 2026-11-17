@@ -23,6 +23,8 @@ import {
   MAX_TEST_CONNECTION_TABLES,
   type PostgisTablePreview,
 } from './postgis-table-preview.js';
+import { assertPostgisHost, isValidSrid } from './postgis-host.js';
+import { compileSafeWhere } from './postgis-where.js';
 
 export {
   listGeometryTablesPreview,
@@ -49,9 +51,9 @@ export {
  *     a runaway query (bad index, accidental sequential scan on
  *     a multi-billion row table) can't tie up the database.
  *   - The schema and table names go through a strict identifier
- *     regex before they're interpolated into the SELECT; the
- *     WHERE clause (when supplied) gets the same gate. No
- *     statement terminators, no comment sequences.
+ *     regex before they're interpolated into the SELECT. A saved
+ *     whereClause is compiled to parameters (see postgis-where.ts)
+ *     rather than pasted into the query.
  *   - Output rows are bounded by a hard cap so a wide bbox over
  *     a dense table can't fill the browser.
  *
@@ -62,15 +64,22 @@ export {
  */
 const MAX_FEATURES_PER_REQUEST = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 10_000;
+const MIN_STATEMENT_TIMEOUT_MS = 1_000;
+const MAX_STATEMENT_TIMEOUT_MS = 120_000;
 const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
-const WHERE_CLAUSE_BLOCKLIST = /[;]|--|\/\*|\*\//;
 
 @Injectable()
 export class PostgisLiveService_ {
   private readonly log = new Logger(PostgisLiveService_.name);
-  /** itemId -> pg Pool. Lazily created and reused across
-   *  requests; idle connections close after a short timeout. */
-  private readonly pools = new Map<string, Pool>();
+  /**
+   * itemId -> pg Pool, lazily created and reused across requests;
+   * idle connections close after a short timeout. One pool per service item, tagged with what it connects to and
+   * which stored credential it used. A pool whose tag no longer
+   * matches (host, port, database or role edited, or the password
+   * replaced) is ended and rebuilt, so an edit takes effect on the
+   * next request on every replica instead of after a restart.
+   */
+  private readonly pools = new Map<string, { key: string; pool: Pool }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -86,23 +95,20 @@ export class PostgisLiveService_ {
    * during create to seed `layers[]` on the service item and
    * again on demand from the detail page to refresh.
    */
-  async probe(
-    user: AuthUser,
-    serviceItemId: string,
-  ): Promise<PostgisLiveLayerSnapshot[]> {
-    const item = await this.loadService(user, serviceItemId);
+  async probe(user: AuthUser, serviceItemId: string): Promise<PostgisLiveLayerSnapshot[]> {
+    // Editors only. A probe lists every geometry table in the schema
+    // with its columns, including tables the owner chose not to
+    // publish, so a viewer of the item must not reach it.
+    const item = await this.loadService(user, serviceItemId, { edit: true });
     const data = item.data as unknown as PostgisLiveService;
     const pool = await this.getPool(serviceItemId, data);
     const client = await pool.connect();
     try {
-      await client.query(
-        `SET statement_timeout = ${data.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS}`,
-      );
+      await applyStatementTimeout(client, data.statementTimeoutMs);
       const schema = data.defaultSchema ?? 'public';
       if (!IDENTIFIER_RE.test(schema)) {
         throw new BadRequestException(
-          `Invalid schema name "${schema}". Schemas must match ` +
-            `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
+          `Invalid schema name "${schema}". Schemas must match ` + `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
         );
       }
       // List geometry columns first (one row per geometry column
@@ -123,31 +129,51 @@ export class PostgisLiveService_ {
          ORDER BY f_table_name, f_geometry_column`,
         [schema],
       );
+      // Every table's columns in one query rather than one per table.
+      const allColumns = await client.query<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+      }>(
+        `SELECT table_name, column_name, data_type
+         FROM information_schema.columns
+         WHERE table_schema = $1
+         ORDER BY table_name, ordinal_position`,
+        [schema],
+      );
+      const columnsByTable = new Map<string, Array<{ column_name: string; data_type: string }>>();
+      for (const c of allColumns.rows) {
+        const list = columnsByTable.get(c.table_name) ?? [];
+        list.push(c);
+        columnsByTable.set(c.table_name, list);
+      }
       const layers: PostgisLiveLayerSnapshot[] = [];
       for (const row of geomRows.rows) {
         const tableName = `${row.f_table_schema}.${row.f_table_name}`;
-        const columns = await client.query<{ column_name: string; data_type: string }>(
-          `SELECT column_name, data_type
-           FROM information_schema.columns
-           WHERE table_schema = $1 AND table_name = $2
-             AND column_name <> $3
-           ORDER BY ordinal_position`,
-          [row.f_table_schema, row.f_table_name, row.f_geometry_column],
-        );
-        // Try a quick ST_Extent on a tiny sample to seed the
-        // bbox. Skip for large tables (where ST_Extent over the
-        // full row count would be expensive); the detail page
-        // can run a deeper refresh on demand.
+        const columns = {
+          rows: (columnsByTable.get(row.f_table_name) ?? []).filter(
+            (c) => c.column_name !== row.f_geometry_column,
+          ),
+        };
+        // Seed the bbox from the planner's statistics. The old
+        // TABLESAMPLE BERNOULLI (1) still read every page of every
+        // table; ST_EstimatedExtent reads none. A table never
+        // analyzed has no estimate and gets no bbox here; the detail
+        // page can refresh it later.
         let bbox: [number, number, number, number] | undefined;
         try {
-          const ext = await client.query<{ minx: number; miny: number; maxx: number; maxy: number }>(
+          const ext = await client.query<{
+            minx: number;
+            miny: number;
+            maxx: number;
+            maxy: number;
+          }>(
             `SELECT ST_XMin(b) AS minx, ST_YMin(b) AS miny,
                     ST_XMax(b) AS maxx, ST_YMax(b) AS maxy
              FROM (
-               SELECT ST_Extent(${quoteIdent(row.f_geometry_column)})::box2d AS b
-               FROM ${quoteIdent(row.f_table_schema)}.${quoteIdent(row.f_table_name)}
-               TABLESAMPLE BERNOULLI (1)
+               SELECT ST_EstimatedExtent($1, $2, $3)::box2d AS b
              ) e`,
+            [row.f_table_schema, row.f_table_name, row.f_geometry_column],
           );
           const r = ext.rows[0];
           if (
@@ -202,9 +228,9 @@ export class PostgisLiveService_ {
        * parameterized SQL fragment server-side. Lets the visual
        * filter editor narrow the row set at the database instead
        * of pulling the bbox-wide result back to the browser and
-       * filtering in MapLibre. The free-form `whereClause` field
-       * stays as the power-user escape hatch and is ANDed in
-       * alongside.
+       * filtering in MapLibre. `whereClause` is compiled to the same
+       * kind of parameterized fragment. A clause the compiler cannot
+       * check is refused.
        */
       filter?: MapLayerFilter | null;
       limit?: number;
@@ -220,9 +246,7 @@ export class PostgisLiveService_ {
       (l) => l.name === args.tableName,
     );
     if (!layer) {
-      throw new NotFoundException(
-        `Table "${args.tableName}" is not registered on this service`,
-      );
+      throw new NotFoundException(`Table "${args.tableName}" is not registered on this service`);
     }
     const [schema, table] = splitTableName(args.tableName);
     if (!IDENTIFIER_RE.test(schema) || !IDENTIFIER_RE.test(table)) {
@@ -240,7 +264,12 @@ export class PostgisLiveService_ {
     // the geometry to 4326 on the SELECT side (so the wire format
     // stays WGS84 GeoJSON). Tables already in 4326 take the
     // unchanged fast path.
-    const srcSrid = layer.srid;
+    // The SRID is interpolated into the SQL below, so it must be a
+    // plain integer. Saves are checked too; this covers older rows.
+    const srcSrid: unknown = layer.srid;
+    if (!isValidSrid(srcSrid)) {
+      throw new BadRequestException('Layer srid must be a positive whole number');
+    }
     const needsReproject = srcSrid !== 4326;
     const where: string[] = [];
     const params: unknown[] = [];
@@ -258,22 +287,18 @@ export class PostgisLiveService_ {
       const envelope =
         `ST_MakeEnvelope($${params.length - 3}, $${params.length - 2}, ` +
         `$${params.length - 1}, $${params.length}, 4326)`;
-      const envelopeInSrcSrid = needsReproject
-        ? `ST_Transform(${envelope}, ${srcSrid})`
-        : envelope;
+      const envelopeInSrcSrid = needsReproject ? `ST_Transform(${envelope}, ${srcSrid})` : envelope;
       where.push(`${quoteIdent(geomCol)} && ${envelopeInSrcSrid}`);
     }
     if (args.whereClause && args.whereClause.trim().length > 0) {
       const clause = args.whereClause.trim();
-      if (WHERE_CLAUSE_BLOCKLIST.test(clause)) {
-        throw new BadRequestException(
-          'WHERE clause cannot contain `;`, comment markers, or block comments',
-        );
-      }
       if (clause.length > 2000) {
         throw new BadRequestException('WHERE clause is too long (max 2000 chars)');
       }
-      where.push(`(${clause})`);
+      const allowed = new Set(layer.columns.map((c) => c.name));
+      const compiled = compileSafeWhere(clause, allowed, params.length);
+      where.push(`(${compiled.sql})`);
+      params.push(...compiled.params);
     }
     // #158 Phase 1.5: structured filter -> parameterized SQL.
     // Each clause goes through compileFilterClause, which only
@@ -290,10 +315,17 @@ export class PostgisLiveService_ {
       }
     }
     const limit = Math.min(args.limit ?? MAX_FEATURES_PER_REQUEST, MAX_FEATURES_PER_REQUEST);
-    const attributeCols = layer.columns
+    // Postgres allows 100 arguments per function call, two per column,
+    // so one json_build_object failed on any table with more than 50
+    // columns. Build jsonb in groups and concatenate them.
+    const pairs = layer.columns
       .filter((c) => IDENTIFIER_RE.test(c.name))
-      .map((c) => `'${c.name}', ${quoteIdent(c.name)}`)
-      .join(', ');
+      .map((c) => `'${c.name}', ${quoteIdent(c.name)}`);
+    const groups: string[] = [];
+    for (let i = 0; i < pairs.length; i += 50) {
+      groups.push(`jsonb_build_object(${pairs.slice(i, i + 50).join(', ')})`);
+    }
+    const propertiesSql = groups.length > 0 ? groups.join(' || ') : "'{}'::jsonb";
     const geomExpr = needsReproject
       ? `ST_Transform(${quoteIdent(geomCol)}, 4326)`
       : quoteIdent(geomCol);
@@ -301,7 +333,7 @@ export class PostgisLiveService_ {
       `SELECT json_build_object(
          'type', 'Feature',
          'geometry', ST_AsGeoJSON(${geomExpr})::json,
-         'properties', json_build_object(${attributeCols || "'_', NULL"})
+         'properties', ${propertiesSql}
        ) AS feature
        FROM ${quoteIdent(schema)}.${quoteIdent(table)}` +
       (where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '') +
@@ -310,14 +342,10 @@ export class PostgisLiveService_ {
     const pool = await this.getPool(serviceItemId, data);
     const client = await pool.connect();
     try {
-      await client.query(
-        `SET statement_timeout = ${data.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS}`,
-      );
+      await applyStatementTimeout(client, data.statementTimeoutMs);
       const res = await client.query<{ feature: unknown }>(sql, params);
       const truncated = res.rows.length > limit;
-      const features = (truncated ? res.rows.slice(0, limit) : res.rows).map(
-        (r) => r.feature,
-      );
+      const features = (truncated ? res.rows.slice(0, limit) : res.rows).map((r) => r.feature);
       return { type: 'FeatureCollection', features, truncated };
     } finally {
       client.release();
@@ -352,13 +380,20 @@ export class PostgisLiveService_ {
     if (!args.host || !args.database || !args.role) {
       return { ok: false, error: 'host, database, and role are required' };
     }
+    try {
+      await assertPostgisHost(args.host);
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : 'That host is not allowed.',
+      };
+    }
     const schema = args.defaultSchema?.trim() || 'public';
     if (!IDENTIFIER_RE.test(schema)) {
       return {
         ok: false,
         error:
-          `Invalid schema name "${schema}". Schemas must match ` +
-          `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
+          `Invalid schema name "${schema}". Schemas must match ` + `[A-Za-z_][A-Za-z0-9_]{0,62}.`,
       };
     }
     const port = Number.isFinite(args.port) && args.port > 0 ? args.port : 5432;
@@ -376,9 +411,7 @@ export class PostgisLiveService_ {
       const client = await pool.connect();
       try {
         await client.query(`SET statement_timeout = 5000`);
-        const res = await client.query<{ v: string }>(
-          `SELECT postgis_lib_version() AS v`,
-        );
+        const res = await client.query<{ v: string }>(`SELECT postgis_lib_version() AS v`);
         const inventory = await listGeometryTablesPreview(
           client,
           schema,
@@ -396,10 +429,7 @@ export class PostgisLiveService_ {
         client.release();
       }
     } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      return { ok: false, error: safeConnectionError(err) };
     } finally {
       await pool.end().catch(() => undefined);
     }
@@ -407,7 +437,11 @@ export class PostgisLiveService_ {
 
   // ---- helpers ---------------------------------------------------------
 
-  private async loadService(user: AuthUser, serviceItemId: string) {
+  private async loadService(
+    user: AuthUser,
+    serviceItemId: string,
+    opts: { edit?: boolean } = {},
+  ) {
     const item = await this.prisma.item.findFirst({
       where: {
         id: serviceItemId,
@@ -418,9 +452,7 @@ export class PostgisLiveService_ {
     if (!item) throw new NotFoundException('Service item not found');
     const data = item.data as { protocol?: string } | null;
     if (data?.protocol !== 'postgis_live') {
-      throw new BadRequestException(
-        'This endpoint is only valid for postgis_live service items',
-      );
+      throw new BadRequestException('This endpoint is only valid for postgis_live service items');
     }
     const shares = await this.prisma.itemShare.findMany({
       where: { itemId: serviceItemId },
@@ -428,18 +460,25 @@ export class PostgisLiveService_ {
     if (!this.sharing.canRead(user, item, shares)) {
       throw new NotFoundException('Service item not found');
     }
+    if (opts.edit && !this.sharing.canEdit(user, item, shares)) {
+      throw new ForbiddenException('Only editors of this service can probe its database');
+    }
     return item;
   }
 
-  private async getPool(
-    itemId: string,
-    data: PostgisLiveService,
-  ): Promise<Pool> {
+  private async getPool(itemId: string, data: PostgisLiveService): Promise<Pool> {
+    const stamp = await this.credentials.getCredentialMeta(itemId).catch(() => null);
+    const key = JSON.stringify([
+      data.host,
+      data.port,
+      data.database,
+      data.role,
+      stamp ? new Date(stamp.updatedAt).getTime() : null,
+    ]);
     const existing = this.pools.get(itemId);
-    if (existing) return existing;
-    const cred = await this.credentials
-      .getCredentialForProxy(itemId)
-      .catch(() => null);
+    if (existing && existing.key === key) return existing.pool;
+    if (existing) await this.tearDownPool(itemId);
+    const cred = await this.credentials.getCredentialForProxy(itemId).catch(() => null);
     if (!cred || cred.kind !== 'basic') {
       throw new ForbiddenException(
         'No password stored for this service. Re-save with the test-connection wizard.',
@@ -460,20 +499,20 @@ export class PostgisLiveService_ {
       // next checkout will reopen the underlying connection.
       this.log.warn(`PG pool idle-client error: ${err.message}`);
     });
-    this.pools.set(itemId, pool);
+    this.pools.set(itemId, { key, pool });
     return pool;
   }
 
   /**
-   * Tear a pool down — called from item delete / update paths
-   * so a renamed-host or removed service item doesn't keep idle
-   * connections open. Best-effort; failures are swallowed.
+   * End a service item's pool. getPool calls it when the item's
+   * connection settings or stored password changed. Best-effort;
+   * failures are swallowed.
    */
   async tearDownPool(itemId: string): Promise<void> {
     const existing = this.pools.get(itemId);
     if (!existing) return;
     this.pools.delete(itemId);
-    await existing.end().catch(() => undefined);
+    await existing.pool.end().catch(() => undefined);
   }
 }
 
@@ -492,6 +531,60 @@ function splitTableName(name: string): [string, string] {
 
 function isFiniteIn(n: unknown, min: number, max: number): boolean {
   return typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
+}
+
+/**
+ * Bound and bind the statement timeout. The value lives in item JSON,
+ * so it is not trusted as a number. `set_config` takes a text
+ * parameter, which keeps it out of the SQL text.
+ */
+async function applyStatementTimeout(
+  client: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  raw: unknown,
+): Promise<void> {
+  await client.query(`SELECT set_config('statement_timeout', $1, false)`, [
+    String(normalizeStatementTimeout(raw)),
+  ]);
+}
+
+export function normalizeStatementTimeout(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number.NaN;
+  if (!Number.isInteger(n)) return DEFAULT_STATEMENT_TIMEOUT_MS;
+  if (n < MIN_STATEMENT_TIMEOUT_MS || n > MAX_STATEMENT_TIMEOUT_MS) {
+    return DEFAULT_STATEMENT_TIMEOUT_MS;
+  }
+  return n;
+}
+
+/**
+ * A sentence a caller can see. The driver's own message can include
+ * the server version, a file path, or the text of a query, so it
+ * stays in the log and does not go out on the response.
+ */
+export function safeConnectionError(err: unknown): string {
+  const code =
+    err && typeof err === 'object' && 'code' in err
+      ? String((err as { code?: unknown }).code ?? '')
+      : '';
+  switch (code) {
+    case '28P01':
+    case '28000':
+      return 'The database rejected that role or password.';
+    case '3D000':
+      return 'That database does not exist.';
+    case '42883':
+      return 'That database does not have PostGIS available.';
+    case 'ENOTFOUND':
+    case 'EAI_AGAIN':
+      return 'That host could not be resolved.';
+    case 'ECONNREFUSED':
+      return 'Nothing accepted a connection on that host and port.';
+    case 'ETIMEDOUT':
+    case 'CONNECT_TIMEOUT':
+      return 'The connection timed out.';
+    default:
+      return 'Could not connect. Check the host, port, database, role, and password.';
+  }
 }
 
 /**
@@ -542,7 +635,10 @@ function compileFilterClause(
   allowed: Set<string>,
   paramOffset: number,
 ): { sql: string; params: unknown[] } | null {
-  if (!clause.field || !IDENTIFIER_RE.test(clause.field)) return null;
+  if (!clause || typeof clause !== 'object') {
+    throw new BadRequestException('Each filter clause must be an object');
+  }
+  if (typeof clause.field !== 'string' || !IDENTIFIER_RE.test(clause.field)) return null;
   if (!allowed.has(clause.field)) {
     throw new BadRequestException(
       `Filter field "${clause.field}" is not a known column on this layer`,
@@ -557,7 +653,11 @@ function compileFilterClause(
       return { sql: `${col} IS NOT NULL`, params };
     case '==':
     case '!=': {
-      params.push(clause.value);
+      const v: unknown = clause.value;
+      if (v !== null && typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+        throw new BadRequestException('A filter value must be text, a number or true/false');
+      }
+      params.push(v);
       const ph = `$${paramOffset + params.length}`;
       const sqlOp = clause.op === '==' ? '=' : '<>';
       return { sql: `${col} ${sqlOp} ${ph}`, params };
@@ -577,12 +677,12 @@ function compileFilterClause(
       return { sql: `(${col})::numeric ${clause.op} ${ph}::numeric`, params };
     }
     case 'contains': {
+      if (typeof clause.value !== 'string') {
+        throw new BadRequestException('A "contains" filter needs a text value');
+      }
       // ILIKE with %-escaped value; client-supplied %s + _s are
       // escaped so the user can't broaden the match accidentally.
-      const escaped = clause.value
-        .replace(/\\/g, '\\\\')
-        .replace(/%/g, '\\%')
-        .replace(/_/g, '\\_');
+      const escaped = clause.value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
       params.push(`%${escaped}%`);
       const ph = `$${paramOffset + params.length}`;
       return { sql: `(${col})::text ILIKE ${ph}`, params };

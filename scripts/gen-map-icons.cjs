@@ -305,13 +305,16 @@ const CATEGORY_ORDER = [
 ];
 
 /** Read a lucide-react icon source file, following alias
- *  re-exports of the form `export { default } from './foo.js'`
- *  (lucide deprecates + re-aliases icon names frequently). */
+ *  re-exports of the form `export { default } from './foo.mjs'`
+ *  (lucide deprecates + re-aliases icon names frequently).
+ *  lucide-react 1.x ships `.mjs`; older releases shipped `.js`. */
 function readIconSource(name) {
-  const p = path.join(ICON_DIR, `${name}.js`);
-  if (!fs.existsSync(p)) return null;
+  const p = ['mjs', 'js']
+    .map((ext) => path.join(ICON_DIR, `${name}.${ext}`))
+    .find((f) => fs.existsSync(f));
+  if (!p) return null;
   const src = fs.readFileSync(p, 'utf8');
-  const alias = src.match(/export\s*\{\s*default\s*\}\s*from\s*['"]\.\/(.+?)\.js['"]/);
+  const alias = src.match(/export\s*\{\s*default\s*\}\s*from\s*['"]\.\/(.+?)\.m?js['"]/);
   if (alias) return readIconSource(alias[1]);
   return src;
 }
@@ -326,6 +329,14 @@ function readIconSource(name) {
  *
  *  We grab everything inside the createLucideIcon array. */
 function extractIconNode(src) {
+  // lucide-react 1.x: `const __iconData = { name, size, node: [...] };`
+  // Older: `createLucideIcon("Name", [...]);`
+  const data = src.match(/__iconData\s*=\s*(\{[\s\S]*?\n\});/);
+  if (data) {
+    // eslint-disable-next-line no-eval
+    const obj = eval(`(${data[1]})`);
+    return Array.isArray(obj && obj.node) ? obj.node : null;
+  }
   const m = src.match(/createLucideIcon\([^,]+,\s*(\[[\s\S]*?\])\s*\)\s*;/);
   if (!m) return null;
   // The array uses bare object keys; JSON.parse can't handle that
@@ -364,6 +375,8 @@ out.push('// GENERATED FILE -- do not edit by hand.');
 out.push('// Regenerate with: node scripts/gen-map-icons.cjs');
 out.push('// Source: lucide-react icon SVG nodes, ISC-licensed.');
 out.push('// ------------------------------------------------------------------');
+out.push('');
+out.push("import { safeCssColor } from '@gratis-gis/shared-types';");
 out.push('');
 out.push('/**');
 out.push(' * Map point-symbol icon registry (#73). Each entry is a');
@@ -434,8 +447,12 @@ out.push('  opts: { stroke?: string; strokeWidth?: number } = {},');
 out.push('): string | null {');
 out.push('  const icon = MAP_ICONS[name];');
 out.push('  if (!icon) return null;');
-out.push('  const stroke = opts.stroke ?? \'currentColor\';');
-out.push('  const w = opts.strokeWidth ?? 2;');
+out.push('  // Both values are interpolated into markup that callers set with');
+out.push('  // innerHTML, and the stroke comes from map style data an author');
+out.push('  // controls. Only a value that cannot leave the attribute gets in.');
+out.push('  const stroke = safeCssColor(opts.stroke, \'currentColor\');');
+out.push('  const width = Number(opts.strokeWidth ?? 2);');
+out.push('  const w = Number.isFinite(width) ? width : 2;');
 out.push('  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ` +');
 out.push('    `fill="none" stroke="${stroke}" stroke-width="${w}" ` +');
 out.push('    `stroke-linecap="round" stroke-linejoin="round">${icon.body}</svg>`;');
@@ -477,6 +494,12 @@ const outFile = path.join(
   'map',
   'map-icons.ts',
 );
+if (missing > 0) {
+  // Writing a partial registry would silently drop map symbols and
+  // tool icons. Leave the committed file alone and fail loudly.
+  console.error(`${missing} icon(s) missing; ${outFile} was not written.`);
+  process.exit(1);
+}
 fs.writeFileSync(outFile, out.join('\n'));
 console.log(
   `wrote ${outFile} (${

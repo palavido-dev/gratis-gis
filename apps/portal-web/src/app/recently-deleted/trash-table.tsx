@@ -8,6 +8,7 @@ import type { Group, Item } from '@gratis-gis/shared-types';
 import { getItemDisplayLabel } from '@/lib/item-type-icon';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useFormat } from '@/lib/i18n/format';
+import { fetchRetrying, mapWithConcurrency } from '@/lib/request-pool';
 
 /**
  * Recently-deleted bulk table (#360). Single client component that
@@ -28,6 +29,9 @@ import { useFormat } from '@/lib/i18n/format';
  * the kind prop maps to the right API endpoints and copy.
  */
 type Kind = 'items' | 'groups';
+
+/** Restores or purges in flight at once during a bulk action. */
+const BULK_CONCURRENCY = 4;
 
 type TrashRow = {
   id: string;
@@ -108,10 +112,8 @@ export function TrashTable({ kind, records, retentionDays }: Props) {
     });
   }
 
-  // Endpoint shapes. Both POST/DELETE flows are idempotent on the
-  // server, so a Promise.all that loses one to a 409 won't poison
-  // the rest. We collect failures and surface a single error string
-  // rather than partial-state aborting -- the user's mental model is
+  // Endpoint shapes. We collect failures and surface a single error
+  // string rather than aborting part way: the user's mental model is
   // "the ones that came back stayed; try the rest again."
   function pathForRestore(id: string) {
     return kind === 'items'
@@ -128,9 +130,19 @@ export function TrashTable({ kind, records, retentionDays }: Props) {
     const url = op === 'restore' ? pathForRestore(id) : pathForPurge(id);
     const method = op === 'restore' ? 'POST' : 'DELETE';
     try {
-      const res = await fetch(url, { method });
+      const res = await fetchRetrying(url, { method });
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
+        // Neither call is idempotent on the server, but the end state
+        // the user asked for can already hold. Restoring one member
+        // of a folder cascade restores the whole cohort, so the other
+        // rows answer 400 "not in the trash". A purge whose row is
+        // already gone answers 404. Both mean the row is where the
+        // user wanted it, so they count as done.
+        if (op === 'restore' && res.status === 400 && /not in the trash/i.test(txt)) {
+          return null;
+        }
+        if (op === 'purge' && res.status === 404) return null;
         return `${res.status}${txt ? `: ${txt}` : ''}`;
       }
       return null;
@@ -144,9 +156,14 @@ export function TrashTable({ kind, records, retentionDays }: Props) {
     const idSet = new Set(ids);
     setPending({ kind: op, ids: idSet });
     try {
-      const results = await Promise.all(
-        ids.map(async (id) => ({ id, err: await runOne(id, op) })),
-      );
+      // A few at a time, not all at once. Select all can cover the
+      // whole org's trash, and one request per row in parallel ran
+      // into the API's per-minute limit and tied up the server with
+      // purges running side by side.
+      const results = await mapWithConcurrency(ids, BULK_CONCURRENCY, async (id) => ({
+        id,
+        err: await runOne(id, op),
+      }));
       const failures = results.filter((r) => r.err !== null);
       if (failures.length > 0) {
         const head = failures.slice(0, 3).map((f) => f.err).join('; ');
@@ -333,11 +350,14 @@ export function TrashTable({ kind, records, retentionDays }: Props) {
       <ConfirmDialog
         open={confirmKind !== null}
         onCancel={() => setConfirmKind(null)}
-        onConfirm={() => {
+        // Return the promise: ConfirmDialog keeps its button disabled
+        // while it is pending, so a second click cannot send the same
+        // purges again.
+        onConfirm={async () => {
           if (confirmKind?.op === 'purge-one') {
-            void runMany([confirmKind.row.id], 'purge');
+            await runMany([confirmKind.row.id], 'purge');
           } else if (confirmKind?.op === 'purge-many') {
-            void runMany(confirmKind.ids, 'purge');
+            await runMany(confirmKind.ids, 'purge');
           }
         }}
         title={

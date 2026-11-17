@@ -80,7 +80,7 @@ export function AppTemplateDetail({ itemId, blueprint, seedKind }: Props) {
         <Link
           href={`/items/new?type=custom&template=${itemId}`}
           onClick={() => setBusy(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink hover:bg-accent/90"
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:bg-accent/90"
         >
           {busy ? 'Loading...' : 'Use this template'}
         </Link>

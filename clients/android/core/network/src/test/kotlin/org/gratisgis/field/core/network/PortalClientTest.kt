@@ -3,6 +3,8 @@ package org.gratisgis.field.core.network
 
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.HttpTimeoutCapability
+import io.ktor.client.plugins.HttpTimeoutConfig
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -155,6 +157,87 @@ class PortalClientTest {
       assertEquals(1, body.changes.size)
       assertEquals("e1", body.changes[0].entity)
       assertEquals("update", body.changes[0].kind)
+    }
+  }
+
+  @Test
+  fun getLayerDeltaPassesAfterAndReadsNextCursor() = runTest {
+    val engine = MockEngine { request ->
+      assertEquals(
+        "https://portal.example/api/items/dl1/layers/main/delta?since=43&after=o1&limit=10000",
+        request.url.toString(),
+      )
+      respond(
+        """{"syncVersion":50,"since":43,"truncated":true,"nextSince":43,"nextAfter":"o2","changes":[{"observationId":"o2","entity":"e2","kind":"create","syncVersion":43,"createdBy":"u1","createdAt":"2026-11-08T00:00:00.000Z","geometry":null,"properties":{}}]}""",
+        HttpStatusCode.OK,
+        jsonHeaders,
+      )
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      val body = client.getLayerDelta("dl1", "main", since = 43, limit = 10_000, after = "o1")
+      assertEquals(43L, body.nextSince)
+      assertEquals("o2", body.nextAfter)
+      assertEquals("u1", body.changes[0].createdBy)
+    }
+  }
+
+  @Test
+  fun getLayerGeoJsonPagesWithLimitCursorAndAt() = runTest {
+    val engine = MockEngine { request ->
+      assertEquals("5000", request.url.parameters["limit"])
+      assertEquals("c1", request.url.parameters["cursor"])
+      assertEquals("2026-11-08T00:00:00.000Z", request.url.parameters["at"])
+      respond("""{"type":"FeatureCollection","features":[],"nextCursor":null}""", HttpStatusCode.OK, jsonHeaders)
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      client.getLayerGeoJson("dl1", "main", limit = 5_000, cursor = "c1", at = "2026-11-08T00:00:00.000Z")
+    }
+  }
+
+  @Test
+  fun patchFeatureReturnsTheWrittenFeature() = runTest {
+    val engine = MockEngine {
+      respond(
+        """{"type":"Feature","id":"g1","properties":{"name":"x","_observation_id":"obs-2"}}""",
+        HttpStatusCode.OK,
+        jsonHeaders,
+      )
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      val written = client.patchFeature("dl1", "main", "g1", kotlinx.serialization.json.JsonObject(emptyMap()), null)
+      assertEquals(
+        "obs-2",
+        (written?.get("properties") as? kotlinx.serialization.json.JsonObject)
+          ?.get("_observation_id")?.toString()?.trim('"'),
+      )
+    }
+  }
+
+  @Test
+  fun patchFeatureWithoutAJsonBodyReturnsNull() = runTest {
+    val engine = MockEngine { respond("", HttpStatusCode.NoContent) }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      assertNull(client.patchFeature("dl1", "main", "g1", kotlinx.serialization.json.JsonObject(emptyMap()), null))
+    }
+  }
+
+  @Test
+  fun packageDownloadHasNoOverallRequestTimeout() = runTest {
+    var requestTimeout: Long? = null
+    var socketTimeout: Long? = null
+    val engine = MockEngine { request ->
+      val config = request.getCapabilityOrNull(HttpTimeoutCapability)
+      requestTimeout = config?.requestTimeoutMillis
+      socketTimeout = config?.socketTimeoutMillis
+      respond(ByteArray(10) { it.toByte() }, HttpStatusCode.OK)
+    }
+    PortalClient("https://portal.example/api", FakeTokens("tok"), engine).use { client ->
+      val out = java.io.ByteArrayOutputStream()
+      assertEquals(10L, client.downloadOfflinePackage("c1", "p1", out))
+      // A large package must not be cut off by the client-wide 60 s
+      // limit; the socket timeout still catches a stalled transfer.
+      assertEquals(HttpTimeoutConfig.INFINITE_TIMEOUT_MS, requestTimeout)
+      assertEquals(60_000L, socketTimeout)
     }
   }
 }

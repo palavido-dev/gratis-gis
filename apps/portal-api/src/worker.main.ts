@@ -3,8 +3,6 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 
 import { WorkerAppModule } from './worker.module.js';
-import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
-import { isScriptsEnabled } from './scripts/scripts-config.js';
 
 /**
  * portal-worker entry point (#115 P8).
@@ -46,19 +44,12 @@ async function bootstrap() {
   // container.
   app.enableShutdownHooks();
 
-  // #221: start the script runner here rather than in the module, so
-  // that importing ScriptsModule (which the API also needs, for the
-  // run endpoints) never turns a process into an execution host for
-  // user code by accident.
-  //
-  // In the shipped topology the dedicated script-runner container does
-  // this work, and this branch stays off. It exists for a single-host
-  // deployment that would rather not run a fourth container, and it is
-  // opt-in either way.
-  if (isScriptsEnabled()) {
-    app.get(ScriptRunnerWorker).start();
-    log.log('script runner enabled');
-  }
+  // #221: this process never claims script runs, even when
+  // PORTAL_SCRIPTS_ENABLED is set. The claimer only dispatches over HTTP
+  // to script-executor, which this container has no network route to and
+  // no token for, so a claimer here failed every run it won. The
+  // dedicated script-runner container (script-worker.main.ts) is the
+  // only claimer.
 
   log.log('portal-worker ready');
 

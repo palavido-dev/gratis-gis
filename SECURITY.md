@@ -8,7 +8,7 @@ for everyone who runs it.
 
 Please report suspected security issues privately, by email, to:
 
-    matthew.palavido@gmail.com
+    matthew@gratisgis.org
 
 If your finding involves data that should not be sent in cleartext
 (credentials, exploit proofs, screenshots of private data), say so in
@@ -28,7 +28,7 @@ A useful report typically has:
    Keycloak realm, the Docker stack).
 3. A reproducer: URL, request, payload, or steps. A `curl` command or
    a small script is ideal.
-4. Versions involved (the public preview at gratisgis.org is on the
+4. Versions involved (the public preview at demo.gratisgis.org is on the
    latest `main`; if you tested a self-hosted install, the commit
    hash helps).
 5. Any suggested mitigation if you have one.
@@ -95,6 +95,15 @@ Out of scope:
   validation. We are happy to look at scanner output if you can
   point at a specific finding and explain why it matters in our
   context.
+
+Admin-only by design:
+
+- The SMTP host on **Admin -> Notifications** can name any host,
+  internal ones included, and Save and **Send test** connect to it
+  from the API container. Only operator-organization admins can use
+  them. See "Who can reach what through the SMTP settings" in
+  `docs/SETUP.md`. A way for anyone else to reach that page or those
+  routes is in scope.
 
 ## Safe harbor
 

@@ -29,7 +29,8 @@ export interface OgcLayerSnapshot {
 
 export interface WmsCapabilities {
   kind: 'wms';
-  /** GetCapabilities URL the user provided (without query string). */
+  /** Service base URL: what the user provided, minus the OGC request
+   *  parameters. Vendor parameters such as `map=` stay on it. */
   url: string;
   /** WMS protocol version reported by the server. */
   protocolVersion: '1.1.1' | '1.3.0';
@@ -51,16 +52,54 @@ export interface WfsCapabilities {
 
 export type OgcCapabilities = WmsCapabilities | WfsCapabilities;
 
-/** Normalize the user-supplied URL: strip query string + trailing slash
- *  + a "?" so we can append our own ?service= consistently. */
-function normalizeBaseUrl(raw: string): string {
+/**
+ * Query keys the OGC request owns. Everything else on a pasted URL is
+ * the server's own (MapServer's `map=`, a vendor `key=` or token) and
+ * has to travel with every request, or the server cannot answer.
+ */
+const OGC_REQUEST_KEYS = new Set(['service', 'request', 'version', 'acceptversions']);
+
+function splitQuery(raw: string): { path: string; parts: string[] } {
+  const noHash = raw.split('#')[0] ?? '';
+  const idx = noHash.indexOf('?');
+  if (idx < 0) return { path: noHash, parts: [] };
+  return {
+    path: noHash.slice(0, idx),
+    parts: noHash.slice(idx + 1).split('&').filter((p) => p.length > 0),
+  };
+}
+
+function queryKey(part: string): string {
+  const key = part.split('=')[0] ?? '';
+  try {
+    return decodeURIComponent(key).toLowerCase();
+  } catch {
+    return key.toLowerCase();
+  }
+}
+
+/**
+ * Normalize the user-supplied URL into the base every OGC request is
+ * built on: trailing slash dropped, the OGC request keys (service,
+ * request, version) removed, and any other query parameter kept as
+ * it was typed.
+ */
+export function ogcBaseUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) throw new Error('Service URL is required.');
-  // Drop any existing query string -- GetCapabilities owns the params.
-  const idx = trimmed.indexOf('?');
-  let base = idx >= 0 ? trimmed.slice(0, idx) : trimmed;
-  base = base.replace(/\/+$/, '');
-  return base;
+  const { path, parts } = splitQuery(trimmed);
+  const base = path.replace(/(?<!\/)\/+$/, '');
+  const kept = parts.filter((p) => !OGC_REQUEST_KEYS.has(queryKey(p)));
+  return kept.length > 0 ? `${base}?${kept.join('&')}` : base;
+}
+
+/** Append OGC request parameters to a base from ogcBaseUrl, after
+ *  whatever vendor parameters it already carries. */
+export function ogcRequestUrl(base: string, params: Record<string, string>): string {
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join('&');
+  return `${base}${base.includes('?') ? '&' : '?'}${qs}`;
 }
 
 /** Probe a WMS endpoint. Returns the layer list + service metadata. */
@@ -68,11 +107,15 @@ export async function probeWms(
   rawUrl: string,
   signal?: AbortSignal,
 ): Promise<WmsCapabilities> {
-  const base = normalizeBaseUrl(rawUrl);
+  const base = ogcBaseUrl(rawUrl);
   // Prefer 1.3.0 (current); fall back to 1.1.1 if the server objects.
   // Many older deployments only speak 1.1.1 and ignore version=1.3.0
   // by returning their default; the parser tolerates either.
-  const url = `${base}?service=WMS&request=GetCapabilities&version=1.3.0`;
+  const url = ogcRequestUrl(base, {
+    service: 'WMS',
+    request: 'GetCapabilities',
+    version: '1.3.0',
+  });
   const xml = await fetchXml(url, signal);
   return parseWmsCapabilities(base, xml);
 }
@@ -82,10 +125,14 @@ export async function probeWfs(
   rawUrl: string,
   signal?: AbortSignal,
 ): Promise<WfsCapabilities> {
-  const base = normalizeBaseUrl(rawUrl);
+  const base = ogcBaseUrl(rawUrl);
   // Prefer 2.0.0 -- it's the OGC standard since 2010 and widely
   // supported. Servers stuck on 1.1.0 still return parseable XML.
-  const url = `${base}?service=WFS&request=GetCapabilities&version=2.0.0`;
+  const url = ogcRequestUrl(base, {
+    service: 'WFS',
+    request: 'GetCapabilities',
+    version: '2.0.0',
+  });
   const xml = await fetchXml(url, signal);
   return parseWfsCapabilities(base, xml);
 }
@@ -118,16 +165,22 @@ async function fetchXml(url: string, signal?: AbortSignal): Promise<Document> {
   return doc;
 }
 
-function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
+export function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
   // WMS 1.3.0 root element is <WMS_Capabilities>; 1.1.1 root is
   // <WMT_MS_Capabilities>. Use either to pick the version, then parse
   // layer entries (also recursive, since WMS allows nested groups).
   const root = doc.documentElement;
+  // Any well-formed XML with a 200 used to count, so an exception
+  // report, or a WFS answering the WMS request, came back as "WMS with
+  // no layers" and could win the auto-probe.
+  if (root.localName !== 'WMS_Capabilities' && root.localName !== 'WMT_MS_Capabilities') {
+    throw new Error(`Not WMS capabilities (root element ${root.localName}).`);
+  }
   const versionAttr = root.getAttribute('version') ?? '1.3.0';
   const protocolVersion: '1.1.1' | '1.3.0' = versionAttr.startsWith('1.1')
     ? '1.1.1'
     : '1.3.0';
-  const title = textOf(root.querySelector('Service > Title'));
+  const title = textOf(directChild(directChild(root, 'Service'), 'Title'));
   const layers: OgcLayerSnapshot[] = [];
   const allBboxes: Array<[number, number, number, number]> = [];
 
@@ -137,7 +190,7 @@ function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
   // layers that have a Name (Name-less layers are presentational
   // groups in WMS, not addressable in GetMap).
   function walk(el: Element) {
-    const tag = el.tagName.toLowerCase();
+    const tag = (el.localName ?? el.tagName).toLowerCase();
     if (tag !== 'layer') {
       for (const child of Array.from(el.children)) walk(child);
       return;
@@ -169,15 +222,21 @@ function parseWmsCapabilities(baseUrl: string, doc: Document): WmsCapabilities {
   return out;
 }
 
-function parseWfsCapabilities(baseUrl: string, doc: Document): WfsCapabilities {
+export function parseWfsCapabilities(baseUrl: string, doc: Document): WfsCapabilities {
   const root = doc.documentElement;
+  if (root.localName !== 'WFS_Capabilities') {
+    throw new Error(`Not WFS capabilities (root element ${root.localName}).`);
+  }
   const versionAttr = root.getAttribute('version') ?? '2.0.0';
   const protocolVersion: '1.1.0' | '2.0.0' = versionAttr.startsWith('1.1')
     ? '1.1.0'
     : '2.0.0';
+  // Matched by local name throughout: servers write these with or
+  // without a prefix (`wfs:FeatureType`, `ows:Title`), and
+  // getElementsByTagName only matches the qualified name.
   const title = textOf(
-    root.querySelector('ServiceIdentification > Title') ??
-      root.querySelector('Service > Title'),
+    directChild(directChild(root, 'ServiceIdentification'), 'Title') ??
+      directChild(directChild(root, 'Service'), 'Title'),
   );
 
   const layers: OgcLayerSnapshot[] = [];
@@ -188,7 +247,7 @@ function parseWfsCapabilities(baseUrl: string, doc: Document): WfsCapabilities {
   // Name (NamespaceURI:LocalPart or just LocalPart), Title, and a
   // WGS84 bbox via WGS84BoundingBox (2.0.0) or LatLongBoundingBox
   // (1.1.0).
-  const featureTypes = doc.getElementsByTagName('FeatureType');
+  const featureTypes = byLocalName(doc, 'FeatureType');
   for (const ft of Array.from(featureTypes)) {
     const name = textOf(directChild(ft, 'Name'));
     const ftTitle = textOf(directChild(ft, 'Title'));
@@ -224,10 +283,10 @@ function parseWmsBbox(
   if (version === '1.3.0') {
     const ex = directChild(el, 'EX_GeographicBoundingBox');
     if (ex) {
-      const w = numberFrom(ex.getElementsByTagName('westBoundLongitude')[0]);
-      const e = numberFrom(ex.getElementsByTagName('eastBoundLongitude')[0]);
-      const s = numberFrom(ex.getElementsByTagName('southBoundLatitude')[0]);
-      const n = numberFrom(ex.getElementsByTagName('northBoundLatitude')[0]);
+      const w = numberFrom(byLocalName(ex, 'westBoundLongitude')[0]);
+      const e = numberFrom(byLocalName(ex, 'eastBoundLongitude')[0]);
+      const s = numberFrom(byLocalName(ex, 'southBoundLatitude')[0]);
+      const n = numberFrom(byLocalName(ex, 'northBoundLatitude')[0]);
       if ([w, e, s, n].every((v) => Number.isFinite(v))) {
         return [w, s, e, n];
       }
@@ -252,19 +311,17 @@ function parseWmsBbox(
 function parseWfsBbox(
   ft: Element,
 ): [number, number, number, number] | undefined {
-  const bbox =
-    ft.getElementsByTagName('WGS84BoundingBox')[0] ??
-    ft.getElementsByTagName('ows:WGS84BoundingBox')[0];
+  const bbox = byLocalName(ft, 'WGS84BoundingBox')[0];
   if (bbox) {
-    const lower = bbox.getElementsByTagName('LowerCorner')[0]?.textContent ?? '';
-    const upper = bbox.getElementsByTagName('UpperCorner')[0]?.textContent ?? '';
+    const lower = byLocalName(bbox, 'LowerCorner')[0]?.textContent ?? '';
+    const upper = byLocalName(bbox, 'UpperCorner')[0]?.textContent ?? '';
     const lo = lower.trim().split(/\s+/).map(Number);
     const up = upper.trim().split(/\s+/).map(Number);
     if (lo.length === 2 && up.length === 2 && [...lo, ...up].every(Number.isFinite)) {
       return [lo[0]!, lo[1]!, up[0]!, up[1]!];
     }
   }
-  const ll = ft.getElementsByTagName('LatLongBoundingBox')[0];
+  const ll = byLocalName(ft, 'LatLongBoundingBox')[0];
   if (ll) {
     const minx = Number(ll.getAttribute('minx'));
     const miny = Number(ll.getAttribute('miny'));
@@ -292,7 +349,13 @@ function unionBboxes(
   return [w, s, e, n];
 }
 
-function directChild(parent: Element, tag: string): Element | null {
+/** Descendants by local name in any namespace, prefixed or not. */
+export function byLocalName(node: Document | Element, name: string): Element[] {
+  return Array.from(node.getElementsByTagNameNS('*', name));
+}
+
+function directChild(parent: Element | null, tag: string): Element | null {
+  if (!parent) return null;
   // querySelector on namespaced XML is fiddly; iterate children to
   // pick the first matching local name. Handles "ns:Name" too.
   const lower = tag.toLowerCase();

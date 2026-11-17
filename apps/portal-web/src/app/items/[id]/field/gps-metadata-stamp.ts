@@ -38,6 +38,15 @@
  *   src_type     : position_source_type
  *   capture      : capture_method
  *
+ * The generic names (x, y, z, lat, lon, alt, accuracy, heading,
+ * speed) are kept on purpose. Layers built for Field Maps style
+ * collection use them, and stamping only happens when the new point
+ * sits at the live fix (placedAtGpsFix in lib/gps-placement.ts,
+ * checked at the call site), so a point tapped away from the fix, a
+ * line, a polygon or a table row is never stamped. Requiring a gps_ prefix would stop filling columns that
+ * layers rely on today. capture_method is always 'point-collected'
+ * for the same reason: nothing else reaches the stamp.
+ *
  * The Esri schema also defines pdop/hdop/vdop, sat_count, fix_type,
  * corr_age, station_id, dgps_age, gnss_provider; navigator.geolocation
  * doesn't expose those, so we leave them alone (admins on a real GNSS
@@ -60,6 +69,7 @@ type GpsSlot =
   | 'src_type'
   | 'capture';
 
+// Generic aliases stay; see "The generic names" in the header.
 const ALIASES: Record<GpsSlot, string[]> = {
   longitude: ['lon', 'longitude', 'x', 'gps_lon', '_gps_lon'],
   latitude: ['lat', 'latitude', 'y', 'gps_lat', '_gps_lat'],

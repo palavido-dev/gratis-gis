@@ -74,6 +74,7 @@ class UpdateDrawingDto {
   @IsOptional() @IsHexColor() color?: string;
   @IsOptional() @IsBoolean() visible?: boolean;
   @IsOptional() @IsArray() features?: DrawingFeatureDto[];
+  @IsOptional() @IsArray() appendFeatures?: DrawingFeatureDto[];
 }
 
 class AllowAnonymousDto {
@@ -161,6 +162,9 @@ export class DrawingsController {
       ...(dto.visible !== undefined ? { visible: dto.visible } : {}),
       ...(dto.features !== undefined
         ? { features: dto.features as DrawingFeature[] }
+        : {}),
+      ...(dto.appendFeatures !== undefined
+        ? { appendFeatures: dto.appendFeatures as DrawingFeature[] }
         : {}),
     });
   }

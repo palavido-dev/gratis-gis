@@ -108,9 +108,6 @@ RUN "$SCRIPT_VENV/bin/pip" install --no-cache-dir --upgrade \
 
 # The runner spawns this interpreter, not the system one.
 ENV SCRIPT_PYTHON=/opt/script-venv/bin/python3
-# Scripts get a writable HOME they do not share with the app user's,
-# so a library that caches into ~ cannot write anywhere interesting.
-ENV SCRIPT_HOME=/tmp
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # A dedicated identity for user code, distinct from the one the
@@ -155,6 +152,14 @@ ENV SCRIPT_HOME=/home/ggscript
 # Scratch space for a run, owned by the script user rather than
 # shared /tmp, so one run cannot plant files another one reads.
 ENV SCRIPT_TMPDIR=/var/tmp/ggscript
+# Repeat the identity stamp so a rebuild of this layer does not drop
+# the values inherited from portal-api. publish-images.yml passes them.
+ARG GG_VERSION=dev
+ARG GIT_SHA=
+ARG REQUIRED_COMPOSE_REV=3
+ENV GG_VERSION=$GG_VERSION \
+    GIT_SHA=$GIT_SHA \
+    REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
 
 # NOTE: no `USER app` here.
 #

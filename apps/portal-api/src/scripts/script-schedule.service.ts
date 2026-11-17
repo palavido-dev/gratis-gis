@@ -88,12 +88,13 @@ export class ScriptScheduleService
       this.log.log('Scripts are off; no schedules registered.');
       return;
     }
-    if (!this.leader.shouldRun()) {
-      this.log.log(
-        'Not the cron leader; script schedules run on another replica.',
-      );
-      return;
-    }
+    // The timer runs on every replica, leader or not. Leadership moves
+    // mid-life (a leader that dies or loses its connection is replaced
+    // within seconds), so a replica that only registered schedules when
+    // it led at boot would leave a new leader with none, and nothing
+    // would fire until both replicas happened to restart in the right
+    // order. reconcile() registers while this replica leads and drops
+    // everything while it does not.
     void this.reconcileSafely();
     this.timer = setInterval(() => void this.reconcileSafely(), RECONCILE_MS);
     // Never hold the process open for this.
@@ -129,6 +130,17 @@ export class ScriptScheduleService
   }
 
   private async reconcile(): Promise<void> {
+    if (!this.leader.shouldRun()) {
+      if (this.jobs.size > 0) {
+        this.log.log(
+          'No longer the cron leader; script schedules run on another replica.',
+        );
+      }
+      for (const scriptId of [...this.jobs.keys()]) {
+        this.unregister(scriptId);
+      }
+      return;
+    }
     // Raw, and selecting only the schedule sub-object, because the
     // Python source lives on the same JSON column and can be a quarter
     // of a megabyte per item. Pulling every script's whole body once a

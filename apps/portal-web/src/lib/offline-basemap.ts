@@ -3,6 +3,7 @@ import type * as maplibregl from 'maplibre-gl';
 import { FileSource, PMTiles } from 'pmtiles';
 import { layers, namedFlavor } from '@protomaps/basemaps';
 import { registerPmtilesArchive } from './custom-basemap';
+import { knownAreasKey } from './offline-basemap-areas';
 
 /**
  * The offline basemap: one prepared archive, held on the device,
@@ -195,6 +196,9 @@ export async function removeAllOfflineBasemaps(
       if (!path.startsWith(prefix)) continue;
       if (await cache.delete(request)) removed += 1;
     }
+    // The saved area list that lets the deployment open offline goes
+    // with the archives it describes.
+    await cache.delete(knownAreasKey(itemId));
     return removed;
   } catch {
     return 0;
@@ -242,25 +246,51 @@ export async function offlineBasemapStyle(
   itemId: string,
   areaIds: string[],
 ): Promise<{
-  style: maplibregl.StyleSpecification;
+  style: maplibregl.StyleSpecification | null;
   includedAreaIds: string[];
+  /** Archives whose header could not be read: corrupt, safe to drop. */
+  corruptAreaIds: string[];
 } | null> {
   if (typeof caches === 'undefined' || areaIds.length === 0) return null;
   const cache = await caches.open(OFFLINE_BASEMAP_CACHE);
 
-  const archives: Array<{ areaId: string; name: string; archive: PMTiles }> =
-    [];
+  const archives: Array<{
+    areaId: string;
+    name: string;
+    archive: PMTiles;
+    header: Awaited<ReturnType<PMTiles['getHeader']>>;
+  }> = [];
+  const corruptAreaIds: string[] = [];
   for (const areaId of areaIds) {
-    const hit = await cache.match(cacheKeyFor(itemId, areaId));
-    if (!hit) continue;
-    const blob = await hit.blob();
+    // A read error is not corruption (the cache can be busy or out of
+    // quota), so skip that archive this time without condemning it.
+    let blob: Blob;
+    try {
+      const hit = await cache.match(cacheKeyFor(itemId, areaId));
+      if (!hit) continue;
+      blob = await hit.blob();
+    } catch {
+      continue;
+    }
     const name = archiveNameFor(itemId, areaId);
     const file = new File([blob], name, { type: 'application/vnd.pmtiles' });
     const archive = new PMTiles(new FileSource(file));
+    // Check every archive's header, not just the first: one bad
+    // archive used to make the caller drop every stored area, and a
+    // bad one in a later position was never noticed at all.
+    let header: Awaited<ReturnType<PMTiles['getHeader']>>;
+    try {
+      header = await archive.getHeader();
+    } catch {
+      corruptAreaIds.push(areaId);
+      continue;
+    }
     registerPmtilesArchive(archive);
-    archives.push({ areaId, name, archive });
+    archives.push({ areaId, name, archive, header });
   }
-  if (archives.length === 0) return null;
+  if (archives.length === 0) {
+    return { style: null, includedAreaIds: [], corruptAreaIds };
+  }
 
   const sources: Record<string, unknown> = {};
   const styleLayers: unknown[] = [];
@@ -283,10 +313,11 @@ export async function offlineBasemapStyle(
     }
   });
 
-  const header = await archives[0]!.archive.getHeader();
+  const header = archives[0]!.header;
 
   return {
     includedAreaIds: archives.map((a) => a.areaId),
+    corruptAreaIds,
     style: {
       version: 8,
       glyphs: GLYPHS,

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { parseApiError } from '@/lib/api-error';
 
 export interface HousekeepingConfig {
   autoTrashEnabled: boolean;
@@ -37,7 +38,26 @@ export interface HousekeepingConfig {
   scheduleDayOfWeek: number | null;
   scheduleSummary: string;
   effectiveCron: string | null;
+  /** Zone the hour and minute are read in (the API server's). */
+  timeZone?: string;
 }
+
+/** The fields Save sends. "Run now" uses the saved values, so the
+ *  form counts as unsaved when any of these differ. */
+const EDITABLE_KEYS = [
+  'autoTrashEnabled',
+  'autoTrashDays',
+  'autoDisableEnabled',
+  'autoDisableDays',
+  'recomputeExtentsEnabled',
+  'fieldQueueStaleDays',
+  'fieldQueueAutoPruneEnabled',
+  'fieldQueueAutoPruneGraceDays',
+  'scheduleMode',
+  'scheduleHour',
+  'scheduleMinute',
+  'scheduleDayOfWeek',
+] as const;
 
 export interface HousekeepingRun {
   id: string;
@@ -84,6 +104,8 @@ export function HousekeepingScheduleCard({
   const t = useT();
   const router = useRouter();
   const [config, setConfig] = useState<HousekeepingConfig>(initialConfig);
+  const [savedConfig, setSavedConfig] = useState<HousekeepingConfig>(initialConfig);
+  const unsaved = EDITABLE_KEYS.some((k) => config[k] !== savedConfig[k]);
   const [runs, setRuns] = useState<HousekeepingRun[]>(initialRuns);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
@@ -123,13 +145,18 @@ export function HousekeepingScheduleCard({
         }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       const next = (await res.json()) as HousekeepingConfig;
       setConfig(next);
+      setSavedConfig(next);
       setSavedFlash(true);
       setTimeout(() => setSavedFlash(false), 1500);
+    } catch (e) {
+      // A dropped connection rejects fetch; say so instead of
+      // stopping the spinner with nothing saved.
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
@@ -143,12 +170,14 @@ export function HousekeepingScheduleCard({
         method: 'POST',
       });
       if (!res.ok) {
-        setError(`Run failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Run failed'));
         return;
       }
       const run = (await res.json()) as HousekeepingRun;
       setRuns((cur) => [run, ...cur].slice(0, 10));
       router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setRunning(false);
     }
@@ -326,6 +355,9 @@ export function HousekeepingScheduleCard({
         <label className="text-xs">
           <span className="mb-1 block uppercase tracking-wide text-muted">
             {t('adminHousekeeping.scheduleHour')}
+            {config.timeZone ? (
+              <> ({t('adminHousekeeping.scheduleServerTime', { zone: config.timeZone })})</>
+            ) : null}
           </span>
           <input
             type="number"
@@ -396,7 +428,11 @@ export function HousekeepingScheduleCard({
         <button
           type="button"
           onClick={runNow}
-          disabled={running || saving}
+          // The run uses the saved settings, not the form. With
+          // unsaved edits it would trash or disable by the old rules
+          // while the screen showed the new ones.
+          disabled={running || saving || unsaved}
+          title={unsaved ? t('adminHousekeeping.scheduleRunNowUnsaved') : undefined}
           className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         >
           {running ? (
@@ -487,7 +523,7 @@ function StatusPill({ status }: { status: HousekeepingRun['status'] }) {
       ? 'bg-success/15 text-success'
       : status === 'failed'
         ? 'bg-danger/15 text-danger'
-        : 'bg-warning/15 text-warning';
+        : 'bg-warn/15 text-warn';
   return (
     <span
       className={`rounded px-1.5 py-0.5 text-2xs font-medium ${cls}`}

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { RelativeTime } from '@/components/relative-time';
 import Link from 'next/link';
 import { Download, FileText, ImageIcon, FileType2 } from 'lucide-react';
 import type { FileData } from '@gratis-gis/shared-types';
 import { CopyUrlButton } from './copy-url-button';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * File item detail body (#296). Two parts:
@@ -14,11 +14,12 @@ import { CopyUrlButton } from './copy-url-button';
  *      get an <iframe>; everything else falls back to a generic
  *      "no preview" tile so the user still sees the file's identity.
  *
- * The Download button uses Content-Disposition via the `download`
- * attribute so the browser saves with the original filename rather
- * than the random storage UUID. The href is the public MinIO URL --
- * gating is by item visibility (the item-detail page already 404s
- * for users who can't see it).
+ * `storageUrl` is the portal's private file route
+ * (/api/portal/storage/private/item-file/<key>), on this origin. It
+ * checks read access on the item and sends the original filename in
+ * Content-Disposition. It does not apply the download tier: anyone
+ * who can see the item can fetch the file. Hiding Download and showing
+ * "View only" is a hint, not a lock (a product decision, kept).
  */
 export function FileDetail({ data, canDownload }: { data: FileData; canDownload: boolean }) {
   const previewKind = pickPreviewKind(data.mimeType);
@@ -31,28 +32,24 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
             {data.fileName || '(unnamed file)'}
           </div>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-            <span>{humanFileSize(data.sizeBytes)}</span>
+            <span>{formatBytes(data.sizeBytes)}</span>
             <span className="font-mono">{data.mimeType}</span>
             {data.uploadedAt ? (
-              <span>uploaded {formatRelative(data.uploadedAt)}</span>
+              <span>uploaded <RelativeTime value={data.uploadedAt} /></span>
             ) : null}
           </div>
         </div>
         {data.storageUrl ? (
-          // Copy URL is available to anyone who can see the item.
-          // The URL itself isn't a secret — it's the public-ish
-          // MinIO link that the runtime resolves for embedded
-          // images. Gating is by item visibility (the item-detail
-          // page already 404s for users who can't see it).
+          // Copy URL is available to anyone who can see the item. The
+          // route behind it checks read access on every request, so
+          // the link is no use to someone who cannot see the item.
           <CopyUrlButton url={data.storageUrl} />
         ) : null}
         {canDownload && data.storageUrl ? (
           <a
-            // Anchor `download` only honors a same-origin filename hint
-            // unless the response sets Content-Disposition; MinIO's
-            // bucket policy serves objects with their stored name (the
-            // UUID key). Pass the original filename here so the
-            // browser at least suggests it on save.
+            // The route sends the original filename in
+            // Content-Disposition; `download` repeats it for browsers
+            // that read the attribute first.
             href={data.storageUrl}
             download={data.fileName || undefined}
             target="_blank"
@@ -71,10 +68,9 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
 
       {previewKind === 'image' && data.storageUrl ? (
         <div className="rounded-lg border border-border bg-surface-2 p-2">
-          {/* eslint-disable-next-line @next/next/no-img-element -- the
-              MinIO origin isn't in next.config images.domains; using a
-              raw <img> avoids forcing every operator to whitelist
-              their MinIO host. */}
+          {/* eslint-disable-next-line @next/next/no-img-element -- a
+              plain <img> of the file route, so the request goes
+              straight to it with the viewer's session. */}
           <img
             src={data.storageUrl}
             alt={data.fileName}
@@ -85,8 +81,10 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
 
       {previewKind === 'pdf' && data.storageUrl ? (
         <div className="rounded-lg border border-border bg-surface-2 p-2">
+          {/* `inline=1` makes the route serve the PDF in the page,
+              under a sandbox policy, instead of as a download. */}
           <iframe
-            src={data.storageUrl}
+            src={inlinePdfUrl(data.storageUrl)}
             title={data.fileName}
             className="h-[70vh] w-full rounded border border-border bg-white"
           />
@@ -115,6 +113,10 @@ export function FileDetail({ data, canDownload }: { data: FileData; canDownload:
   );
 }
 
+function inlinePdfUrl(url: string): string {
+  return `${url}${url.includes('?') ? '&' : '?'}inline=1`;
+}
+
 function FilePreviewIcon({ kind }: { kind: PreviewKind }) {
   if (kind === 'image') return <ImageIcon className="h-6 w-6 shrink-0 text-accent" />;
   if (kind === 'pdf') return <FileType2 className="h-6 w-6 shrink-0 text-accent" />;
@@ -130,28 +132,3 @@ function pickPreviewKind(mime: string): PreviewKind {
   return 'other';
 }
 
-function humanFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function formatRelative(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const ms = Date.now() - d.getTime();
-    const sec = Math.round(ms / 1000);
-    if (sec < 60) return 'just now';
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.round(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const day = Math.round(hr / 24);
-    if (day < 30) return `${day}d ago`;
-    return formatDate(d, DEFAULT_LOCALE);
-  } catch {
-    return iso;
-  }
-}

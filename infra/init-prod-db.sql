@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Runs once, on first postgres container boot in PRODUCTION.
 -- See init-prod-db.sh for the Keycloak role + database creation
 -- (split out so we can pass the password via psql -v).
@@ -18,4 +19,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 
 CREATE SCHEMA IF NOT EXISTS tiles;
-GRANT USAGE ON SCHEMA tiles TO gratisgis;
+-- CURRENT_USER, not a fixed name: POSTGRES_USER is configurable, and a
+-- missing role failed the whole first-boot init (Keycloak's database
+-- was then never created).
+GRANT USAGE ON SCHEMA tiles TO CURRENT_USER;

@@ -59,6 +59,9 @@ interface Props {
   itemId: string;
   layers: PreviewLayer[];
   className?: string;
+  /** The item's updatedAt. When it changes (an import finished, rows
+   *  were edited) the preview reloads its tiles. */
+  version?: string | undefined;
 }
 
 function unionBbox(
@@ -80,9 +83,20 @@ function unionBbox(
   return out;
 }
 
-export function ItemMapPreview({ itemId, layers, className }: Props) {
+function tileUrl(itemId: string, layerId: string, version: string): string {
+  const base =
+    `${window.location.origin}/api/portal/items/${encodeURIComponent(itemId)}` +
+    `/layers/${encodeURIComponent(layerId)}/tile/{z}/{x}/{y}.mvt`;
+  return version ? `${base}?v=${encodeURIComponent(version)}` : base;
+}
+
+export function ItemMapPreview({ itemId, layers, className, version = '' }: Props) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  // What the loaded map shows: the extent and the item version its
+  // tiles were fetched for. Null until the map has loaded.
+  const shownRef = useRef<{ bboxKey: string; version: string } | null>(null);
   const [failed, setFailed] = useState(false);
 
   // Attribute-only layers have no geometry and nothing to draw.
@@ -99,6 +113,7 @@ export function ItemMapPreview({ itemId, layers, className }: Props) {
   const layerKey = spatial
     .map((l) => `${l.id}:${l.geometryType}`)
     .join('|');
+  const bboxKey = bbox ? bbox.join(',') : '';
 
   useEffect(() => {
     const container = containerRef.current;
@@ -130,15 +145,14 @@ export function ItemMapPreview({ itemId, layers, className }: Props) {
       setFailed(true);
     });
 
+    mapRef.current = map;
     map.on('load', () => {
+      shownRef.current = { bboxKey, version };
       for (const layer of spatial) {
         const sourceId = `layer-${layer.id}`;
         map.addSource(sourceId, {
           type: 'vector',
-          tiles: [
-            `${window.location.origin}/api/portal/items/${itemId}` +
-              `/layers/${encodeURIComponent(layer.id)}/tile/{z}/{x}/{y}.mvt`,
-          ],
+          tiles: [tileUrl(itemId, layer.id, version)],
           minzoom: 0,
           maxzoom: 22,
         });
@@ -201,11 +215,42 @@ export function ItemMapPreview({ itemId, layers, className }: Props) {
     return () => {
       observer.disconnect();
       map.remove();
+      mapRef.current = null;
+      shownRef.current = null;
     };
     // `spatial` and `bbox` are derived from `layers` on every render;
     // `layerKey` is the stable primitive that stands in for both.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId, layerKey]);
+
+  // A finished import changes the item (and usually its extent from
+  // none to real) without changing `layerKey`, so the map above is not
+  // rebuilt. Reload the tiles, past MapLibre's cache of the empty ones,
+  // and fit the camera when the layer first gets an extent.
+  useEffect(() => {
+    const map = mapRef.current;
+    const shown = shownRef.current;
+    if (!map || !shown) return;
+    if (shown.bboxKey === bboxKey && shown.version === version) return;
+    const firstExtent = shown.bboxKey === '' && bbox !== null;
+    shownRef.current = { bboxKey, version };
+    for (const layer of spatial) {
+      const src = map.getSource(`layer-${layer.id}`) as
+        | maplibregl.VectorTileSource
+        | undefined;
+      src?.setTiles([tileUrl(itemId, layer.id, `${version}|${bboxKey}`)]);
+    }
+    if (firstExtent && bbox) {
+      map.fitBounds(
+        [
+          [bbox[0], bbox[1]],
+          [bbox[2], bbox[3]],
+        ],
+        { padding: 24, duration: 0, maxZoom: 14 },
+      );
+    }
+    // Keyed on the primitives; `spatial` and `bbox` follow from them.
+  }, [bboxKey, version]);
 
   if (spatial.length === 0) {
     return (

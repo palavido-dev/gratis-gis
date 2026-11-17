@@ -20,12 +20,15 @@ import type {
   GeoBoundaryGeometry,
 } from '@gratis-gis/shared-types';
 import { importSpatialFile } from '@/lib/spatial-import';
+import { planBoundarySeed } from '@/lib/geo-boundary-seed';
+import { clientUuid } from '@/lib/uuid';
 import {
   TerraDraw,
   TerraDrawPolygonMode,
   TerraDrawSelectMode,
 } from 'terra-draw';
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
+import { geometryBbox } from '@/lib/geo-bbox';
 
 /**
  * Minimal raster OSM style used as the preview backdrop. The geo-
@@ -92,8 +95,16 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
+  // What the server holds now. The `initial` prop never changes after
+  // a save, so comparing with it left the editor "dirty" for good and
+  // every extra click saved the same data again.
+  const [baseline, setBaseline] = useState<GeoBoundaryData>(initial);
+  // Bumped by "Clear geometry" on the Draw tab so the drawing panel
+  // starts over too. It kept the old polygon in terra-draw, which
+  // stayed on screen and came back with the next finished shape.
+  const [drawResetKey, setDrawResetKey] = useState(0);
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
 
   async function handleSave() {
     if (!dirty) return;
@@ -128,6 +139,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
         return;
       }
       setDraft(payload);
+      setBaseline(payload);
       setSavedNotice(true);
       setTimeout(() => setSavedNotice(false), 2500);
     } catch (e) {
@@ -155,6 +167,7 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
 
       {canEdit && tab === 'draw' ? (
         <DrawPanel
+          key={drawResetKey}
           geometry={draft.geometry}
           onApply={applyGeometry}
         />
@@ -173,9 +186,9 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
             // Draw tab uses the map preview itself for input; no
             // extra panel below the tabs.
             <p className="text-2xs text-muted">
-              Click the map to drop polygon vertices. Double-click the
-              last point or close the ring back on the first vertex
-              to finish. Use the trash icon to clear and start over.
+              {draft.geometry
+                ? 'Click the boundary to select it, then drag it or its vertices; press Delete to remove a selected vertex. Use Clear and start over to draw a new one.'
+                : 'Click the map to drop polygon vertices. Double-click the last point or close the ring back on the first vertex to finish.'}
             </p>
           )}
 
@@ -205,7 +218,10 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
               {draft.geometry ? (
                 <button
                   type="button"
-                  onClick={() => applyGeometry(null)}
+                  onClick={() => {
+                    applyGeometry(null);
+                    if (tab === 'draw') setDrawResetKey((k) => k + 1);
+                  }}
                   className="inline-flex items-center gap-1 rounded border border-border bg-surface-0 px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-ink-1"
                 >
                   <Trash2 className="h-3 w-3" />
@@ -259,6 +275,12 @@ export function GeoBoundaryEditor({ itemId, initial, canEdit }: Props) {
 function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // `load` fires once per map. isStyleLoaded() is false again whenever
+  // tiles are loading, and an update made then waited on a `load`
+  // that never came, so the preview kept showing the old shape.
+  const loadedRef = useRef(false);
+  const geometryRef = useRef(geometry);
+  geometryRef.current = geometry;
 
   // One-time map init. Inline OSM style keeps this page from
   // depending on the org's basemap item library; admins editing their
@@ -275,73 +297,24 @@ function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null })
     });
     mapRef.current = m;
     m.addControl(new maplibregl.NavigationControl({ visualizePitch: false }));
+    m.once('load', () => {
+      loadedRef.current = true;
+      showBoundary(m, geometryRef.current);
+    });
     return () => {
       m.remove();
       mapRef.current = null;
+      loadedRef.current = false;
     };
   }, []);
 
   // Sync the geometry into a 'boundary' source + fill/line layers
-  // whenever it changes.
+  // whenever it changes. Before the first load the load handler
+  // above draws the latest geometry.
   useEffect(() => {
     const m = mapRef.current;
-    if (!m) return;
-    const apply = () => {
-      const src = m.getSource('boundary') as
-        | maplibregl.GeoJSONSource
-        | undefined;
-      // Cast through `unknown` because GeoBoundaryGeometry's union
-      // type ('Polygon' | 'MultiPolygon') is structurally narrower
-      // than GeoJSON.Geometry and TS can't widen implicitly.
-      const feature: GeoJSON.Feature = geometry
-        ? ({
-            type: 'Feature',
-            geometry: geometry as unknown as GeoJSON.Geometry,
-            properties: {},
-          } as GeoJSON.Feature)
-        : (null as unknown as GeoJSON.Feature);
-      const data: GeoJSON.FeatureCollection = {
-        type: 'FeatureCollection',
-        features: geometry ? [feature] : [],
-      };
-      if (!src) {
-        m.addSource('boundary', { type: 'geojson', data });
-        m.addLayer({
-          id: 'boundary-fill',
-          type: 'fill',
-          source: 'boundary',
-          paint: {
-            'fill-color': '#2563eb',
-            'fill-opacity': 0.2,
-          },
-        });
-        m.addLayer({
-          id: 'boundary-line',
-          type: 'line',
-          source: 'boundary',
-          paint: {
-            'line-color': '#1d4ed8',
-            'line-width': 2,
-          },
-        });
-      } else {
-        src.setData(data);
-      }
-      if (geometry) {
-        const b = computeBBox(geometry);
-        if (b) {
-          m.fitBounds(
-            [
-              [b[0], b[1]],
-              [b[2], b[3]],
-            ],
-            { padding: 40, duration: 600, maxZoom: 12 },
-          );
-        }
-      }
-    };
-    if (m.isStyleLoaded()) apply();
-    else m.once('load', apply);
+    if (!m || !loadedRef.current) return;
+    showBoundary(m, geometry);
   }, [geometry]);
 
   return (
@@ -350,6 +323,64 @@ function BoundaryPreview({ geometry }: { geometry: GeoBoundaryGeometry | null })
       className="h-[360px] w-full overflow-hidden rounded-md border border-border bg-surface-0"
     />
   );
+}
+
+function showBoundary(
+  m: maplibregl.Map,
+  geometry: GeoBoundaryGeometry | null,
+): void {
+  const src = m.getSource('boundary') as
+    | maplibregl.GeoJSONSource
+    | undefined;
+  // Cast through `unknown` because GeoBoundaryGeometry's union
+  // type ('Polygon' | 'MultiPolygon') is structurally narrower
+  // than GeoJSON.Geometry and TS can't widen implicitly.
+  const feature: GeoJSON.Feature = geometry
+    ? ({
+        type: 'Feature',
+        geometry: geometry as unknown as GeoJSON.Geometry,
+        properties: {},
+      } as GeoJSON.Feature)
+    : (null as unknown as GeoJSON.Feature);
+  const data: GeoJSON.FeatureCollection = {
+    type: 'FeatureCollection',
+    features: geometry ? [feature] : [],
+  };
+  if (!src) {
+    m.addSource('boundary', { type: 'geojson', data });
+    m.addLayer({
+      id: 'boundary-fill',
+      type: 'fill',
+      source: 'boundary',
+      paint: {
+        'fill-color': '#2563eb',
+        'fill-opacity': 0.2,
+      },
+    });
+    m.addLayer({
+      id: 'boundary-line',
+      type: 'line',
+      source: 'boundary',
+      paint: {
+        'line-color': '#1d4ed8',
+        'line-width': 2,
+      },
+    });
+  } else {
+    src.setData(data);
+  }
+  if (geometry) {
+    const b = computeBBox(geometry);
+    if (b) {
+      m.fitBounds(
+        [
+          [b[0], b[1]],
+          [b[2], b[3]],
+        ],
+        { padding: 40, duration: 600, maxZoom: 12 },
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------
@@ -393,7 +424,25 @@ function DrawPanel({
       if (cancelled) return;
       const draw = new TerraDraw({
         adapter: new TerraDrawMapLibreGLAdapter({ map: m }),
-        modes: [new TerraDrawPolygonMode(), new TerraDrawSelectMode()],
+        // Without flags select mode can select nothing, so a seeded
+        // boundary could only be cleared, never moved or reshaped.
+        modes: [
+          new TerraDrawPolygonMode(),
+          new TerraDrawSelectMode({
+            flags: {
+              polygon: {
+                feature: {
+                  draggable: true,
+                  coordinates: {
+                    midpoints: true,
+                    draggable: true,
+                    deletable: true,
+                  },
+                },
+              },
+            },
+          }),
+        ],
       });
       draw.start();
       drawRef.current = draw;
@@ -407,18 +456,22 @@ function DrawPanel({
       // Bug fix: TerraDraw v1 validates each seeded feature's id
       // as a UUID and silently throws when it isn't. The previous
       // `existing-${i}` ids failed that check, which surfaced as
-      // "saved boundary doesn't render in the editor." Use proper
-      // UUIDs (crypto.randomUUID is available in modern browsers
-      // and on the SSR path) so TerraDraw accepts the seed.
+      // "saved boundary doesn't render in the editor." clientUuid
+      // is a real UUID on the SSR path and on http://<lan-ip>,
+      // where crypto.randomUUID is missing.
       if (geometry) {
-        try {
-          const polys: number[][][][] =
-            geometry.type === 'Polygon'
-              ? [geometry.coordinates as unknown as number[][][]]
-              : (geometry.coordinates as unknown as number[][][][]);
-          draw.addFeatures(
-            polys.map((coords) => ({
-              id: crypto.randomUUID(),
+        // terra-draw does not throw for a feature it refuses: it
+        // leaves it out and reports it in the returned list. Coordinates
+        // are cut to what it accepts first (see planBoundarySeed), and
+        // anything it still refuses, or a polygon with holes, is shown
+        // as a read-only layer so the saved boundary stays visible. A
+        // newly drawn shape then replaces it.
+        const plan = planBoundarySeed(geometry);
+        let seeded = false;
+        if (!plan.readOnly && plan.polygons.length > 0) {
+          const results = draw.addFeatures(
+            plan.polygons.map((coords) => ({
+              id: clientUuid(),
               type: 'Feature' as const,
               geometry: {
                 type: 'Polygon' as const,
@@ -427,76 +480,50 @@ function DrawPanel({
               properties: { mode: 'polygon' },
             })),
           );
-          // Fit the camera to the seeded geometry so the user sees
-          // their existing boundary instead of the world-default
-          // center [-98, 39] / zoom 3. Without this the polygon is
-          // rendered correctly but may be off-screen at the default
-          // zoom, which reads as "the editor doesn't show my
-          // boundary." Mirrors what BoundaryPreview already does.
-          const b = computeBBox(geometry);
-          if (b) {
-            m.fitBounds(
-              [
-                [b[0], b[1]],
-                [b[2], b[3]],
-              ],
-              { padding: 40, duration: 0, maxZoom: 12 },
-            );
-          }
-        } catch (err) {
-          // TerraDraw refused to seed the saved geometry (most
-          // likely a future shape constraint we don't know about
-          // yet). Fall back to rendering the polygon as a
-          // read-only maplibre layer so the user at least SEES
-          // their saved boundary instead of an empty map. They
-          // can still draw a new polygon to replace it; clearing
-          // the geometry through Clear or Upload paths will
-          // remove this preview as well because they re-enter
-          // the editor with fresh state.
-          // eslint-disable-next-line no-console
-          console.warn(
-            'TerraDraw rejected the seeded boundary geometry; falling back to a read-only preview layer.',
-            err,
-          );
-          const fallbackFeature: GeoJSON.Feature = {
-            type: 'Feature',
-            geometry: geometry as unknown as GeoJSON.Geometry,
-            properties: {},
-          };
+          seeded = results.every((r) => r.valid);
+          if (!seeded) draw.clear();
+        }
+        if (!seeded) {
           const fallbackData: GeoJSON.FeatureCollection = {
             type: 'FeatureCollection',
-            features: [fallbackFeature],
+            features: [
+              {
+                type: 'Feature',
+                geometry: geometry as unknown as GeoJSON.Geometry,
+                properties: {},
+              },
+            ],
           };
-          if (!m.getSource('boundary-fallback')) {
-            m.addSource('boundary-fallback', {
-              type: 'geojson',
-              data: fallbackData,
-            });
-            m.addLayer({
-              id: 'boundary-fallback-fill',
-              type: 'fill',
-              source: 'boundary-fallback',
-              paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.2 },
-            });
-            m.addLayer({
-              id: 'boundary-fallback-line',
-              type: 'line',
-              source: 'boundary-fallback',
-              paint: { 'line-color': '#1d4ed8', 'line-width': 2 },
-            });
-          }
-          const b = computeBBox(geometry);
-          if (b) {
-            m.fitBounds(
-              [
-                [b[0], b[1]],
-                [b[2], b[3]],
-              ],
-              { padding: 40, duration: 0, maxZoom: 12 },
-            );
-          }
+          m.addSource('boundary-fallback', {
+            type: 'geojson',
+            data: fallbackData,
+          });
+          m.addLayer({
+            id: 'boundary-fallback-fill',
+            type: 'fill',
+            source: 'boundary-fallback',
+            paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.2 },
+          });
+          m.addLayer({
+            id: 'boundary-fallback-line',
+            type: 'line',
+            source: 'boundary-fallback',
+            paint: { 'line-color': '#1d4ed8', 'line-width': 2 },
+          });
         }
-        draw.setMode('select');
+        // Fit the camera to the saved geometry so the user sees it
+        // instead of the world-default center.
+        const b = computeBBox(geometry);
+        if (b) {
+          m.fitBounds(
+            [
+              [b[0], b[1]],
+              [b[2], b[3]],
+            ],
+            { padding: 40, duration: 0, maxZoom: 12 },
+          );
+        }
+        draw.setMode(seeded ? 'select' : 'polygon');
       } else {
         draw.setMode('polygon');
       }
@@ -828,45 +855,16 @@ function extractPolygonGeometryFromAny(
   return null;
 }
 
-/**
- * Minimum / maximum longitude + latitude of a polygon geometry.
- * Walks every coord exactly once; no external dep.
- */
+/** Minimum / maximum longitude + latitude of a polygon geometry. */
 function computeBBox(
   g: GeoBoundaryGeometry,
 ): [number, number, number, number] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  const visit = (coord: GeoJSON.Position) => {
-    // Positions are [lon, lat, (elev)]; we only care about the first
-    // two. Under noUncheckedIndexedAccess the 0 / 1 reads are typed
-    // `number | undefined`, so we guard before comparing.
-    const x = coord[0];
-    const y = coord[1];
-    if (typeof x !== 'number' || typeof y !== 'number') return;
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-  };
-  const rings =
-    g.type === 'Polygon'
-      ? [g.coordinates as GeoJSON.Position[][]]
-      : (g.coordinates as GeoJSON.Position[][][]);
-  for (const poly of rings) {
-    for (const ring of poly) {
-      for (const pt of ring) visit(pt);
-    }
-  }
-  if (!Number.isFinite(minX)) return null;
-  return [minX, minY, maxX, maxY];
+  return geometryBbox(g);
 }
 
 /**
- * Rough spherical-polygon area in kmAï¿½, adequate for operator-facing
- * "this boundary covers N kmAï¿½" summaries. Not a replacement for
+ * Rough spherical-polygon area in km², adequate for operator-facing
+ * "this boundary covers N km²" summaries. Not a replacement for
  * PostGIS on the server: the API still computes its own answer for
  * anywhere that needs precision.
  */

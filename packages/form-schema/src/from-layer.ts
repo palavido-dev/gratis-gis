@@ -126,6 +126,12 @@ const SYSTEM_FIELDS: ReadonlySet<string> = new Set([
   'st_length',
   'valid_from',
   'valid_to',
+  // The server stamps these on form submissions (shared-types
+  // SERVER_STAMPED_FIELDS; this package cannot import it). Asking a
+  // collector for them made a required "Submitted at" block the form.
+  'submitted_at',
+  'submitted_by',
+  'schema_version',
 ]);
 
 function isSystemField(name: string): boolean {

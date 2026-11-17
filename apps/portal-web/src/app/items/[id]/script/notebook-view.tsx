@@ -54,8 +54,21 @@ interface Output {
  *  the tab it is being read in. */
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
-const joinSource = (src: string[] | string | undefined): string =>
-  Array.isArray(src) ? src.join('') : (src ?? '');
+/**
+ * Join a notebook text field. The executed notebook is read back from
+ * the run directory, which the script itself can write to, so its
+ * shape is not trusted: anything that is not a string or an array of
+ * strings becomes empty text instead of throwing during render.
+ */
+const joinSource = (src: unknown): string =>
+  typeof src === 'string'
+    ? src
+    : Array.isArray(src)
+      ? src.map((s) => (typeof s === 'string' ? s : '')).join('')
+      : '';
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Jupyter tracebacks carry ANSI colour; strip it rather than print it. */
 // eslint-disable-next-line no-control-regex
@@ -65,7 +78,7 @@ export function NotebookView({ source }: { source: string }) {
   const parsed = useMemo(() => {
     try {
       const nb = JSON.parse(source) as { cells?: Cell[] };
-      return Array.isArray(nb.cells) ? nb.cells : null;
+      return Array.isArray(nb.cells) ? nb.cells.filter(isObject) : null;
     } catch {
       return null;
     }
@@ -105,19 +118,26 @@ function CellView({ cell }: { cell: Cell }) {
           {text}
         </pre>
       ) : null}
-      {(cell.outputs ?? []).map((out, i) => (
-        <OutputView key={i} out={out} />
-      ))}
+      {(Array.isArray(cell.outputs) ? cell.outputs.filter(isObject) : []).map(
+        (out, i) => (
+          <OutputView key={i} out={out as Output} />
+        ),
+      )}
     </div>
   );
 }
 
 function OutputView({ out }: { out: Output }) {
   if (out.output_type === 'error') {
-    const trace = (out.traceback ?? []).join('\n').replace(ANSI, '');
+    const trace = (Array.isArray(out.traceback) ? out.traceback : [])
+      .filter((l): l is string => typeof l === 'string')
+      .join('\n')
+      .replace(ANSI, '');
+    const ename = typeof out.ename === 'string' ? out.ename : 'Error';
+    const evalue = typeof out.evalue === 'string' ? out.evalue : '';
     return (
       <pre className="overflow-x-auto border-t border-border bg-danger/5 p-3 font-mono text-xs leading-relaxed text-danger">
-        {trace || `${out.ename ?? 'Error'}: ${out.evalue ?? ''}`}
+        {trace || `${ename}: ${evalue}`}
       </pre>
     );
   }
@@ -130,7 +150,7 @@ function OutputView({ out }: { out: Output }) {
     );
   }
 
-  const data = out.data ?? {};
+  const data = isObject(out.data) ? out.data : {};
 
   for (const mime of ['image/png', 'image/jpeg'] as const) {
     const raw = data[mime];
@@ -160,7 +180,7 @@ function OutputView({ out }: { out: Output }) {
   if (plain !== undefined) {
     return (
       <pre className="overflow-x-auto border-t border-border bg-surface-1 p-3 font-mono text-xs leading-relaxed text-ink-1">
-        {joinSource(plain as string[] | string)}
+        {joinSource(plain)}
       </pre>
     );
   }

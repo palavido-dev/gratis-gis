@@ -67,9 +67,21 @@ export function cellForGeometry(
   geom: GeoJsonGeometry | null,
 ): string | null {
   if (geom === null) return null;
-  const point = representativePoint(geom);
-  if (point === null) return null;
-  const [lng, lat] = point;
+  // The geometry comes from a request body checked only as "an
+  // object": a Point without coordinates, or an empty array, threw a
+  // TypeError (a 500) here. Nothing reads the cell, so a shape this
+  // cannot use simply gets none.
+  let point: unknown;
+  try {
+    point = representativePoint(geom);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(point)) return null;
+  const [lng, lat] = point as unknown[];
+  if (typeof lng !== 'number' || typeof lat !== 'number') return null;
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
   // h3-js takes lat then lng, opposite of GeoJSON.
   return latLngToCell(lat, lng, H3_RESOLUTION);
 }

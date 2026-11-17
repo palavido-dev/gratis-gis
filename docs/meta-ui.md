@@ -47,6 +47,10 @@ item" instead of each re-deriving endpoints from `item.data`.
 - Downloads prefer auth-gated item routes (`/api/items/...`,
   `/api/portal/tile-layer/...`, `/api/portal/point-cloud/...`).
   Public items also get the anonymous OGC Features URL.
+- A data layer lists every sublayer, tables included. A table has
+  `"geometryType": null`: it has rows but nothing to draw. portal-web
+  adds it to the map and lists it under Tables; a client that only
+  draws should skip it.
 - Empty `layers` means "not map-stamped here"; open `landingPath`
   instead (maps, web apps, forms).
 - List endpoints do **not** include `meta.ui` (payload size).

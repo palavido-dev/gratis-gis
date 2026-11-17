@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
+import { useT } from '@/lib/i18n/locale-context';
+import { useMemo, useRef, useState, useTransition } from 'react';
+import { pickListSaveKey } from '@/lib/pick-list-save-key';
 import { useRouter } from 'next/navigation';
 import {
   AlertTriangle,
@@ -22,6 +25,7 @@ import type {
   PickListEntry,
 } from '@gratis-gis/shared-types';
 import { DEFAULT_PICK_LIST } from '@gratis-gis/shared-types';
+import { parseApiError } from '@/lib/api-error';
 
 /**
  * Detail-page editor for a `pick_list` item.
@@ -41,13 +45,17 @@ import { DEFAULT_PICK_LIST } from '@gratis-gis/shared-types';
  */
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initial: PickListData;
   canEdit: boolean;
 }
 
 type DupePolicy = 'reject' | 'replace';
 
-export function PickListEditor({ itemId, initial, canEdit }: Props) {
+export function PickListEditor({ itemId, initial, canEdit, updatedAt }: Props) {
+  const t = useT();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const router = useRouter();
   const [data, setData] = useState<PickListData>(() => ({
     ...DEFAULT_PICK_LIST,
@@ -55,6 +63,11 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
     entries: Array.isArray(initial?.entries) ? initial.entries.slice() : [],
     version: 3,
   }));
+  // The entries as last saved, in the shape save() sends. Dirty is a
+  // comparison against this, not a reference check: `data` starts as
+  // a fresh copy of `initial`, so `data !== initial` was true on load
+  // and stayed true after a save.
+  const [savedKey, setSavedKey] = useState(() => pickListSaveKey(data));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,10 +79,10 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
   const [, startTransition] = useTransition();
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  // Reference-equality dirty check. The setters below always create a
-  // new object, so `data !== initial` is sufficient once the user has
-  // made any change at all.
-  const dirty = data !== initial;
+  const dirty = useMemo(
+    () => pickListSaveKey(data) !== savedKey,
+    [data, savedKey],
+  );
 
   function updateEntries(next: PickListEntry[]) {
     setData((prev) => ({ ...prev, entries: next }));
@@ -189,7 +202,13 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
 
   async function handleFile(file: File) {
     const name = file.name.toLowerCase();
-    if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    // Legacy .xls (BIFF) is not a ZIP, so the .xlsx reader cannot open
+    // it and fails with an internal error. Say what to do instead.
+    if (name.endsWith('.xls')) {
+      setError('Old .xls files are not supported. Save it as .xlsx or CSV and import that.');
+      return;
+    }
+    if (name.endsWith('.xlsx')) {
       await handleXlsxFile(file);
     } else {
       await handleCsvFile(file);
@@ -239,26 +258,27 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          data: {
-            ...data,
-            entries: data.entries.map((e) => ({
-              code: e.code.trim(),
-              label: e.label.trim(),
-              ...(e.description?.trim()
-                ? { description: e.description.trim() }
-                : {}),
-            })),
-          },
-        }),
+      const res = await patchItem({
+        data: {
+          ...data,
+          entries: data.entries.map((e) => ({
+            code: e.code.trim(),
+            label: e.label.trim(),
+            ...(e.description?.trim()
+              ? { description: e.description.trim() }
+              : {}),
+          })),
+        },
       });
-      if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
         return;
       }
+      if (!res.ok) {
+        setError(await parseApiError(res, 'Save failed'));
+        return;
+      }
+      setSavedKey(pickListSaveKey(data));
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
       startTransition(() => router.refresh());
@@ -293,7 +313,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
                   <input
                     ref={fileRef}
                     type="file"
-                    accept=".csv,.tsv,.txt,.xlsx,.xls"
+                    accept=".csv,.tsv,.txt,.xlsx"
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
@@ -402,7 +422,7 @@ export function PickListEditor({ itemId, initial, canEdit }: Props) {
                   onChange={(e) => updateRow(i, { code: e.target.value })}
                   placeholder="CODE"
                   disabled={!canEdit}
-                  className="h-8 rounded-md border border-border bg-surface-1 px-2 font-mono text-xs uppercase focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+                  className="h-8 rounded-md border border-border bg-surface-1 px-2 font-mono text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
                 />
                 <input
                   type="text"

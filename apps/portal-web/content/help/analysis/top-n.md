@@ -31,7 +31,7 @@ Useful for "ten largest parcels" or "five smallest
 - **Field**. Must exist on the source schema and be type
   **number** at save time.
 - **N**. Positive integer, at least 1, soft max 100,000 (the
-  recipe `featureLimit` may still cap the materialized output).
+  recipe `featureLimit` may still cap rows returned on each read).
 - **Direction**. `desc` (highest first, default) or `asc`
   (lowest first).
 

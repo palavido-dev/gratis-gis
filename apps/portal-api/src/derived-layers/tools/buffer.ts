@@ -15,25 +15,7 @@ import type {
   ToolGenerator,
   ToolValidateContext,
 } from './types.js';
-
-/**
- * Postgres regex literal used to gate a `properties->>'<field>'` text
- * value before casting it to `double precision`. Accepts:
- *   - leading sign:        `-123`
- *   - integers:            `123`, `0`
- *   - leading-decimal:     `.5`, `-.5`
- *   - trailing-decimal:    `5.`, `1.`
- *   - decimal:             `1.5`, `-0.25`
- *   - scientific notation: `1e3`, `1.5E-2`, `-2.5e+10`
- *
- * The earlier shape `^-?[0-9]+(\.[0-9]+)?$` rejected `1e3` and `.5`,
- * which silently dropped legitimate rows on layers whose numeric
- * fields had been imported from CSVs that used scientific notation
- * for very large or very small distances. Doubled backslashes here
- * are JS-string escaping; the SQL sees `^-?(...)$` literally.
- */
-const NUMERIC_TEXT_REGEX_LITERAL =
-  "'^-?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$'";
+import { NUMERIC_TEXT_REGEX_LITERAL } from './numeric-text.js';
 
 /**
  * Buffer generator. Wraps `ST_Buffer(geom::geography, distance)` so the
@@ -163,16 +145,17 @@ export const bufferGenerator: ToolGenerator<BufferParams> = {
     // The result is converted to meters via the recipe's chosen unit
     // and clamped to the global ceiling so the cached cap is always
     // a meter value within bounds the read path can pad with safely.
+    const fieldPh = `$${(ctx.sourceParamCount ?? 0) + 1}`;
     const sql = `
       SELECT COALESCE(
         MAX(
-          (NULLIF(properties->>$1, ''))::double precision
+          (NULLIF(properties->>${fieldPh}, ''))::double precision
         ),
         0
       ) AS max_value
       FROM ${ctx.sourceTable}
-      WHERE properties ? $1
-        AND (properties->>$1) ~ ${NUMERIC_TEXT_REGEX_LITERAL}
+      WHERE properties ? ${fieldPh}
+        AND (properties->>${fieldPh}) ~ ${NUMERIC_TEXT_REGEX_LITERAL}
     `;
     type Row = { max_value: number | string | null };
     const rows = await ctx.queryRaw<Row>(sql, params.field);

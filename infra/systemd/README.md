@@ -52,7 +52,7 @@ journalctl -u gg-docker-cleanup.service -n 50
 
 ## gg-reset-demo.timer (#138)
 
-Resets the gratisgis.org public test instance to a captured golden
+Resets the demo.gratisgis.org public test instance to a captured golden
 state every day at 04:00 UTC. Used while the portal is in public-
 testing mode so testers can do anything they want during the day
 and get a clean slate at the next reset.
@@ -109,5 +109,5 @@ sudo systemctl disable --now gg-reset-demo.timer
 - `Restart=no`. A failed reset leaves the unit in `failed` and
   visible via `systemctl status`; next scheduled run does NOT try
   again on top of a broken stack.
-- Downtime ~30 - 60 seconds. Caddy stays up, so users hit a polite
+- Downtime about 20 minutes on the demo (mostly the GIN index rebuild). Caddy stays up, so users hit a polite
   502 page rather than connection-refused.

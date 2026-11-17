@@ -26,6 +26,7 @@
  */
 
 import { writeXlsx } from './xlsx';
+import { csvCell } from '@gratis-gis/shared-types';
 
 export interface ExportFeature {
   id?: string;
@@ -211,18 +212,90 @@ function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 60);
 }
 
-/** Quote a CSV cell.  Doubles internal quotes per RFC 4180. */
+/** One CSV cell: RFC 4180 quoting plus the spreadsheet formula guard
+ *  (csvCell in shared-types). */
 function csvQuote(v: string | number | boolean | null): string {
-  const s = v === null ? '' : String(v);
-  if (s.length === 0) return '';
-  // Quote when the value contains a comma, quote, or newline.
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+  return csvCell(v);
 }
 
 /** Build a CSV file from features and trigger a download. */
+/** One feature as the feature read returns it. */
+export interface FetchedFeature {
+  id?: string;
+  geometry?: unknown;
+  properties?: Record<string, unknown> | null;
+}
+
+/**
+ * Read a whole layer through the paged feature route: `limit` plus
+ * `cursor`, with `at` pinned to the first page's `asOf` so every page
+ * reads one snapshot.
+ *
+ * The unpaged read is refused (400) on installs that set
+ * GRATIS_FEATURE_QUERY_PAGE=required, so a caller that used it did
+ * nothing at all there. The paged read works everywhere. Throws with
+ * the server's message on a failed page.
+ */
+export async function fetchAllFeaturesPaged(
+  featuresUrl: string,
+  fetchFn: typeof fetch = fetch,
+  pageSize = 5000,
+): Promise<FetchedFeature[]> {
+  const out: FetchedFeature[] = [];
+  let cursor: string | null = null;
+  let at: string | null = null;
+  // A hard stop so a server that keeps handing back the same cursor
+  // cannot spin forever.
+  for (let guard = 0; guard < 10_000; guard++) {
+    const qs = new URLSearchParams({ limit: String(pageSize) });
+    if (cursor) qs.set('cursor', cursor);
+    if (at) qs.set('at', at);
+    const sep = featuresUrl.includes('?') ? '&' : '?';
+    const res = await fetchFn(`${featuresUrl}${sep}${qs.toString()}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const body = (await res.json()) as { message?: unknown };
+        if (typeof body.message === 'string' && body.message) msg = body.message;
+      } catch {
+        /* keep the status message */
+      }
+      throw new Error(msg);
+    }
+    const body = (await res.json()) as {
+      features?: FetchedFeature[];
+      nextCursor?: string | null;
+      asOf?: string;
+    };
+    out.push(...(body.features ?? []));
+    if (!at && typeof body.asOf === 'string') at = body.asOf;
+    const next = body.nextCursor ?? null;
+    if (!next || next === cursor) break;
+    cursor = next;
+  }
+  return out;
+}
+
+/**
+ * A download filename stem from a layer or widget title.
+ *
+ * Letters and digits in any script are kept: an ASCII-only class
+ * turned a title like "道路" into underscores, and the fallback ran
+ * before the underscores were trimmed, so the file came out named
+ * ".xlsx". Strip first, then fall back.
+ */
+export function exportFilename(raw: string, fallback = 'export'): string {
+  const s = raw
+    .trim()
+    .replace(/[^\p{L}\p{N}.\- ]+/gu, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 60)
+    .replace(/^_+|_+$/g, '');
+  return s || fallback;
+}
+
 export function exportFeaturesToCsv(
   features: ExportFeature[],
   opts: ExportOptions,
@@ -300,16 +373,9 @@ export function exportFeaturesToGeoJson(
   const blob = new Blob([JSON.stringify(fc, null, 2)], {
     type: 'application/geo+json',
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${opts.filename}.geojson`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  // Revoke on the next tick so Chrome / Firefox have a moment to
-  // actually kick off the save dialog before the URL gets torn down.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  // Same helper as CSV and XLSX, so GeoJSON gets the delay Safari needs
+  // before the object URL is revoked.
+  downloadBlob(blob, `${opts.filename}.geojson`);
 }
 
 /** Dispatch to the right writer based on format. Returns a

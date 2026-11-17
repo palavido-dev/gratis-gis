@@ -97,6 +97,12 @@ fun CollectionScreen(viewModel: CollectionViewModel, onBack: () -> Unit, modifie
         style = MaterialTheme.typography.bodySmall,
       )
       p.shortfalls.forEach { Text("  shortfall: $it", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+      if (p.limitedLayers.isNotEmpty()) {
+        Text(
+          "Large layers, cached only inside the offline areas: ${p.limitedLayers.joinToString(", ")}",
+          style = MaterialTheme.typography.bodySmall,
+        )
+      }
     }
     Button(onClick = viewModel::download, enabled = !s.busy) { Text("Download offline") }
 

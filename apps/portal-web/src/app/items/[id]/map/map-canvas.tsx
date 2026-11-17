@@ -15,17 +15,24 @@ import * as maplibregl from 'maplibre-gl';
 import type {
   MapData,
   MapLayer,
-  MapLayerFilter,
   MapLayerVia,
-  MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
+import {
+  combineFilter,
+  timeBinsColorExpression,
+} from '@/lib/map-layer-expressions';
 import {
   ZOOM_MAX,
   ZOOM_MIN,
   dashArrayFor,
   effectiveLayerScale,
   sanitizeAttributionHtml,
+  sanitizePopupHtml,
   scaledStyleExpression,
+  TILE_INCLUDE_PARAM,
+  TILE_LABEL_POINT_PROP,
+  TILE_LABELS_LAYER,
+  tileFieldRefs,
 } from '@gratis-gis/shared-types';
 import {
   customBasemapToStyle,
@@ -106,11 +113,45 @@ import {
 } from './map-icons';
 import { svgToSdf } from './sdf';
 import {
+  drawRoundedSquareBackground,
+  rasterizeBitmapIcon,
+  rasterizeSvgIcon,
+} from './icon-raster';
+import {
+  ICON_IMAGE_PIXEL_RATIO,
+  backgroundImageId,
+  isRasterIconRef,
+  pointBackgroundLayout,
+} from '@/lib/map-point-symbol';
+import {
+  dataLayerKeepKey,
+  dataLayerSourceZoom,
+  dataLayerVectorSource,
+  ensureSourceZooms,
+} from '@/lib/tile-zoom';
+import {
   syncPointCloudOverlay,
   teardownPointCloudOverlay,
 } from './point-cloud-overlay';
 import { fetchLayerBBox } from '@/lib/arcgis-rest';
 import type { SelectToolMode } from './select-tool';
+import {
+  AreaScaleControl,
+  scaleUnitForAreaUnit,
+} from './area-scale-control';
+import { isUnsafeApiUrl, isUuid } from '@/lib/api-path-guard';
+import { v3SublayerOf } from '@/lib/layer-extent-url';
+import { normalizeClassBreaks, uniqueCategories } from '@/lib/renderer-classes';
+
+/**
+ * An id from saved map JSON, safe to put in an API path. Anything that
+ * is not a UUID becomes the nil UUID, which the API answers with 404,
+ * so a crafted id cannot steer the viewer's request to another route.
+ */
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+function pathId(id: unknown): string {
+  return isUuid(id) ? id : NIL_UUID;
+}
 
 /**
  * MapLibre 6 types the style setters per property key
@@ -511,6 +552,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         //   - GeoJSON sources (inline FCs, tool-run results,
         //     editor targets): setData with the current URL / FC
         //     forces a refetch, as before.
+        // Editor targets hold only the rows in view; their data URL
+        // is the bbox read, so refresh by re-running it. Setting the
+        // empty seed would blank the layer.
+        if (layer.id.startsWith('editor-target:') && v3SublayerOf(layer.source)) {
+          editorTargetRefetchRef.current?.();
+          return;
+        }
         if (src.type === 'vector') {
           const vectorSrc = src as maplibregl.VectorTileSource;
           const current = vectorSrc.tiles?.[0];
@@ -527,9 +575,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         if (data === null) return;
         (src as maplibregl.GeoJSONSource).setData(data);
       },
-      flyAndHighlight: ({ bbox, center, layerId, featureProps }) => {
+      flyAndHighlight: ({ bbox, center, layerId, featureId, featureProps }) => {
         const m = mapRef.current;
         if (!m) return;
+        const moving = Boolean(bbox || center);
         if (bbox) {
           m.fitBounds(
             [
@@ -548,12 +597,29 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         if (!layerId) return;
         const sourceId = `gg:${layerId}`;
         const handle = () => {
-          const rendered = m.querySourceFeatures(sourceId);
-          const match = featureProps
-            ? rendered.find((f) => propertiesMatch(f.properties, featureProps))
-            : rendered[0];
-          if (!match || match.id === undefined) return;
-          const prevId = match.id as string | number;
+          if (mapRef.current !== m || !m.getSource(sourceId)) return;
+          // A v3 `_global_id` is the feature-state key itself (those
+          // sources promote it), so use it directly. Vector tiles carry
+          // only that id and a few style fields, so matching on the
+          // result's full properties could never find the feature.
+          // Other ids are a source's own and not MapLibre's generated
+          // ones, so they still go through the property match.
+          let prevId: string | number | null = null;
+          if (isUuid(featureId)) {
+            prevId = featureId;
+          } else {
+            const isVector = m.getSource(sourceId)?.type === 'vector';
+            const rendered = isVector
+              ? m.querySourceFeatures(sourceId, { sourceLayer: 'features' })
+              : m.querySourceFeatures(sourceId);
+            const match = featureProps
+              ? rendered.find((f) => propertiesMatch(f.properties, featureProps))
+              : rendered[0];
+            if (match && match.id !== undefined) {
+              prevId = match.id as string | number;
+            }
+          }
+          if (prevId === null) return;
           m.setFeatureState(featureStateRef(m, sourceId, prevId), { hover: true });
           // Clear after a couple seconds so the pulse feels temporary.
           setTimeout(() => {
@@ -563,7 +629,11 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
             m.setFeatureState(featureStateRef(m, sourceId, prevId), { hover: false });
           }, 2500);
         };
-        m.once('moveend', handle);
+        // Only wait for a move that was started here. With neither a
+        // bbox nor a center, a pending once('moveend') fired on the
+        // user's next unrelated pan.
+        if (moving) m.once('moveend', handle);
+        else handle();
       },
     }),
     [],
@@ -572,6 +642,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // Tick bumped whenever a batch of icons finishes registering, so the
   // layer-sync effect can re-run and pick up the new images.
   const [iconsTick, setIconsTick] = useState(0);
+  // Bumped when a data layer's tile zoom range arrives (tile-zoom.ts),
+  // so the overlay sync rebuilds that source with the right range.
+  const [tileZoomTick, setTileZoomTick] = useState(0);
 
   // Remember the last selection we applied to MapLibre's feature-state,
   // so we know which ids to clear when the selection shrinks. A bare
@@ -743,7 +816,24 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     if (!hideNavigationControl) {
       m.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right');
     }
-    m.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    // Distance scale + area square share bottom-left. MapLibre
+    // prepends bottom-corner controls (new control becomes the
+    // first DOM child). With bottom:0 + normal block flow the
+    // *last* DOM sibling sits on the map edge — so add the scale
+    // bar first, then the area square: area ends up above, scale
+    // stays on the edge. Clicking the square cycles
+    // acres/hectares/m²/… and keeps the linear bar in the same
+    // metric/imperial family.
+    const scaleControl = new maplibregl.ScaleControl({ unit: 'metric' });
+    const areaScale = new AreaScaleControl({
+      ariaLabel: t('mapAreaScale.ariaLabel', undefined, localeRef.current),
+      title: t('mapAreaScale.title', undefined, localeRef.current),
+      onUnitChange: (unit) => {
+        scaleControl.setUnit(scaleUnitForAreaUnit(unit));
+      },
+    });
+    m.addControl(scaleControl, 'bottom-left');
+    m.addControl(areaScale, 'bottom-left');
     m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     const markCamera = (e: { originalEvent?: unknown }) => {
@@ -866,11 +956,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     )?.metadata?.basemapTag;
     if (current === desiredTag) return;
 
-    const c = m.getCenter();
-    const z = m.getZoom();
-    const b = m.getBearing();
-    const p = m.getPitch();
-
     for (const name of Object.keys(MAP_ICONS)) {
       const plainId = iconImageId(name);
       const sdfId = iconSdfImageId(name);
@@ -910,7 +995,9 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       done = true;
       // eslint-disable-next-line no-console
       console.debug('[basemap] applying overlays for', map.basemap);
-      m.jumpTo({ center: [c.lng, c.lat], zoom: z, bearing: b, pitch: p });
+      // No camera restore here. setStyle leaves the camera alone, so
+      // jumping back to where it was when the swap started only ever
+      // undid a pan the user made while the new style loaded.
       await loadAllIcons(m);
       if (cancelled) return;
       syncOverlays(
@@ -1016,7 +1103,17 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // sync trigger: every MVT source needs its URL rebuilt when
     // the runtime scrubs back in time so MapLibre re-fetches tiles
     // tagged with the new `at` value.
-  }, [map.layers, map.clipBoundaryId, iconsTick, asOfTime]);
+  }, [map.layers, map.clipBoundaryId, iconsTick, asOfTime, tileZoomTick]);
+
+  // Learn each data layer's tile zoom range so its vector source can
+  // overzoom past the deepest zoom its tiles are built for.
+  useEffect(() => {
+    const sources: Array<{ itemId: string; layerKey?: string }> = [];
+    for (const l of map.layers) {
+      if (l.source.kind === 'data-layer') sources.push(l.source);
+    }
+    ensureSourceZooms(sources, () => setTileZoomTick((t) => t + 1));
+  }, [map.layers]);
 
   // #186: 3D terrain. Registers a raster-dem source from the map's
   // elevation layer (a dem tile_layer COG served through the cog
@@ -1225,7 +1322,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         if (layer.filter && layer.filter.clauses.length > 0) {
           body.filter = layer.filter;
         }
-        fetch(`/api/portal/postgis-live/${pg.serviceItemId}/features`, {
+        fetch(`/api/portal/postgis-live/${pathId(pg.serviceItemId)}/features`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
@@ -1276,6 +1373,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   // spatial index + bbox-clipped reads. Small layers see no
   // behaviour change.
   const dataLayerControllers = useRef<Record<string, AbortController>>({});
+  // The current bbox refetch for editor targets, for refreshLayerSource.
+  const editorTargetRefetchRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     const m = mapRef.current;
     if (!m) return;
@@ -1284,13 +1383,16 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // to the viewport, so the legacy bbox-fetch-and-setData effect
     // is a no-op for data-layer. Editor-target layers still need
     // the GeoJSON + setData path because the editor reads full
-    // attrs from the source feature; they wear the data-layer kind
-    // but the source URL points at /geojson rather than /tile.
+    // attrs from the source feature. buildEditorMapData makes them
+    // `geojson-url` sources pointing at the sublayer's /geojson, so
+    // they are matched by id prefix and sublayer, not by kind. This
+    // used to require the data-layer kind, matched nothing, and let
+    // MapLibre download every target layer whole.
     const dataLayers = map.layers.filter(
       (l) =>
         l.visible &&
-        l.source.kind === 'data-layer' &&
-        l.id.startsWith('editor-target:'),
+        l.id.startsWith('editor-target:') &&
+        v3SublayerOf(l.source) !== null,
     );
     for (const id of Object.keys(dataLayerControllers.current)) {
       if (!dataLayers.some((l) => l.id === id)) {
@@ -1308,18 +1410,20 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
           | maplibregl.GeoJSONSource
           | undefined;
         if (!src) continue;
-        if (layer.source.kind !== 'data-layer') continue;
-        const dataSource = layer.source;
+        const sub = v3SublayerOf(layer.source);
+        if (!sub) continue;
         dataLayerControllers.current[layer.id]?.abort();
         const controller = new AbortController();
         dataLayerControllers.current[layer.id] = controller;
-        const base = dataSource.layerKey
-          ? `/api/portal/items/${dataSource.itemId}/layers/${encodeURIComponent(dataSource.layerKey)}/geojson`
-          : `/api/portal/items/${dataSource.itemId}/geojson`;
-        const params = new URLSearchParams({ bbox });
-        if (layer.boundaryFilterItemId) {
-          params.set('clip', layer.boundaryFilterItemId);
-        }
+        const base = `/api/portal/items/${pathId(sub.itemId)}/layers/${encodeURIComponent(sub.layerKey)}/geojson`;
+        // A bounded page: the same 5,000-row ceiling the ArcGIS and
+        // PostGIS Live viewport reads use, and installs that refuse
+        // unpaged reads (GRATIS_FEATURE_QUERY_PAGE=required) accept it.
+        const params = new URLSearchParams({ bbox, limit: '5000' });
+        // Per-layer boundary wins over the map-level clip, as in
+        // sourceData.
+        const clip = layer.boundaryFilterItemId ?? map.clipBoundaryId ?? null;
+        if (clip) params.set('clip', clip);
         // #87 -- bitemporal "as of" passthrough.  When the runtime
         // has scrubbed to a past moment, every data-layer fetch
         // asks the engine for that snapshot rather than current
@@ -1347,9 +1451,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       }
     };
     refetchAll();
+    editorTargetRefetchRef.current = refetchAll;
     m.on('moveend', refetchAll);
     return () => {
       m.off('moveend', refetchAll);
+      if (editorTargetRefetchRef.current === refetchAll) {
+        editorTargetRefetchRef.current = null;
+      }
       // Same as the arcgis effect: abort so late responses cannot
       // land on rebuilt sources or a removed map.
       for (const c of Object.values(dataLayerControllers.current)) c.abort();
@@ -1359,7 +1467,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     // full refetch with the new `at` parameter -- without this dep,
     // editor-target GeoJSON sources would keep showing current
     // truth until the user pans the camera.
-  }, [map.layers, iconsTick, asOfTime]);
+  }, [map.layers, iconsTick, asOfTime, map.clipBoundaryId]);
 
   // Click handlers for popups, hover handlers for highlight + cursor.
   // Attached once, dispatches dynamically based on the current layer set.
@@ -1536,9 +1644,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     }
     function onClick(e: maplibregl.MapMouseEvent) {
       const tool = selectToolRef.current;
-      // Rectangle & polygon tools have their own handlers: a plain
-      // click should never compete with their drag/vertex logic.
-      if (tool === 'rectangle' || tool === 'polygon') return;
+      // Rectangle, polygon and lasso tools have their own handlers: a
+      // plain click should never compete with their drag/vertex logic
+      // or open a popup.
+      if (tool === 'rectangle' || tool === 'polygon' || tool === 'lasso') return;
       const hits = m!.queryRenderedFeatures(e.point, {
         layers: interactiveIds,
       });
@@ -1669,8 +1778,8 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         } else {
           const dataSource = layer.source;
           const url = dataSource.layerKey
-            ? `/api/portal/items/${dataSource.itemId}/layers/${encodeURIComponent(dataSource.layerKey)}/features?entity=${encodeURIComponent(String(featureId))}`
-            : `/api/portal/items/${dataSource.itemId}/features?entity=${encodeURIComponent(String(featureId))}`;
+            ? `/api/portal/items/${pathId(dataSource.itemId)}/layers/${encodeURIComponent(dataSource.layerKey)}/features?entity=${encodeURIComponent(String(featureId))}`
+            : `/api/portal/items/${pathId(dataSource.itemId)}/features?entity=${encodeURIComponent(String(featureId))}`;
           fetch(url, { cache: 'no-store' })
             .then((res) => (res.ok ? res.json() : null))
             .then((fc: { features?: Array<{ properties?: Record<string, unknown> }> } | null) => {
@@ -2092,37 +2201,6 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
 });
 
 /**
- * Load an SVG string onto a canvas and return the raw pixels. Used to
- * turn the bundled icon library into images MapLibre can register via
- * addImage(). We render at 2x physical pixels (96 × 96 pixels for a
- * 48 × 48 icon) so high-DPI displays stay crisp.
- */
-async function rasterizeSvg(svg: string, size: number): Promise<ImageData> {
-  const scale = 2;
-  const w = size * scale;
-  const h = size * scale;
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = (e) => reject(e);
-      i.src = url;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('canvas 2D unavailable');
-    ctx.drawImage(img, 0, 0, w, h);
-    return ctx.getImageData(0, 0, w, h);
-  } finally {
-    URL.revokeObjectURL(url);
-  }
-}
-
-/**
  * Per-map in-flight guard for loadAllIcons. MapLibre's `styledata`
  * event fires many times during a basemap load and each fire used
  * to spawn a concurrent loadAllIcons; with hasImage() returning
@@ -2164,8 +2242,13 @@ async function loadAllIcons(m: maplibregl.Map): Promise<boolean> {
   // Fast path: every icon is already registered. Avoids the
   // Promise.all + per-icon try/catch overhead on every styledata
   // tick after the initial load.
+  // A bundled icon that failed to rasterise once is not retried: it
+  // would miss this fast path forever, and each retry re-ran the sync
+  // whose styledata events call back in here.
+  const failed = iconsFailed.get(m);
   let allLoaded = true;
   for (const name of Object.keys(MAP_ICONS)) {
+    if (failed?.has(name)) continue;
     if (!m.hasImage(iconImageId(name)) || !m.hasImage(iconSdfImageId(name))) {
       allLoaded = false;
       break;
@@ -2174,14 +2257,28 @@ async function loadAllIcons(m: maplibregl.Map): Promise<boolean> {
   if (allLoaded) return false;
   iconsInFlight.set(m, true);
   try {
-    await loadAllIconsImpl(m);
+    // Report work only when an image was actually registered.
+    return (await loadAllIconsImpl(m)) > 0;
   } finally {
     iconsInFlight.delete(m);
   }
-  return true;
 }
 
-async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
+/** Bundled icon names that failed to rasterise, per map. */
+const iconsFailed = new WeakMap<maplibregl.Map, Set<string>>();
+
+function noteIconFailed(m: maplibregl.Map, name: string): void {
+  let set = iconsFailed.get(m);
+  if (!set) {
+    set = new Set();
+    iconsFailed.set(m, set);
+  }
+  set.add(name);
+}
+
+/** Registers what is missing; returns how many images it added. */
+async function loadAllIconsImpl(m: maplibregl.Map): Promise<number> {
+  let added = 0;
   // Bundled lucide-derived icons (#73).
   await Promise.all(
     Object.keys(MAP_ICONS).map(async (name) => {
@@ -2191,39 +2288,47 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
         try {
           const svg = renderIconSvg(name);
           if (svg) {
-            const img = await rasterizeSvg(svg, 48);
+            const img = await rasterizeSvgIcon(svg);
             if (!m.hasImage(plainId)) {
-              m.addImage(plainId, img, { pixelRatio: 2 });
+              added += 1;
+              m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
         } catch {
-          /* non-fatal */
+          noteIconFailed(m, name);
         }
       }
       if (!m.hasImage(sdfId)) {
         try {
           const svg = renderIconSvgForSdf(name);
           if (svg) {
-            const sdf = await svgToSdf(svg, 48);
+            const sdf = await svgToSdf(svg);
             if (!m.hasImage(sdfId)) {
-              m.addImage(sdfId, sdf, { pixelRatio: 2, sdf: true });
+              added += 1;
+              m.addImage(sdfId, sdf, {
+                pixelRatio: ICON_IMAGE_PIXEL_RATIO,
+                sdf: true,
+              });
             }
           }
         } catch {
-          /* non-fatal */
+          noteIconFailed(m, name);
         }
       }
     }),
   );
-  // User-uploaded SVG icons (#73). The picker stores
-  // `upload:<storageKey>` in the layer style; the renderer
-  // fetches the cleaned SVG from the per-org map-icons endpoint
-  // and rasterizes it through the same path as the bundled
-  // glyphs. Done after the bundled pass so a slow upload list
-  // doesn't delay the always-cached bundled icons.
+  // User-uploaded icons (#73, #686). The picker stores
+  // `upload:<storageKey>` in the layer style; the renderer fetches
+  // the stored file from the per-org map-icons list and rasterizes it
+  // into the same square box as the bundled glyphs. SVG uploads get a
+  // plain and an SDF variant. PNG uploads (JPEG is re-encoded to PNG
+  // on the server) get only the plain variant, because a photo or a
+  // colored logo cannot be tinted; the layer code falls back to the
+  // plain image for them. Done after the bundled pass so a slow
+  // upload list doesn't delay the always-cached bundled icons.
   try {
     const resp = await fetch('/api/portal/map-icons');
-    if (!resp.ok) return;
+    if (!resp.ok) return added;
     const rows = (await resp.json()) as Array<{
       storageKey: string;
       storageUrl: string;
@@ -2233,15 +2338,25 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
         const refName = `upload:${row.storageKey}`;
         const plainId = iconImageId(refName);
         const sdfId = iconSdfImageId(refName);
-        if (m.hasImage(plainId) && m.hasImage(sdfId)) return;
+        const raster = isRasterIconRef(refName);
+        if (m.hasImage(plainId) && (raster || m.hasImage(sdfId))) return;
         try {
-          const svgResp = await fetch(row.storageUrl, { cache: 'no-store' });
-          if (!svgResp.ok) return;
-          const svgText = await svgResp.text();
-          if (!m.hasImage(plainId)) {
-            const img = await rasterizeSvg(svgText, 48);
+          const fileResp = await fetch(row.storageUrl, { cache: 'no-store' });
+          if (!fileResp.ok) return;
+          if (raster) {
+            const img = await rasterizeBitmapIcon(await fileResp.blob());
             if (!m.hasImage(plainId)) {
-              m.addImage(plainId, img, { pixelRatio: 2 });
+              added += 1;
+              m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
+            }
+            return;
+          }
+          const svgText = await fileResp.text();
+          if (!m.hasImage(plainId)) {
+            const img = await rasterizeSvgIcon(svgText);
+            if (!m.hasImage(plainId)) {
+              added += 1;
+              m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
           if (!m.hasImage(sdfId)) {
@@ -2250,9 +2365,13 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
             // plain image when SDF isn't available. We still
             // generate one so iconTint works for icons that
             // were authored with currentColor strokes.
-            const sdf = await svgToSdf(svgText, 48);
+            const sdf = await svgToSdf(svgText);
             if (!m.hasImage(sdfId)) {
-              m.addImage(sdfId, sdf, { pixelRatio: 2, sdf: true });
+              added += 1;
+              m.addImage(sdfId, sdf, {
+                pixelRatio: ICON_IMAGE_PIXEL_RATIO,
+                sdf: true,
+              });
             }
           }
         } catch {
@@ -2263,6 +2382,7 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<void> {
   } catch {
     /* non-fatal */
   }
+  return added;
 }
 
 /**
@@ -2339,14 +2459,29 @@ function applySelectionMutation({
  * is explicitly false. Feature ids come from the source's generateId
  * setting: matches the indexes the attribute table uses.
  */
+/**
+ * Layers the drag-select tools may pick from: selectable, and not
+ * narrowed to view-only for this viewer. Click-select, hover and
+ * popups already skip `effective.query === false` layers; the box,
+ * polygon and lasso tools did not, so they selected features the
+ * viewer could not click.
+ */
+function selectableQueryableLayers(layers: MapLayer[]): MapLayer[] {
+  return layers.filter(
+    (l) =>
+      l.interactions.selectable !== false &&
+      (l.effective === undefined || l.effective.query !== false),
+  );
+}
+
 function collectFeaturesInBbox(
   m: maplibregl.Map,
   layers: MapLayer[],
   bbox: [[number, number], [number, number]],
 ): Record<string, Set<number | string>> {
-  const wanted = layers
-    .filter((l) => l.interactions.selectable !== false)
-    .flatMap((l) => overlayLayerIds(l.id));
+  const wanted = selectableQueryableLayers(layers).flatMap((l) =>
+    overlayLayerIds(l.id),
+  );
   // Guard against getStyle() returning undefined during style transitions.
   const style = m.getStyle();
   if (!style) return {};
@@ -2372,25 +2507,28 @@ function collectFeaturesInPolygon(
   polygon: Array<[number, number]>,
 ): Record<string, Set<number | string>> {
   if (polygon.length < 3) return {};
+  // Project every vertex and take the pixel box around them. Projecting
+  // only the two corners of the lng/lat box is the screen box only when
+  // the map is neither rotated nor pitched; rotated, the two points can
+  // land almost on one vertical line and the query box collapses.
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;
   let maxY = -Infinity;
-  for (const [x, y] of polygon) {
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
+  for (const vertex of polygon) {
+    const p = m.project(vertex);
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
   }
-  const p1 = m.project([minX, minY]);
-  const p2 = m.project([maxX, maxY]);
   const bbox: [[number, number], [number, number]] = [
-    [Math.min(p1.x, p2.x), Math.min(p1.y, p2.y)],
-    [Math.max(p1.x, p2.x), Math.max(p1.y, p2.y)],
+    [minX, minY],
+    [maxX, maxY],
   ];
-  const wanted = layers
-    .filter((l) => l.interactions.selectable !== false)
-    .flatMap((l) => overlayLayerIds(l.id));
+  const wanted = selectableQueryableLayers(layers).flatMap((l) =>
+    overlayLayerIds(l.id),
+  );
   // Guard against getStyle() returning undefined during style transitions.
   const style = m.getStyle();
   if (!style) return {};
@@ -2500,9 +2638,13 @@ function overlayLayerIds(layerId: string): string[] {
     `gg:${layerId}-fill`,
     `gg:${layerId}-poly-line`,
     `gg:${layerId}-line`,
+    // #686: the marker background is part of the point, so a click
+    // on it selects the feature like a click on the icon does.
+    `gg:${layerId}-icon-bg`,
     `gg:${layerId}-icon-halo`,
     `gg:${layerId}-circle`,
     `gg:${layerId}-label`,
+    `gg:${layerId}-label-pt`,
   ];
 }
 
@@ -2649,11 +2791,11 @@ function applyTerrain(
       let signature: string;
       let desired: maplibregl.SourceSpecification;
       if (stack.length === 1) {
-        const demUrl = `${stack[0]!.tileUrl}#dem`;
+        const demUrl = `${isUnsafeApiUrl(stack[0]!.tileUrl) ? '' : stack[0]!.tileUrl}#dem`;
         signature = demUrl;
         desired = { type: 'raster-dem', url: demUrl, tileSize: 256 };
       } else {
-        const ids = stack.map((e) => e.itemId).join(',');
+        const ids = stack.map((e) => pathId(e.itemId)).join(',');
         const tileUrl = `/api/portal/elevation-mosaic/{z}/{x}/{y}.png?stack=${ids}`;
         signature = tileUrl;
         // Beyond the finest stamped native zoom MapLibre upscales
@@ -2751,10 +2893,20 @@ function dataLayerTileUrl(
   boundaryFilterItemId: string | null | undefined,
   mapClipBoundaryId: string | undefined,
   asOfTime: string | null | undefined,
+  /**
+   * The attribute fields this layer reads from its tiles (tileFieldRefs:
+   * renderer, labels, filter, hover popup). An owner can trim the
+   * fields a layer's tiles carry; the server always adds back the ones
+   * named here, so this map's own styling keeps working. A layer with
+   * no tile field setting ignores the param, so its tiles and cache
+   * are unchanged. Changing the style's fields changes the URL, which
+   * refetches the tiles with the new set, as it must.
+   */
+  include: string[] = [],
 ): string {
   const base = source.layerKey
-    ? `/api/portal/items/${source.itemId}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
-    : `/api/portal/items/${source.itemId}/tile/{z}/{x}/{y}.mvt`;
+    ? `/api/portal/items/${pathId(source.itemId)}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
+    : `/api/portal/items/${pathId(source.itemId)}/tile/{z}/{x}/{y}.mvt`;
   // #79: the per-layer boundary wins over the map-level clip so a
   // layer can opt into a tighter scope.
   const effectiveClip = boundaryFilterItemId ?? mapClipBoundaryId ?? null;
@@ -2773,6 +2925,11 @@ function dataLayerTileUrl(
   // an expression over the tile already in cache.
   if (source.via) {
     tileParams.push(`via=${encodeURIComponent(JSON.stringify(source.via))}`);
+  }
+  if (include.length > 0) {
+    tileParams.push(
+      `${TILE_INCLUDE_PARAM}=${include.map(encodeURIComponent).join(',')}`,
+    );
   }
   return tileParams.length > 0 ? `${base}?${tileParams.join('&')}` : base;
 }
@@ -2856,12 +3013,12 @@ function syncOverlays(
   //
   // Deliberately NOT kept: geojson-inline (an inline FC has no URL
   // identity), arcgis-rest / postgis-live (added empty and filled
-  // imperatively by the moveend effects), and editor targets that
-  // wear the data-layer kind (their live data is replaced by bbox
-  // fetches). Those keep the rebuild-every-pass behavior.
+  // imperatively by the moveend effects), and editor targets (their
+  // live data is replaced by bbox fetches). Those keep the
+  // rebuild-every-pass behavior.
   const keepDataUrl = new Map<
     string,
-    { url: string; type: 'vector' | 'geojson' }
+    { url: string; type: 'vector' | 'geojson'; key: string }
   >();
   for (const l of layers) {
     if (!l.visible) continue;
@@ -2869,17 +3026,27 @@ function syncOverlays(
       l.source.kind === 'data-layer' &&
       !l.id.startsWith('editor-target:')
     ) {
+      const url = dataLayerTileUrl(
+        l.source,
+        l.boundaryFilterItemId,
+        mapClipBoundaryId,
+        asOfTime,
+        tileFieldRefs(l),
+      );
       keepDataUrl.set(`gg:${l.id}`, {
-        url: dataLayerTileUrl(
-          l.source,
-          l.boundaryFilterItemId,
-          mapClipBoundaryId,
-          asOfTime,
-        ),
+        url,
         type: 'vector',
+        key: dataLayerKeepKey(url, dataLayerSourceZoom(l.source)),
       });
-    } else if (l.source.kind === 'geojson-url') {
-      keepDataUrl.set(`gg:${l.id}`, { url: l.source.url, type: 'geojson' });
+    } else if (
+      l.source.kind === 'geojson-url' &&
+      !l.id.startsWith('editor-target:')
+    ) {
+      keepDataUrl.set(`gg:${l.id}`, {
+        url: l.source.url,
+        type: 'geojson',
+        key: l.source.url,
+      });
     }
   }
 
@@ -2909,7 +3076,7 @@ function syncOverlays(
         | { ggDataUrl?: string }
         | undefined
     )?.ggDataUrl;
-    if (priorUrl && priorUrl === want.url) keptDataSources.add(srcId);
+    if (priorUrl && priorUrl === want.key) keptDataSources.add(srcId);
   }
 
   if (style?.layers) {
@@ -3117,6 +3284,7 @@ function syncOverlays(
     // written onto the -fill layer spec further down.
     const kept = keptDataSources.has(sourceId);
     const keepUrl = keepDataUrl.get(sourceId)?.url;
+    const keepKey = keepDataUrl.get(sourceId)?.key;
 
     if (isMvt && layer.source.kind === 'data-layer') {
       if (!kept) {
@@ -3133,17 +3301,16 @@ function syncOverlays(
             layer.boundaryFilterItemId,
             mapClipBoundaryId,
             asOfTime,
+            tileFieldRefs(layer),
           );
-        m.addSource(sourceId, {
-          type: 'vector',
-          tiles: [tileUrl],
-          minzoom: 0,
-          maxzoom: 22,
-          // Vector-source promoteId is keyed by source-layer name.
-          // Our MVT emits one layer named "features", so we attach
-          // the promote rule there.
-          promoteId: { features: '_global_id' },
-        });
+        // The layer's tile zoom range (from its TileJSON): past the
+        // deepest built zoom MapLibre overzooms instead of drawing the
+        // server's empty tiles, so a layer with maxZoom 14 stays
+        // visible at z15+.
+        m.addSource(
+          sourceId,
+          dataLayerVectorSource(tileUrl, dataLayerSourceZoom(layer.source)),
+        );
       }
     } else if (!kept) {
       m.addSource(sourceId, {
@@ -3446,7 +3613,7 @@ function syncOverlays(
         // Canonical data URL stamp the next pass's keep-alive
         // decision reads (see keepDataUrl up top). Only present for
         // source kinds that participate in keep-alive.
-        ...(keepUrl ? { metadata: { ggDataUrl: keepUrl } } : {}),
+        ...(keepKey ? { metadata: { ggDataUrl: keepKey } } : {}),
         minzoom,
         maxzoom,
         filter: combineFilter(
@@ -3484,7 +3651,7 @@ function syncOverlays(
         source: sourceId,
         ...sourceLayerProp,
         // URL stamp for keep-alive; twin of the extrusion branch.
-        ...(keepUrl ? { metadata: { ggDataUrl: keepUrl } } : {}),
+        ...(keepKey ? { metadata: { ggDataUrl: keepKey } } : {}),
         minzoom,
         maxzoom,
         filter: combineFilter(
@@ -3602,35 +3769,46 @@ function syncOverlays(
     // even the plain image isn't registered yet, we fall through to
     // the circle renderer so the feature stays visible.
     const wantsIcon = s.point.symbol === 'icon' && !!s.point.iconName;
-    const tint = s.point.iconTint !== false; // default true
+    // #686: PNG and JPEG uploads have no SDF variant and cannot be
+    // tinted. MapLibre also cannot mix SDF and plain images in one
+    // symbol layer, so one raster icon anywhere in the layer (the
+    // layer icon or a category override) turns tinting off for the
+    // whole layer.
+    const rasterInLayer =
+      isRasterIconRef(s.point.iconName) ||
+      (layer.renderer.kind === 'unique-values' &&
+        layer.renderer.categories.some((c) => isRasterIconRef(c.iconName)));
+    const tint = s.point.iconTint !== false && !rasterInLayer; // default true
     const sdfId = wantsIcon ? iconSdfImageId(s.point.iconName) : '';
     const plainId = wantsIcon ? iconImageId(s.point.iconName) : '';
     const useSdf = tint && wantsIcon && m.hasImage(sdfId);
     const preferredId = useSdf ? sdfId : plainId;
     const iconReady = wantsIcon && m.hasImage(preferredId);
     if (iconReady) {
-      // #146: optional background shape behind the icon. Renders as
-      // a circle layer beneath the icon symbol so the icon reads
-      // clearly against busy basemaps (AGO / Google Maps "marker
-      // with icon" pattern). Skipped when backgroundShape is 'none'
-      // (the default) so existing layers don't change appearance.
-      // 'rounded-square' currently falls through to the circle path
-      // because MapLibre's GL renderer doesn't expose a true rounded-
-      // rect primitive; the underlying circle, sized generously,
-      // reads acceptably as a "soft pill" until we add a sprite-bake
-      // path that composes the icon + a real rounded-rect.
+      // #146: optional background shape behind the icon, the AGO /
+      // Google Maps "marker with icon" look. Skipped when
+      // backgroundShape is 'none' (the default) so existing layers
+      // don't change appearance.
+      //
+      // #686: the background and the icon are sized together from
+      // pointBackgroundLayout, and both are anchored on the point
+      // itself. Before this the icon kept its pin-style bottom anchor
+      // and its full 48 px box while the circle was 22 px across, so
+      // the icon stood above the circle and spilled past it.
       const bgShape = s.point.backgroundShape ?? 'none';
-      if (bgShape !== 'none') {
-        const bgFill = s.point.backgroundFill ?? '#ffffff';
-        const bgStroke = s.point.backgroundStrokeColor ?? '#111827';
-        const bgWidth = typeof s.point.backgroundStrokeWidth === 'number'
-          ? s.point.backgroundStrokeWidth
-          : 1.5;
-        // Size the background ~14px (lucide icon at iconSize=1 is
-        // 24px tall but renders to about 14-18px effective on the
-        // map). Scale with iconSize so a bigger icon gets a bigger
-        // background.
-        const bgRadius = 11 * s.point.iconSize;
+      const bgFill = s.point.backgroundFill ?? '#ffffff';
+      const bgStroke = s.point.backgroundStrokeColor ?? '#111827';
+      const bgWidth = typeof s.point.backgroundStrokeWidth === 'number'
+        ? s.point.backgroundStrokeWidth
+        : 1.5;
+      const bg = bgShape === 'none'
+        ? null
+        : pointBackgroundLayout(s.point.iconSize, bgShape, bgWidth);
+      const pointFilter = combineFilter(
+        ['==', ['geometry-type'], 'Point'],
+        layer.filter,
+      );
+      if (bg && bgShape === 'circle') {
         applyLayer({
           id: `gg:${layer.id}-icon-bg`,
           type: 'circle',
@@ -3638,23 +3816,57 @@ function syncOverlays(
           ...sourceLayerProp,
           minzoom,
           maxzoom,
-          filter: combineFilter(
-            ['==', ['geometry-type'], 'Point'],
-            layer.filter,
-          ),
+          filter: pointFilter,
           paint: {
             'circle-color': bgFill,
-            'circle-radius': zoomScaleNumber(bgRadius) as unknown as number,
+            'circle-radius': zoomScaleNumber(bg.circleRadius) as unknown as number,
             'circle-stroke-color': bgStroke,
             'circle-stroke-width': bgWidth,
             'circle-opacity': op,
             'circle-stroke-opacity': op,
           },
         });
+      } else if (bg && bgShape === 'rounded-square') {
+        // MapLibre has no rounded rectangle primitive, so the shape
+        // is baked into an image at its on-screen size and drawn as
+        // a centered symbol. The pixel ratio follows the screen so
+        // the edge stays sharp on a high-DPI display.
+        const bgImageId = backgroundImageId(bg.diameter, bgFill, bgStroke, bgWidth);
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const bgRatio = Math.min(4, Math.max(2, Math.ceil(dpr)));
+        if (!m.hasImage(bgImageId)) {
+          try {
+            m.addImage(
+              bgImageId,
+              drawRoundedSquareBackground(bg, bgFill, bgStroke, bgWidth, bgRatio),
+              { pixelRatio: bgRatio },
+            );
+          } catch {
+            /* non-fatal; the icon still draws without its background */
+          }
+        }
+        applyLayer({
+          id: `gg:${layer.id}-icon-bg`,
+          type: 'symbol',
+          source: sourceId,
+          ...sourceLayerProp,
+          minzoom,
+          maxzoom,
+          filter: pointFilter,
+          layout: {
+            'icon-image': bgImageId,
+            'icon-size': zoomScaleNumber(1) as unknown as number,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-anchor': 'center',
+          },
+          paint: { 'icon-opacity': op },
+        });
       }
       // Selection halo under the icon. Rendered as a separate circle
       // layer so it reads through whatever the symbol shows on top
       // works for both SDF and plain icon variants.
+      const haloRadius = bg ? bg.haloRadius : 14 * s.point.iconSize;
       applyLayer({
         id: `gg:${layer.id}-icon-halo`,
         type: 'circle',
@@ -3662,12 +3874,12 @@ function syncOverlays(
         ...sourceLayerProp,
         minzoom,
         maxzoom,
-        filter: combineFilter(['==', ['geometry-type'], 'Point'], layer.filter),
+        filter: pointFilter,
         paint: {
           'circle-color': 'rgba(37, 99, 235, 0.25)',
           'circle-radius': zoomScaleState(
             0,
-            14 * s.point.iconSize,
+            haloRadius,
             0,
           ) as unknown as number,
           'circle-stroke-color': SEL_ACCENT,
@@ -3682,7 +3894,7 @@ function syncOverlays(
         ...sourceLayerProp,
         minzoom,
         maxzoom,
-        filter: combineFilter(['==', ['geometry-type'], 'Point'], layer.filter),
+        filter: pointFilter,
         layout: {
           // #78: per-category icon override for unique-value
           // renderers. The helper builds a match expression on the
@@ -3696,12 +3908,16 @@ function syncOverlays(
           // Zoom-interpolated size. Feature-state expressions aren't
           // allowed in layout properties, so the halo circle above
           // carries selected/hover: this property only tracks zoom.
+          // With a background the icon shrinks to fit inside it.
           'icon-size': zoomScaleNumber(
-            s.point.iconSize,
+            bg ? bg.iconScale : s.point.iconSize,
           ) as unknown as number,
           'icon-allow-overlap': true,
           'icon-ignore-placement': true,
-          'icon-anchor': 'bottom',
+          // A bare icon keeps its pin-style bottom anchor so saved
+          // maps look the same. Inside a background it is centered
+          // on the point, like the shape under it.
+          'icon-anchor': bg ? 'center' : 'bottom',
         },
         paint: {
           'icon-opacity': op,
@@ -3775,13 +3991,47 @@ function syncOverlays(
           'text-opacity': op,
         },
       };
-      if (layer.filter) {
+      // Label points (the data layer's tile setting `labelPoints`).
+      // MapLibre labels a line or polygon once per tile piece, so a
+      // parcel that crosses a tile edge gets two labels and a long road
+      // gets one per tile. When the server sends a `labels` layer, each
+      // line and polygon carries `_label_point: true` in `features` and
+      // exactly one point in `labels`, in the one tile that contains
+      // it. So: label the geometry only where it is NOT marked, and
+      // label the marked ones from their point. A layer without the
+      // setting has no marks and no `labels` layer, so this draws
+      // exactly what it always did. Along-the-line placement keeps
+      // labelling the geometry, because a point cannot follow a line.
+      const usePoints = isMvt && labels.placement !== 'line';
+      if (usePoints) {
+        symbolLayer.filter = combineFilter(
+          ['!=', ['get', TILE_LABEL_POINT_PROP], true],
+          layer.filter,
+        ) as maplibregl.FilterSpecification;
+      } else if (layer.filter) {
         symbolLayer.filter = combineFilter(
           ['all'],
           layer.filter,
         ) as maplibregl.FilterSpecification;
       }
       applyLayer(symbolLayer);
+      if (usePoints) {
+        const pointLabels: maplibregl.SymbolLayerSpecification = {
+          ...symbolLayer,
+          id: `gg:${layer.id}-label-pt`,
+          'source-layer': TILE_LABELS_LAYER,
+          layout: { ...symbolLayer.layout, 'symbol-placement': 'point' },
+        };
+        if (layer.filter) {
+          pointLabels.filter = combineFilter(
+            ['all'],
+            layer.filter,
+          ) as maplibregl.FilterSpecification;
+        } else {
+          delete pointLabels.filter;
+        }
+        applyLayer(pointLabels);
+      }
     }
 
     // Kept sources skip the global teardown, so prune any of their
@@ -3923,58 +4173,6 @@ function formatterExpression(
   }
 }
 
-type MlFilter = maplibregl.FilterSpecification;
-
-/**
- * Translate a single filter clause to a MapLibre expression, or return
- * null if the clause is incomplete / unfit for the chosen operator
- * (e.g. a numeric comparison whose value is not a valid number).
- */
-function clauseToExpr(clause: MapLayerFilterClause): unknown[] | null {
-  if (!clause.field) return null;
-  const prop = ['get', clause.field];
-  switch (clause.op) {
-    case '==':
-      return ['==', prop, clause.value];
-    case '!=':
-      return ['!=', prop, clause.value];
-    case '>':
-    case '>=':
-    case '<':
-    case '<=': {
-      const n = Number(clause.value);
-      if (Number.isNaN(n)) return null;
-      return [clause.op, prop, n];
-    }
-    case 'contains':
-      return ['>=', ['index-of', clause.value, ['to-string', prop]], 0];
-    case 'is-null':
-      return ['!', ['has', clause.field]];
-    case 'is-not-null':
-      return ['has', clause.field];
-  }
-}
-
-/**
- * Combine the always-on geometry-type filter with any attribute clauses.
- * Clauses are joined via the user's chosen combinator (all == AND,
- * any == OR). Incomplete clauses (no field picked yet, or numeric
- * comparison with a non-numeric value) are silently dropped so the
- * map keeps rendering while the user is mid-edit.
- */
-function combineFilter(
-  geomFilter: unknown[],
-  filter: MapLayerFilter | null,
-): MlFilter {
-  if (!filter || filter.clauses.length === 0) return geomFilter as MlFilter;
-  const exprs = filter.clauses
-    .map((c) => clauseToExpr(c))
-    .filter((e): e is unknown[] => e !== null);
-  if (exprs.length === 0) return geomFilter as MlFilter;
-  const joined = [filter.combinator === 'any' ? 'any' : 'all', ...exprs];
-  return (['all', geomFilter, joined] as unknown) as MlFilter;
-}
-
 /**
  * Build a MapLibre paint color for a given style slot, honoring the
  * layer's renderer. Simple renderer → raw hex. Unique-values renderer
@@ -4006,7 +4204,9 @@ function rendererColor(
   if (r.kind === 'unique-values') {
     if (r.categories.length === 0 || !r.field) return fallback;
     const matchExpr: unknown[] = ['match', ['to-string', ['get', r.field]]];
-    for (const cat of r.categories) {
+    // MapLibre rejects a match with a repeated label, so a saved
+    // renderer with duplicate values would draw nothing; first wins.
+    for (const cat of uniqueCategories(r.categories)) {
       matchExpr.push(cat.value, cat.color);
     }
     matchExpr.push(fallback); // default
@@ -4018,48 +4218,21 @@ function rendererColor(
   // We need one more color than stops; fall back to the simple color if
   // the editor hasn't finished wiring this up.
   if (r.kind === 'class-breaks') {
-    if (!r.field || r.stops.length === 0 || r.colors.length !== r.stops.length + 1) {
-      return fallback;
-    }
+    // step needs strictly ascending stops or MapLibre rejects the
+    // paint; sort and drop repeats (saved renderers may hold either).
+    const classes = r.field ? normalizeClassBreaks(r.stops, r.colors) : null;
+    if (!classes) return fallback;
     const input = ['to-number', ['get', r.field]];
-    const stepExpr: unknown[] = ['step', input, r.colors[0]];
-    for (let i = 0; i < r.stops.length; i += 1) {
-      stepExpr.push(r.stops[i]);
-      stepExpr.push(r.colors[i + 1]);
+    const stepExpr: unknown[] = ['step', input, classes.colors[0]];
+    for (let i = 0; i < classes.stops.length; i += 1) {
+      stepExpr.push(classes.stops[i]);
+      stepExpr.push(classes.colors[i + 1]);
     }
     return stepExpr;
   }
 
-  // time-bins (#59). MapLibre's `step` only accepts a numeric input,
-  // so we build a `case` chain that compares the field's string
-  // value against each ISO-8601 boundary. ISO-8601 with consistent
-  // zero-padding sorts lexically the same as chronologically, so
-  // a plain `<` comparison gives the right binning. Features
-  // missing the field, or holding a value that isn't a string,
-  // drop to `defaultColor` via the leading guard.
-  if (r.kind === 'time-bins') {
-    const validShape =
-      r.field &&
-      r.boundaries.length > 0 &&
-      r.bins.length === r.boundaries.length + 1;
-    if (!validShape) return fallback;
-    const prop = ['get', r.field];
-    const caseExpr: unknown[] = ['case'];
-    // Guard: only apply binning to features whose field is a
-    // non-empty string. Missing / wrong-type values fall through
-    // to defaultColor.
-    caseExpr.push(['!', ['has', r.field]]);
-    caseExpr.push(r.defaultColor);
-    caseExpr.push(['!=', ['typeof', prop], 'string']);
-    caseExpr.push(r.defaultColor);
-    for (let i = 0; i < r.boundaries.length; i += 1) {
-      caseExpr.push(['<', prop, r.boundaries[i]!]);
-      caseExpr.push(r.bins[i]!.color);
-    }
-    // Final value: >= last boundary.
-    caseExpr.push(r.bins[r.boundaries.length]!.color);
-    return caseExpr;
-  }
+  // time-bins (#59): shared with the print snapshot.
+  if (r.kind === 'time-bins') return timeBinsColorExpression(r) ?? fallback;
 
   return fallback;
 }
@@ -4095,7 +4268,7 @@ function rendererIconImage(
   );
   if (!anyOverride) return fallbackImageId;
   const matchExpr: unknown[] = ['match', ['to-string', ['get', r.field]]];
-  for (const cat of r.categories) {
+  for (const cat of uniqueCategories(r.categories)) {
     const id =
       typeof cat.iconName === 'string' && cat.iconName.length > 0
         ? imageIdFor(cat.iconName)
@@ -4129,6 +4302,15 @@ function sourceData(
    */
   mapClipBoundaryId?: string,
 ): GeoJSON.FeatureCollection | string | null {
+  // Editor targets start empty: the viewport effect fills them with
+  // the rows in view. Handing MapLibre the bare /geojson URL streams
+  // the whole layer, or fails outright where paging is required.
+  if (
+    layer.id.startsWith('editor-target:') &&
+    v3SublayerOf(layer.source) !== null
+  ) {
+    return { type: 'FeatureCollection', features: [] };
+  }
   if (layer.source.kind === 'geojson-url') return layer.source.url;
   if (layer.source.kind === 'geojson-inline') {
     return layer.source.geojson as GeoJSON.FeatureCollection;
@@ -4151,8 +4333,8 @@ function sourceData(
     // arcgis-rest) are out of our control and would need a client-
     // side MapLibre filter for the same effect.
     const base = layer.source.layerKey
-      ? `/api/portal/items/${layer.source.itemId}/layers/${encodeURIComponent(layer.source.layerKey)}/geojson`
-      : `/api/portal/items/${layer.source.itemId}/geojson`;
+      ? `/api/portal/items/${pathId(layer.source.itemId)}/layers/${encodeURIComponent(layer.source.layerKey)}/geojson`
+      : `/api/portal/items/${pathId(layer.source.itemId)}/geojson`;
     // #79: per-layer boundary wins over the map-level clip; if the
     // layer didn't set one, fall back to the map's clipBoundaryId
     // so every layer reads through the same view-scope polygon.
@@ -4201,7 +4383,7 @@ function renderPopupHtml(
   // branch double-escaped (e.g. "Erickson's" rendered as
   // "Erickson&#39;s" in the popup heading).
   const title = layer.popup.titleTemplate
-    ? renderTemplate(layer.popup.titleTemplate, props, locale)
+    ? sanitizePopupHtml(renderTemplate(layer.popup.titleTemplate, props, locale))
     : escapeHtml(layer.title);
 
   // Body shape depends on mode. Template mode passes through author
@@ -4212,10 +4394,8 @@ function renderPopupHtml(
   // the dedicated metadata footer renders them explicitly.
   let body: string;
   if (layer.popup.mode === 'template' && layer.popup.bodyTemplate) {
-    body = `<div class="gg-popup-body">${renderTemplate(
-      layer.popup.bodyTemplate,
-      props,
-      locale,
+    body = `<div class="gg-popup-body">${sanitizePopupHtml(
+      renderTemplate(layer.popup.bodyTemplate, props, locale),
     )}</div>`;
   } else {
     const keys =

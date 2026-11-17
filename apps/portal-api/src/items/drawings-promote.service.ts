@@ -118,32 +118,58 @@ export class DrawingsPromoteService {
       inserted: number;
     }> = [];
     let totalInserted = 0;
+    // A set can repeat an id; the idempotent insert would then keep
+    // only one row. Pass each id once so every feature lands.
+    const usedIds = new Set<string>();
+    const keepId = (id: string): boolean => {
+      if (!UUID_RE.test(id) || usedIds.has(id)) return false;
+      usedIds.add(id);
+      return true;
+    };
 
-    for (let i = 0; i < buckets.length; i++) {
-      const bucket = buckets[i]!;
-      const sub = sublayers[i]!;
-      const inserted = await this.features.insertFeatures(
-        created.id,
-        sub.id,
-        bucket.features.map((f) => ({
-          globalId: f.id,
-          properties: {
-            kind: f.kind,
-            ...(typeof f.label === 'string' ? { label: f.label } : {}),
-            ...(typeof f.note === 'string' ? { note: f.note } : {}),
-            markup_set_id: set.id,
-            markup_author: set.authorDisplay,
-          },
-          geometry: f.geometry as unknown,
-        })),
-        args.user,
-      );
-      layerResults.push({
-        layerId: sub.id,
-        geometryType: bucket.geometryType,
-        inserted: inserted.inserted,
-      });
-      totalInserted += inserted.inserted;
+    try {
+      for (let i = 0; i < buckets.length; i++) {
+        const bucket = buckets[i]!;
+        const sub = sublayers[i]!;
+        const inserted = await this.features.insertFeatures(
+          created.id,
+          sub.id,
+          bucket.features.map((f) => ({
+            // Drawing ids are free client strings and the engine casts
+            // globalId to uuid. Keep the id only when it already is one;
+            // otherwise let the engine mint it.
+            ...(keepId(f.id) ? { globalId: f.id } : {}),
+            properties: {
+              kind: f.kind,
+              ...(typeof f.label === 'string' ? { label: f.label } : {}),
+              ...(typeof f.note === 'string' ? { note: f.note } : {}),
+              markup_set_id: set.id,
+              markup_author: set.authorDisplay,
+            },
+            geometry: f.geometry as unknown,
+          })),
+          args.user,
+        );
+        layerResults.push({
+          layerId: sub.id,
+          geometryType: bucket.geometryType,
+          inserted: inserted.inserted,
+        });
+        totalInserted += inserted.inserted;
+      }
+    } catch (err) {
+      // The layer was created before the inserts. Without this a
+      // failed promote leaves an empty private layer behind on every
+      // retry. Cleanup is best effort; the original error wins.
+      await this.items
+        .remove(args.user, created.id)
+        .then(() => this.items.purge(args.user, created.id))
+        .catch((cleanupErr: unknown) => {
+          this.log.warn(
+            `Could not clean up data_layer ${created.id} after a failed promote: ${String(cleanupErr)}`,
+          );
+        });
+      throw err;
     }
 
     this.log.log(
@@ -157,6 +183,9 @@ export class DrawingsPromoteService {
     };
   }
 }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type GeometryBucket = {
   geometryType: Exclude<LayerGeometryType, null>;

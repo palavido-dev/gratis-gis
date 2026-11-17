@@ -19,8 +19,8 @@ related:
 GratisGIS uses one expression dialect across several surfaces:
 
 - **Map layer filters** ("show only features where...").
-- **Derived layer Filter step** (the same condition, applied to
- the materialized output).
+- **Derived layer Filter step** (the same condition, applied in
+ the live pipeline).
 - **Derived layer Calculate step** (compute a new column).
 - **Form conditional visibility** ("show this question if...").
 - **Report template tokens** (Boolean conditionals inside the

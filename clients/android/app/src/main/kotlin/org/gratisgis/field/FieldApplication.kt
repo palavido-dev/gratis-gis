@@ -8,6 +8,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import org.gratisgis.field.core.database.AccountScope
 import org.gratisgis.field.core.database.FieldDatabase
 import org.gratisgis.field.core.engine.FieldEngine
 import org.gratisgis.field.core.engine.loadFromAssets
@@ -59,6 +60,17 @@ class FieldApplication : Application() {
     db = FieldDatabase.open(this)
   }
 
+  /**
+   * Who the device works for right now, or null when nobody is signed
+   * in or no portal is connected. Cached collections, drafts and queued
+   * edits are shown and sent only within this scope.
+   */
+  fun accountScope(): AccountScope? {
+    val userId = auth.tokens.value?.subject ?: return null
+    val client = portal ?: return null
+    return AccountScope(userId, AccountScope.portalKey(client.apiBaseUrl))
+  }
+
   fun connect(info: PortalInfo): PortalClient {
     portal?.close()
     return PortalClient(info.api.baseUrl, auth).also { portal = it }
@@ -80,6 +92,6 @@ class PortalSettings(context: Context) {
     set(value) = prefs.edit().putString("portalInfo", value).apply()
 
   companion object {
-    const val DEFAULT_PORTAL_URL = "https://gratisgis.org"
+    const val DEFAULT_PORTAL_URL = "https://demo.gratisgis.org"
   }
 }

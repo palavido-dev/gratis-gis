@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { formatDate } from '@/lib/i18n/format';
 import { t } from '@/lib/i18n';
 import type { SupportedLocale } from '@/lib/i18n/locales';
 import { getServerLocale } from '@/lib/i18n/server';
 import Link from 'next/link';
 import {
+  ArrowRight,
   Bell,
   Brush,
   Database,
@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { BrandMark } from '@/components/brand-mark';
+import { WhatsNewEntryList } from '@/components/whats-new-list';
 import { GG_VERSION, versionReleaseUrl } from '@/lib/version';
 import type { ItemType } from '@gratis-gis/shared-types';
 import {
@@ -31,6 +32,8 @@ import {
   hasRuntime,
 } from '@/lib/item-type-icon';
 import { portalUrl } from '@/lib/portal-url';
+import { serializeJsonLd } from '@/lib/json-ld';
+import { cssUrl } from '@/lib/css-url';
 
 function GithubMark({ className }: { className?: string }) {
   return (
@@ -110,10 +113,10 @@ interface Props {
   isAuthenticated?: boolean;
   /**
    * Session cookie present but its Keycloak tokens are dead (#195).
-   * The shell keeps rendering (so the TopBar stays suppressed and we
-   * don't stack two headers), but the hero CTA has to say Sign in:
-   * "Open my items" leads to an items page the API will answer as
-   * anonymous.
+   * AppShellChrome renders bare for a stale session, so the public
+   * TopBar has to show again (or the page has no header and no Sign
+   * in), and the hero CTA has to say Sign in: "Open my items" leads
+   * to an items page the API will answer as anonymous.
    */
   sessionStale?: boolean;
   /**
@@ -149,7 +152,7 @@ export async function PublicLanding({
     hasRuntime(it as Parameters<typeof hasRuntime>[0]),
   );
   const usableSession = isAuthenticated && !sessionStale;
-  const ctaHref = usableSession ? '/items' : '/signin';
+  const ctaHref = usableSession ? '/items' : '/signin?callbackUrl=%2Fitems';
   const ctaLabel = usableSession
     ? t('landing.openMyItems', undefined, locale)
     : t('nav.signIn', undefined, locale);
@@ -160,10 +163,10 @@ export async function PublicLanding({
           For authenticated visitors the AppShell's left rail and
           top bar already cover both, so showing the public TopBar
           here renders a redundant "Sign in" button next to the
-          shell's signed-in badge. Hide it when isAuthenticated;
-          unauthenticated visitors still see it as their only
-          surface for the org name + sign-in entry. */}
-      {!isAuthenticated ? <TopBar orgName={org.name} locale={locale} /> : null}
+          shell's signed-in badge. Hide it only for a usable
+          session: the shell steps aside for a stale one, and then
+          this is the only surface for the org name + sign-in entry. */}
+      {!usableSession ? <TopBar orgName={org.name} locale={locale} /> : null}
 
       {/* #141: public-testing banner. Rendered when the deploy is
           in public-testing mode (NEXT_PUBLIC_PUBLIC_TESTING=1) so
@@ -181,7 +184,7 @@ export async function PublicLanding({
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(buildLandingJsonLd(data), null, 0),
+          __html: serializeJsonLd(buildLandingJsonLd(data, items)),
         }}
       />
 
@@ -311,11 +314,11 @@ export async function PublicLanding({
 
 /**
  * "What's new" card on the landing page.  Driven by entries parsed
- * from docs/changelog/user-visible.md at server-render time.  The
+ * from content/changelog/user-visible.md at server-render time.  The
  * source is plain-English on purpose -- if an entry reads like a
  * release note ("Refactored the SymbolService") it doesn't belong
- * here.  See docs/changelog/user-visible.md for the format and the
- * tone we keep.
+ * here.  Cap stays compact (page.tsx loads five); the jump-out goes
+ * to `/whats-new` for the full history, grouped by release.
  */
 function WhatsNewSection({
   entries,
@@ -327,56 +330,25 @@ function WhatsNewSection({
   return (
     <section className="mx-auto w-full max-w-6xl px-6 pt-10">
       <div className="rounded-lg border border-border bg-surface-1 p-6 shadow-card">
-        <div className="mb-4 flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-accent" aria-hidden="true" />
-          <h2 className="text-base font-semibold tracking-tight text-ink-0">
-            {t('landing.whatsNew', undefined, locale)}
-          </h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-accent" aria-hidden="true" />
+            <h2 className="text-base font-semibold tracking-tight text-ink-0">
+              {t('landing.whatsNew', undefined, locale)}
+            </h2>
+          </div>
+          <Link
+            href="/whats-new"
+            className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+          >
+            {t('landing.whatsNewViewAll', undefined, locale)}
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
         </div>
-        <ul className="space-y-4">
-          {entries.map((e) => (
-            <li
-              key={`${e.date}-${e.name}`}
-              className="border-l-2 border-accent/40 pl-4"
-            >
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                <time
-                  dateTime={e.date}
-                  className="font-mono text-xs uppercase tracking-wide text-muted"
-                >
-                  {formatChangelogDate(e.date, locale)}
-                </time>
-                <span className="text-sm font-medium text-ink-0">
-                  {e.name}
-                </span>
-              </div>
-              <p className="mt-0.5 text-sm leading-snug text-muted">
-                {e.description}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <WhatsNewEntryList entries={entries} locale={locale} />
       </div>
     </section>
   );
-}
-
-/**
- * Render the YYYY-MM-DD heading date in a friendlier short form
- * (e.g. "May 24, 2026").  We do this in-place because the landing
- * page is a server component; bringing in a date-formatting library
- * for one line would be overkill.  Falls back to the raw string if
- * the input doesn't parse, so a malformed entry still renders.
- */
-function formatChangelogDate(iso: string, locale: SupportedLocale): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return formatDate(d, locale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
 }
 
 /**
@@ -527,65 +499,31 @@ function ProjectAboutSection({ locale }: { locale: SupportedLocale }) {
 }
 
 /**
- * #141: Public-testing-mode banner. Rendered at the very top of
- * the landing page (above the Hero) when the deploy sets
- * NEXT_PUBLIC_PUBLIC_TESTING=1. Spells out:
+ * #141: Public-testing-mode banner. Rendered at the very top of the
+ * landing page (above the Hero) when the deploy sets
+ * NEXT_PUBLIC_PUBLIC_TESTING=1.
  *
- *   - The instance is a test environment, not a production
- *     deployment (so testers don't expect their data to persist).
- *   - The three documented test users and their passwords
- *     (matches what seed-test-users.sh provisions).
- *   - The daily reset window (matches what
- *     gg-reset-demo.timer fires at).
- *
- * Tone is informational, not alarming. Amber-styled because
- * "heads up, this is a sandbox" reads better in amber than the
- * danger red.
+ * One line: this is a sandbox that resets daily, and where to find
+ * the test accounts. The accounts themselves, with a button that
+ * fills the form, live on the sign-in page (the portal-demo Keycloak
+ * theme), which is where people need them. The old three-paragraph
+ * banner repeated them here and pushed the page content below the
+ * fold on a phone.
  */
 function TestingBanner({ locale }: { locale: SupportedLocale }) {
   return (
-    <div className="border-b border-warn/40 bg-warn/10 px-6 py-3 text-sm">
-      <div className="mx-auto flex w-full max-w-5xl items-start gap-3">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
-        <div className="flex-1 text-warn">
-          <p className="font-medium">
-            {t('landing.testingTitle', undefined, locale)}
-          </p>
-          <p className="mt-1 leading-relaxed">
-            {t('landing.testingBodyBefore', undefined, locale)}{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              tester-admin
-            </code>
-            {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              Admin123!
-            </code>
-            ,{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              tester-contributor
-            </code>
-            {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              Contributor123!
-            </code>
-            , {t('landing.testingBodyOr', undefined, locale)}{' '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              tester-viewer
-            </code>
-            {' / '}
-            <code className="rounded bg-warn/15 px-1 font-mono text-xs">
-              Viewer123!
-            </code>
-            {t('landing.testingBodyAfter', undefined, locale)}
-          </p>
-          <p className="mt-1 leading-relaxed">
-            {t('landing.testingSampleLead', undefined, locale)}{' '}
-            <span className="font-medium">
-              {t('landing.testingSampleName', undefined, locale)}
-            </span>{' '}
-            {t('landing.testingSampleTail', undefined, locale)}
-          </p>
-        </div>
+    <div className="border-b border-warn/40 bg-warn/10 px-6 py-2 text-sm">
+      <div className="mx-auto flex w-full max-w-5xl items-center gap-2 text-warn">
+        <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <p>
+          {t('landing.testingNotice', undefined, locale)}{' '}
+          <Link
+            href="/signin?callbackUrl=%2Fitems"
+            className="font-medium underline underline-offset-2"
+          >
+            {t('landing.testingSignInLink', undefined, locale)}
+          </Link>
+        </p>
       </div>
     </div>
   );
@@ -632,7 +570,7 @@ function TopBar({
         </span>
       </div>
       <Link
-        href="/signin"
+        href="/signin?callbackUrl=%2Fitems"
         className="inline-flex h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
       >
         <LogIn className="h-4 w-4" />
@@ -674,7 +612,7 @@ function Hero({
   return (
     <section
       className="relative flex min-h-[220px] items-end bg-surface-2 bg-cover bg-center px-6 py-10"
-      style={{ backgroundImage: `url(${heroImageUrl})` }}
+      style={{ backgroundImage: cssUrl(heroImageUrl) }}
     >
       <div className="absolute inset-0 bg-black/45" aria-hidden="true" />
       <div className="relative z-1 mx-auto w-full max-w-6xl">
@@ -763,13 +701,16 @@ function ItemCard({ item }: { item: LandingData['items'][number] }) {
  * single JSON-LD blob the page injects via a server-rendered
  * <script type="application/ld+json"> tag.
  *
- * The portal does not have public item detail pages today, so the
- * URLs point at /items/<id>. Once the public detail surface lands,
- * the same shape can be lifted onto each item's own page (one
- * Dataset per page) without regenerating the structure here.
+ * Built from the same filtered list the grid shows, with the same
+ * link each card uses (getItemHref). Items without an anonymous
+ * runtime are left out: their /items/<id> detail page sends a
+ * visitor to sign in, so advertising it describes content that is
+ * not on this page. Once the public detail surface lands (#76) they
+ * can come back, one Dataset per page.
  */
 function buildLandingJsonLd(
   data: LandingData,
+  items: LandingData['items'],
 ): Record<string, unknown> {
   const dataLayerLike = new Set<ItemType>([
     'data_layer',
@@ -795,9 +736,11 @@ function buildLandingJsonLd(
     url: portalUrl('/'),
   } as const;
 
-  const elements = data.items.map((item, index) => {
+  const elements = items.map((item, index) => {
     const isDataset = dataLayerLike.has(item.type);
-    const itemAbsoluteUrl = portalUrl(`/items/${item.id}`);
+    const itemAbsoluteUrl = portalUrl(
+      getItemHref(item as Parameters<typeof getItemHref>[0]),
+    );
     const node: Record<string, unknown> = {
       '@type': isDataset ? 'Dataset' : 'CreativeWork',
       name: item.title,
@@ -842,7 +785,7 @@ function buildLandingJsonLd(
     publisher,
     mainEntity: {
       '@type': 'ItemList',
-      numberOfItems: data.items.length,
+      numberOfItems: items.length,
       itemListElement: elements,
     },
   };

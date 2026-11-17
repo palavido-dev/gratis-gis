@@ -49,12 +49,10 @@ export function WelcomePanel({
 
   if (dismissed || !canPublish) return null;
 
-  async function loadSample() {
+  async function postSeed(path: string, showcase: boolean) {
     setSeeding(true);
     try {
-      const res = await fetch('/api/portal/items/sample-data', {
-        method: 'POST',
-      });
+      const res = await fetch(path, { method: 'POST' });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -63,16 +61,28 @@ export function WelcomePanel({
         skipped: string[];
       };
       if (body.created.length > 0) {
-        toast.success(t('welcome.loaded', { count: body.created.length }));
+        toast.success(
+          t(showcase ? 'welcome.loadedShowcase' : 'welcome.loaded', {
+            count: body.created.length,
+          }),
+        );
       } else {
-        toast.info(t('welcome.allSkipped'));
+        toast.info(t(showcase ? 'welcome.allSkippedShowcase' : 'welcome.allSkipped'));
       }
       router.refresh();
     } catch {
-      toast.error(t('welcome.failed'));
+      toast.error(t(showcase ? 'welcome.failedShowcase' : 'welcome.failed'));
     } finally {
       setSeeding(false);
     }
+  }
+
+  function loadSample() {
+    return postSeed('/api/portal/items/sample-data', false);
+  }
+
+  function loadShowcase() {
+    return postSeed('/api/portal/items/showcase-data', true);
   }
 
   function dismiss() {
@@ -154,6 +164,19 @@ export function WelcomePanel({
           </span>
         </button>
       </div>
+      <button
+        type="button"
+        onClick={loadShowcase}
+        disabled={seeding}
+        className="mt-3 flex w-full flex-col gap-1 rounded-md border border-border bg-surface-0 p-4 text-left transition-colors hover:border-accent hover:bg-accent/5 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        <span className="text-sm font-medium text-ink-0">
+          {seeding ? t('welcome.loadingShowcase') : t('welcome.loadShowcase')}
+        </span>
+        <span className="text-sm leading-relaxed text-muted">
+          {t('welcome.loadShowcaseDesc')}
+        </span>
+      </button>
     </section>
   );
 }

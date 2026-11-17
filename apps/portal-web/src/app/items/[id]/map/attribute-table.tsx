@@ -32,6 +32,16 @@ import {
 import { exportBundle } from '@/lib/bundle-export';
 import { parseApiError } from '@/lib/api-error';
 import { toast } from '@/lib/toast';
+import {
+  buildIdSelectionFilter,
+  buildSelectionFilter,
+  MAX_SELECTION_FILTER_CLAUSES,
+} from '@/lib/selection-filter';
+import {
+  filterWithSourceIndex,
+  rowIndexForKey,
+  rowSelectionKey,
+} from '@/lib/table-row-keys';
 import { formatDateTime, useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
@@ -42,16 +52,22 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { matchesFilter } from '@gratis-gis/shared-types';
+import {
+  andFilters,
+  FILTER_IN_MAX_VALUES,
+  matchesFilter,
+} from '@gratis-gis/shared-types';
 import type {
   FeatureField,
   MapLayer,
-  MapLayerFilter,
   PickListData,
   ResolvedVia,
+  ScopedLayerFilter,
 } from '@gratis-gis/shared-types';
 import type { LayerMetadata } from './layer-metadata';
 import { getCachedUserName, prefetchUserNames } from '@/lib/user-name-cache';
+import { featuresBbox } from '@/lib/geo-bbox';
+import { serverSublayerOf } from '@/lib/server-sublayer';
 
 interface Props {
   open: boolean;
@@ -191,8 +207,14 @@ interface Props {
    * whole layer.
    */
   scopeLayerId?: string | null;
-  scopeWhere?: MapLayerFilter | null;
+  scopeWhere?: ScopedLayerFilter | null;
   scopeVia?: ResolvedVia | null;
+  /**
+   * Bump to refetch the server page. The Editor bumps it after a
+   * save, undo or redo, so the rows show the new values without the
+   * table having to watch the layer's source.
+   */
+  reloadToken?: number;
 }
 
 type SortDir = 'asc' | 'desc';
@@ -235,6 +257,7 @@ export function AttributeTable({
   scopeLayerId,
   scopeWhere,
   scopeVia,
+  reloadToken = 0,
 }: Props) {
   const t = useT();
   const fmt = useFormat();
@@ -254,6 +277,11 @@ export function AttributeTable({
   const [editingCell, setEditingCell] = useState<{
     layerId: string;
     idx: number;
+    /** The record being edited. The row index is only where it was
+     *  drawn: a refetch (pan, auto-zoom) can put another feature at
+     *  that index while the editor is open, so the commit and the
+     *  cell match on this id, never on idx. */
+    featureId: string;
     field: string;
   } | null>(null);
   const [draftValue, setDraftValue] = useState<string>('');
@@ -261,6 +289,7 @@ export function AttributeTable({
   const [savingCell, setSavingCell] = useState<{
     layerId: string;
     idx: number;
+    featureId: string;
     field: string;
   } | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
@@ -338,6 +367,9 @@ export function AttributeTable({
    * to a no-op (the row is still highlighted on the map via the
    * shared selection state + MVT setFeatureState path).
    */
+  // Bumped to force the server-paged fetch to run again with the same
+  // inputs, for example after Calculate Field changed the rows.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [serverPage, setServerPage] = useState<{
     features: Array<{ id: string; properties: Record<string, unknown> }>;
     count: number;
@@ -438,12 +470,7 @@ export function AttributeTable({
    * one-for-one.
    */
   function featureKeyAt(idx: number): number | string {
-    const f = activeFeatures[idx];
-    const gid =
-      f && f.properties && typeof f.properties === 'object'
-        ? (f.properties as Record<string, unknown>)['_global_id']
-        : undefined;
-    return typeof gid === 'string' ? gid : idx;
+    return rowSelectionKey(activeFeatures, idx, activeSrcIdx);
   }
 
   /**
@@ -455,20 +482,7 @@ export function AttributeTable({
    * filter / sort window).
    */
   function indexForKey(key: number | string): number {
-    if (typeof key === 'number') {
-      return key < activeFeatures.length ? key : -1;
-    }
-    for (let i = 0; i < activeFeatures.length; i += 1) {
-      const props = activeFeatures[i]?.properties ?? null;
-      if (
-        props &&
-        typeof props === 'object' &&
-        (props as Record<string, unknown>)['_global_id'] === key
-      ) {
-        return i;
-      }
-    }
-    return -1;
+    return rowIndexForKey(activeFeatures, key, activeSrcIdx);
   }
 
   /** Set membership check using the row's stable key. */
@@ -479,17 +493,19 @@ export function AttributeTable({
   const activeLayer = layers.find((l) => l.id === activeLayerId) ?? null;
 
   /**
-   * Server-paged mode is on when the active layer is a v3 data_layer
-   * sublayer (has both itemId + layerKey on its source). The /features-
+   * Server-paged mode is on when the active layer reads a v3 sublayer:
+   * a `data-layer` source with a layerKey, or an Editor target (a
+   * `geojson-url` source under the editor-target id). The /features-
    * page endpoint only exists for that path; for legacy geojson-url /
    * arcgis-rest / geojson-inline sources we fall back to the parent-
    * fed featuresByLayer cache + client-side filter/sort, which works
    * fine for those source sizes. (#115 P13)
+   *
+   * Editor targets joined this path because the Editor no longer
+   * downloads them whole: the canvas holds only the rows in view, so
+   * there is no full collection for the client path to list.
    */
-  const serverDataLayerSource =
-    activeLayer && activeLayer.source.kind === 'data-layer'
-      ? activeLayer.source
-      : null;
+  const serverDataLayerSource = serverSublayerOf(activeLayer);
   const serverItemId = serverDataLayerSource?.itemId ?? null;
   const serverLayerKey = serverDataLayerSource?.layerKey ?? null;
   const serverMode = Boolean(serverItemId && serverLayerKey);
@@ -509,11 +525,14 @@ export function AttributeTable({
     for (const k of activeSelection) {
       if (typeof k === 'string' && UUID_RE.test(k)) {
         ids.push(k);
-        if (ids.length >= 1000) break;
+        if (ids.length >= MAX_IDS_IN_QUERY) break;
       }
     }
     return ids.length > 0 ? ids.join(',') : null;
   }, [serverMode, showOnlySelected, activeSelection]);
+  // True when "Show selected" lists only part of a large selection.
+  const showSelectedCapped =
+    serverMode && showOnlySelected && activeSelection.size > MAX_IDS_IN_QUERY;
 
   /**
    * The active layer's own attribute filter, serialized for the
@@ -536,21 +555,31 @@ export function AttributeTable({
     scopeLayerId && activeLayer && activeLayer.id === scopeLayerId,
   );
   const whereForServer = useMemo<string | null>(() => {
-    const f = activeLayer?.filter;
+    // The layer's filter may carry a cross-filter selection in `and`.
+    const f: ScopedLayerFilter | null | undefined = activeLayer?.filter;
     const own = f && f.clauses && f.clauses.length > 0 ? f : null;
     // #25: the source scope's predicate joins the layer's own filter
-    // on the fetch. Flattened under 'all' when both exist, the same
-    // convention resolveSourceScope applies: a scope narrows what
-    // the layer shows, it never widens it.
+    // on the fetch. A scope narrows what the layer shows, it never
+    // widens it, and a "match any" on either side stays an OR
+    // (andFilters, review 64-1). In the rare case the two cannot be
+    // said in one request, everything is flattened under 'all', which
+    // can only list fewer rows, never more.
     const extra =
       scopeApplies && scopeWhere && scopeWhere.clauses.length > 0
         ? scopeWhere
         : null;
     if (own && extra) {
-      return JSON.stringify({
-        combinator: 'all' as const,
-        clauses: [...own.clauses, ...extra.clauses],
-      });
+      return JSON.stringify(
+        andFilters(own, extra) ?? {
+          combinator: 'all' as const,
+          clauses: [
+            ...own.clauses,
+            ...(own.and?.clauses ?? []),
+            ...extra.clauses,
+            ...(extra.and?.clauses ?? []),
+          ],
+        },
+      );
     }
     if (extra) return JSON.stringify(extra);
     if (own) return JSON.stringify(own);
@@ -581,7 +610,11 @@ export function AttributeTable({
    * above the table.
    */
   useEffect(() => {
-    if (!serverMode || !serverItemId || !serverLayerKey) {
+    // A closed table renders nothing, so it must not keep fetching up
+    // to 5,000 rows on every pan. The component stays mounted and
+    // keeps its active layer after close, which used to leave this
+    // effect armed for the rest of the session.
+    if (!open || !serverMode || !serverItemId || !serverLayerKey) {
       setServerPage(null);
       setServerLoading(false);
       setServerError(null);
@@ -617,7 +650,7 @@ export function AttributeTable({
     void (async () => {
       try {
         const res = await fetch(
-          `/api/portal/items/${serverItemId}/layers/${serverLayerKey}/features-page?${params.toString()}`,
+          `/api/portal/items/${encodeURIComponent(serverItemId)}/layers/${encodeURIComponent(serverLayerKey)}/features-page?${params.toString()}`,
           { signal: ctrl.signal },
         );
         if (!res.ok) {
@@ -648,9 +681,12 @@ export function AttributeTable({
       ctrl.abort();
     };
   }, [
+    open,
     serverMode,
     serverItemId,
     serverLayerKey,
+    reloadNonce,
+    reloadToken,
     extentOnly,
     mapBbox,
     debouncedQuery,
@@ -671,21 +707,15 @@ export function AttributeTable({
 
   // #352: AGO-style Attachments column. Surfaces the v3
   // feature_attachment rows for any attribute table sourced from a
-  // v3 data_layer sublayer (those carry the data-layer source kind
-  // with both itemId + layerKey). Other source kinds (legacy
+  // v3 data_layer sublayer (the same layers that use server-paged
+  // mode, Editor targets included). Other source kinds (legacy
   // geojson-url / arcgis-rest / inline) skip the column entirely
   // since the v3 attachments controller is the only path today.
   // The drawer below renders the same thumbnails-or-file-rows the
   // FormView Attachments section ships for the Response Viewer
   // (#351), so the visual shape is consistent across surfaces.
-  const attachmentsItemId =
-    activeLayer && activeLayer.source.kind === 'data-layer'
-      ? activeLayer.source.itemId
-      : null;
-  const attachmentsLayerKey =
-    activeLayer && activeLayer.source.kind === 'data-layer'
-      ? (activeLayer.source.layerKey ?? null)
-      : null;
+  const attachmentsItemId = serverItemId;
+  const attachmentsLayerKey = serverLayerKey;
   const showAttachmentsColumn = Boolean(
     attachmentsItemId && attachmentsLayerKey,
   );
@@ -712,7 +742,7 @@ export function AttributeTable({
     void (async () => {
       try {
         const res = await fetch(
-          `/api/portal/items/${attachmentsItemId}/layers/${attachmentsLayerKey}/features/${attachmentDrawer.featureId}/attachments`,
+          `/api/portal/items/${encodeURIComponent(attachmentsItemId)}/layers/${encodeURIComponent(attachmentsLayerKey)}/features/${encodeURIComponent(attachmentDrawer.featureId)}/attachments`,
         );
         if (!res.ok) {
           if (!abort) setDrawerAttachments([]);
@@ -773,10 +803,13 @@ export function AttributeTable({
    * `bboxOfFeatures` (it skips features without geometry) and by
    * the row-click auto-zoom (gated below).
    */
-  const activeFeatures = useMemo<GeoJSON.Feature[]>(() => {
+  const activeRows = useMemo<{
+    features: GeoJSON.Feature[];
+    srcIdx: number[] | null;
+  }>(() => {
     if (serverMode) {
-      if (!serverPage) return [];
-      return serverPage.features.map(
+      if (!serverPage) return { features: [], srcIdx: null };
+      const features = serverPage.features.map(
         (f): GeoJSON.Feature => ({
           type: 'Feature',
           // Cast satisfies TS without leaking a fake-geometry into
@@ -787,6 +820,7 @@ export function AttributeTable({
           id: f.id,
         }),
       );
+      return { features, srcIdx: null };
     }
     const cached =
       (activeLayer ? featuresByLayer[activeLayer.id] : null)?.features ?? [];
@@ -795,12 +829,19 @@ export function AttributeTable({
     // MapLibre expression on what is already loaded. The table has to
     // apply the same predicate itself or it lists rows the map is
     // hiding. Server mode is filtered by `where` on the request above.
+    // The map keys these rows by their position in the unfiltered
+    // source, so the filtered rows keep that position alongside.
     const filter = activeLayer?.filter;
-    if (!filter || filter.clauses.length === 0) return cached;
-    return cached.filter((feat) =>
+    if (!filter || filter.clauses.length === 0) {
+      return { features: cached, srcIdx: null };
+    }
+    const kept = filterWithSourceIndex(cached, (feat) =>
       matchesFilter(feat.properties as Record<string, unknown> | null, filter),
     );
+    return { features: kept.items, srcIdx: kept.srcIdx };
   }, [serverMode, serverPage, activeLayer, featuresByLayer]);
+  const activeFeatures = activeRows.features;
+  const activeSrcIdx = activeRows.srcIdx;
 
   // Field-domain lookup. Returns the configured options when the
   // field for the active layer carries a coded-value or
@@ -873,15 +914,9 @@ export function AttributeTable({
     const q = query.trim().toLowerCase();
     let idxs = activeFeatures.map((_, i) => i);
     if (showOnlySelected && activeSelection.size > 0) {
-      idxs = idxs.filter((i) => {
-        const f = activeFeatures[i];
-        const gid =
-          f && f.properties && typeof f.properties === 'object'
-            ? (f.properties as Record<string, unknown>)['_global_id']
-            : undefined;
-        const key = typeof gid === 'string' ? gid : i;
-        return activeSelection.has(key);
-      });
+      idxs = idxs.filter((i) =>
+        activeSelection.has(rowSelectionKey(activeFeatures, i, activeSrcIdx)),
+      );
     }
     if (q.length > 0) {
       idxs = idxs.filter((i) => {
@@ -912,6 +947,7 @@ export function AttributeTable({
   }, [
     serverMode,
     activeFeatures,
+    activeSrcIdx,
     query,
     sortBy,
     sortDir,
@@ -1011,18 +1047,18 @@ export function AttributeTable({
     // Selection in server-paged mode is a Set keyed by entity uuid
     // (string).  Filter for the uuid-shaped entries so a stray
     // numeric key (from a mixed-mode flow) doesn't slip past
-    // request validation.  Cap at 1000 to match the controller.
-    const UUID_RE =
-      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    // request validation. Capped so the query string fits the
+    // server's request header limit (see MAX_IDS_IN_QUERY); a large
+    // selection zooms to the extent of its first rows.
     const ids = [...keys]
       .filter((v): v is string => typeof v === 'string' && UUID_RE.test(v))
-      .slice(0, 1000)
+      .slice(0, MAX_IDS_IN_QUERY)
       .join(',');
     if (ids.length === 0) return;
     void (async () => {
       try {
         const res = await fetch(
-          `/api/portal/items/${serverItemId}/layers/${serverLayerKey}/selection-extent?entityIds=${encodeURIComponent(ids)}`,
+          `/api/portal/items/${encodeURIComponent(serverItemId)}/layers/${encodeURIComponent(serverLayerKey)}/selection-extent?entityIds=${encodeURIComponent(ids)}`,
           { cache: 'no-store' },
         );
         if (!res.ok) return;
@@ -1085,6 +1121,18 @@ export function AttributeTable({
    *     or the field is in the per-layer allowlist
    *   - the row carries a `_global_id` (without it we can't PATCH)
    */
+  // Built once per layer: canInlineEditField runs for every cell on
+  // every render, and a linear search of the field list per cell was
+  // a large share of the cost of typing into a big table.
+  const multiSelectFields = useMemo(() => {
+    const out = new Set<string>();
+    const defs = activeLayerId ? fieldsByLayer?.[activeLayerId] : undefined;
+    for (const f of defs ?? []) {
+      if (f.type === 'multi_select') out.add(f.name);
+    }
+    return out;
+  }, [fieldsByLayer, activeLayerId]);
+
   function canInlineEditField(field: string, idx: number): boolean {
     if (!onPatchFeature || !activeLayer) return false;
     if (!editableLayerIds || !editableLayerIds.has(activeLayer.id))
@@ -1102,10 +1150,7 @@ export function AttributeTable({
     // inline edit for these fields and let the user edit them through
     // the row's full attribute form, where AttributeForm renders the
     // checkbox group properly.
-    const fieldDef = fieldsByLayer?.[activeLayer.id]?.find(
-      (f) => f.name === field,
-    );
-    if (fieldDef?.type === 'multi_select') return false;
+    if (multiSelectFields.has(field)) return false;
     return true;
   }
 
@@ -1113,7 +1158,10 @@ export function AttributeTable({
     if (!activeLayer) return;
     if (!canInlineEditField(field, idx)) return;
     setEditError(null);
-    setEditingCell({ layerId: activeLayer.id, idx, field });
+    const startProps = (activeFeatures[idx]?.properties ?? {}) as Record<string, unknown>;
+    const startId = startProps['_global_id'];
+    if (typeof startId !== 'string') return;
+    setEditingCell({ layerId: activeLayer.id, idx, featureId: startId, field });
     setOriginalValue(current);
     // Render the value as a string the user can edit. JSON-stringify
     // objects so they round-trip; primitives go through String().
@@ -1146,17 +1194,7 @@ export function AttributeTable({
    */
   async function commitEditCell() {
     if (!editingCell || !activeLayer || !onPatchFeature) return;
-    const feature = activeFeatures[editingCell.idx];
-    if (!feature) return;
-    const props = (feature.properties ?? {}) as Record<string, unknown>;
-    const featureId =
-      typeof props['_global_id'] === 'string'
-        ? (props['_global_id'] as string)
-        : null;
-    if (!featureId) {
-      setEditError(t('mapAttributeTable.missingFeatureId'));
-      return;
-    }
+    const featureId = editingCell.featureId;
     const coerced = coerceDraft(
       draftValue,
       originalValue,
@@ -1171,20 +1209,16 @@ export function AttributeTable({
     setSavingCell({ ...editingCell });
     setEditError(null);
     try {
-      // Build the merged full properties bag the server expects.
-      // The v3 PATCH endpoint replaces `properties` wholesale, so
-      // we send everything-except-underscore-keys plus the new
-      // value for the edited field. The server stamps _edited_*
-      // on its own side.
-      const next: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(props)) {
-        if (k.startsWith('_')) continue;
-        next[k] = v;
-      }
-      next[editingCell.field] = coerced;
-      await onPatchFeature(activeLayer.id, featureId, next);
+      // The v3 PATCH merges `properties` into the stored row, so send
+      // only the edited field. Sending the whole row put back any
+      // value another editor changed since this page loaded, and was
+      // refused outright on targets that allow only some fields.
+      await onPatchFeature(activeLayer.id, featureId, {
+        [editingCell.field]: coerced,
+      });
       // Success: drop edit state. Parent's refresh will repaint
-      // the new value once the geojson re-fetch lands. Until then
+      // the new value once its re-fetch lands (the Editor bumps
+      // reloadToken, which refetches the server page). Until then
       // the cell briefly shows the stale value, which is fine
       // (sub-second on local; the parent should refresh quickly).
       cancelEditCell();
@@ -1237,40 +1271,64 @@ export function AttributeTable({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLayerId]);
+  // A refetch that drops the record being edited ends the edit, so a
+  // half-typed value is never left with nowhere to show.
+  useEffect(() => {
+    if (!editingCell) return;
+    const stillHere = activeFeatures.some(
+      (f) => (f.properties as Record<string, unknown> | null)?.['_global_id'] === editingCell.featureId,
+    );
+    if (!stillHere) cancelEditCell();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFeatures]);
 
   function selectionToFilter() {
     if (!activeLayer || activeSelection.size === 0) return;
+    // A v3 layer keys rows by `_global_id`, so the selection names
+    // the features themselves: one `in` clause on that id matches
+    // exactly them, including rows not on the loaded page.
+    const byId = buildIdSelectionFilter(activeSelection);
+    if (byId) {
+      if (!byId.ok) {
+        toast.error(
+          t('mapAttributeTable.useAsFilterTooMany', { max: FILTER_IN_MAX_VALUES }),
+        );
+        return;
+      }
+      onPatchLayer(activeLayer.id, { filter: byId.filter });
+      return;
+    }
     // #318: selection keys are heterogeneous (UUID for v3 promoteId,
-    // numeric idx otherwise). Resolve to numeric indexes here so
-    // pickIdField + the property-extraction loop below stay simple.
+    // numeric idx otherwise). Resolve to numeric indexes here; keys
+    // that are not on the loaded page resolve to -1 and are counted
+    // as missing rather than silently dropped.
     const idxSet = new Set<number>();
     for (const key of activeSelection) {
       const i = indexForKey(key);
       if (i >= 0) idxSet.add(i);
     }
-    if (idxSet.size === 0) return;
-    // Strategy: if the features carry a stable id field, convert to a
-    // single `in` clause. Otherwise fall back to a boolean-OR of per-
-    // feature primary-key guesses. If no usable id field is
-    // discoverable, we bail with a visible error rather than silently
-    // filtering nothing.
-    const idField = pickIdField(activeFields, activeFeatures, idxSet);
-    if (!idField) return;
-    const values = [...idxSet]
-      .map((i) => {
-        const v = (activeFeatures[i]?.properties ?? {}) as Record<string, unknown>;
-        return v[idField];
-      })
-      .filter((v) => v !== null && v !== undefined)
-      .map((v) => String(v));
-    if (values.length === 0) return;
-    // A single multi-clause filter with OR'd == clauses keeps it
-    // compatible with the existing filter editor.
-    const filter: MapLayerFilter = {
-      combinator: 'any',
-      clauses: values.map((v) => ({ field: idField, op: '==' as const, value: v })),
-    };
-    onPatchLayer(activeLayer.id, { filter });
+    // Refuse with a message rather than write a filter that matches
+    // other rows, or one the server will reject (see
+    // buildSelectionFilter).
+    const result = buildSelectionFilter(
+      activeFields,
+      activeFeatures,
+      idxSet,
+      activeSelection.size,
+    );
+    if (!result.ok) {
+      toast.error(
+        result.reason === 'too-many'
+          ? t('mapAttributeTable.useAsFilterTooMany', {
+              max: MAX_SELECTION_FILTER_CLAUSES,
+            })
+          : result.reason === 'not-loaded'
+            ? t('mapAttributeTable.useAsFilterNotLoaded')
+            : t('mapAttributeTable.useAsFilterNoId'),
+      );
+      return;
+    }
+    onPatchLayer(activeLayer.id, { filter: result.filter });
   }
 
   if (!open) return null;
@@ -1514,16 +1572,8 @@ export function AttributeTable({
               : null
           }
           layerTitle={activeLayer?.title ?? 'layer'}
-          dataLayerItemId={
-            activeLayer?.source.kind === 'data-layer'
-              ? activeLayer.source.itemId
-              : null
-          }
-          dataLayerLayerKey={
-            activeLayer?.source.kind === 'data-layer'
-              ? activeLayer.source.layerKey ?? null
-              : null
-          }
+          dataLayerItemId={serverItemId}
+          dataLayerLayerKey={serverLayerKey}
           activeSelection={activeSelection}
           featureKeyAt={featureKeyAt}
           disabled={activeFeatures.length === 0 || !activeLayer}
@@ -1553,6 +1603,16 @@ export function AttributeTable({
               extentHint: extentOnly
                 ? ''
                 : t('mapAttributeTable.truncatedEnableExtent'),
+            })}
+          </span>
+        </div>
+      ) : null}
+      {showSelectedCapped ? (
+        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-2xs text-warn">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            {t('mapAttributeTable.showSelectedCapped', {
+              max: MAX_IDS_IN_QUERY,
             })}
           </span>
         </div>
@@ -1689,15 +1749,16 @@ export function AttributeTable({
                     </td>
                     {activeFields.map((field) => {
                       const v = props[field];
+                      const rowId = props['_global_id'];
                       const isEditing =
                         editingCell !== null &&
                         editingCell.layerId === activeLayer.id &&
-                        editingCell.idx === idx &&
+                        editingCell.featureId === rowId &&
                         editingCell.field === field;
                       const isSaving =
                         savingCell !== null &&
                         savingCell.layerId === activeLayer.id &&
-                        savingCell.idx === idx &&
+                        savingCell.featureId === rowId &&
                         savingCell.field === field;
                       const editable = canInlineEditField(field, idx);
                       return (
@@ -1926,10 +1987,10 @@ export function AttributeTable({
             setCalcFieldFor(null);
             // Force a server-paged refetch so the new values land in
             // the visible rows without the user toggling a filter.
-            // The serverPage state key is what useEffect watches; we
-            // bump it by clearing and the next render restores from
-            // the fetch path.
-            setServerPage(null);
+            // Clearing serverPage alone did not do it: the fetch
+            // effect does not watch serverPage, so the table sat
+            // empty until the map moved.
+            setReloadNonce((n) => n + 1);
           }}
         />
       ) : null}
@@ -2030,6 +2091,7 @@ function AttrTableExportMenu({
             name?: string;
             fields?: Array<{ name: string; label?: string }>;
             parentLayerId?: string;
+            parentFkColumn?: string;
           }>;
         };
       };
@@ -2042,6 +2104,7 @@ function AttrTableExportMenu({
           ...(f.label && f.label !== f.name ? { label: f.label } : {}),
         })),
         ...(l.parentLayerId ? { parentLayerId: l.parentLayerId } : {}),
+        ...(l.parentFkColumn ? { parentFkColumn: l.parentFkColumn } : {}),
       }));
 
       // Scope -> featureIdsAllowlist.  For 'all' we pass nothing.
@@ -2087,6 +2150,17 @@ function AttrTableExportMenu({
           mb: (result.bytes / 1024 / 1024).toFixed(1),
         }),
       );
+      if (result.attachmentFailures > 0) {
+        // Keep the dialog open: a ZIP missing photos must not read
+        // as a complete export.
+        setBundleError(
+          t('mapAttributeTable.bundleAttachmentsMissing', {
+            count: result.attachmentFailures,
+          }),
+        );
+        setBundleRunning(false);
+        return;
+      }
       setTimeout(() => {
         setBundleOpen(false);
         setBundleRunning(false);
@@ -2742,7 +2816,7 @@ function CalculateFieldModal({
                 ? t('mapAttributeTable.previewFirstTitle')
                 : t('mapAttributeTable.applyValuesTitle')
             }
-            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink hover:bg-accent/90 disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-foreground hover:bg-accent/90 disabled:opacity-50"
           >
             {submitting ? (
               <Loader2 className="h-3 w-3 animate-spin" />
@@ -3039,6 +3113,15 @@ const USER_ID_FIELDS = new Set([
   'edited_by',
 ]);
 
+/**
+ * Most entity ids the table puts in one GET query string. A UUID plus
+ * its comma is 37 characters, and Node refuses a request head over
+ * 16 KB (431), cookies included. 1,000 ids came to about 37 KB, so a
+ * large "Show selected" or zoom to selection failed outright. 300 ids
+ * is about 11 KB, which leaves room for the session cookie.
+ */
+const MAX_IDS_IN_QUERY = 300;
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -3129,87 +3212,11 @@ function formatTimestamp(
   }
 }
 
-/**
- * Bounding box across an arbitrary set of features. Walks every
- * coordinate; safe for small-to-mid datasets (the selection in the
- * attribute table). Returns null for a selection that has no valid
- * geometries.
- */
+/** Bounding box across the selected features, or null when none
+ *  has a valid geometry. */
 function bboxOfFeatures(
   features: GeoJSON.Feature[],
 ): [number, number, number, number] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let seen = false;
-
-  function visit(coord: unknown) {
-    if (Array.isArray(coord)) {
-      if (coord.length >= 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number') {
-        const x = coord[0] as number;
-        const y = coord[1] as number;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        seen = true;
-      } else {
-        for (const c of coord) visit(c);
-      }
-    }
-  }
-
-  for (const f of features) {
-    const geom = f.geometry;
-    if (!geom) continue;
-    if ('coordinates' in geom) visit(geom.coordinates);
-    if (geom.type === 'GeometryCollection') {
-      for (const g of geom.geometries) {
-        if ('coordinates' in g) visit(g.coordinates);
-      }
-    }
-  }
-  return seen ? [minX, minY, maxX, maxY] : null;
+  return featuresBbox(features);
 }
 
-/**
- * Heuristic pick for a stable id field. Prefers fields literally named
- * `id`, `fid`, `objectid`, then the first field whose values are
- * unique across the selected feature subset.
- */
-/**
- * pickIdField receives a numeric index Set (resolved upstream from
- * the heterogeneous selection keys). Kept as Set<number> on purpose:
- * the caller projects from Set<number | string> down to indexes via
- * `indexForKey()` before calling in.
- */
-function pickIdField(
-  fields: string[],
-  features: GeoJSON.Feature[],
-  selection: Set<number>,
-): string | null {
-  const common = ['id', 'fid', 'objectid', 'OBJECTID', 'FID', 'ID'];
-  for (const c of common) {
-    if (fields.includes(c)) return c;
-  }
-  for (const f of fields) {
-    const seen = new Set<string>();
-    let unique = true;
-    for (const i of selection) {
-      const v = ((features[i]?.properties ?? {}) as Record<string, unknown>)[f];
-      if (v === null || v === undefined) {
-        unique = false;
-        break;
-      }
-      const key = String(v);
-      if (seen.has(key)) {
-        unique = false;
-        break;
-      }
-      seen.add(key);
-    }
-    if (unique) return f;
-  }
-  return null;
-}

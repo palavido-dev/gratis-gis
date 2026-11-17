@@ -815,7 +815,7 @@ export const APP_TEMPLATES: readonly AppTemplate[] = [
     id: 'sidebar-explorer',
     label: 'Sidebar Explorer',
     description:
-      'Top bar with map tools, collapsible side panel with layers + legend, full-bleed map, attribute table that slides up from the bottom on demand.',
+      'Top bar with map tools, collapsible side panel with layers, full-bleed map, attribute table that slides up from the bottom on demand.',
     use: 'Parcel viewers, asset inventories, environmental layer browsers, anything "show me this data layer with click-to-inspect details".',
     tags: ['sidebar', 'browse', 'inspect'],
     seed: parcelViewerSeed,
@@ -871,7 +871,7 @@ export const APP_TEMPLATES: readonly AppTemplate[] = [
 // #22 starter library + blueprint stamping.
 // ============================================================
 //
-// "Starters" are the four built-in templates we seed into every
+// "Starters" are the built-in templates we seed into every
 // org as app_template items on bootstrap.  After seeding, an admin
 // can edit / delete / replace them like any other item; the
 // `seedKind` column on item carries the stable starter id forward
@@ -1002,7 +1002,7 @@ export const STARTERS: readonly StarterTemplate[] = [
 
 /**
  * Look up a starter by its kind.  Returns null when the kind isn't
- * one of the four built-ins; callers should treat that as "this
+ * one of the built-ins; callers should treat that as "this
  * isn't a starter, it's a user-saved template" and skip the
  * restore-from-seed path.
  */
@@ -1029,8 +1029,12 @@ export function stampBlueprint(blueprint: CustomAppData): CustomAppData {
   function collectIds(widgets: readonly CustomWidget[]): void {
     for (const w of widgets) {
       idRemap.set(w.id, wid());
-      const cfg = w.config as { widgets?: CustomWidget[] };
+      const cfg = w.config as { widgets?: CustomWidget[]; tabs?: Array<{ widgets?: CustomWidget[] }> };
       if (Array.isArray(cfg.widgets)) collectIds(cfg.widgets);
+      // Widgets inside a Tabs widget kept the template's ids.
+      if (Array.isArray(cfg.tabs)) {
+        for (const t of cfg.tabs) if (Array.isArray(t?.widgets)) collectIds(t.widgets);
+      }
     }
   }
 
@@ -1042,7 +1046,8 @@ export function stampBlueprint(blueprint: CustomAppData): CustomAppData {
       if (
         (k === 'mapWidgetId' ||
           k === 'syncWithMapWidgetId' ||
-          k === 'targetWidgetId') &&
+          k === 'targetWidgetId' ||
+          k === 'followMapWidgetId') &&
         typeof v === 'string' &&
         idRemap.has(v)
       ) {
@@ -1060,9 +1065,18 @@ export function stampBlueprint(blueprint: CustomAppData): CustomAppData {
       const cfg = w.config as { widgets?: CustomWidget[] };
       // Rewrite cross-widget id references on config.  For
       // containers, recurse into config.widgets to mint child ids.
-      const rewrittenCfg = remapRefsInConfig(cfg) as typeof cfg;
+      const rewrittenCfg = remapRefsInConfig(cfg) as typeof cfg & {
+        tabs?: Array<{ widgets?: CustomWidget[] }>;
+      };
       if (Array.isArray(cfg.widgets)) {
         rewrittenCfg.widgets = rewriteWidgets(cfg.widgets);
+      }
+      const tabs = (cfg as { tabs?: Array<{ widgets?: CustomWidget[] }> }).tabs;
+      if (Array.isArray(tabs) && Array.isArray(rewrittenCfg.tabs)) {
+        rewrittenCfg.tabs = tabs.map((t, i) => ({
+          ...rewrittenCfg.tabs![i],
+          ...(Array.isArray(t?.widgets) ? { widgets: rewriteWidgets(t.widgets) } : {}),
+        }));
       }
       return {
         ...w,
@@ -1078,6 +1092,17 @@ export function stampBlueprint(blueprint: CustomAppData): CustomAppData {
 
   return {
     ...blueprint,
+    // A source that follows a map names that map widget by id, and
+    // the ids were just re-minted.
+    ...(Array.isArray(blueprint.sources)
+      ? {
+          sources: blueprint.sources.map((src) =>
+            src.followMapWidgetId !== undefined && idRemap.has(src.followMapWidgetId)
+              ? { ...src, followMapWidgetId: idRemap.get(src.followMapWidgetId)! }
+              : src,
+          ),
+        }
+      : {}),
     pages: blueprint.pages.map((p) => ({
       ...p,
       widgets: rewriteWidgets(p.widgets),

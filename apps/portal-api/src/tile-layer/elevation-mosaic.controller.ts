@@ -7,13 +7,11 @@ import {
   Query,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -23,6 +21,7 @@ import {
 } from '../engine/tile-cache.service.js';
 import { parseStackParam } from './elevation-mosaic.compositor.js';
 import { ElevationMosaicService } from './elevation-mosaic.service.js';
+import { byteProxyCacheControl } from '../common/byte-proxy-cache.js';
 
 /**
  * Elevation mosaic tile surface (#211).
@@ -42,7 +41,6 @@ import { ElevationMosaicService } from './elevation-mosaic.service.js';
 @ApiTags('tile-layer')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class ElevationMosaicController {
   constructor(private readonly mosaic: ElevationMosaicService) {}
 
@@ -99,9 +97,7 @@ export class ElevationMosaicController {
     // the URL, so an hour of blind caching matches the COG file
     // route these same DEMs are served from today. ETag handles
     // revalidation past the TTL.
-    const cacheControl = user
-      ? 'private, max-age=3600'
-      : 'public, max-age=3600';
+    const cacheControl = byteProxyCacheControl(user, 3600);
     if (!hit) {
       // No resolvable source touches this stack at all for this
       // viewer: nothing to compose, nothing worth caching long.

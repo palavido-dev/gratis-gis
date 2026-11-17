@@ -29,6 +29,8 @@ import {
 } from '@/lib/analyze-group-by-derived';
 
 interface Props {
+  /** Expand the form on mount (Analyze ?tool= deep link). */
+  defaultOpen?: boolean;
   itemId: string;
   layerKey: string;
   sourceLabel: string;
@@ -40,12 +42,13 @@ export function AnalyzeGroupByGuide({
   layerKey,
   sourceLabel,
   fields,
+  defaultOpen = false
 }: Props) {
   const router = useRouter();
   const t = useT();
   const keys = useMemo(() => groupableFields(fields), [fields]);
   const numericFields = useMemo(() => numericFieldsForGroupBy(fields), [fields]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [groupKey, setGroupKey] = useState(keys[0]?.name ?? '');
   const [op, setOp] = useState<GroupByShortcutOp>('count');
   const [aggField, setAggField] = useState(numericFields[0]?.name ?? '');
@@ -140,7 +143,9 @@ export function AnalyzeGroupByGuide({
           setOpen(true);
           if (!groupKey && keys[0]) setGroupKey(keys[0].name);
           if (!aggField && numericFields[0]) setAggField(numericFields[0].name);
-          setTitle(suggestedTitle);
+          // Empty, not a snapshot: the placeholder and the submit
+          // fallback follow the parameters as they change.
+          setTitle('');
         }}
         title={t('analyzeWorkbench.groupByActionTitle')}
         className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"

@@ -60,8 +60,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
       if (meta.source === 'unknown') {
         setStatus({
           kind: 'error',
-          message:
-            'Got an XML file but it does not look like ISO 19115, FGDC CSDGM, or Dublin Core. Skipping.',
+          message: t('metadataXml.notMetadata'),
         });
         return;
       }
@@ -79,7 +78,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
       setStatus({
         kind: 'error',
         message:
-          err instanceof Error ? err.message : 'Could not read that file.',
+          err instanceof Error ? err.message : t('metadataXml.readFailed'),
       });
     }
   }
@@ -92,7 +91,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
     // button with the actual content upload; the rename + the
     // "Optional - metadata only" framing removes that ambiguity.
     <section
-      aria-label="Optional metadata XML import"
+      aria-label={t('metadataXml.sectionAria')}
       className="rounded-md border border-dashed border-border bg-surface-0/60 p-3"
     >
       <input
@@ -110,7 +109,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
         <FileCode className="h-4 w-4 shrink-0 text-muted" />
         <div className="min-w-0 flex-1 text-xs text-ink-1">
           <span className="mr-1 rounded border border-border bg-surface-1 px-1 py-0.5 text-2xs font-medium uppercase tracking-wide text-muted">
-            Optional
+            {t('metadataXml.optional')}
           </span>
           {/* The standard names stay, because someone holding one of
               these files knows them and needs to see theirs listed.
@@ -137,14 +136,15 @@ export function MetadataXmlImporter({ onApply }: Props) {
           title={t('metadataXml.importTitle')}
         >
           <FileCode className="h-3.5 w-3.5" />
-          Import metadata XML
+          {t('metadataXml.importButton')}
         </button>
       </div>
       {status.kind === 'parsed' ? (
         <p className="mt-2 inline-flex items-center gap-1 text-2xs text-success">
           <Check className="h-3 w-3" />
-          Parsed as {labelFor(status.meta.source)}. Filled what we
-          could; the rest is yours.
+          {t('metadataXml.parsed', {
+            standard: labelFor(status.meta.source),
+          })}
         </p>
       ) : null}
       {status.kind === 'error' ? (
@@ -157,8 +157,7 @@ export function MetadataXmlImporter({ onApply }: Props) {
         </p>
       ) : null}
       <p className="mt-1 text-2xs text-muted">
-        Metadata only -- this does not upload the item&rsquo;s content. Your
-        file stays in the browser.
+        {t('metadataXml.metadataOnly')}
       </p>
     </section>
   );

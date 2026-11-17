@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
  * Pins the `completeness` number each locale advertises to what its
- * catalog actually contains.
+ * catalog actually translates.
  *
- * The locale picker shows that number to a person deciding whether to
- * switch, and nothing else ever recomputes it. When the field arc
+ * Nothing else ever recomputes that number, and a key that merely
+ * exists is not a translation: the catalogs carried hundreds of
+ * English sentences copied as-is while claiming 100. A value that
+ * equals the English one and has four or more words counts as
+ * untranslated; shorter identical values are cognates. When the field arc
  * landed nine new English sections the four seeded catalogs kept
  * saying 80 while covering about 63 percent of the keys, and the
  * comment beside them still said "every key". A number nobody checks
@@ -25,6 +28,29 @@ import { ptBR } from './messages/pt-BR';
 
 const CATALOGS: Record<string, unknown> = { en, es, fr, de, 'pt-BR': ptBR };
 
+/** Every dot path in the catalog that ends at a string, with its value. */
+function leaves(
+  node: unknown,
+  prefix = '',
+  out = new Map<string, string>(),
+): Map<string, string> {
+  if (typeof node === 'string') {
+    out.set(prefix, node);
+    return out;
+  }
+  if (!node || typeof node !== 'object') return out;
+  for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+    leaves(v, prefix ? `${prefix}.${k}` : k, out);
+  }
+  return out;
+}
+
+/** True when `value` is a real translation of `english`. */
+function isTranslated(value: string, english: string): boolean {
+  if (value !== english) return true;
+  return english.trim().split(/\s+/).length < 4;
+}
+
 /** Every dot path in the catalog that ends at a string. */
 function leafKeys(node: unknown, prefix = ''): string[] {
   if (typeof node === 'string') return [prefix];
@@ -35,6 +61,14 @@ function leafKeys(node: unknown, prefix = ''): string[] {
   }
   return out;
 }
+
+describe('isTranslated', () => {
+  it('counts a copied English sentence as untranslated', () => {
+    expect(isTranslated('Click a cell to edit it.', 'Click a cell to edit it.')).toBe(false);
+    expect(isTranslated('CSV', 'CSV')).toBe(true);
+    expect(isTranslated('Haz clic para editar.', 'Click to edit it now.')).toBe(true);
+  });
+});
 
 describe('locale completeness', () => {
   const enKeys = new Set(leafKeys(en));
@@ -55,8 +89,16 @@ describe('locale completeness', () => {
   it.each(LOCALES.map((l) => [l.code, l.completeness] as const))(
     '%s covers at least its declared %d percent of the English keys',
     (code, declared) => {
-      const covered = leafKeys(CATALOGS[code]).filter((k) => enKeys.has(k));
-      const actual = Math.floor((covered.length / enKeys.size) * 100);
+      const english = leaves(en);
+      const catalog = leaves(CATALOGS[code]);
+      let covered = 0;
+      for (const [key, value] of english) {
+        const local = catalog.get(key);
+        if (local === undefined) continue;
+        // English is the source, so its own values count as written.
+        if (code === 'en' || isTranslated(local, value)) covered += 1;
+      }
+      const actual = Math.floor((covered / english.size) * 100);
       expect(actual).toBeGreaterThanOrEqual(declared);
     },
   );

@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import type { ChatPrompt } from './item-context.js';
+import { isPrivateOrLoopbackHost, safeFetch } from '../common/net-guards.js';
 import {
   assertCompatibleBaseUrl,
   buildChatRequest,
@@ -44,13 +45,25 @@ export class AiProviderClient {
     const req = buildChatRequest(config, prompt);
     let res: Response;
     try {
-      res = await this.fetchImpl(req.url, {
+      const init = {
         method: req.method,
         headers: req.headers,
         body: req.body,
-        redirect: 'error',
+        redirect: 'error' as const,
         signal: AbortSignal.timeout(25_000),
-      });
+      };
+      const host = new URL(req.url).hostname;
+      // Tests replace fetchImpl. Production public hosts go through
+      // safeFetch so the connect is pinned. A private admin host such
+      // as local Ollama stays on fetch and is not globally blocked.
+      if (
+        this.fetchImpl === fetch &&
+        !isPrivateOrLoopbackHost(host)
+      ) {
+        res = await safeFetch(req.url, init);
+      } else {
+        res = await this.fetchImpl(req.url, init);
+      }
     } catch (err) {
       this.log.warn(
         `ai provider ${config.provider} unreachable (${err instanceof Error ? err.name : 'error'})`,

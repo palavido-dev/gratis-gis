@@ -37,17 +37,67 @@ interface FeatureDao {
   suspend fun firstForLayer(collectionId: String, dataLayerId: String, layerKey: String): FeatureEntity?
   @Query("DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId AND layerKey = :layerKey")
   suspend fun deleteForLayer(collectionId: String, dataLayerId: String, layerKey: String)
+  /** After a full pull: drop the layer's rows that the pull did not
+   *  write (it stamps every row it writes with `keepCachedAt`). */
+  @Query(
+    "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
+      "AND layerKey = :layerKey AND cachedAt != :keepCachedAt",
+  )
+  suspend fun deleteStaleForLayer(collectionId: String, dataLayerId: String, layerKey: String, keepCachedAt: String)
+  /** One statement; callers go through [deleteByGlobalIds], which keeps
+   *  the id list under SQLite's bind variable limit. */
   @Query(
     "DELETE FROM feature WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
       "AND layerKey = :layerKey AND globalId IN (:globalIds)",
   )
-  suspend fun deleteByGlobalIds(
+  suspend fun deleteByGlobalIdsChunk(
     collectionId: String,
     dataLayerId: String,
     layerKey: String,
     globalIds: List<String>,
   )
   @Query("DELETE FROM feature WHERE collectionId = :collectionId") suspend fun deleteForCollection(collectionId: String)
+  /** The layers that have cached rows, for pruning layers the map no
+   *  longer has. */
+  @Query("SELECT DISTINCT dataLayerId, layerKey FROM feature WHERE collectionId = :collectionId")
+  suspend fun cachedLayers(collectionId: String): List<CachedLayerRef>
+
+  /** Swap one cached feature's JSON only if it is still `expected`. */
+  @Query(
+    "UPDATE feature SET featureJson = :next WHERE collectionId = :collectionId AND dataLayerId = :dataLayerId " +
+      "AND layerKey = :layerKey AND globalId = :globalId AND featureJson = :expected",
+  )
+  suspend fun replaceJsonIf(
+    collectionId: String,
+    dataLayerId: String,
+    layerKey: String,
+    globalId: String,
+    expected: String,
+    next: String,
+  ): Int
+}
+
+/** One (dataLayerId, layerKey) pair with cached features. */
+data class CachedLayerRef(val dataLayerId: String, val layerKey: String)
+
+/** Ids per DELETE. Room binds one variable per id, and the platform
+ *  SQLite on Android 9 to 11 (minSdk is 28) allows at most 999. */
+const val DELETE_IDS_PER_STATEMENT = 500
+
+/**
+ * Delete features by global id in chunks. A delta page can carry up to
+ * 10,000 deletes; as one statement that threw on older devices and
+ * sent the downloader to a full re-pull every time.
+ */
+suspend fun FeatureDao.deleteByGlobalIds(
+  collectionId: String,
+  dataLayerId: String,
+  layerKey: String,
+  globalIds: List<String>,
+) {
+  for (chunk in globalIds.chunked(DELETE_IDS_PER_STATEMENT)) {
+    deleteByGlobalIdsChunk(collectionId, dataLayerId, layerKey, chunk)
+  }
 }
 
 @Dao
@@ -92,7 +142,9 @@ interface QueueDao {
    * does the same inside one IndexedDB transaction.
    */
   @Query(
-    "UPDATE queue SET syncStatus = 'syncing', lastAttemptAt = :attemptAt " +
+    // From the claim on, the request may reach the server, so the row
+    // is marked and stays marked on every write-back.
+    "UPDATE queue SET syncStatus = 'syncing', lastAttemptAt = :attemptAt, mayHaveReachedServer = 1 " +
       "WHERE collectionId = :collectionId AND id = :id AND syncStatus = :expectedStatus " +
       // SQLite's IS treats two NULLs as equal, so one clause covers a
       // never-attempted row and an attempted one.
@@ -100,9 +152,45 @@ interface QueueDao {
   )
   suspend fun claim(collectionId: String, id: String, expectedStatus: String, expectedAttemptAt: String?, attemptAt: String): Int
 
+  /**
+   * Move a queued row's conflict guard to a new head after an earlier
+   * edit of the same feature landed. Touches only the base, and only
+   * while the row is still pending / failed with the base the caller
+   * read, so it never overwrites a fold or a claim that happened since.
+   */
+  @Query(
+    "UPDATE queue SET baseObservationId = :head " +
+      "WHERE collectionId = :collectionId AND id = :id AND syncStatus IN ('pending', 'failed') " +
+      "AND baseObservationId IS :expectedBase",
+  )
+  suspend fun rebase(collectionId: String, id: String, expectedBase: String?, head: String): Int
+
   @Transaction
   suspend fun replaceChain(collectionId: String, removeIds: List<String>, keep: QueueEntity?) {
     for (id in removeIds) delete(collectionId, id)
     if (keep != null) upsert(keep)
+  }
+
+  /**
+   * [replaceChain], but only when every row of the chain is still
+   * exactly as the caller read it (status and last attempt). A fold is
+   * read, worked out and then written; if a drain claimed one of those
+   * rows in between, writing the fold would reset a row that is being
+   * sent, and the drain's delete on success would then drop the newer
+   * edit. Returns false, changing nothing, when any row moved on.
+   */
+  @Transaction
+  suspend fun replaceChainIfUnchanged(
+    collectionId: String,
+    readRows: List<QueueEntity>,
+    removeIds: List<String>,
+    keep: QueueEntity?,
+  ): Boolean {
+    for (read in readRows) {
+      val now = get(collectionId, read.id) ?: return false
+      if (now.syncStatus != read.syncStatus || now.lastAttemptAt != read.lastAttemptAt) return false
+    }
+    replaceChain(collectionId, removeIds, keep)
+    return true
   }
 }

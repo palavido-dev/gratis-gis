@@ -3,9 +3,11 @@ Description=Daily reset timer for the GratisGIS public test instance (#138)
 Documentation=https://github.com/palavido-dev/gratis-gis
 
 [Timer]
-# 04:00 UTC daily. Chosen because it's late-night in the Americas
-# (midnight ET) and pre-business-hours in Europe and Africa, so the
-# ~30 - 60 second downtime hits the smallest active-user window.
+# 04:00 UTC daily: midnight ET (20:00 to 21:00 Pacific) and before
+# business hours in Europe and Africa. The reset takes the demo down
+# for about 20 minutes (the GIN rebuild alone is 15 to 20, see
+# gg-reset-demo.service), so pick a quieter hour if your testers
+# are on the US west coast.
 # Persistent=true would catch a missed run on next boot (e.g. host
 # rebooted past 04:00), which is desirable: better a reset
 # happens at boot time than not at all on a day testers are abusing

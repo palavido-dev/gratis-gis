@@ -76,7 +76,18 @@ import {
   type OwnedRow,
   type ReplayableRow,
 } from '../../shared-types/src/queue-replay';
-import { replayOutcomeForStatus } from '../../shared-types/src/sync-outcome';
+import {
+  isOwnEditEcho,
+  replayOutcomeForStatus,
+  type EchoEdit,
+  type EchoFeature,
+} from '../../shared-types/src/sync-outcome';
+import {
+  deltaChangeProperties,
+  nextDeltaStep,
+  type DeltaChangeLike,
+  type DeltaPageLike,
+} from '../../shared-types/src/delta-sync';
 import { sanitizeOfflineMessage } from '../../shared-types/src/offline-message';
 
 /**
@@ -182,6 +193,23 @@ export const SURFACE = {
   /** Classify the HTTP status of a replayed edit: done, retry, rejected. */
   'sync.outcome': (a: { status: number; op: 'insert' | 'update' | 'delete' }) =>
     replayOutcomeForStatus(a.status, a.op),
+
+  /** Whether a 409 on a replayed update is this device's own earlier
+   *  write whose response was lost. True means the row is done. */
+  'sync.isOwnEditEcho': (a: { edit: EchoEdit; current: EchoFeature | null }) =>
+    isOwnEditEcho(a.edit, a.current),
+
+  /** After applying a delta page requested with `since`: what to
+   *  request next, or which cursor to store. docs/sync-protocol.md. */
+  'sync.deltaNext': (a: { page: DeltaPageLike; since: number }) =>
+    nextDeltaStep(a.page, a.since),
+
+  /** Properties for the cached row a non-delete delta change upserts,
+   *  including the `_observation_id` conflict token. */
+  'sync.deltaProperties': (a: {
+    change: DeltaChangeLike;
+    prior?: Record<string, unknown> | null;
+  }) => deltaChangeProperties(a.change, a.prior ?? null),
 
   /** Coerce a stored sync message into the code-plus-params envelope. */
   'message.sanitize': (a: { message: unknown }) => sanitizeOfflineMessage(a.message),

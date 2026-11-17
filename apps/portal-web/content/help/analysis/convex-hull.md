@@ -51,6 +51,11 @@ One row per non-null input geometry:
 The portal creates a private derived layer and opens it. Expect a
 short server job, not an instant browser result.
 
+Share a direct link with `?tool=convex-hull` (and
+`&layer=<sublayerId>` on multi-layer items) plus `#data`. From a
+map layer kebab, choose **Convex hull…** for the same path in a
+new tab.
+
 ### From the new-item wizard
 ![Derived layer recipe with a Convex hull step](/help/analysis/convex-hull-analyze-guide.png)
 

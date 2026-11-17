@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
 import { useState } from 'react';
@@ -78,10 +79,12 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
 
   async function remove(alias: string) {
     setError(null);
+    // A rejected fetch (connection dropped) is reported like a refusal
+    // instead of failing silently.
     const res = await fetch(`/api/portal/admin/security/oidc/${encodeURIComponent(alias)}`, {
       method: 'DELETE',
-    });
-    if (!res.ok) {
+    }).catch(() => null);
+    if (!res || !res.ok) {
       setError(t('adminSecurity.errRemove'));
       return;
     }
@@ -97,8 +100,8 @@ export function SecurityForm({ initial }: { initial: SecurityState }) {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ required }),
-    });
-    if (!res.ok) {
+    }).catch(() => null);
+    if (!res || !res.ok) {
       setError(t('adminSecurity.errMfa'));
       return;
     }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package org.gratisgis.field.core.database
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -19,6 +20,15 @@ data class CollectionEntity(
   /** The item's `data` as sent, for the fields not modelled here. */
   val dataJson: String,
   val downloadedAt: String?,
+  /**
+   * The account (token `sub`) that downloaded this copy, and the portal
+   * ([AccountScope.portal]) it came from. A cached collection is shown
+   * only to that account on that portal, so the next person on a shared
+   * device does not see the previous user's records. Null on rows from
+   * before v5: nobody owns those until a download claims them.
+   */
+  val ownerUserId: String? = null,
+  val portal: String? = null,
 )
 
 /**
@@ -51,6 +61,13 @@ data class LayerEntity(
    * `CachedLayerSchema.syncVersion` in portal-web offline-store.
    */
   val syncVersion: Long? = null,
+  /**
+   * The box `[west, south, east, north]` the cached features were
+   * limited to, as JSON, or null when the whole layer is cached. A
+   * delta refresh uses the same box; a different box needs a new full
+   * pull, because the old one may not hold the new area's features.
+   */
+  val syncBboxJson: String? = null,
 )
 
 /** A cached feature. `featureJson` is the GeoJSON Feature verbatim. */
@@ -141,6 +158,19 @@ data class QueueEntity(
    * the review screen can show both sides without a network call.
    */
   val conflictCurrentJson: String? = null,
+  /** The portal the row was queued against. Null on rows from before
+   *  v5, which drain on whichever portal their owner signs in to. */
+  val portal: String? = null,
+  /**
+   * Set once a drain has claimed the row: from then on the server may
+   * already hold this edit, even if no answer came back. Such a row is
+   * never folded into (a correction folded behind an insert that landed
+   * would be dropped by the server's dedupe), and an insert is looked
+   * up on the server before it is sent again. Mirrors
+   * `QueueRecord.mayHaveReachedServer` in offline-store.ts.
+   */
+  @ColumnInfo(defaultValue = "0")
+  val mayHaveReachedServer: Boolean = false,
 )
 
 /**
@@ -160,4 +190,8 @@ data class DraftEntity(
   /** Form response object as JSON text. */
   val responseJson: String,
   val updatedAt: String,
+  /** Who started the draft and on which portal; see
+   *  [CollectionEntity.ownerUserId]. Null on drafts from before v5. */
+  val ownerUserId: String? = null,
+  val portal: String? = null,
 )

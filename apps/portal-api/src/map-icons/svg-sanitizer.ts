@@ -71,7 +71,7 @@ const ALLOWED_ATTRS = new Set([
   'stroke-linejoin',
   'stroke-dasharray',
   'stroke-miterlimit',
-  'viewBox',
+  // viewBox is handled by name before this list is consulted.
   'xmlns',
   'opacity',
   'fill-opacity',
@@ -88,6 +88,21 @@ const ALLOWED_ATTRS = new Set([
 
 const STYLE_BAD = /(javascript|data|expression|url\s*\()/i;
 const URL_BAD = /^\s*(javascript|data):/i;
+/** A same-document paint reference such as `url(#grad)`. */
+const LOCAL_URL_REF = /url\(\s*(['"]?)#[A-Za-z0-9_.:-]+\1\s*\)/gi;
+const ANY_URL_REF = /url\s*\(/i;
+
+/**
+ * True when a value names a resource outside the document. Only
+ * `url(#id)` is allowed: `fill="url(https://host/x.svg#p)"` makes a
+ * viewer's browser call that host when the file is opened directly.
+ * A backslash is refused too: CSS escapes (`\75rl(`) spell `url(`
+ * without the letters, and SVG paths never need one.
+ */
+function hasExternalRef(value: string): boolean {
+  if (value.includes('\\')) return true;
+  return ANY_URL_REF.test(value.replace(LOCAL_URL_REF, ''));
+}
 
 /**
  * Sanitize an SVG document body. Returns the cleaned SVG body
@@ -108,11 +123,18 @@ export function sanitizeSvg(input: string): string | null {
   // Strip processing instructions, DOCTYPE, comments, and
   // CDATA up front. These are not allowed in the output and
   // simplify the tokenizer.
-  let src = input
+  //
+  // Comments and CDATA are cut with indexOf, not a lazy regex: an
+  // unterminated opener made the regex rescan to the end of the input
+  // from every opener, so a 1 MB upload of repeated `<!--` held the
+  // API for about a minute. An unterminated one is now a rejection.
+  const noComments = stripBlocks(input, '<!--', '-->');
+  if (noComments === null) return null;
+  const noCdata = stripBlocks(noComments, '<![CDATA[', ']]>');
+  if (noCdata === null) return null;
+  let src = noCdata
     .replace(/<\?[^?]*\?>/g, '')
-    .replace(/<!DOCTYPE[^>]*>/gi, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
+    .replace(/<!DOCTYPE[^>]*>/gi, '');
 
   // Reject UTF-16 BOMs / unusual chars that could be used to
   // smuggle past the regex layer. (Inputs come from a form
@@ -182,6 +204,14 @@ export function sanitizeSvg(input: string): string | null {
     for (const [name, value] of attrs) {
       const ln = name.toLowerCase();
       if (ln.startsWith('on')) return null; // event handler
+      // Names are compared lower-cased, so the camel-case `viewBox`
+      // never matched the allowlist and every icon's own viewBox was
+      // dropped and replaced with 0 0 24 24. Keep it, spelled right.
+      if (ln === 'viewbox') {
+        if (hasExternalRef(value)) return null;
+        kept.push(['viewBox', value]);
+        continue;
+      }
       if (ln === 'href' || ln === 'xlink:href') {
         // `<use href="#foo">` is fine; external refs are not.
         if (!value.startsWith('#')) return null;
@@ -197,6 +227,7 @@ export function sanitizeSvg(input: string): string | null {
       }
       if (ln === 'style' && STYLE_BAD.test(value)) return null;
       if (URL_BAD.test(value)) return null;
+      if (hasExternalRef(value)) return null;
       kept.push([ln, value]);
     }
 
@@ -209,7 +240,7 @@ export function sanitizeSvg(input: string): string | null {
       if (!kept.some(([k]) => k === 'xmlns')) {
         kept.unshift(['xmlns', 'http://www.w3.org/2000/svg']);
       }
-      if (!kept.some(([k]) => k === 'viewbox')) {
+      if (!kept.some(([k]) => k === 'viewBox')) {
         // Default to 0 0 24 24 to match the lucide style.
         kept.push(['viewBox', '0 0 24 24']);
       }
@@ -228,21 +259,65 @@ export function sanitizeSvg(input: string): string | null {
   return out.join('');
 }
 
+/**
+ * Remove every `open ... close` block. Null when an opener has no
+ * closer (the input is malformed and is refused).
+ */
+function stripBlocks(input: string, open: string, close: string): string | null {
+  let out = '';
+  let pos = 0;
+  for (;;) {
+    const start = input.indexOf(open, pos);
+    if (start === -1) return out + input.slice(pos);
+    const end = input.indexOf(close, start + open.length);
+    if (end === -1) return null;
+    out += input.slice(pos, start);
+    pos = end + close.length;
+  }
+}
+
+const isSpace = (c: string) => c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
+const isNameStart = (c: string) => /[a-zA-Z_:]/.test(c);
+const isNameChar = (c: string) => /[A-Za-z0-9_\-:]/.test(c);
+const isUnquotedStop = (c: string) => isSpace(c) || c === '"' || c === "'" || c === '<' || c === '>' || c === '`';
+
+/**
+ * name = "value" | 'value' | value, separated by whitespace, and
+ * nothing else. A single left-to-right scan: the attribute regex this
+ * replaced restarted from every position of a long run of name
+ * characters with no `=`, which was quadratic.
+ */
 function parseAttrs(input: string): Array<[string, string]> | null {
   const out: Array<[string, string]> = [];
-  const re = /([a-zA-Z_:][\w\-:]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'<>`]+))/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(input)) !== null) {
-    const name = m[1]!;
-    const value = m[2] ?? m[3] ?? m[4] ?? '';
+  const n = input.length;
+  let i = 0;
+  for (;;) {
+    while (i < n && isSpace(input[i]!)) i++;
+    if (i >= n) return out;
+    if (!isNameStart(input[i]!)) return null;
+    const nameStart = i;
+    i++;
+    while (i < n && isNameChar(input[i]!)) i++;
+    const name = input.slice(nameStart, i);
+    while (i < n && isSpace(input[i]!)) i++;
+    if (input[i] !== '=') return null;
+    i++;
+    while (i < n && isSpace(input[i]!)) i++;
+    let value: string;
+    const q = input[i];
+    if (q === '"' || q === "'") {
+      const end = input.indexOf(q, i + 1);
+      if (end === -1) return null;
+      value = input.slice(i + 1, end);
+      i = end + 1;
+    } else {
+      const vStart = i;
+      while (i < n && !isUnquotedStop(input[i]!)) i++;
+      if (i === vStart) return null;
+      value = input.slice(vStart, i);
+    }
     out.push([name, decodeEntities(value)]);
   }
-  // After consuming attrs, the only chars left should be
-  // whitespace. Anything else means the attribute list was
-  // malformed and we should reject.
-  const tail = input.replace(re, '').trim();
-  if (tail.length > 0) return null;
-  return out;
 }
 
 function decodeEntities(s: string): string {

@@ -44,12 +44,18 @@ export class ProxyPathError extends Error {
  * empty (from `//` or a trailing slash), a single dot, or a double
  * dot. WHATWG URL also treats `%2e`, `%2e%2e`, `.%2e` and `%2e.` as
  * dot segments, so those count too. A backslash, raw or as `%5c`,
- * becomes a `/` in an http(s) URL and is refused for the same reason.
+ * becomes a `/` in an http(s) URL and is refused for the same reason,
+ * and so is an encoded slash (`%2f`).
  */
 export function isUnsafeProxySegment(segment: string): boolean {
   if (segment === '') return true;
   const lowered = segment.toLowerCase();
   if (lowered.includes('\\') || lowered.includes('%5c')) return true;
+  // An encoded slash stays encoded through WHATWG parsing, so the
+  // pathname check below passes, but a front end that decodes before
+  // normalising (IIS in front of ArcGIS Server) would walk up from
+  // the stored path. Refuse it with the backslash.
+  if (lowered.includes('%2f')) return true;
   const decodedDots = lowered.replace(/%2e/g, '.');
   return decodedDots === '.' || decodedDots === '..';
 }
@@ -91,39 +97,41 @@ export function composeUpstreamUrl(
   subPath: string,
   credential: CredentialPayload | null,
 ): string {
-  // Strip a trailing slash on the base so we can join with subPath
-  // cleanly without a double slash.
-  const trimmed = base.replace(/\/$/, '');
-  let joined: string;
-  if (subPath.length === 0) {
-    joined = trimmed;
-  } else if (subPath.startsWith('?')) {
-    // subPath is just a query string (e.g. probing the service root
-    // with ?f=json from the detail page's Probe button). Don't insert
-    // a slash before the '?' or we'd produce an empty path segment
-    // that some servers reject.
-    joined = `${trimmed}${subPath}`;
-  } else {
-    joined = `${trimmed}/${subPath}`;
-  }
-
-  let composed: URL;
+  // Parse the stored URL once and put the sub-path into its pathname
+  // and the sub-path's query after its own query. Joining strings put
+  // the sub-path inside the query when the stored URL had one
+  // (`.../MapServer?a=b` + `/0/query` became `?a=b/0/query`).
   let baseUrl: URL;
   try {
-    composed = new URL(joined);
-    baseUrl = new URL(trimmed);
+    baseUrl = new URL(base);
   } catch {
     throw new ProxyPathError('Proxy target is not a valid URL');
   }
-  if (!isAtOrBelow(composed.pathname, baseUrl.pathname)) {
+  const queryAt = subPath.indexOf('?');
+  const subPathPart = queryAt >= 0 ? subPath.slice(0, queryAt) : subPath;
+  const subQuery = queryAt >= 0 ? subPath.slice(queryAt + 1) : '';
+
+  const composed = new URL(baseUrl.toString());
+  // Strip a trailing slash on the base so the join has no `//`.
+  const basePath = baseUrl.pathname.replace(/\/$/, '');
+  if (subPathPart.length > 0) {
+    composed.pathname = `${basePath}/${subPathPart}`;
+  } else if (basePath !== baseUrl.pathname && basePath.length > 0) {
+    composed.pathname = basePath;
+  }
+  if (subQuery.length > 0) {
+    // Raw concatenation keeps the client's own encoding of both.
+    const baseQuery = baseUrl.search.replace(/^\?/, '');
+    composed.search = baseQuery ? `${baseQuery}&${subQuery}` : subQuery;
+  }
+  if (!isAtOrBelow(composed.pathname, basePath || '/')) {
     throw new ProxyPathError('Proxy sub-path escapes the item URL');
   }
 
   if (credential?.kind === 'arcgis_token') {
     composed.searchParams.set('token', credential.token);
-    return composed.toString();
   }
-  return joined;
+  return composed.toString();
 }
 
 /**

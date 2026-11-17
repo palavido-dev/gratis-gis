@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  HttpException,
+  HttpStatus,
   BadRequestException,
   Body,
   Controller,
@@ -8,19 +10,18 @@ import {
   Param,
   Post,
   Res,
-  ServiceUnavailableException,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { pipeline } from 'node:stream';
 import type { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { assertServerHeavyTier } from './analysis-tiers.js';
 
 /**
  * Magic-outline (SAM) embedding surface. The browser decoder needs
@@ -38,7 +39,6 @@ import { StorageService } from '../storage/storage.service.js';
 @ApiTags('analysis')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class SamController {
   constructor(
     private readonly prisma: PrismaService,
@@ -47,16 +47,9 @@ export class SamController {
     private readonly cfg: ConfigService,
   ) {}
 
+  /** The shared tier gate, so this route cannot drift from the others. */
   private assertServerTier(): void {
-    const tiers = (this.cfg.get<string>('ANALYSIS_TIERS') ?? '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
-    if (!tiers.includes('server-heavy')) {
-      throw new ServiceUnavailableException(
-        'The outline tool needs the analysis worker, which is not enabled on this portal.',
-      );
-    }
+    assertServerHeavyTier(this.cfg, 'The outline tool');
   }
 
   /** Validate + normalize the supertile address. */
@@ -110,8 +103,13 @@ export class SamController {
     @Body() body: { z: number; gx: number; gy: number },
   ) {
     this.assertServerTier();
-    await this.assertReadableImagery(user, itemId);
+    const item = await this.assertReadableImagery(user, itemId);
     const { z, gx, gy } = this.parseKey(body.z, body.gx, body.gy);
+    // The worker runs the full encoder for any cell, padding outside
+    // the image, so a cell off the imagery is pure cost.
+    if (!supertileTouchesBbox(z, gx, gy, (item as { bbox?: unknown }).bbox)) {
+      throw new BadRequestException('That view is outside this imagery layer.');
+    }
 
     const key = `sam-embed/${itemId}/${z}/${gx}/${gy}.bin`;
     if (await this.storage.objectExists(key)) {
@@ -128,6 +126,23 @@ export class SamController {
     });
     if (existing) {
       return { state: 'working' as const, jobId: existing.id };
+    }
+    // Every analysis kind shares one FIFO queue, and this route only
+    // needs read access. Without a cap one viewer scripting POSTs over
+    // many cells could queue thousands of encoder runs ahead of every
+    // other org's hillshades and contours.
+    const mine = await this.prisma.analysisJob.count({
+      where: {
+        kind: 'sam-embed',
+        userId: user.id,
+        state: { in: ['queued', 'running'] },
+      },
+    });
+    if (mine >= SAM_EMBED_MAX_IN_FLIGHT_PER_USER) {
+      throw new HttpException(
+        'The outline tool is still preparing earlier views. Try again in a moment.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
     const job = await this.prisma.analysisJob.create({
       data: {
@@ -185,20 +200,60 @@ export class SamController {
     await this.assertReadableImagery(user, itemId);
     const parsed = this.parseKey(z, gx, gy);
     const key = `sam-embed/${itemId}/${parsed.z}/${parsed.gx}/${parsed.gy}.bin`;
+    let obj: Awaited<ReturnType<StorageService['streamObject']>>;
     try {
-      const obj = await this.storage.streamObject(key);
-      res.status(200);
-      res.setHeader('Content-Type', 'application/octet-stream');
-      if (obj.contentLength !== undefined) {
-        res.setHeader('Content-Length', String(obj.contentLength));
+      obj = await this.storage.streamObject(key);
+    } catch (err) {
+      // Only a missing object means "not ready yet". A storage outage
+      // reported as 404 made the client keep polling.
+      const name = (err as { name?: string; Code?: string } | null)?.name;
+      const code = (err as { Code?: string } | null)?.Code;
+      if (name === 'NoSuchKey' || code === 'NoSuchKey' || name === 'NotFound') {
+        throw new NotFoundException(
+          'The embedding for this view is not ready yet.',
+        );
       }
-      // Content-addressed by key and immutable once computed.
-      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-      obj.body.pipe(res);
-    } catch {
-      throw new NotFoundException(
-        'The embedding for this view is not ready yet.',
-      );
+      throw err;
     }
+    res.status(200);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    if (obj.contentLength !== undefined) {
+      res.setHeader('Content-Length', String(obj.contentLength));
+    }
+    // Content-addressed by key and immutable once computed.
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    // pipeline, not pipe: a storage error mid-stream would otherwise be
+    // an uncaught exception and leave the response hanging.
+    pipeline(obj.body, res, (err) => {
+      if (err) res.destroy(err);
+    });
   }
+}
+
+/** Queued plus running embedding jobs one user may have at once. */
+export const SAM_EMBED_MAX_IN_FLIGHT_PER_USER = 4;
+
+/**
+ * Whether supertile (z, gx, gy), which covers 4x4 web-mercator tiles at
+ * zoom z, overlaps the item's lon/lat bbox. An item with no usable bbox
+ * is not refused: the check only exists to drop obvious junk.
+ */
+export function supertileTouchesBbox(
+  z: number,
+  gx: number,
+  gy: number,
+  bbox: unknown,
+): boolean {
+  if (!Array.isArray(bbox) || bbox.length !== 4) return true;
+  const [minX, minY, maxX, maxY] = bbox.map(Number) as [number, number, number, number];
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return true;
+  const n = 2 ** z;
+  const lon = (x: number) => (x / n) * 360 - 180;
+  const lat = (y: number) =>
+    (Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n))) * 180) / Math.PI;
+  const west = lon(gx * 4);
+  const east = lon(gx * 4 + 4);
+  const north = lat(gy * 4);
+  const south = lat(gy * 4 + 4);
+  return west <= maxX && east >= minX && south <= maxY && north >= minY;
 }

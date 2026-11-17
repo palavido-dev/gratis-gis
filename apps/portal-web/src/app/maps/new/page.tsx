@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, unstable_rethrow } from 'next/navigation';
 import type {
   BasemapData,
   GeoBoundaryData,
@@ -43,11 +43,13 @@ export default async function NewScratchMapPage(props: Props) {
   };
   try {
     me = await apiFetch<typeof me>('/api/users/me');
-  } catch {
-    // Anonymous visitors have no portal items to put on a map and
-    // no way to save one; the items route's auth flow handles the
-    // sign-in redirect, so treat this as not-found rather than
-    // building a broken editor.
+  } catch (err) {
+    // apiFetch sends a signed-out or expired session to sign-in by
+    // throwing a redirect. Swallowing it turned that into a 404, so
+    // let Next's own control-flow errors through first.
+    unstable_rethrow(err);
+    // Anything else: there is no user to build a map editor for,
+    // so treat it as not-found rather than building a broken one.
     notFound();
   }
 

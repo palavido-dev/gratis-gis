@@ -112,6 +112,8 @@ const TYPE_PALETTE: Record<string, { sidebar: string; background: string }> = {
   tile_layer: { sidebar: '#715e6e', background: '#f1eef1' },
   app_template: { sidebar: '#8f6c42', background: '#f5f0e8' },
   theme: { sidebar: '#94606b', background: '#f5eef0' },
+  // Scripts sit with tools: same hue family, a shade darker.
+  script: { sidebar: '#6f5a3c', background: '#f3efe6' },
   print_template: { sidebar: '#565049', background: '#f1f0ee' },
   point_cloud: { sidebar: '#5b6472', background: '#eef0f3' },
 };
@@ -565,6 +567,7 @@ const MOTIFS: Record<string, (c: string) => string> = {
   editor: mEditor,
   data_collection: mDataCollection,
   theme: mTheme,
+  script: mTool,
   tool: mTool,
   service: mService,
   arcgis_service: mArcgisService,
@@ -589,6 +592,7 @@ const FIT: Record<string, [number, number, number]> = {
   service: [-1, -26.5, 1], arcgis_service: [-25, -28, 1], wms_service: [-9, -29, 1],
   wfs_service: [2.5, -23.5, 1], geocoding_service: [-37.5, -13, 1], folder: [-17, -47, 1],
   point_cloud: [-8, -23, 1],
+  script: [40.2, 0.5, 0.878],
 };
 
 /** Render the background motif markup for an item type, centered with
@@ -609,7 +613,24 @@ export function renderThumbnailSvg(args: {
    *  background image is set. Optional for callers that predate it. */
   type?: string;
 }): string {
-  const { title, typeLabel, design, type } = args;
+  const { title, typeLabel, type } = args;
+  // The stored design is unchecked JSON. A non-string colour, label or
+  // href threw (a 500 on the public thumbnail route); fall back to the
+  // type's defaults instead.
+  const fallback = defaultThumbnailDesign((type ?? 'file') as ItemType);
+  const raw = (args.design ?? {}) as Partial<Record<keyof ThumbnailDesign, unknown>>;
+  const str = (v: unknown, d: string): string => (typeof v === 'string' ? v : d);
+  const optStr = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+  const design: ThumbnailDesign = {
+    ...fallback,
+    ...(args.design ?? {}),
+    background: str(raw.background, fallback.background),
+    sidebar: str(raw.sidebar, fallback.sidebar),
+    titleBar: optStr(raw.titleBar) ?? undefined,
+    sidebarLabelOverride: optStr(raw.sidebarLabelOverride),
+    backgroundImage: optStr(raw.backgroundImage),
+    logo: optStr(raw.logo),
+  } as ThumbnailDesign;
   const label = design.sidebarLabelOverride ?? typeLabel;
 
   // Effective opacities + colors with sensible fallbacks so older

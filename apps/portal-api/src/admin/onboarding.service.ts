@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 
+import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SystemSettingsService } from '../notifications/system-settings.service.js';
 
@@ -28,6 +29,7 @@ import { SystemSettingsService } from '../notifications/system-settings.service.
 export const ONBOARDING_KEYS = [
   'configure-email',
   'invite-team',
+  'second-admin',
   'first-map',
   'admin-docs',
 ] as const;
@@ -59,18 +61,23 @@ interface StoredState {
   dismissed: string[];
 }
 
+/** Org admins looked up in Keycloak for the status; two settle the item. */
+const MAX_ADMINS_CHECKED = 10;
+
 @Injectable()
 export class OnboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SystemSettingsService,
+    @Optional() private readonly keycloak?: KeycloakAdminService,
   ) {}
 
   async getStatus(orgId: string): Promise<OnboardingStatus> {
-    const [stored, smtp, memberCount, firstMapItem] = await Promise.all([
+    const [stored, smtp, memberCount, admins, firstMapItem] = await Promise.all([
       this.readStored(orgId),
       this.settings.getSmtpConfig(),
-      this.prisma.user.count({ where: { orgId } }),
+      this.prisma.user.count({ where: { orgId, deletedAt: null } }),
+      this.enabledAdminCount(orgId),
       this.prisma.item.findFirst({
         where: {
           orgId,
@@ -98,6 +105,16 @@ export class OnboardingService {
         done: memberCount > 1,
         dismissed: stored.dismissed.includes('invite-team'),
         detail: { memberCount },
+      },
+      {
+        key: 'second-admin',
+        kind: 'derived',
+        done: admins.count >= 2,
+        dismissed: stored.dismissed.includes('second-admin'),
+        detail: {
+          enabledAdminCount: admins.count,
+          signInChecked: admins.signInChecked,
+        },
       },
       {
         key: 'first-map',
@@ -170,6 +187,43 @@ export class OnboardingService {
       throw new BadRequestException(`Unknown onboarding item "${raw}".`);
     }
     return found;
+  }
+
+  /**
+   * Enabled org admins. When Keycloak answers, a disabled sign-in
+   * does not count. When it does not, the count is local admins who
+   * are not deleted and not past auto-disable. One admin leaves the
+   * item open; the portal still runs.
+   */
+  private async enabledAdminCount(
+    orgId: string,
+  ): Promise<{ count: number; signInChecked: boolean }> {
+    const local = await this.prisma.user.findMany({
+      where: { orgId, orgRole: 'admin', deletedAt: null },
+      select: { username: true, autoDisableAt: true },
+    });
+    const now = Date.now();
+    const eligible = local.filter(
+      (user) => !user.autoDisableAt || user.autoDisableAt.getTime() > now,
+    );
+    if (!this.keycloak) return { count: eligible.length, signInChecked: false };
+    try {
+      // Ask about this org's admins by name. Paging the whole realm
+      // (every org's users, up to 20 sequential calls) ran on each
+      // admin page load and treated admins past 2000 users as
+      // disabled. The item only needs to know about two of them.
+      const keycloak = this.keycloak;
+      const checked = eligible.slice(0, MAX_ADMINS_CHECKED);
+      const enabled = await Promise.all(
+        checked.map((user) => keycloak.isUsernameEnabled(user.username)),
+      );
+      return {
+        count: enabled.filter(Boolean).length,
+        signInChecked: true,
+      };
+    } catch {
+      return { count: eligible.length, signInChecked: false };
+    }
   }
 
   private async readStored(orgId: string): Promise<StoredState> {

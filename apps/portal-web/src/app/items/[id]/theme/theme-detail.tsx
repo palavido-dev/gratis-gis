@@ -23,7 +23,10 @@
  * the controls are disabled.  Picking + applying the theme from a
  * Custom Web App still works regardless.
  */
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
+import { useT } from '@/lib/i18n/locale-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { applyAppThemeTokens } from '@gratis-gis/shared-types';
 import {
   Bookmark as BookmarkIcon,
   ChevronDown,
@@ -43,6 +46,8 @@ interface Blueprint {
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initialBlueprint: Blueprint;
   seedKind: string | null;
   canEdit: boolean;
@@ -213,10 +218,13 @@ const GROUPS: GroupDef[] = [
 
 export function AppThemeDetail({
   itemId,
+  updatedAt,
   initialBlueprint,
   seedKind,
   canEdit,
 }: Props) {
+  const t = useT();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const [tokens, setTokens] = useState<Record<string, string>>(
     initialBlueprint.tokens ?? {},
   );
@@ -244,15 +252,13 @@ export function AppThemeDetail({
 
   // Apply tokens to the preview root on every change so the
   // sample app shell restyles instantly.  Same applier the runtime
-  // uses (just inlined to avoid the shared-types dep cycle on this
-  // client-only file).
+  // uses, so a stored token that is not a safe `--app-*` value (one
+  // that sets a real property or loads a URL) is skipped here too.
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const el = previewRootRef.current;
     if (!el) return;
-    for (const [k, v] of Object.entries(tokens)) {
-      el.style.setProperty(k, v);
-    }
+    applyAppThemeTokens(el, tokens);
   }, [tokens]);
 
   function patchToken(key: string, next: string): void {
@@ -283,13 +289,13 @@ export function AppThemeDetail({
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      const res = await patchItem({
           data: { version: 1, swatch, tokens },
-        }),
-      });
+        });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} ${txt}`);
@@ -346,7 +352,7 @@ export function AppThemeDetail({
             className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium ${
               !canEdit || !dirty || saving
                 ? 'cursor-not-allowed bg-surface-2 text-muted'
-                : 'bg-accent text-accent-ink hover:bg-accent/90'
+                : 'bg-accent text-accent-foreground hover:bg-accent/90'
             }`}
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -702,11 +708,10 @@ function StatusChip({
     <span
       className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-medium"
       style={{
-        background: `${palette[kind]} / 0.15` as unknown as string,
-        backgroundColor: palette[kind].replace(
-          'hsl(',
-          'hsla(',
-        ).replace(')', ' / 0.15)'),
+        // The alpha goes inside hsl(): `hsl(var(--x) / 0.15)`. The
+        // old string edits produced invalid values that the browser
+        // dropped, so the chips had no tint.
+        backgroundColor: `hsl(var(--app-${kind}) / 0.15)`,
         color: palette[kind],
       }}
     >

@@ -155,3 +155,9 @@ describe('allAgoTypeMappings', () => {
     }
   });
 });
+
+describe('mapping matches what the importer does', () => {
+  it('does not promise an import for Document Links, which the importer skips', () => {
+    expect(classifyAgoType('Document Link').supported).toBe(false);
+  });
+});

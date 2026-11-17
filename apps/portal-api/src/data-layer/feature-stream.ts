@@ -9,6 +9,12 @@ import type { Response } from 'express';
  */
 export function onceDrain(res: Response): Promise<void> {
   return new Promise((resolve, reject) => {
+    // After a disconnect `write` returns false and no 'drain', 'close'
+    // or 'error' follows, so listening now would wait forever.
+    if (res.destroyed || res.writableEnded) {
+      reject(new Error('client closed'));
+      return;
+    }
     const cleanup = () => {
       res.off('drain', onDrain);
       res.off('close', onClose);
@@ -61,6 +67,8 @@ export async function streamFeatureCollection(
   let first = true;
   try {
     while (!step.done) {
+      // Stop walking the layer once the client has gone.
+      if (res.destroyed) throw new Error('client closed');
       let chunk = '';
       for (const feature of step.value) {
         if (!first) chunk += ',';

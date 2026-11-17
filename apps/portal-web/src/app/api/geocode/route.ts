@@ -18,8 +18,9 @@
 import { getServerSession } from 'next-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
+import { hasUsableSession } from '@/lib/session-state';
+import { nominatimTarget } from '@/lib/nominatim-config';
 
-const NOMINATIM_URL = process.env.NOMINATIM_URL ?? 'http://localhost:8081';
 const USER_AGENT =
   'GratisGIS/0.1 (https://github.com/palavido-dev/gratis-gis)';
 const PUBLIC_NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -37,7 +38,9 @@ async function searchNominatim(base: string, params: URLSearchParams): Promise<R
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session) {
+  // Same rule as the BFF: a session whose refresh failed or that hit
+  // the idle timeout is signed out.
+  if (!hasUsableSession(session)) {
     return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   }
 
@@ -57,11 +60,10 @@ export async function GET(req: NextRequest) {
   // default and it does not answer, ask the public Nominatim
   // service once. Set NOMINATIM_PUBLIC_FALLBACK=0 to keep queries
   // on the configured host only.
-  const allowPublic = process.env.NOMINATIM_PUBLIC_FALLBACK !== '0';
-  const localDefault = !process.env.NOMINATIM_URL;
+  const { url: nominatimUrl, allowPublic, localDefault } = nominatimTarget();
 
   try {
-    let res = await searchNominatim(NOMINATIM_URL, params);
+    let res = await searchNominatim(nominatimUrl, params);
     if (!res.ok && allowPublic && localDefault) {
       res = await searchNominatim(PUBLIC_NOMINATIM, params);
     }

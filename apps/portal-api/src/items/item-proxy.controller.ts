@@ -12,13 +12,17 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { PrintReadable } from '../auth/print-readable.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from './items.service.js';
 import {
   CredentialService,
   type CredentialPayload,
 } from './credential.service.js';
-import { exchangeBasicForArcgisToken } from './arcgis-auth.js';
+import {
+  ARCGIS_TOKEN_REFERER,
+  exchangeBasicForArcgisToken,
+} from './arcgis-auth.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LastUsageStamp } from './last-usage-stamp.js';
 import {
@@ -28,6 +32,7 @@ import {
 } from './proxy-subpath.js';
 import { safeFetch, UnsafeOutboundUrlError } from '../common/net-guards.js';
 import {
+  DEFAULT_MAX_PROXY_BYTES,
   PROXY_FETCH_TIMEOUT_MS,
   streamUpstreamToResponse,
 } from '../common/proxy-stream.js';
@@ -94,6 +99,11 @@ export class ItemProxyController {
   }
 
   @Get('*')
+  // The server-side print runs a credentialed ArcGIS layer's bbox
+  // query here (print-read-credential.ts). Only `<layer>/query`,
+  // anchored at the start so a longer path that merely ends in
+  // `/0/query` is not let through.
+  @PrintReadable({ path: /^\/api\/items\/[^/]+\/proxy\/\d+\/query$/ })
   async proxy(
     @CurrentUser() user: AuthUser,
     @Param('id') itemId: string,
@@ -129,9 +139,9 @@ export class ItemProxyController {
       // When the stored credential is Basic and the item points at
       // an ArcGIS REST URL, exchange username + password for a
       // short-lived token via the service's self-described token
-      // endpoint. The exchange helper caches the token in-process
-      // until it expires so we don't pay the round trip on every
-      // proxied request.
+      // endpoint. The exchange helper caches the token, and the
+      // discovered endpoint, in-process so we don't pay the round
+      // trips on every proxied request.
       if (credential.kind === 'basic' && isArcgisRest(itemUrl)) {
         try {
           const token = await exchangeBasicForArcgisToken({
@@ -140,7 +150,11 @@ export class ItemProxyController {
             password: credential.password,
             cacheKey: itemId,
           });
-          credential = { kind: 'arcgis_token', token };
+          credential = {
+            kind: 'arcgis_token',
+            token,
+            referer: ARCGIS_TOKEN_REFERER,
+          };
         } catch (err) {
           this.log.warn(
             `proxy token-exchange failed for item=${itemId}: ${
@@ -174,11 +188,18 @@ export class ItemProxyController {
     // internal host or the cloud-metadata endpoint is refused too.
     let upstream: globalThis.Response;
     try {
-      upstream = await safeFetch(target, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
-      });
+      upstream = await safeFetch(
+        target,
+        {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(PROXY_FETCH_TIMEOUT_MS),
+        },
+        // The relay caps the body at the same ceiling, so the dial
+        // refuses a larger one instead of reading toward the 1 GiB
+        // default.
+        { maxBytes: DEFAULT_MAX_PROXY_BYTES },
+      );
     } catch (err) {
       if (err instanceof UnsafeOutboundUrlError) {
         res.status(400).json({ message: err.message });
@@ -194,11 +215,9 @@ export class ItemProxyController {
     }
 
     // Stream the upstream body back with a byte ceiling and
-    // backpressure. Content-length is not forwarded: Node's fetch
-    // transparently decompresses gzip / br, so the upstream count
-    // describes the compressed payload while we emit decompressed
-    // bytes; a forwarded, wrong length truncates the document
-    // mid-parse in the browser.
+    // backpressure. safeFetch does not decode, so any
+    // Content-Encoding is forwarded with the raw bytes (see
+    // streamUpstreamToResponse).
     await streamUpstreamToResponse(upstream, res);
 
     // Stamp lastUsageAt for the stale heuristic (#96). Only on a
@@ -258,6 +277,9 @@ export function composeUpstreamHeaders(
       'utf8',
     ).toString('base64');
     headers.authorization = `Basic ${encoded}`;
+  } else if (credential?.kind === 'arcgis_token' && credential.referer) {
+    // A token from our own exchange is bound to this referer.
+    headers.referer = credential.referer;
   }
   return headers;
 }

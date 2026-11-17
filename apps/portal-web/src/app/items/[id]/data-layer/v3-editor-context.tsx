@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { DataLayerDataV3 } from '@gratis-gis/shared-types';
+import { withServerOwnedFields } from '@/lib/v3-draft-sync';
 
 /**
  * Shared editing state for a v3 data_layer's detail page (#73).
@@ -19,16 +20,24 @@ import type { DataLayerDataV3 } from '@gratis-gis/shared-types';
  * its descendants) and owns the draft. Tab panels are hidden rather
  * than unmounted, so the draft also survives tab switches for free.
  *
- * `initial` is the server-rendered blob. Dirtiness is reference
- * inequality against it, matching the pre-split editor: the builder
- * replaces the whole value on every edit, so `data !== initial`
- * tracks any user mutation.
+ * `initial` is the server-rendered blob. Every router.refresh()
+ * (after an import, a row edit, a schema save) hands in a new one.
+ * The draft follows it while the user has no unsaved edits. With
+ * unsaved edits it keeps them and only takes the server-owned layer
+ * fields (counts, extent, provenance, conflicts), so the Data tab
+ * shows current numbers and a later save does not write old ones
+ * back. `dirty` is set by setData and cleared by markSaved, not
+ * worked out from reference inequality, which a refresh broke.
  */
 
 interface V3EditorState {
   data: DataLayerDataV3;
   setData: (next: DataLayerDataV3) => void;
   initial: DataLayerDataV3;
+  /** The user has edits that are not saved yet. */
+  dirty: boolean;
+  /** Call after a successful save; the next refresh replaces the draft. */
+  markSaved: () => void;
 }
 
 const V3EditorContext = createContext<V3EditorState | null>(null);
@@ -50,9 +59,27 @@ function V3EditorProvider({
   initial: DataLayerDataV3;
   children: React.ReactNode;
 }) {
-  const [data, setData] = useState<DataLayerDataV3>(initial);
+  const [data, setDraft] = useState<DataLayerDataV3>(initial);
+  const [dirty, setDirty] = useState(false);
+  const setData = useCallback((next: DataLayerDataV3) => {
+    setDraft(next);
+    setDirty(true);
+  }, []);
+  const markSaved = useCallback(() => setDirty(false), []);
+  useEffect(() => {
+    if (!dirty) {
+      setDraft(initial);
+    } else {
+      setDraft((prev) => withServerOwnedFields(prev, initial));
+    }
+    // Runs for a new server copy only. A change of `dirty` alone must
+    // not pull the server copy over the draft: markSaved runs before
+    // the refresh that brings the saved version back.
+  }, [initial]);
   return (
-    <V3EditorContext.Provider value={{ data, setData, initial }}>
+    <V3EditorContext.Provider
+      value={{ data, setData, initial, dirty, markSaved }}
+    >
       {children}
     </V3EditorContext.Provider>
   );

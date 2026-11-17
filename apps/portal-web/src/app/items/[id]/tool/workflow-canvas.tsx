@@ -136,9 +136,20 @@ function CanvasBody({
         },
       }));
     }
-    function up(ev: PointerEvent) {
+    function detach() {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    }
+    // The browser cancels the pointer when it takes the gesture over
+    // (a touch scroll, for one). Without this the drag stayed live and
+    // the next pointerup anywhere committed a move from that tap.
+    function cancel() {
+      detach();
+      setLive({});
+    }
+    function up(ev: PointerEvent) {
+      detach();
       const position = {
         x: Math.max(8, Math.round(origin.x + ev.clientX - startX)),
         y: Math.max(8, Math.round(origin.y + ev.clientY - startY)),
@@ -148,6 +159,7 @@ function CanvasBody({
     }
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   }
 
   const boxes = order.map((id, index) => ({ id, index, ...positionOf(id, index) }));
@@ -205,7 +217,15 @@ function CanvasBody({
               <div
                 key={box.id}
                 className="absolute rounded-md border border-border bg-surface-0 p-2 shadow-card"
-                style={{ left: box.x, top: box.y, width: NODE_W, height: NODE_H }}
+                style={{
+                  left: box.x,
+                  top: box.y,
+                  width: NODE_W,
+                  height: NODE_H,
+                  // Keep a touch drag on the box a drag; otherwise the
+                  // scroll container claims it and cancels the pointer.
+                  ...(canEdit ? { touchAction: 'none' as const } : {}),
+                }}
                 onPointerDown={(event) => onPointerDown(event, box.id, box.index)}
               >
                 <div className="flex items-center justify-between gap-2">

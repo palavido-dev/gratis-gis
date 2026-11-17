@@ -9,10 +9,15 @@ import type {
   DataLayerSublayer,
   FeatureField,
 } from '@gratis-gis/shared-types';
-import { DataLayerBuilder } from '@/app/items/new/data-layer-builder';
+import {
+  DataLayerBuilder,
+  type PendingFileImport,
+} from '@/app/items/new/data-layer-builder';
+import { enqueueStagedLayerImports } from '@/lib/staged-layer-import';
 import { useT } from '@/lib/i18n/locale-context';
 import { useV3Editor } from './v3-editor-context';
 import { V3LayerDataPanel } from './v3-layer-data-panel';
+import { parseApiError } from '@/lib/api-error';
 
 /**
  * Detail-page editing surfaces for v3 data_layer items, split across
@@ -72,16 +77,15 @@ export function V3StructureSection({
 }) {
   const t = useT();
   const router = useRouter();
-  const { data, setData, initial } = useV3Editor();
+  const { data, setData, dirty, markSaved } = useV3Editor();
+  const [pendingImports, setPendingImports] = useState<PendingFileImport[]>(
+    [],
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  // Simple dirty check. Reference inequality is fine here: the builder
-  // replaces the whole value on every edit, so `data !== initial`
-  // tracks any mutation the user has made.
-  const dirty = data !== initial;
 
   async function save() {
     setError(null);
@@ -116,8 +120,31 @@ export function V3StructureSection({
         body: JSON.stringify({ data }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
+      }
+      markSaved();
+      const liveIds = new Set(data.layers.map((layer) => layer.id));
+      const livePending = pendingImports
+        .map((entry) => ({
+          ...entry,
+          layers: entry.layers.filter((layer) => liveIds.has(layer.layerId)),
+        }))
+        .filter((entry) => entry.layers.length > 0);
+      if (livePending.length > 0) {
+        const ingestErrors = await enqueueStagedLayerImports(
+          itemId,
+          livePending,
+        );
+        setPendingImports([]);
+        if (ingestErrors.length > 0) {
+          setError(
+            `Schema saved, but feature import failed for ${ingestErrors.length} layer(s). ` +
+              `Use Import features on the Data tab to retry. ${ingestErrors
+                .join('; ')
+                .slice(0, 500)}`,
+          );
+        }
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -153,13 +180,23 @@ export function V3StructureSection({
         disabled={!canEdit}
         className={canEdit ? undefined : 'pointer-events-none opacity-60'}
       >
-        <DataLayerBuilder value={data} onChange={setData} />
+        <DataLayerBuilder
+          value={data}
+          onChange={setData}
+          onPendingFileImport={(entry) =>
+            setPendingImports((prev) => [...prev, entry])
+          }
+        />
       </fieldset>
 
       {error ? (
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>
+      ) : null}
+
+      {canEdit && pendingImports.length > 0 ? (
+        <p className="text-xs text-muted">{t('v3Editor.pendingImportNote')}</p>
       ) : null}
 
       {canEdit ? (
@@ -221,6 +258,7 @@ function EventLayerWizard({
   );
   const [label, setLabel] = useState('Inspections');
   const [enableAttachments, setEnableAttachments] = useState(true);
+  const t = useT();
 
   function reset() {
     setLabel('Inspections');
@@ -236,7 +274,7 @@ function EventLayerWizard({
     const baseName = trimmedLabel
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
+      .replace(/^_+|(?<!_)_+$/g, '')
       .slice(0, 32) || 'events';
     const existingNames = new Set(data.layers.map((l) => l.name));
     let name = baseName;
@@ -309,7 +347,7 @@ function EventLayerWizard({
             reset();
           }}
           className="rounded p-1 text-muted hover:bg-surface-2"
-          aria-label="Close"
+          aria-label={t('common.close')}
         >
           <X className="h-4 w-4" />
         </button>

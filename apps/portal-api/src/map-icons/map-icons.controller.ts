@@ -2,9 +2,11 @@
 import {
   BadRequestException,
   Body,
+  ForbiddenException,
   Controller,
   Delete,
   Get,
+  NotFoundException,
   Param,
   Post,
   UploadedFile,
@@ -19,9 +21,23 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { canDeleteMapIcon } from './map-icon-auth.js';
+import { hasCapability } from '../auth/capabilities.js';
+import { UuidPathPipe } from '../common/uuid-shape.js';
 import { sanitizeSvg } from './svg-sanitizer.js';
+import {
+  RASTER_ICON_MAX_BYTES,
+  RasterIconError,
+  claimedIconType,
+  processRasterIcon,
+} from './raster-icon.js';
 
-const MAX_BYTES = 1024 * 1024; // 1 MB; map icons are KB at most.
+/** SVG cap. Vector map icons are KB at most. */
+const SVG_MAX_BYTES = 1024 * 1024;
+/** Multer's hard stop: the larger of the per-type caps. */
+const MAX_BYTES = Math.max(SVG_MAX_BYTES, RASTER_ICON_MAX_BYTES);
+/** Uploaded icons one organization may hold. */
+export const MAX_ICONS_PER_ORG = 1000;
 
 class UploadMapIconDto {
   @IsString()
@@ -42,8 +58,8 @@ export interface MapIconUploadDto {
 }
 
 /**
- * Per-org SVG marker uploads for the map point-symbol picker
- * (#73). The picker calls /list to populate the "Org uploads"
+ * Per-org marker uploads for the map point-symbol picker
+ * (#73). SVG, plus PNG and JPEG since #686. The picker calls /list to populate the "Org uploads"
  * section alongside the bundled Lucide grid; the upload flow
  * sanitizes the file (allowlist-only XML walker, see
  * svg-sanitizer.ts) then pushes the cleaned body into MinIO
@@ -77,14 +93,21 @@ export class MapIconsController {
   }
 
   /**
-   * Upload one SVG file. Multipart `file` field; optional
-   * `label` form field. Returns the new MapIconUpload row.
+   * Upload one SVG, PNG or JPEG file. Multipart `file` field;
+   * optional `label` form field. Returns the new MapIconUpload row.
    * Failure modes (all return 400 with a specific message):
    *   - no file in the multipart body
-   *   - file larger than 1 MB
-   *   - content-type not image/svg+xml
+   *   - not named or typed as SVG, PNG or JPEG
+   *   - SVG larger than 1 MB, or PNG / JPEG larger than 2 MB
    *   - SVG sanitizer rejected the body (script, external
    *     reference, etc.)
+   *   - PNG / JPEG whose bytes are not really that format, will
+   *     not decode, or is over 4096 x 4096 pixels
+   *
+   * SVG goes through the sanitizer exactly as before. PNG and JPEG
+   * are checked by magic bytes and a real decode, then re-encoded
+   * as a PNG of at most 256 px on the long side (raster-icon.ts).
+   * Raster keys end in `.png` so the map can tell them apart.
    */
   @Post()
   @UseInterceptors(
@@ -97,18 +120,38 @@ export class MapIconsController {
     @UploadedFile() file: Express.Multer.File | undefined,
     @Body() dto: UploadMapIconDto,
   ): Promise<MapIconUploadDto> {
+    // Icons go into the whole org's picker and their bytes are never
+    // deleted, so adding one is publishing. A viewer could otherwise
+    // add icons without limit and push the org's own out of the list.
+    if (!hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Uploading map icons needs a contributor or admin role.',
+      );
+    }
+    const count = await this.prisma.mapIconUpload.count({
+      where: { orgId: user.orgId },
+    });
+    if (count >= MAX_ICONS_PER_ORG) {
+      throw new BadRequestException(
+        `This organization has ${MAX_ICONS_PER_ORG} uploaded icons, the most allowed. Delete some to add more.`,
+      );
+    }
     if (!file) {
       throw new BadRequestException(
         'No file uploaded; field name must be "file".',
       );
     }
-    if (
-      file.mimetype !== 'image/svg+xml' &&
-      !file.originalname.toLowerCase().endsWith('.svg')
-    ) {
+    const claimed = claimedIconType(file.mimetype, file.originalname);
+    if (claimed === 'raster') {
+      return this.uploadRaster(user, file, dto);
+    }
+    if (claimed !== 'svg') {
       throw new BadRequestException(
-        'Only .svg files are accepted for map-icon uploads.',
+        'Only .svg, .png and .jpg files are accepted for map-icon uploads.',
       );
+    }
+    if (file.size > SVG_MAX_BYTES || file.buffer.length > SVG_MAX_BYTES) {
+      throw new BadRequestException('SVG is larger than 1 MB.');
     }
     const raw = file.buffer.toString('utf8');
     const cleaned = sanitizeSvg(raw);
@@ -140,6 +183,41 @@ export class MapIconsController {
     return toDto(row);
   }
 
+  private async uploadRaster(
+    user: AuthUser,
+    file: Express.Multer.File,
+    dto: UploadMapIconDto,
+  ): Promise<MapIconUploadDto> {
+    let body: Buffer;
+    try {
+      ({ body } = await processRasterIcon(file.buffer));
+    } catch (err) {
+      if (err instanceof RasterIconError) {
+        throw new BadRequestException(err.message);
+      }
+      throw err;
+    }
+    const upload = await this.storage.uploadBuffer(
+      'map-icon',
+      body,
+      'image/png',
+      '.png',
+    );
+    const label = (dto.label || stripExt(file.originalname)).slice(0, 80);
+    const row = await this.prisma.mapIconUpload.create({
+      data: {
+        storageKey: upload.key,
+        storageUrl: upload.publicUrl,
+        label,
+        fileName: file.originalname.slice(0, 200),
+        sizeBytes: body.length,
+        orgId: user.orgId,
+        createdBy: user.id,
+      },
+    });
+    return toDto(row);
+  }
+
   /**
    * Remove an uploaded icon. Idempotent: deleting an already-
    * gone row returns 404 the first time, then 404 forever (the
@@ -154,13 +232,18 @@ export class MapIconsController {
   @Delete(':id')
   async remove(
     @CurrentUser() user: AuthUser,
-    @Param('id') id: string,
+    @Param('id', new UuidPathPipe('Map icon not found.')) id: string,
   ): Promise<{ ok: true }> {
     const row = await this.prisma.mapIconUpload.findUnique({
       where: { id },
     });
     if (!row || row.orgId !== user.orgId) {
-      throw new BadRequestException('Map icon not found.');
+      throw new NotFoundException('Map icon not found.');
+    }
+    if (!canDeleteMapIcon(user, row)) {
+      throw new ForbiddenException(
+        'You can delete an icon you uploaded. An org admin can delete any icon in the org.',
+      );
     }
     await this.prisma.mapIconUpload.delete({ where: { id } });
     return { ok: true };

@@ -138,8 +138,26 @@ function makeService(fields: unknown[] | null = null) {
     }),
   );
   const writeFeaturesUpdate = jest.fn(
-    async (updates: Array<{ globalId: string }>) =>
-      updates.map(() => ({ observationId: 'obs' })),
+    async (updates: Array<{ globalId: string; expectedHeadObservationId?: string }>) => ({
+      applied: updates.map((u) => ({ globalId: u.globalId, observationId: 'obs' })),
+      conflicts: [] as Array<{ globalId: string; headObservationId: string | null }>,
+    }),
+  );
+  const commitLayerSync = jest.fn(
+    async (
+      _itemId: string,
+      _layerId: string,
+      run: (ctx: {
+        tx: object;
+        source: { kind: string; details: { syncVersion: number } };
+        syncVersion: number;
+      }) => Promise<{ wrote: boolean; value: unknown }>,
+    ) =>
+      run({
+        tx: {},
+        source: { kind: 'data_layer:write', details: { syncVersion: 1 } },
+        syncVersion: 1,
+      }),
   );
   const writeFeatureUpdate = jest.fn(
     async (_args: Record<string, unknown>) => ({ observationId: 'obs' }),
@@ -157,6 +175,7 @@ function makeService(fields: unknown[] | null = null) {
     writeFeatureUpdate,
     writeFeatureDelete,
     writeFeaturesCreateIdempotent,
+    commitLayerSync,
   };
   const cacheRefresh = {
     notifySourceWrite: jest.fn(() => Promise.resolve()),
@@ -335,9 +354,14 @@ describe('DataLayerFeaturesService.calculateField scope', () => {
     expect(writeFeaturesUpdate).toHaveBeenCalledTimes(1);
     const written = writeFeaturesUpdate.mock.calls[0]![0] as Array<{
       globalId: string;
+      expectedHeadObservationId?: string;
       properties?: Record<string, unknown>;
     }>;
     expect(written.map((w) => w.globalId).sort()).toEqual([E2, E4]);
+    expect(written.map((w) => w.expectedHeadObservationId).sort()).toEqual([
+      `obs-head-${E2}`,
+      `obs-head-${E4}`,
+    ]);
     expect(written.map((w) => w.properties?.doubled).sort()).toEqual([4, 8]);
     expect(out.totalRows).toBe(2);
     expect(out.appliedRows).toBe(2);
@@ -349,6 +373,9 @@ describe('DataLayerFeaturesService.calculateField scope', () => {
     const out = await service.calculateField(calcArgs());
 
     expect(listFeatures.mock.calls[0]![0]).not.toHaveProperty('entityIds');
+    // The row cap is enforced in SQL, not after loading the engine's
+    // default 100,000 rows.
+    expect(listFeatures.mock.calls[0]![0]).toMatchObject({ limit: 10_001 });
     const written = writeFeaturesUpdate.mock.calls[0]![0] as Array<{
       globalId: string;
     }>;
@@ -507,6 +534,23 @@ describe('DataLayerFeaturesService.updateFeature merge semantics', () => {
     expect(Object.keys(written.properties).some((k) => k.startsWith('_'))).toBe(false);
   });
 
+  it('ignores a submitted_by in the patch, so the submitter cannot be changed', async () => {
+    const { service, writeFeatureUpdate } = makeService([
+      ...SCHEMA,
+      { name: 'submitted_by', type: 'string', label: 'Submitted by', nullable: true },
+    ]);
+    await service.updateFeature(
+      ITEM_ID,
+      LAYER_ID,
+      E1,
+      { properties: { note: 'hi', submitted_by: 'someone-else' } },
+      makeUser(),
+    );
+    const written = writeFeatureUpdate.mock.calls[0]![0] as { properties: Record<string, unknown> };
+    expect(written.properties.submitted_by).toBeUndefined();
+    expect(written.properties.note).toBe('hi');
+  });
+
   it('a required field cleared explicitly is still refused', async () => {
     const { service } = makeService([
       { name: 'value', type: 'number', label: 'Value', nullable: false },
@@ -522,16 +566,26 @@ describe('DataLayerFeaturesService.updateFeature merge semantics', () => {
  * the `_observation_id` the client read; the service checks it against
  * the read (cheap, before validation) and threads it into the engine
  * write as `expectedHeadObservationId`, which is the check that holds
- * under a race. Absent, nothing changes: last-writer-wins.
+ * under a race. Absent, the head the service read and merged onto is
+ * the expected head, so a concurrent edit to another field is not
+ * reverted by this write's property bag; on conflict the service reads
+ * again and re-merges once.
  */
 describe('DataLayerFeaturesService.updateFeature / deleteFeature conflict guard', () => {
   const SCHEMA = [{ name: 'value', type: 'number', label: 'Value', nullable: true }];
 
-  it('without a base id the engine write is unguarded', async () => {
+  it('without a base id the engine write is guarded by the head it merged onto', async () => {
     const { service, writeFeatureUpdate } = makeService(SCHEMA);
     await service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser());
     const written = writeFeatureUpdate.mock.calls[0]![0] as Record<string, unknown>;
-    expect('expectedHeadObservationId' in written).toBe(false);
+    expect(written.expectedHeadObservationId).toBe(`obs-head-${E1}`);
+  });
+
+  it('without a base id a lost race re-reads and writes once more instead of a 409', async () => {
+    const { service, writeFeatureUpdate } = makeService(SCHEMA);
+    writeFeatureUpdate.mockResolvedValueOnce({ conflict: true, headObservationId: 'other' } as never);
+    await service.updateFeature(ITEM_ID, LAYER_ID, E1, { properties: { value: 2 } }, makeUser());
+    expect(writeFeatureUpdate).toHaveBeenCalledTimes(2);
   });
 
   it('a current base id is threaded into the engine write', async () => {
@@ -902,6 +956,9 @@ describe('mvtTile forwards every option to the engine', () => {
       ownRowsOnly: { userId: 'user-1' },
       where: WHERE,
       via: VIA,
+      maxFeaturesPerTile: 250,
+      zoomRange: { min: 0, max: 24 },
+      labelPoints: true,
     });
     expect(mvtTile.mock.calls[0]![0]).toEqual({
       itemId: ITEM_ID,
@@ -914,7 +971,29 @@ describe('mvtTile forwards every option to the engine', () => {
       ownRowsOnly: { userId: 'user-1' },
       where: WHERE,
       via: VIA,
+      // The tile settings cap is forwarded (it changes bytes and so
+      // must reach the cache key); the zoom range is not, because it
+      // is decided here before the engine is asked.
+      maxFeaturesPerTile: 250,
+      labelPoints: true,
     });
+  });
+
+  it('answers an empty tile outside the zoom range without asking the engine', async () => {
+    const { service, mvtTile } = makeTiler();
+    const below = await service.mvtTile(ITEM_ID, LAYER_ID, 9, 141, 194, {
+      zoomRange: { min: 10, max: 14 },
+    });
+    const above = await service.mvtTile(ITEM_ID, LAYER_ID, 15, 141, 194, {
+      zoomRange: { min: 10, max: 14 },
+    });
+    expect(below.mvt.length).toBe(0);
+    expect(above.mvt.length).toBe(0);
+    expect(mvtTile).not.toHaveBeenCalled();
+    await service.mvtTile(ITEM_ID, LAYER_ID, 10, 141, 194, {
+      zoomRange: { min: 10, max: 14 },
+    });
+    expect(mvtTile).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1150,5 +1229,20 @@ describe('DataLayerFeaturesService.loadLayerSchema pick-list resolution', () => 
       expect(findUnique).toHaveBeenCalledTimes(2);
       expect(findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('DataLayerFeaturesService.listDelta idle poll', () => {
+  it('answers a client already at the layer syncVersion without querying the log', async () => {
+    // The delta query reads the whole scope; an idle poll must not.
+    const { service, engine } = makeService();
+    const listDeltaSince = jest.fn(async () => []);
+    (engine as unknown as { listDeltaSince: typeof listDeltaSince }).listDeltaSince =
+      listDeltaSince;
+    const out = await service.listDelta(ITEM_ID, LAYER_ID, 0);
+    expect(out).toEqual({ syncVersion: 0, since: 0, changes: [], truncated: false });
+    expect(listDeltaSince).not.toHaveBeenCalled();
+    await service.listDelta(ITEM_ID, LAYER_ID, -1);
+    expect(listDeltaSince).toHaveBeenCalledTimes(1);
   });
 });

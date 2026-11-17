@@ -9,13 +9,11 @@ import {
   Post,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -26,6 +24,8 @@ import {
 import { StorageService } from '../storage/storage.service.js';
 import { CogTileService } from './cog-tiles.service.js';
 import { TileLayerService } from './tile-layer.service.js';
+import { byteProxyCacheControl } from '../common/byte-proxy-cache.js';
+import { contentDisposition } from '../common/content-disposition.js';
 
 /**
  * Content types the tile pipeline legitimately serves inline
@@ -101,9 +101,9 @@ export function parseTileCoords(
  *
  *   GET /tile-layer/:itemId/file
  *     Proxy endpoint MapLibre's pmtiles plugin range-reads.
- *     Forwards the Range header to the file's public MinIO URL
- *     and streams the response back. Item-level ACL applies via
- *     ItemsService.get inside resolveStorageUrl().
+ *     Forwards the Range header to an SDK read of the file's
+ *     storage key and streams the response back. Item-level ACL
+ *     applies inside resolveStorageKey().
  *
  *   GET /tile-layer/:itemId/tiles/:z/:x/:y[.png]
  *     Server-side XYZ tiles read out of the same PMTiles archive,
@@ -113,7 +113,6 @@ export function parseTileCoords(
 @ApiTags('tile-layer')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class TileLayerController {
   constructor(
     private readonly tileLayer: TileLayerService,
@@ -222,13 +221,13 @@ export class TileLayerController {
   /**
    * Range-request proxy. MapLibre's pmtiles plugin issues many
    * range requests as the user pans / zooms; this endpoint
-   * forwards each one to the underlying MinIO public URL. We
-   * resolve the file URL on every call so a revoked item access
+   * forwards each one to an SDK read of the item's storage key.
+   * We resolve the key on every call so a revoked item access
    * stops working immediately (no client-side URL caching to
    * worry about for ACL purposes).
    *
-   * Implementation: do a server-side fetch with the same Range
-   * header, then mirror the response status + Content-Range +
+   * Implementation: an SDK GetObject with the same Range header,
+   * then mirror the response status + Content-Range +
    * Content-Length headers and pipe the body through. This is
    * less efficient than a redirect would be, but a redirect to
    * a presigned URL would expire mid-session, and proxying lets
@@ -272,6 +271,10 @@ export class TileLayerController {
       format,
     );
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    // Destroy the S3 read if anything below throws before the pipe
+    // (the download-name lookup, a header). Otherwise the stream would
+    // hold its socket until the SDK's idle timeout.
+    res.on('close', () => upstream.body.destroy());
     res.status(upstream.statusCode);
     if (upstream.contentRange) res.setHeader('Content-Range', upstream.contentRange);
     if (upstream.contentLength !== undefined) {
@@ -297,10 +300,7 @@ export class TileLayerController {
         itemId,
         format,
       );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${name.replace(/["\\\r\n]/g, '')}"`,
-      );
+      res.setHeader('Content-Disposition', contentDisposition('attachment', name));
     } else if (!INLINE_SAFE_TILE_TYPES.has(servedType)) {
       res.setHeader('Content-Disposition', 'attachment');
     }
@@ -317,7 +317,12 @@ export class TileLayerController {
     // blind caching keeps the range-request storm off the server
     // while bounding staleness; ETag + If-Range handle clean
     // revalidation past that.
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    //
+    // `private` for a signed-in caller: this route also serves items
+    // shared to that user, and `public` would let a shared proxy or
+    // CDN hand those bytes to the next caller. Anonymous callers only
+    // ever resolve public items, so they keep `public`.
+    res.setHeader('Cache-Control', byteProxyCacheControl(user, 3600));
 
     try {
       upstream.body.pipe(res);

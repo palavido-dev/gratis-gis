@@ -26,6 +26,8 @@ import type {
   MetaUi,
 } from '@gratis-gis/shared-types';
 import type { Translator } from '@/lib/i18n';
+import { readApiFailure, type ApiFailure } from '@/lib/api-error';
+import { clientUuid } from '@/lib/uuid';
 import {
   DEFAULT_LAYER_ACCESS,
   DEFAULT_LAYER_LABELS,
@@ -39,7 +41,7 @@ import {
 
 export function makeLayer(title: string, source: MapLayerSource): MapLayer {
   return {
-    id: crypto.randomUUID(),
+    id: clientUuid(),
     title,
     visible: true,
     opacity: 1,
@@ -67,14 +69,18 @@ export type PortalItemWithSublayers = Item & {
  */
 export async function fetchHydratedItem(
   item: Item,
-): Promise<{ item?: Item; error?: string }> {
+): Promise<{ item?: Item; error?: string; failure?: ApiFailure }> {
   if (item.data && Object.keys(item.data as object).length > 0) {
     return { item };
   }
   try {
     const res = await fetch(`/api/portal/items/${item.id}`);
     if (!res.ok) {
-      return { error: `Could not load ${item.title} (HTTP ${res.status}).` };
+      const failure = await readApiFailure(res);
+      const bits = [`Could not load ${item.title} (HTTP ${res.status}).`];
+      if (failure.detail) bits.push(failure.detail);
+      if (failure.requestId) bits.push(`Request id: ${failure.requestId}`);
+      return { failure, error: bits.join(' ') };
     }
     return { item: (await res.json()) as Item };
   } catch (err) {
@@ -323,14 +329,10 @@ export function layersFromMetaUi(
         'layerKey' in l.source &&
         l.source.layerKey === opts.layerKey,
     );
-    if (!match) {
-      return {
-        error: opts.t('addToMap.layerGone', {
-          item: opts.itemTitle,
-          layerKey: opts.layerKey,
-        }),
-      };
-    }
+    // meta.ui lists every sublayer, tables included. A missing key
+    // still falls through to the local builder, which reads the item
+    // data and reports "this layer no longer exists".
+    if (!match) return null;
     return { layers: [makeLayer(match.title, match.source)] };
   }
   if (ui.layers.length === 1) {
@@ -454,11 +456,8 @@ export async function layersForPortalItem(
             }),
           };
         }
-        if (!sub.geometryType) {
-          return {
-            error: t('addToMap.tableNoShapes', { layer: sub.label || sub.id }),
-          };
-        }
+        // A table key adds the table, as the meta.ui path and the Add
+        // Layer dialog do. The layer list shows it under Tables.
         const title =
           sublayers.length === 1 ? input.title : sub.label || sub.id;
         return {

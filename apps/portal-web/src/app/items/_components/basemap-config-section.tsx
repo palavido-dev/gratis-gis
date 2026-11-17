@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import type { BasemapData, Item } from '@gratis-gis/shared-types';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Basemap source editor (#298 / #144). Source-aware: the user picks
@@ -62,6 +63,10 @@ type SourceMode = 'probe' | 'tile-url' | 'wms' | 'style-url' | 'from-service';
 interface Props {
   value: BasemapData;
   onChange: (next: BasemapData) => void;
+  /** Org admin. The Probe tab calls GET /admin/basemap/probe, which
+   *  only org admins may use, so other publishers do not get the tab
+   *  (or open on it) only to be refused. */
+  canProbe?: boolean;
 }
 
 /**
@@ -70,17 +75,19 @@ interface Props {
  * the user sees what's already there; an empty / unconfigured one
  * opens on the Probe tab as the quickest path to a working state.
  */
-function inferInitialMode(value: BasemapData): SourceMode {
-  if (value.kind === 'composed-map') return 'probe';
-  if (value.kind === 'tile-url') return value.tileUrl ? 'tile-url' : 'probe';
-  if (value.kind === 'wms') return value.wmsUrl ? 'wms' : 'probe';
-  if (value.kind === 'style-url') return value.styleUrl ? 'style-url' : 'probe';
-  return 'probe';
+function inferInitialMode(value: BasemapData, canProbe: boolean): SourceMode {
+  const empty: SourceMode = canProbe ? 'probe' : 'tile-url';
+  if (value.kind === 'composed-map') return empty;
+  if (value.kind === 'tile-url') return value.tileUrl ? 'tile-url' : empty;
+  if (value.kind === 'wms') return value.wmsUrl ? 'wms' : empty;
+  if (value.kind === 'style-url') return value.styleUrl ? 'style-url' : empty;
+  return empty;
 }
 
-export function BasemapConfigSection({ value, onChange }: Props) {
+export function BasemapConfigSection({ value, onChange, canProbe = false }: Props) {
+  const t = useT();
   const [sourceMode, setSourceMode] = useState<SourceMode>(() =>
-    inferInitialMode(value),
+    inferInitialMode(value, canProbe),
   );
   const [serviceItems, setServiceItems] = useState<Item[] | null>(null);
   const [serviceLoading, setServiceLoading] = useState(false);
@@ -107,20 +114,37 @@ export function BasemapConfigSection({ value, onChange }: Props) {
     void (async () => {
       try {
         const res = await fetch(
-          '/api/portal/items?type=service,arcgis_service,wms_service&lite=1',
+          // full=1: the protocol badge and the basemap-shaped filter
+          // below both read `data`, which the lite list leaves out.
+          '/api/portal/items?type=service,arcgis_service,wms_service&full=1',
         );
         if (!res.ok) {
           if (!cancelled) {
-            setServiceError(`Could not load services (HTTP ${res.status}).`);
+            setServiceError(
+              t('basemapEditor.loadServicesHttp', { status: res.status }),
+            );
           }
           return;
         }
         const items = (await res.json()) as Item[];
-        if (!cancelled) setServiceItems(items);
+        // Offer only services that can back a basemap. WFS, ArcGIS
+        // Feature and the like used to be listed and then refused
+        // after the click.
+        if (!cancelled) {
+          setServiceItems(
+            items.filter(
+              (it) =>
+                serviceItemToBasemapData(it, { version: 1, kind: 'tile-url' }) !==
+                null,
+            ),
+          );
+        }
       } catch (err) {
         if (!cancelled) {
           setServiceError(
-            err instanceof Error ? err.message : 'Could not load services.',
+            err instanceof Error
+              ? err.message
+              : t('basemapEditor.loadServicesFailed'),
           );
         }
       } finally {
@@ -130,10 +154,14 @@ export function BasemapConfigSection({ value, onChange }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [sourceMode, serviceItems]);
+  }, [sourceMode, serviceItems, t]);
 
   const setKind = (mode: SourceMode) => {
     setSourceMode(mode);
+    // Clicking the tab of the kind the draft already has (to review a
+    // probe or service result, or the tab that is already active)
+    // must not wipe its URL and layers.
+    if (mode === value.kind) return;
     if (mode === 'from-service' || mode === 'probe') {
       // Don't touch `value` yet -- the actual BasemapData comes
       // from the picked service item or the probe response when
@@ -218,44 +246,47 @@ export function BasemapConfigSection({ value, onChange }: Props) {
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (!res.ok) {
-        setServiceError(`Could not load service (HTTP ${res.status}).`);
+        setServiceError(
+          t('basemapEditor.loadServiceHttp', { status: res.status }),
+        );
         return;
       }
       const item = (await res.json()) as Item;
       const next = serviceItemToBasemapData(item, value);
       if (!next) {
-        setServiceError(
-          "That service can't back a basemap yet (only WMS and cached ArcGIS Map services work today).",
-        );
+        setServiceError(t('basemapEditor.serviceNotBasemap'));
         return;
       }
       onChange(next);
     } catch (err) {
       setServiceError(
-        err instanceof Error ? err.message : 'Could not load service.',
+        err instanceof Error
+          ? err.message
+          : t('basemapEditor.loadServiceFailed'),
       );
     }
   }
 
+  const modeOptions = [
+    ...(canProbe
+      ? [{ k: 'probe' as const, label: t('basemapEditor.modeProbe') }]
+      : []),
+    { k: 'from-service' as const, label: t('basemapEditor.modeFromService') },
+    { k: 'tile-url' as const, label: t('basemapEditor.modeXyz') },
+    { k: 'wms' as const, label: t('basemapEditor.modeWms') },
+    { k: 'style-url' as const, label: t('basemapEditor.modeStyleUrl') },
+  ];
+
   return (
     <section className="rounded-lg border border-border bg-surface-1 p-4">
-      <h2 className="mb-1 text-sm font-medium text-ink-0">Basemap source</h2>
+      <h2 className="mb-1 text-sm font-medium text-ink-0">
+        {t('basemapEditor.source')}
+      </h2>
       <p className="mb-3 text-xs text-muted">
-        Pick how this basemap is served. Maps that reference this
-        basemap pull from the source you configure here. The fastest
-        path is Probe URL: paste any tile / service URL and we&rsquo;ll
-        figure out the format and fill in the fields for you.
+        {t('basemapEditor.sourceHintConfig')}
       </p>
       <div className="mb-3 flex flex-wrap gap-2 text-xs">
-        {(
-          [
-            { k: 'probe', label: 'Probe URL' },
-            { k: 'from-service', label: 'From a service item' },
-            { k: 'tile-url', label: 'XYZ tiles' },
-            { k: 'wms', label: 'WMS' },
-            { k: 'style-url', label: 'Style URL' },
-          ] as const
-        ).map((opt) => {
+        {modeOptions.map((opt) => {
           const active = sourceMode === opt.k;
           return (
             <button
@@ -305,7 +336,9 @@ export function BasemapConfigSection({ value, onChange }: Props) {
                 ) : (
                   <Search className="h-4 w-4" />
                 )}
-                {probing ? 'Probing...' : 'Probe'}
+                {probing
+                  ? t('basemapEditor.probing')
+                  : t('basemapEditor.probe')}
               </button>
             </div>
             <span className="mt-1 block text-2xs text-muted">
@@ -576,11 +609,15 @@ function serviceItemToBasemapData(
     const layersArr = Array.isArray(data.layers)
       ? (data.layers as Array<{ name?: string }>)
       : [];
-    const selectedIds = Array.isArray(data.selectedLayerIds)
-      ? (data.selectedLayerIds as Array<number | string>).map((i) =>
-          Number(i),
-        )
-      : layersArr.map((_, i) => i);
+    // Empty or missing selection means every layer, the same rule as
+    // pickedServiceLayers in shared-types. Reading [] as "no layers"
+    // produced a GetMap with an empty LAYERS parameter.
+    const selectedIds =
+      Array.isArray(data.selectedLayerIds) && data.selectedLayerIds.length > 0
+        ? (data.selectedLayerIds as Array<number | string>).map((i) =>
+            Number(i),
+          )
+        : layersArr.map((_, i) => i);
     const names = selectedIds
       .map((i) => layersArr[i]?.name)
       .filter((n): n is string => typeof n === 'string' && n.length > 0);
@@ -604,7 +641,7 @@ function serviceItemToBasemapData(
     // Cached ArcGIS MapServers publish at /tile/{level}/{row}/{col}.
     // We rewrite to MapLibre's {z}/{y}/{x} placeholders since
     // Esri's URL ordering is z/y/x (rows-then-cols), not z/x/y.
-    const cleaned = url.replace(/\/+$/, '');
+    const cleaned = url.replace(/(?<!\/)\/+$/, '');
     const tileUrl = `${cleaned}/tile/{z}/{y}/{x}`;
     const next: BasemapData = {
       version: 1,

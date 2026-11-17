@@ -8,6 +8,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -34,10 +35,8 @@ import { parseCollectionId, formatCollectionId } from './collection-id.js';
  * explicit picker.
  *
  * The MapLibre style document points its `data` source at the
- * Features endpoint for the same collection, so a tool that
- * applies the style automatically gets the matching data path.
- * Tiles (#113) will plug in here later by switching the source to
- * `vector` and pointing at the tileset.
+ * collection's vector tileset (its TileJSON), so a tool that applies
+ * the style draws every feature, not just the first items page.
  */
 @ApiTags('public', 'ogc', 'styles')
 @Controller('public/ogc/styles')
@@ -45,6 +44,10 @@ export class OgcStylesController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Tighter than the global 300/min: styles list runs a full public
+  // data_layer findMany (SEC-ogc-styles-list-throttle; same 60/min
+  // as OGC Features / STAC list-class routes).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   async styles(@Req() req: Request) {
     const base = absoluteBase(req);
@@ -90,6 +93,7 @@ export class OgcStylesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':styleId')
   // The styles list and the OpenAPI document have always advertised
   // this media type for the style document itself; serving plain
@@ -102,6 +106,7 @@ export class OgcStylesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':styleId/metadata')
   async metadata(
     @Req() req: Request,
@@ -319,33 +324,47 @@ function geometryTypeToStyleType(
 
 /**
  * Build a MapLibre v8 style document for the given style row. The
- * source points at the collection's Features endpoint so a tool
- * that loads the style picks up the matching data path
- * automatically. Per-geometry-type defaults are intentionally
+ * source points at the collection's vector tiles so a tool that
+ * loads the style draws the whole layer. Per-geometry-type defaults are intentionally
  * simple (one fill + line for polygons, one line for lines, one
  * circle for points) -- the surface is a curated default, not the
  * full renderer-replication path. See class-level docstring for
  * the rationale.
  */
-function buildMapLibreStyle(
+export function buildMapLibreStyle(
   row: StyleRow,
   base: string,
 ): Record<string, unknown> {
   const sourceId = 'data';
-  const dataUrl = `${base}/api/public/ogc/collections/${row.styleId}/items`;
-  const sources = {
-    [sourceId]: { type: 'geojson', data: dataUrl },
-  };
+  const styleType = geometryTypeToStyleType(row.geometryType);
+  const collection = `${base}/api/public/ogc/collections/${encodeURIComponent(row.styleId)}`;
+  // A spatial layer draws from the collection's vector tiles. The
+  // GeoJSON items URL returns one page (100 features by default) and
+  // a MapLibre geojson source does not follow next links, so the
+  // style silently drew only the first page. A table has no tiles;
+  // it keeps the items URL and no paint layers.
+  const sources =
+    styleType === 'table'
+      ? { [sourceId]: { type: 'geojson', data: `${collection}/items` } }
+      : {
+          [sourceId]: {
+            type: 'vector',
+            url: `${collection}/tiles/WebMercatorQuad/tilejson.json`,
+          },
+        };
+  // Every feature in a tile sits in the `features` MVT layer.
+  const sourceLayer = { 'source-layer': 'features' };
   const layers: Array<Record<string, unknown>> = [];
   const accent = '#4f46e5'; // indigo-600, matches the portal accent
   const stroke = '#1e1b4b'; // indigo-950
-  switch (geometryTypeToStyleType(row.geometryType)) {
+  switch (styleType) {
     case 'polygon':
       layers.push(
         {
           id: `${row.styleId}-fill`,
           type: 'fill',
           source: sourceId,
+          ...sourceLayer,
           filter: ['==', ['geometry-type'], 'Polygon'],
           paint: {
             'fill-color': accent,
@@ -356,6 +375,7 @@ function buildMapLibreStyle(
           id: `${row.styleId}-stroke`,
           type: 'line',
           source: sourceId,
+          ...sourceLayer,
           filter: ['==', ['geometry-type'], 'Polygon'],
           paint: {
             'line-color': stroke,
@@ -369,6 +389,7 @@ function buildMapLibreStyle(
         id: `${row.styleId}-line`,
         type: 'line',
         source: sourceId,
+        ...sourceLayer,
         filter: ['==', ['geometry-type'], 'LineString'],
         paint: {
           'line-color': accent,
@@ -381,6 +402,7 @@ function buildMapLibreStyle(
         id: `${row.styleId}-point`,
         type: 'circle',
         source: sourceId,
+        ...sourceLayer,
         filter: ['==', ['geometry-type'], 'Point'],
         paint: {
           'circle-radius': 5,

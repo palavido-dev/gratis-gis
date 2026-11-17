@@ -3,8 +3,11 @@ name: gratis-gis
 services:
   postgres:
     build:
-      context: ./postgres
-      dockerfile: Dockerfile
+      # Same context as the production file. The Dockerfile copies
+      # init-prod-db.sql and init-prod-db.sh, which live in infra/,
+      # not in infra/postgres/.
+      context: .
+      dockerfile: postgres/Dockerfile
     image: gratis-gis-postgres:local
     container_name: gratis-gis-postgres
     restart: unless-stopped
@@ -33,8 +36,14 @@ services:
       POSTGRES_DB: gratisgis
       POSTGRES_USER: gratisgis
       POSTGRES_PASSWORD: devpassword
+      # The image's first-boot script exits if this is empty. Dev
+      # Keycloak uses its own file database; this only lets init finish
+      # so `compose up --wait` does not see the container die.
+      KEYCLOAK_DB_PASSWORD: devpassword
+    # Dev-only ports are bound to loopback. The passwords in this file
+    # are fixed, so they must not be reachable from the LAN.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       # Keep PG17 volume layout (/data). PG18 (#306) needs dump/restore
       # before flipping this mount to /var/lib/postgresql.
@@ -64,7 +73,7 @@ services:
       # happen within minutes of idle.
       KC_DB: dev-file
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./keycloak/realm-gratis-gis.json:/opt/keycloak/data/import/realm-gratis-gis.json:ro
       # Custom login / account theme. Mounted under /opt/keycloak/themes
@@ -86,8 +95,8 @@ services:
       MINIO_ROOT_USER: gratisgis
       MINIO_ROOT_PASSWORD: devpassword
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
+      - "127.0.0.1:9000:9000"   # S3 API
+      - "127.0.0.1:9001:9001"   # Web console
     volumes:
       - miniodata:/data
     healthcheck:
@@ -106,7 +115,7 @@ services:
     environment:
       DATABASE_URL: postgresql://gratisgis:devpassword@postgres:5432/gratisgis
     ports:
-      - "7800:7800"
+      - "127.0.0.1:7800:7800"
 
   # Self-hosted geocoder. Defaults to the full OSM planet so the stack
   # is production-ready as-deployed; see infra/NOMINATIM.md for what
@@ -130,36 +139,42 @@ services:
   #     NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/north-america-updates/
   #     NOMINATIM_SHM_SIZE=8gb
   #
-  #   Planet (~80 GB, 1-3 days on adequate hardware: the default):
-  #     see NOMINATIM.md for the hardware baseline.
+  #   Planet: an ~80 GB download that imports into a 1.1-1.3 TB
+  #     database over 36-72 hours. See NOMINATIM.md for the hardware
+  #     baseline.
+  #
+  # The default is Monaco. This is the dev stack, and `pnpm infra:up`
+  # starts it: a planet default filled a new contributor's disk.
   nominatim:
     image: mediagis/nominatim:4.5
     container_name: gratis-gis-nominatim
     restart: unless-stopped
     environment:
-      PBF_URL: ${NOMINATIM_PBF_URL:-https://planet.openstreetmap.org/pbf/planet-latest.osm.pbf}
-      REPLICATION_URL: ${NOMINATIM_REPLICATION_URL:-https://planet.openstreetmap.org/replication/minute/}
+      PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/europe/monaco-latest.osm.pbf}
+      REPLICATION_URL: ${NOMINATIM_REPLICATION_URL:-https://download.geofabrik.de/europe/monaco-updates/}
       # Wikipedia ranking data significantly improves planet-level
-      # result quality and costs ~20 GB to import. Off for small
-      # extracts; flip to true in your .env for planet deployments.
-      IMPORT_WIKIPEDIA: ${NOMINATIM_IMPORT_WIKIPEDIA:-true}
-      # Freeze drops indexes and columns not needed for query-time so
-      # disk footprint shrinks. Safe for a geocoder-only deployment;
-      # turn off if you want to keep the raw OSM tables around.
-      FREEZE: ${NOMINATIM_FREEZE:-true}
+      # result quality and costs ~20 GB to import. Off by default (the
+      # Monaco extract); flip to true in your .env for a planet import.
+      IMPORT_WIKIPEDIA: ${NOMINATIM_IMPORT_WIKIPEDIA:-false}
+      # Freeze drops the tables updates need, which shrinks the disk
+      # footprint by about 30 % but stops REPLICATION_URL from ever
+      # applying a diff. Off by default because replication is on by
+      # default. Set it to true only together with an empty
+      # NOMINATIM_REPLICATION_URL, for a geocoder you never update.
+      FREEZE: ${NOMINATIM_FREEZE:-false}
       NOMINATIM_PASSWORD: devpassword
       THREADS: ${NOMINATIM_THREADS:-8}
     ports:
-      - "8081:8080"
+      - "127.0.0.1:8081:8080"
     volumes:
       - nominatim-data:/var/lib/postgresql/16/main
       - nominatim-flatnode:/nominatim/flatnode
     # shm backs Postgres's parallel work. The default 64 MB is nowhere
     # near enough for a planet import: Postgres will OOM partway
     # through. 16 GB is a safe floor; 32 GB lets more of the import
-    # run in parallel and finishes faster. Dial down for small
-    # extracts via NOMINATIM_SHM_SIZE.
-    shm_size: ${NOMINATIM_SHM_SIZE:-16gb}
+    # run in parallel and finishes faster. Raise it with
+    # NOMINATIM_SHM_SIZE when you import more than the Monaco default.
+    shm_size: ${NOMINATIM_SHM_SIZE:-1gb}
 
 volumes:
   pgdata:

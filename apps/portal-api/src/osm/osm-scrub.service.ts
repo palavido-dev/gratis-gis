@@ -49,7 +49,9 @@ export class OsmScrubService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    if (!this.leader.shouldRun()) {
+    // Leadership only: the hourly tick checks shouldRun() itself, so
+    // maintenance at boot must not log the scrub as disabled.
+    if (!this.leader.holdsLock()) {
       this.log.log(
         'OSM cache scrub disabled on this replica (not the cron leader).',
       );
@@ -76,7 +78,7 @@ export class OsmScrubService implements OnApplicationBootstrap {
     // stale scopes from getting cleaned up.
     const expired = await this.prisma.osmQueryCache.findMany({
       where: { expiresAt: { lt: now } },
-      select: { hash: true, scope: true },
+      select: { hash: true, scope: true, expiresAt: true },
       orderBy: { expiresAt: 'asc' },
       take: OsmScrubService.MAX_SCOPES_PER_RUN,
     });
@@ -84,12 +86,38 @@ export class OsmScrubService implements OnApplicationBootstrap {
     if (expired.length === 0) return;
 
     for (const row of expired) {
+      // Claim the row first, and only while it is still expired. A
+      // resolve of the same query may have refreshed it since the list
+      // was read; purging then left a fresh cache row over a half
+      // deleted scope.
+      const claimed = await this.prisma.osmQueryCache.deleteMany({
+        where: { hash: row.hash, expiresAt: { lt: now } },
+      });
+      if (claimed.count === 0) continue;
+      totalCacheDeleted += 1;
       try {
         const obsCount = await this.purgeScope(row.scope);
         totalObsDeleted += obsCount;
-        await this.prisma.osmQueryCache.delete({ where: { hash: row.hash } });
-        totalCacheDeleted += 1;
       } catch (err) {
+        // Put the expired row back so the next tick retries the purge;
+        // without it the scope's rows would have nothing pointing at
+        // them and would never be reclaimed.
+        await this.prisma.osmQueryCache
+          .upsert({
+            where: { hash: row.hash },
+            create: {
+              hash: row.hash,
+              scope: row.scope,
+              presetIds: [],
+              bbox: [],
+              featureCount: 0,
+              endpoint: '',
+              fetchedAt: row.expiresAt,
+              expiresAt: row.expiresAt,
+            },
+            update: {},
+          })
+          .catch(() => undefined);
         // One scope failing should not stop the whole run. Log and
         // continue; the row stays expired and will be retried next
         // tick.
@@ -112,13 +140,21 @@ export class OsmScrubService implements OnApplicationBootstrap {
    * chunks so each statement stays inside statement_timeout. Returns
    * the total number of rows removed.
    *
-   * The CTE form is `DELETE ... WHERE ctid IN (subquery WITH LIMIT)`;
-   * ctid is the cheapest stable row identifier in PostgreSQL and
-   * lets us avoid an index lookup per chunk. The observation table
-   * is partitioned by scope, so the planner narrows to a single
-   * partition before applying the LIMIT.
+   * Rows are matched by primary key (id, tx_time) AND scope. Never by
+   * ctid: observation is partitioned by tx_time, a ctid is only unique
+   * inside one partition, and `WHERE ctid IN (...)` on the parent
+   * deleted whatever row sat at the same physical slot in every other
+   * monthly partition, which were user data layer rows. The scope
+   * predicate on the outer DELETE is a second guard: whatever the
+   * subquery returns, only this scope's rows can go.
    */
-  private async purgeScope(scope: string): Promise<number> {
+  async purgeScope(scope: string): Promise<number> {
+    // Only OSM cache scopes may be purged here. A cache row is written
+    // by OsmService with `osm:<hash>`; anything else (a damaged row, a
+    // future writer) must never reach a bulk delete of user data.
+    if (!/^osm:[A-Za-z0-9_-]+$/.test(scope)) {
+      throw new Error(`refusing to purge non-OSM scope ${JSON.stringify(scope)}`);
+    }
     let total = 0;
     // Hard upper bound: 200 chunks * 5000 rows = 1M rows per scope
     // per run. Anything larger than that is almost certainly a
@@ -127,7 +163,12 @@ export class OsmScrubService implements OnApplicationBootstrap {
     // pathological row can't spin this method forever.
     for (let i = 0; i < 200; i += 1) {
       const deleted: number = await this.prisma.$executeRaw(
-        Prisma.sql`DELETE FROM observation WHERE ctid IN (SELECT ctid FROM observation WHERE scope = ${scope} LIMIT ${OsmScrubService.CHUNK_SIZE})`,
+        Prisma.sql`DELETE FROM observation
+          WHERE scope = ${scope}
+            AND (id, tx_time) IN (
+              SELECT id, tx_time FROM observation
+              WHERE scope = ${scope}
+              LIMIT ${OsmScrubService.CHUNK_SIZE})`,
       );
       total += deleted;
       if (deleted < OsmScrubService.CHUNK_SIZE) break;

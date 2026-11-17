@@ -44,7 +44,7 @@ Ownership reassignment, time-bounded shares, and folder cascade are all in.
 - [x] Data layer endpoint backed by PostGIS (multi-sublayer v3 model)
 - [x] Upload GeoJSON / Shapefile / GeoPackage / GDB / KML → creates a
       data\_layer item
-- [x] pg\_tileserv integration with per-layer permission proxy
+- [x] Vector tiles from portal-api with a per-layer sharing check (pg\_tileserv was dropped)
 - [x] Map item type (basemap + layer refs + styling)
 - [x] Map viewer in portal-web using MapLibre GL
 - [x] Map authoring UI (Add Layer dialog, simple + unique-values +
@@ -186,7 +186,7 @@ when real workflows need it."
 ## Engine Substrate (foundational, ✅)
 
 Cross-cutting work that underpins every pillar. Landed alongside Phase 4 / 6
-in pre-v1.
+alongside the 0.9.x line into v1.0.0.
 
 - [x] Observation-log table + bitemporal model (Phase 1, migration
       `20260507120000_engine_observation_log`)
@@ -277,19 +277,17 @@ maintain.
 - [x] **`pg_partman` monthly partitioning of the `observation` table.**
       Landed 2026-05-08 (migration
       `20260508081000_partition_observation_table`). The infra
-      postgres image extends `postgis/postgis:16-3.4` with
-      `postgresql-16-partman`; the migration installs the extension,
+      postgres image extends `postgis/postgis` (now `17-3.5`) with
+      pg_partman; the migration installs the extension,
       renames the unpartitioned table out of the way, recreates
       `observation` with composite `(id, tx_time)` PK partitioned
       by range on `tx_time`, registers it with pg_partman (monthly
       interval, premake=24, retention=NULL), copies the existing
       rows into the appropriate month partitions, and drops the
       old table. Future-partition rollover and old-partition
-      pruning run via `partman.run_maintenance_proc()`; v1 doesn't
-      schedule that yet because the 24-month premake covers two
-      years of forward writes -- wire a daily cron via the
-      existing scheduled-tasks framework before the trailing edge
-      approaches.
+      pruning run through pg_partman's background worker, which the
+      compose files start with `pg_partman_bgw.interval=3600`
+      (hourly).
 - [ ] Verify Postgres page-level checksums are enabled on the prod
       cluster. The engine concentrates feature data into one table,
       so page checksums are now load-bearing for catastrophic-
@@ -306,7 +304,7 @@ maintain.
       cron), retention policy, archive manifests, a maintenance-
       mode gate, and admin restore flow. HA story is the future
       work item if we ever multi-host.
-- [ ] Load tests for tile serving. The pg_tileserv path is
+- [ ] Load tests for tile serving. The portal-api tile path is
       unbenchmarked under realistic concurrency. Target: 100+
       concurrent tile fetches against a 100k-feature data\_layer
       with the cell index path engaged. No tooling yet; would

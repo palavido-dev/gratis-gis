@@ -26,6 +26,8 @@ import {
 } from '@/lib/analyze-contour-derived';
 
 interface Props {
+  /** Expand the form on mount (Analyze ?tool= deep link). */
+  defaultOpen?: boolean;
   itemId: string;
   /** v3 sublayer id; stamped as derived_layer.source.layerKey. */
   layerKey: string;
@@ -45,12 +47,13 @@ export function AnalyzeContourGuide({
   layerKey,
   sourceLabel,
   fields,
+  defaultOpen = false
 }: Props) {
   const router = useRouter();
   const fmt = useFormat();
   const t = useT();
   const numericFields = useMemo(() => numericFieldsForContour(fields), [fields]);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [field, setField] = useState(numericFields[0]?.name ?? '');
   const [interval, setInterval] = useState(10);
   const [minRaw, setMinRaw] = useState('');
@@ -143,7 +146,9 @@ export function AnalyzeContourGuide({
         onClick={() => {
           setOpen(true);
           if (!field && numericFields[0]) setField(numericFields[0].name);
-          setTitle(suggestedTitle);
+          // Empty, not a snapshot: the placeholder and the submit
+          // fallback follow the parameters as they change.
+          setTitle('');
         }}
         title={t('analyzeWorkbench.contourActionTitle')}
         className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-1 hover:bg-surface-2"

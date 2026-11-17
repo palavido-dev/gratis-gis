@@ -2,6 +2,7 @@
 'use client';
 
 import { Plus, Trash2, X } from 'lucide-react';
+import { filterInValues } from '@gratis-gis/shared-types';
 import type {
   MapFilterOp,
   MapLayerFilter,
@@ -148,6 +149,29 @@ function Clause({
   const t = useT();
   const needsValue = clause.op !== 'is-null' && clause.op !== 'is-not-null';
   const valueOptions = clause.field ? metadata.valuesByField[clause.field] ?? [] : [];
+
+  // An id list written by the attribute table's "Use as filter". It
+  // names hidden feature ids, which no field picker or text box can
+  // edit usefully, so it is shown as a count and can be removed.
+  if (clause.op === 'in') {
+    return (
+      <div className="flex items-center gap-1.5 rounded border border-border bg-surface-1 p-2">
+        <span className="min-w-0 flex-1 text-xs text-ink-1">
+          {t('mapFilterEditor.selectedFeatures', {
+            count: filterInValues(clause.value).length,
+          })}
+        </span>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={t('mapFilterEditor.removeClauseAria')}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-danger"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded border border-border bg-surface-1 p-2">

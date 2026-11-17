@@ -118,4 +118,19 @@ describe('LastUsageStamp', () => {
       stamp.stamp('77777777-7777-7777-7777-777777777777'),
     ).not.toThrow();
   });
+
+  it('treats two spellings of one id as one item', () => {
+    const { prisma, executeRaw } = makePrisma();
+    const stamp = new LastUsageStamp(prisma, silentLog, 60_000);
+    stamp.stamp('aaaaaaaa-0000-4000-8000-000000000001', 1_000_000);
+    stamp.stamp('AAAAAAAA-0000-4000-8000-000000000001', 1_001_000);
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the throttle map bounded', () => {
+    const { prisma } = makePrisma();
+    const stamp = new LastUsageStamp(prisma, silentLog, 60_000);
+    for (let i = 0; i < 10_050; i++) stamp.stamp(`id-${i}`, 1_000_000 + i);
+    expect(stamp.trackedCount).toBeLessThanOrEqual(10_000);
+  });
 });

@@ -98,17 +98,6 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     defaultByChannel: ALL_DEFAULT_ON,
   },
 
-  // Account (continued)
-  {
-    type: 'user_invited',
-    category: 'account',
-    label: 'New user invited',
-    description:
-      'An admin invited a new user to the org. Sent to the invitee with the realm-managed invite link. Replaces the hand-rolled invite email body that used to live in the admin-invite path.',
-    channels: ALL_CHANNELS,
-    defaultByChannel: ALL_DEFAULT_ON,
-  },
-
   // Editor
   {
     type: 'editor_feature_created',
@@ -143,6 +132,26 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     label: 'Field deployment schema break',
     description:
       'An admin saved a data_layer change that drops a layer or swaps its geometry, which breaks offline copies your field crew has already downloaded. Recipients are deployment owners.',
+    channels: ALL_CHANNELS,
+    defaultByChannel: ALL_DEFAULT_ON,
+  },
+
+  // Sharing (collaboration via shares / comments)
+  {
+    type: 'comment_mentioned',
+    category: 'sharing',
+    label: 'Mentioned in a comment',
+    description:
+      'Someone @-mentioned you in a comment on a map you can view. Email only; mute anytime in notification preferences.',
+    channels: ALL_CHANNELS,
+    defaultByChannel: ALL_DEFAULT_ON,
+  },
+  {
+    type: 'backup_failed',
+    category: 'account',
+    label: 'Backup did not finish',
+    description:
+      'An install backup failed. Sent to admins of the operator organization.',
     channels: ALL_CHANNELS,
     defaultByChannel: ALL_DEFAULT_ON,
   },

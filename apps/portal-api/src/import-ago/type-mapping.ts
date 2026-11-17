@@ -82,16 +82,10 @@ export interface AgoTypeMapping {
    *  post-import report. */
   notes: string;
   /**
-   * For Feature Services specifically: distinguishes hosted (AGO
-   * owns the data) from referenced (AGO points at an external
-   * ArcGIS Server). v1 imports both, but the eventual data-copy
-   * phases (Phase 2-4 in #43 follow-up) only apply to hosted.
-   *
-   * Today the importer creates a connected-`service` item for
-   * both modes; the dry-run preview just labels them correctly
-   * so the operator sees the right intent. When phases 2-4 ship,
-   * hosted rows will create real `data_layer` items with copied
-   * data and the connected-service pointer goes away.
+   * For Feature Services specifically. Hosted services (AGO owns
+   * the data) are promoted to `data_layer` and their features are
+   * copied (see classifyAgoType), so this is always false on those.
+   * Referenced services stay connected `service` items.
    */
   hostedDataCopyPending?: boolean;
 }
@@ -257,9 +251,11 @@ const MAPPING: Record<string, AgoTypeMapping> = Object.fromEntries(
         targetType: 'file',
         needsDataFetch: false,
         needsServiceProbe: false,
-        supported: true,
+        // The importer has no bytes to re-host for a link and skips
+        // it, so the preview must not promise an import.
+        supported: false,
         notes:
-          'AGO Document Link -> portal `file` item. The link URL is preserved; click-through opens it in a new tab.',
+          'AGO Document Link: an external URL with no file to copy. Recreate it as a portal link by hand if you need it.',
       },
       {
         agoType: 'Shapefile',

@@ -65,10 +65,10 @@ backlog.
 
 If the only consumer is one map, set the filter on the map's
 layer reference instead (same `{{field}}` dialect). A derived
-layer materializes its rows into its own table; a map filter is
-a query-time scoping clause. The derived layer is the right
-choice when you want the subset itself to be a shareable, named,
-citable item.
+layer stores a Filter recipe and recomputes on read; a map
+filter is a query-time scoping clause on that map only. The
+derived layer is the right choice when you want the subset
+itself to be a shareable, named, citable item.
 
 ## Notes
 

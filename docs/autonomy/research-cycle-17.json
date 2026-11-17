@@ -1,0 +1,450 @@
+{
+  "cycle": 17,
+  "researchedAt": "2026-10-31T04:52:00Z",
+  "method": "Read PLAYBOOK.md, QUEUE.md (ship-without-input empty after R16 drain through v0.9.126), research-cycle-16.json + summary, analyze-workflow-ux-2026-10-30.md, README ethos. Security Sentinel on workspace main (v0.9.126): remapped every @Public route vs method/class @Throttle after R16 SEC merges (Public landing/item/basemap-items/osm-presets/thumbnail.svg at 60/min). List/scrape Public class is now covered; remaining unthrottled Public are static OGC/STAC landing/conformance/api docs, Records-catalog collection root, print token consumers, plus rejected byte/bootstrap class (MVT, OGC Tiles, storage, point-cloud, tile-layer, elevation-mosaic, health, portal-info). BFF anonymous GET rewrite + POST/drawing mutation allowlists unchanged; no new Public surfaces since R16. Admin controllers sampled all carry AdminGuard. safeFetch/assertSafeOutboundUrl still gate user URL probes (service-probe, basemap probe, geocoding, AGO, thumbnail inline). Honesty: basemap composed-map fixed in R16; derived-layer.md still claims PostGIS materialization, Refresh, scheduled refresh, last-run wall time, 5M-row ack, and ArcGIS streaming inputs while the read path is on-the-fly SQL (featureLimit ceiling 50k) and DerivedLayerDetail has no Refresh UI; measure.md documents a Custom Web App Measure widget (MGRS/UTM/planar/snap) that is not in CustomWidgetKind — Measure ships as Viewer/Editor/map-builder tool instead. Recipe/tool.md and Analyze shortcut catalog look honest post-R10–R12. i18n leftovers after R16: point-cloud panel still English (QUEUE blocked: #162 help wanted); geocoding/geo-boundary unsaved chrome; osm-relational; custom/detail; also theme-detail + script panel Saved chrome. Open GitHub issues only help-wanted / good-first-issue / human-contributor (#162, #183, #507–#514). Ethos filters applied; needs-maintainer carry-forward unchanged; standing rejects restated; analyze-run-history thin vertical scoped for promotion.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "securitySentinel": {
+    "ranAt": "2026-10-31T04:52:00Z",
+    "result": "clean",
+    "notes": "No High hardening. R16 Public list/scrape throttles intact at 60/min (landing, items/:id, basemap items, osm/presets, thumbnail.svg) plus prior STAC collections/items/search, Styles, Records list+item, Aardvark, drawings list 60 + writes 30, features-page/search, OGC Features collections/items/featureId, comments GET 60, feedback POST 30, tools/run 30, public-proxy class 30, citation 60, aggregate 60, features+geojson 60, filtered-extent 60, CSW 60, catalog.json 60. Global 300/min still covers: OGC landing/conformance/api static docs, STAC landing/conformance/api static docs, Records-catalog collection root doc, print consume-render-token + internal/load-job (single-use token auth), portal-info, health, storage private/:kind/:key, point-cloud file, tile-layer / elevation-mosaic / OGC Tiles / MVT byte routes, script-executor sidecar. BFF anonymous allowlist: no missing entries for current @Public surfaces; GET rewrite covers items, layer mirrors, MVT, thumbnail, drawings, comments, proxy, osm/presets, storage, point-cloud, tile-layer, elevation-mosaic; POST allowlist still feedback + tools/:uuid/run; drawing mutations still create/patch/delete only. AdminGuard present on admin-basemap, branding, capabilities, integrations, security, themes, users, housekeeping, onboarding, app-templates. Outbound: service-probe and admin-basemap-probe use assertSafeOutboundUrl/safeFetch; no new raw user-URL fetch gap found. pnpm audit: 0 high/critical (3 moderate transitive minimatch/glob under eslint/jest/gdal-async; 1 low deepmerge) — no High dep ship. Do NOT Nest-throttle OGC Tiles / MVT / storage / point-cloud byte routes. Prefer not Nest-throttling health or portal-info. Optional Low follow-ups only: SEC-print-render-token-throttle, SEC-stac-ogc-landing-doc-throttle (static docs; deferred twice)."
+  },
+  "publicRouteThrottleMap": {
+    "tighterThanGlobal": [
+      {
+        "path": "GET /api/public/landing",
+        "file": "apps/portal-api/src/public/public.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/catalog.json",
+        "file": "apps/portal-api/src/public/public.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/osm/presets",
+        "file": "apps/portal-api/src/public/public.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/items/:id",
+        "file": "apps/portal-api/src/public/public.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/items (basemap list)",
+        "file": "apps/portal-api/src/public/public.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/items/:id/layers/:layerId/features|geojson|features-search|aggregate|features-page|filtered-extent",
+        "file": "apps/portal-api/src/public/public.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/items/:id/thumbnail.svg",
+        "file": "apps/portal-api/src/items/items.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/ogc/aardvark/:itemId.json",
+        "file": "apps/portal-api/src/public/ogc/aardvark.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/ogc/records + :recordId; catalog/items + :recordId",
+        "file": "apps/portal-api/src/public/ogc/records.controller.ts + records-catalog.controller.ts",
+        "throttle": "60/min (list+item); catalog root doc global"
+      },
+      {
+        "path": "GET /api/public/ogc/styles + :id + metadata",
+        "file": "apps/portal-api/src/public/ogc/styles.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET|POST /api/public/stac/collections*|items*|search",
+        "file": "apps/portal-api/src/public/stac/stac.controller.ts",
+        "throttle": "60/min (landing/conformance/api global)"
+      },
+      {
+        "path": "GET /api/public/csw",
+        "file": "apps/portal-api/src/public/public-csw.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/ogc/citation/:itemId.{bib,ris,jsonld}",
+        "file": "apps/portal-api/src/public/ogc/citation.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET /api/public/ogc/collections*",
+        "file": "apps/portal-api/src/public/ogc/features.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "GET|POST|PATCH|DELETE /api/items/:mapId/drawings*",
+        "file": "apps/portal-api/src/items/drawings.controller.ts",
+        "throttle": "list 60/min; writes 30/min"
+      },
+      {
+        "path": "POST /api/feedback",
+        "file": "apps/portal-api/src/feedback/feedback.controller.ts",
+        "throttle": "30/min"
+      },
+      {
+        "path": "GET /api/items/:itemId/comments",
+        "file": "apps/portal-api/src/items/comments.controller.ts",
+        "throttle": "60/min"
+      },
+      {
+        "path": "POST /api/tools/:id/run",
+        "file": "apps/portal-api/src/tools/tools.controller.ts",
+        "throttle": "30/min"
+      },
+      {
+        "path": "GET /api/public/items/:id/proxy/*",
+        "file": "apps/portal-api/src/public/public-proxy.controller.ts",
+        "throttle": "class 30/min"
+      }
+    ],
+    "globalOnlyListOrDocClass": [
+      {
+        "path": "GET /api/public/ogc/ + conformance + api",
+        "file": "apps/portal-api/src/public/ogc/landing.controller.ts",
+        "throttle": "global 300/min",
+        "class": "static OGC docs"
+      },
+      {
+        "path": "GET /api/public/stac/ + conformance + api",
+        "file": "apps/portal-api/src/public/stac/stac.controller.ts",
+        "throttle": "global 300/min",
+        "class": "static STAC docs"
+      },
+      {
+        "path": "GET /api/public/ogc/collections/catalog/",
+        "file": "apps/portal-api/src/public/ogc/records-catalog.controller.ts",
+        "throttle": "global 300/min",
+        "class": "static catalog collection doc"
+      },
+      {
+        "path": "POST /api/print/consume-render-token + internal/load-job",
+        "file": "apps/portal-api/src/print/print-render.controller.ts",
+        "throttle": "global 300/min",
+        "class": "single-use token; optional Low Nest budget"
+      }
+    ],
+    "globalOnlyRejectedByteOrBootstrap": [
+      "GET MVT tile (public.controller)",
+      "OGC Tiles tileMatrixSets + collection tiles",
+      "storage/private/:kind/:key",
+      "point-cloud/:itemId/file",
+      "tile-layer/:itemId/file",
+      "elevation-mosaic/:z/:x/:y.png",
+      "GET /health",
+      "GET /portal-info",
+      "script-executor sidecar POST"
+    ]
+  },
+  "leftoverHardcodedEnglish": [
+    {
+      "file": "apps/portal-web/src/app/items/[id]/point-cloud/panel.tsx",
+      "lines": [521, 527, 542, 545, 692, 931, 940],
+      "strings": [
+        "Point cloud file / Add lidar and build a point cloud. / Choose lidar files / No file uploaded yet.",
+        "Copy streaming URL aria / Shaded relief / Elevation model"
+      ],
+      "note": "R16 queued; QUEUE blocked because #162 is help wanted. Confirm still English."
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/geocoding/editor.tsx",
+      "lines": [998, 1009, 1011],
+      "strings": ["Saved / Unsaved changes. / No changes."]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/geo-boundary/editor.tsx",
+      "lines": [216, 218, 579, 583, 768, 774],
+      "strings": [
+        "Saved / Unsaved changes",
+        "Clear the polygon… title / Clear and start over",
+        "Author note (optional) / placeholder"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/tool/osm-relational-editor.tsx",
+      "lines": [100, 218, 236, 310, 367, 492],
+      "strings": [
+        "Area of interest / What to find / Must be near / Must NOT be near / Direction / Advanced"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/custom/detail.tsx",
+      "lines": [992, 1813, 1822, 1885, 3813, 3952, 4111, 7209, 7269],
+      "strings": [
+        "Saved / Move left / Move right / Add page",
+        "Remove map / Remove layer / Remove widget / Delete tab"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/theme/theme-detail.tsx",
+      "lines": [80, 86, 110, 134, 332, 628],
+      "strings": [
+        "Header background / Header text / Page background / Heading text / Saved chips (dense theme chrome)"
+      ]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/script/panel.tsx",
+      "lines": [236],
+      "strings": ["Save / Saved toggle label"]
+    },
+    {
+      "file": "apps/portal-web/src/app/items/[id]/derived-layer/detail.tsx",
+      "lines": [64, 75, 106, 141],
+      "strings": [
+        "Recipe / Source layer / Pipeline / Output schema chrome (secondary; pairs with honesty rewrite)"
+      ]
+    }
+  ],
+  "proposals": [
+    {
+      "id": "R17-derived-layer-help-honesty",
+      "title": "Rewrite derived-layer.md materialization claims",
+      "summary": "items/derived-layer.md still says outputs are materialized into a PostGIS table with a Refresh button, scheduled refresh, last-run wall time/row count, a 5M-row save acknowledgement, and ArcGIS service streaming inputs. Code composes on-the-fly read SQL (featureLimit default 1000, hard ceiling 50_000); DerivedLayerDetail shows live re-run copy with no Refresh UI; source kinds are data_layer | derived_layer only. Soften help to match the live pipeline + Analyze shortcut list that already is honest.",
+      "rationale": "Playbook ethos: honest about what we ship. Strongest leftover honesty gap after R16 basemap composed-map. Front-door derived-layer help oversells a warehouse path the read path does not use.",
+      "risk": "Docs-only. Keep Analyze shortcut catalog and pipeline step list accurate. Do not invent Refresh/schedule UI. CHANGELOG Documentation; skip What's new unless the help card summary changes enough to notice.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about on-the-fly PostGIS derived layers. Prefer PostGIS shapes that exist today.",
+      "sources": [
+        "apps/portal-web/content/help/items/derived-layer.md",
+        "apps/portal-web/src/app/items/[id]/derived-layer/detail.tsx",
+        "apps/portal-api/src/derived-layers/derived-layers.service.ts",
+        "packages/shared-types/src/derived-layer.ts"
+      ],
+      "suggestedFirstPR": "Rewrite Materialization / Inputs / Cost sections; CHANGELOG docs note; skip What's new unless card text warrants it.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R17-measure-widget-help-honesty",
+      "title": "Rewrite measure.md away from a fake Custom Web App widget",
+      "summary": "help/web-apps/widgets/measure.md describes a Custom Web App Measure widget with Coordinate/MGRS/UTM, planar mode, snap-to-features, and secondary units. CustomWidgetKind has no measure kind. Measure ships as a Viewer tool, Editor tool, and map-builder MeasureTool (geodesic length/area, optional terrain surface area, pitch flatten while open). Retarget the page to those surfaces and drop widget-config claims the builder cannot set.",
+      "rationale": "Honesty oversell after R16. Widget catalog help invents a page-widget that is not in the type union while the real map Measure path is under-documented.",
+      "risk": "Docs-only (or move file under items/map / viewer help and fix frontmatter id/related). Do not build a Custom Web App measure widget. Document pitch-flatten + ground/surface area only where code exists. CHANGELOG Documentation; skip What's new unless the help card moves categories.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about Measure as viewer/editor/map tool, not Experience Builder widget parity.",
+      "sources": [
+        "apps/portal-web/content/help/web-apps/widgets/measure.md",
+        "packages/shared-types/src/custom-app.ts",
+        "packages/shared-types/src/viewer.ts",
+        "apps/portal-web/src/app/items/[id]/map/measure-tool.tsx",
+        "apps/portal-web/src/lib/measure-camera.ts"
+      ],
+      "suggestedFirstPR": "Rewrite measure help to Viewer/Editor/map Measure; remove fake widget config; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "analyze-run-history",
+      "title": "Analyze run history shelf on the source data layer",
+      "summary": "Thin vertical: on a data_layer Analyze panel, list this user's derived_layer items whose data.source.itemId matches the current item (fetch type=derived_layer&full=1&mine=1&limit=50 and client-filter, or add an optional sourceItemId list filter later). Each row shows title, createdAt, first pipeline tool label, link to the derived item. Re-run duplicates the same DerivedLayerData via POST /items (new private item). Edit & re-run deep-links ?tool=<id>&layer=<key>#data using the existing Analyze guide ids. No recipe job table, no DAG, no param-manifest shell.",
+      "rationale": "analyze-workflow-ux-2026-10-30 item 4. History is the missing shelf: Analyze already creates derived_layer items with source + pipeline metadata, and DerivedLayerDetail already renders the recipe. Deeplink + map quick actions shipped in v0.9.126; this closes the loop without a new engine.",
+      "risk": "full=1 list can be heavy in large orgs — keep mine=1 + low limit, or add sourceItemId server filter in the same PR if needed. Do not claim recipe tool-run history (tool runs stay ephemeral). Do not build Edit-params dialog shell (analyze-param-manifests stays later). Skip What's new only if the shelf is clearly power-user; otherwise a short What's new line.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Guided Analyze re-run before raw JSON. Reuses PostGIS derived_layer items as history.",
+      "sources": [
+        "docs/research/analyze-workflow-ux-2026-10-30.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx",
+        "apps/portal-web/src/app/items/[id]/derived-layer/detail.tsx",
+        "apps/portal-web/src/lib/analyze-buffer-derived.ts",
+        "packages/shared-types/src/derived-layer.ts"
+      ],
+      "suggestedFirstPR": "Past runs shelf under Analyze + Re-run duplicate + Edit deep-link; help note on derived-layer / Analyze; CHANGELOG + short What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-print-render-token-throttle",
+      "title": "Tighter throttle on Public print token consumers",
+      "summary": "PrintRenderController POST consume-render-token and internal/load-job are @Public with only global 300/min. Authorization is single-use render token, not anonymous scrape of catalog rows, but a Nest 60/min (or 30/min) budget still bounds token-guess / sidecar hammering without touching PDF render auth.",
+      "rationale": "Only remaining non-byte @Public CPU-ish pair after R16 list/scrape drain. Low severity; optional behind honesty + history if queue wants a SEC slice.",
+      "risk": "Chromium sidecar retries under load could hit 60/min. Prefer 60; keep token single-use semantics. CHANGELOG Security + api.md; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardening without breaking print preview.",
+      "sources": [
+        "apps/portal-api/src/print/print-render.controller.ts",
+        "apps/portal-web/content/help/reference/api.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on both Public print token routes; CHANGELOG Security + api.md; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-stac-ogc-landing-doc-throttle",
+      "title": "Optional Nest throttle on STAC/OGC static landing docs",
+      "summary": "STAC and OGC landing/conformance/api plus Records-catalog collection root remain @Public on global 300/min. They return static catalogue JSON with no findMany. Add 60/min only if the queue wants a final Public Nest sweep after print tokens; otherwise keep deferred.",
+      "rationale": "Deferred R15/R16 behind list/scrape endpoints. Those shipped; this is the residual doc class. Lowest priority SEC.",
+      "risk": "Harvesters polling landing often may hit 60/min. Prefer 60; leave byte/tile routes alone. CHANGELOG Security; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest DoS budget on public catalogue docs.",
+      "sources": [
+        "apps/portal-api/src/public/ogc/landing.controller.ts",
+        "apps/portal-api/src/public/stac/stac.controller.ts",
+        "apps/portal-api/src/public/ogc/records-catalog.controller.ts"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on static landing/conformance/api + catalog root; CHANGELOG Security; skip What's new.",
+      "relatedIssues": []
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R17-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer honesty + Analyze history."
+    },
+    {
+      "id": "R17-reject-print-brand-kit",
+      "title": "Reject print / brand kit redesign",
+      "reason": "Fails playbook brand test. Print Parameters i18n already shipped in R16."
+    },
+    {
+      "id": "R17-reject-seat-pricing",
+      "title": "Reject seat pricing / SaaS packaging",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R17-reject-recipe-materialize-sinks",
+      "title": "Reject recipe materialize sinks",
+      "reason": "Honesty already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a sharp ship."
+    },
+    {
+      "id": "R17-reject-tile3d-local-rebuild",
+      "title": "Reject Tile3D / SSE local rebuild as ship-without-input",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer. #183 is help wanted + assigned."
+    },
+    {
+      "id": "R17-reject-weblate-hosting",
+      "title": "Reject Weblate / Crowdin / Tolgee hosting choice",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). #162 is help wanted so loop does not take i18n issue work."
+    },
+    {
+      "id": "R17-reject-i18n-chrome-while-162-help-wanted",
+      "title": "Do not queue #162 chrome islands as ship-without-input",
+      "reason": "PLAYBOOK: #162 is help wanted; QUEUE already blocked R16-i18n-point-cloud-panel-chrome. Leftover English is recorded but not loop work until the label policy changes."
+    },
+    {
+      "id": "R17-reject-analyze-multi-input-shortcuts",
+      "title": "Reject multi-input Analyze shortcuts",
+      "reason": "Prior cycle rejection still holds. Multi-source otherSource pickers are heavy Analyze UX needing design."
+    },
+    {
+      "id": "R17-reject-analyze-calculate-field-shortcut",
+      "title": "Reject Calculate field Analyze shortcut",
+      "reason": "Expression dialect needs a real expression editor. Calculate geometry already covers meter-honest measures."
+    },
+    {
+      "id": "R17-reject-analyze-filter-shortcut",
+      "title": "Reject Filter Analyze shortcut",
+      "reason": "Filter is a free-form {{field}} expression. AnalyzeQueryBuilder covers ad-hoc SQL preview; materialize stays builder-only."
+    },
+    {
+      "id": "R17-reject-report-template-item",
+      "title": "Reject report-template implementation",
+      "reason": "report-template.md honestly says not built. Implementing DOCX/PDF document reports is a new pillar."
+    },
+    {
+      "id": "R17-reject-ogc-tiles-byte-throttle",
+      "title": "Reject Nest @Throttle on OGC Tiles / MVT / storage / point-cloud",
+      "reason": "High-frequency map traffic; a 60/min Nest limit would break legitimate MapLibre / COPC loads. Prefer edge / CDN budgets."
+    },
+    {
+      "id": "R17-reject-health-portalinfo-nest-throttle",
+      "title": "Reject Nest @Throttle on health / portal-info",
+      "reason": "health feeds k8s/load-balancer probes; portal-info is the pre-auth bootstrap every client hits. No abuse evidence."
+    },
+    {
+      "id": "R17-reject-presence-crdt",
+      "title": "Reject presence CRDT as ship-without-input",
+      "reason": "Abuse / transport defaults stay needs-maintainer. Presence WebSocket frame cap already shipped."
+    },
+    {
+      "id": "R17-reject-comments-mentions",
+      "title": "Reject comments @-mentions as ship-without-input",
+      "reason": "Abuse / email defaults stay needs-maintainer (R2-comments-mentions)."
+    },
+    {
+      "id": "R17-reject-custom-app-builder-i18n-first",
+      "title": "Defer custom web-app builder i18n",
+      "reason": "custom/detail.tsx remains a dense English island and #162 is help wanted."
+    },
+    {
+      "id": "R17-reject-analyze-zonal-stats-shortcut",
+      "title": "Reject Zonal stats as Analyze derived_layer shortcut",
+      "reason": "Zonal stats is server-heavy elevation worker work, not a Buffer-shaped PostGIS derived_layer step."
+    },
+    {
+      "id": "R17-reject-analyze-param-manifests-now",
+      "title": "Defer analyze-param-manifests behind run history",
+      "reason": "One dialog shell from tool metadata waits until history + a few guides go stale. Keep needs-maintainer / later."
+    },
+    {
+      "id": "R17-reject-recipe-dag-now",
+      "title": "Defer recipe DAG behind linear recipes + history",
+      "reason": "recipe-dag stays needs-maintainer until linear recipes + Analyze history land."
+    },
+    {
+      "id": "R17-reject-deps-high-bump-now",
+      "title": "No High dependency bump queued this cycle",
+      "reason": "pnpm audit --audit-level=high clean. Three moderate transitive paths (minimatch/glob under eslint/jest/gdal-async) are not CI-proven HIGH product surface. Dependabot open = 0 per QUEUE."
+    },
+    {
+      "id": "R17-reject-good-first-issue-docs",
+      "title": "Leave open good-first-issue / human-contributor docs alone",
+      "reason": "PLAYBOOK skip rule: #507–#514 and native-speaker i18n review issues are reserved for people."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions",
+    "analyze-param-manifests",
+    "recipe-dag"
+  ],
+  "analyzeRunHistoryThinVertical": {
+    "existsToday": [
+      "Analyze guides POST private derived_layer items with source.itemId + single-step pipeline + params (analyze-*-derived.ts).",
+      "DerivedLayerDetail renders Recipe / Source / Pipeline / Output schema / featureLimit (no Re-run).",
+      "No recipe tool-run history shelf; tool runs are ephemeral.",
+      "Item list supports type=derived_layer; lite omits data so history needs full=1 or a sourceItemId filter.",
+      "Deep link ?tool=<id>&layer=<key>#data and map kebab Buffer/Centroid/Hull already ship (v0.9.126)."
+    ],
+    "buildInOnePR": [
+      "Past runs list under data_layer Analyze panel filtered to source.itemId === current item.",
+      "Row: title, createdAt, tool label from pipeline[0], open derived item.",
+      "Re-run: POST duplicate with same data (new private item).",
+      "Edit & re-run: navigate to existing Analyze deep link for that tool id.",
+      "Help + CHANGELOG (+ short What's new)."
+    ],
+    "outOfScope": [
+      "Recipe DAG / node-graph",
+      "Param-manifest one-dialog shell",
+      "New job/history table",
+      "Tool-item run ledger",
+      "Scheduled refresh / warehouse materialize path"
+    ]
+  },
+  "queueOrder": [
+    "R17-derived-layer-help-honesty",
+    "R17-measure-widget-help-honesty",
+    "analyze-run-history",
+    "SEC-print-render-token-throttle",
+    "SEC-stac-ogc-landing-doc-throttle"
+  ],
+  "queueRecommendation": [
+    "R17-derived-layer-help-honesty",
+    "R17-measure-widget-help-honesty",
+    "analyze-run-history",
+    "SEC-print-render-token-throttle",
+    "SEC-stac-ogc-landing-doc-throttle"
+  ],
+  "drainFirstNote": "origin/main ship-without-input queue is empty after R16 drain (Public landing/item/basemap-items/osm-presets/thumbnail throttles; basemap-config + print Parameters i18n; basemap composed-map honesty; Analyze deeplink/quick actions; Dependabot cleared). Live demo through v0.9.126. R16-i18n-point-cloud-panel-chrome stays blocked (#162 help wanted). No open R16 PRs left to drain before enqueueing R17 ids. Open PR #450 (help screenshots) and #391 (AI demo enablement) are separate; do not merge as loop drain."
+}

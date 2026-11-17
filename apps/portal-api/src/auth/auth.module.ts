@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { AuthSyncService } from './auth-sync.service.js';
 import { ApiKeyService } from './api-key.service.js';
 import { ApiKeysController } from './api-keys.controller.js';
+import { PrintReadCredentialService } from './print-read-credential.service.js';
 
 /**
  * Global, for the same reason PrismaModule is: `JwtAuthGuard` is
@@ -27,7 +28,13 @@ import { ApiKeysController } from './api-keys.controller.js';
 @Module({
   imports: [PassportModule.register({ defaultStrategy: 'jwt' })],
   controllers: [ApiKeysController],
-  providers: [JwtStrategy, JwtAuthGuard, AuthSyncService, ApiKeyService],
-  exports: [AuthSyncService, ApiKeyService],
+  providers: [
+    JwtStrategy,
+    JwtAuthGuard,
+    AuthSyncService,
+    ApiKeyService,
+    PrintReadCredentialService,
+  ],
+  exports: [AuthSyncService, ApiKeyService, PrintReadCredentialService],
 })
 export class AuthModule {}

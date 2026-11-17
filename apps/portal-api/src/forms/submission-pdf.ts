@@ -71,7 +71,7 @@ export function receiptFilename(title: string, submissionId: string): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+|(?<!-)-+$/g, '')
     .slice(0, 40);
   const stem = slug || 'submission';
   const suffix = submissionId.replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'receipt';
@@ -236,11 +236,14 @@ function buildPdf(contents: string[]): Buffer {
   objects.push(
     `2 0 obj\n<< /Type /Pages /Count ${contents.length} /Kids [${kids}] >>\nendobj\n`,
   );
+  // WinAnsiEncoding so the Latin-1 bytes pdfText writes (accents,
+  // degree sign) show as those characters. Without it a Type1 font
+  // falls back to StandardEncoding, where 160-255 are other glyphs.
   objects.push(
-    '3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n',
+    '3 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>\nendobj\n',
   );
   objects.push(
-    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n',
+    '4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n',
   );
   contents.forEach((stream, i) => {
     const pageId = 5 + i * 2;

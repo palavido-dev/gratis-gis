@@ -26,6 +26,9 @@ import org.gratisgis.field.feature.auth.SignInException
  * The network catalogue is merged with Room's offline cache so a
  * force-stop / airplane-mode cold start still shows deployments the
  * device already downloaded (with drafts and basemap packages intact).
+ * Only the signed-in account's copies on this portal are shown; signed
+ * out, the list is empty. The rows stay in Room for when that account
+ * signs in again.
  */
 data class HomeState(
   val portalUrl: String,
@@ -72,9 +75,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(signedInAs = app.auth.tokens.value?.username) }
         loadCollections()
       } else {
-        // Still surface Room offline copies so drafts/packages are reachable
-        // after a force-stop that left tokens expired.
-        viewModelScope.launch { showRoomCatalogue(networkError = "Sign in to refresh the catalogue") }
+        // Signed out: cached copies belong to whoever downloaded them,
+        // so none are listed until somebody signs in.
+        _state.update { it.copy(error = "Sign in to see this device's collections") }
       }
     }
   }
@@ -126,12 +129,20 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
   fun signOut() {
     app.auth.signOut()
+    // Room keeps this account's copies, drafts and queued edits for its
+    // next sign-in, but none of them is shown to whoever holds the
+    // device next.
     _state.update {
-      it.copy(signedInAs = null, collections = emptyList(), selected = null, error = null, offlineCatalogue = false)
+      it.copy(
+        signedInAs = null,
+        collections = emptyList(),
+        downloadedIds = emptySet(),
+        draftCounts = emptyMap(),
+        selected = null,
+        error = null,
+        offlineCatalogue = false,
+      )
     }
-    // Keep Room data; re-show offline copies after sign-out so nothing
-    // looks "wiped" — user can sign in again to sync.
-    viewModelScope.launch { showRoomCatalogue(networkError = null) }
   }
 
   fun loadCollections() {
@@ -198,11 +209,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
   )
 
   private suspend fun loadRoomMeta(): RoomMeta {
-    val rows = app.db.collections().all()
+    val scope = app.accountScope() ?: return RoomMeta(emptyList(), emptySet(), emptyMap())
+    // Another account's copies, or another portal's, are not merged in.
+    val all = app.db.collections().all()
+    val rows = all.filter(scope::ownsCollection)
     val downloaded = rows.mapNotNull { r -> r.id.takeIf { r.downloadedAt != null } }.toSet()
+    // Drafts are counted on every cached collection: this account's
+    // drafts stay its own even after another account re-downloaded the
+    // collection on this device.
     val drafts = mutableMapOf<String, Int>()
-    for (r in rows) {
-      val n = app.db.drafts().forCollection(r.id).size
+    for (r in all) {
+      val n = app.db.drafts().forCollection(r.id).count(scope::ownsDraft)
       if (n > 0) drafts[r.id] = n
     }
     return RoomMeta(

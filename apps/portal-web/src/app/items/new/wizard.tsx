@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
 import {
@@ -78,16 +78,13 @@ import {
 } from '@gratis-gis/shared-types';
 import type {
   AppDataSource,
-  AppTemplateId,
   CustomAppData,
 } from '@gratis-gis/shared-types';
 import { ThumbnailDesigner } from '@/components/thumbnail-designer';
+import { parseApiError } from '@/lib/api-error';
 import { formatBytes } from '@/lib/format-bytes';
 import { presignUpload } from '@/lib/presign-upload';
-import {
-  defaultThumbnailDesign,
-  type ThumbnailDesign,
-} from '@gratis-gis/shared-types';
+import type { ThumbnailDesign } from '@gratis-gis/shared-types';
 import {
   describeArcgisService,
   probeService,
@@ -105,6 +102,12 @@ import {
 import { DataCollectionBuilder } from './data-collection-builder';
 import { PostgisConnectionBuilder } from './postgis-connection-builder';
 import { BasemapConfigSection } from '../_components/basemap-config-section';
+import { enqueueStagedLayerImports } from '@/lib/staged-layer-import';
+import { updateFolderChildren } from '@/lib/folder-update';
+import {
+  isLegacyServiceTypeParam,
+  wizardTypeFromParam,
+} from '@/lib/wizard-type-param';
 import {
   DataLayerBuilder,
   type PendingFileImport,
@@ -359,8 +362,11 @@ export interface AppTemplateSummary {
 export function NewItemWizard({
   appTemplates = [],
   scriptsEnabled = false,
+  canProbeBasemaps = false,
 }: {
   appTemplates?: AppTemplateSummary[];
+  /** The basemap Probe tab calls an org-admin route. */
+  canProbeBasemaps?: boolean;
   /** #221: portal-info features.feedback's sibling. Offering "Script"
    *  on a portal with no runner would create an item that can never
    *  execute, which is worse than not offering it. */
@@ -379,19 +385,21 @@ export function NewItemWizard({
   // ('viewer', 'custom') so deep-links like "Use this template"
   // (?type=custom&template=<id>) can skip the picker.  The legacy
   // 'survey' sentinel was retired in #91 (folded onto Form).
-  const querySentinel = (
-    ['viewer', 'custom'] as const
-  ).find((s) => s === (searchParams?.get('type') ?? ''));
+  // The deprecated arcgis_service / wms_service / wfs_service values
+  // open the Connected service flow instead of their old panes.
+  const rawQueryType = searchParams?.get('type') ?? null;
   const queryType: ItemType | 'viewer' | 'custom' | null =
-    querySentinel
-      ? querySentinel
-      : searchParams &&
-          (ITEM_TYPES as readonly string[]).includes(
-            searchParams.get('type') ?? '',
-          )
-        ? (searchParams.get('type') as ItemType)
-        : null;
+    wizardTypeFromParam(rawQueryType, ITEM_TYPES as readonly ItemType[]);
+  // Rewrite the address too, so a reload or a copied link says
+  // `type=service` and not the deprecated value.
+  useEffect(() => {
+    if (!isLegacyServiceTypeParam(rawQueryType) || !searchParams) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set('type', 'service');
+    router.replace(`?${next.toString()}`);
+  }, [rawQueryType, searchParams, router]);
   const [step, setStep] = useState<Step>(queryType ? 'details' : 'pick');
+  const [showMoreTypes, setShowMoreTypes] = useState(false);
   // #259: 'viewer' is a wizard-only sentinel that maps to web_app +
   // template='viewer' at submit time. It isn't a persisted ItemType
   // (the picker stays an Esri-friendly noun while the storage stays
@@ -411,12 +419,6 @@ export function NewItemWizard({
   const [description, setDescription] = useState('');
   const [tagsText, setTagsText] = useState('');
   const [access, setAccess] = useState<ItemAccess>('private');
-  // thumbnailUrl is retained at null so the create payload's shape
-  // stays back-compat with the API; uploads are no longer offered
-  // in the wizard now that ThumbnailDesigner is the single thumbnail
-  // surface (#66).
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  void setThumbnailUrl;
   // #66: auto-thumbnail design state. Resolves the wizard's
   // wider-than-ItemType union (viewer/custom both bake to web_app
   // under the hood) to a concrete type for the designer.  Author
@@ -428,9 +430,12 @@ export function NewItemWizard({
       : type === 'postgis_connection'
         ? 'service'
         : (type ?? 'file');
-  const [thumbnailDesign, setThumbnailDesign] = useState<ThumbnailDesign>(() =>
-    defaultThumbnailDesign(resolvedTypeForThumbnail),
-  );
+  // Null until the author edits it, so the designer previews the
+  // palette of whatever type is picked and the server applies that
+  // type's default. Seeding it at mount froze the "file" palette
+  // whenever the type was chosen from the picker.
+  const [thumbnailDesign, setThumbnailDesign] =
+    useState<ThumbnailDesign | null>(null);
 
   // Custom Web App template selection.  Templates are app_template
   // items the user has read access to; the wizard fetches the list
@@ -502,12 +507,6 @@ export function NewItemWizard({
       cancelled = true;
     };
   }, [type, customMapChoice, customMapOptions]);
-  // Legacy state kept around in case some unrelated code reads the
-  // old AppTemplateId.  No longer driven by the gallery.
-  const [customAppTemplateId, setCustomAppTemplateId] =
-    useState<AppTemplateId>('sidebar-explorer');
-  void customAppTemplateId;
-  void setCustomAppTemplateId;
 
   // ArcGIS-specific state. Probe result is staged until Create fires.
   // `userEditedTitle` guards us from clobbering a title the user typed
@@ -605,9 +604,9 @@ export function NewItemWizard({
   // (GDB, shapefile-zip, GeoPackage); the server keeps the bytes
   // under /tmp/gg-staging/<id>/ and we hold the stagingId here so
   // submit() can fan out POST /items/:id/layers/:layerId/import
-  // for each detected layer AFTER the item is created. Cleared on
-  // type switch so a half-typed wizard doesn't carry a stale
-  // staging across to a different item type.
+  // for each detected layer AFTER the item is created. Only used
+  // when the item is a data layer, and pruned at submit to the
+  // layers still in the schema.
   const [pendingFileImports, setPendingFileImports] = useState<
     PendingFileImport[]
   >([]);
@@ -958,9 +957,37 @@ export function NewItemWizard({
     applyProbeResult,
   ]);
 
+  // Set synchronously so a double click cannot start two creates:
+  // the custom-app branch makes network calls (template, map) before
+  // the item POST, and the button used to stay enabled through them.
+  const submitLockRef = useRef(false);
+
   async function submit() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    setSubmitting(true);
+    try {
+      await submitInner();
+    } catch (err) {
+      // submit() is wired straight to onClick; anything thrown before
+      // the item POST would otherwise be an unhandled rejection with
+      // nothing on screen.
+      console.error('Create request failed:', err);
+      setError(
+        `Create failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      submitLockRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  async function submitInner() {
     if (!type) return;
     setError(null);
+    // Set when the custom-app branch makes a map, so a failed app
+    // create can say the map exists.
+    let createdMapTitle: string | null = null;
     if (title.trim().length === 0) {
       setError(t('newItem.titleRequired'));
       return;
@@ -1252,6 +1279,7 @@ export function NewItemWizard({
           return;
         }
         dashMapId = ((await mapRes.json()) as { id: string }).id;
+        createdMapTitle = `${title.trim()} map`;
       } else if (customMapChoice === 'existing' && customExistingMapId) {
         dashMapId = customExistingMapId;
       }
@@ -1435,8 +1463,7 @@ export function NewItemWizard({
         .map((t) => t.trim())
         .filter((t) => t.length > 0),
       access,
-      thumbnailUrl,
-      thumbnailDesign,
+      ...(thumbnailDesign ? { thumbnailDesign } : {}),
       data,
     };
 
@@ -1448,9 +1475,11 @@ export function NewItemWizard({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const reason = await parseApiError(res, 'Create failed');
         setError(
-          `Create failed: ${res.status}${body ? ` - ${body}` : ''}`,
+          createdMapTitle
+            ? `${reason} The map "${createdMapTitle}" was created and is in your items; choose it as an existing map when you try again.`
+            : reason,
         );
         return;
       }
@@ -1544,44 +1573,21 @@ export function NewItemWizard({
       // step the new folder is a sibling at top-level and the
       // parent's contents look unchanged. We do it client-side as a
       // follow-up PATCH rather than baking it into POST /items so
-      // the API surface stays simple. Failure is surfaced inline
-      // (the new item still exists; the user can manually drag it
-      // into the parent later).
+      // the API surface stays simple. The helper keeps the rest of
+      // the parent's data (a smart folder's saved query) and refuses
+      // to write over a concurrent change. A failure is reported:
+      // the new item still exists and can be dragged in later.
       const parentFolderId = searchParams?.get('parentFolderId') ?? null;
+      let parentError: string | null = null;
       if (parentFolderId) {
         try {
-          const pr = await fetch(`/api/portal/items/${parentFolderId}`);
-          if (pr.ok) {
-            const parent = (await pr.json()) as {
-              type: string;
-              data: { childItemIds?: unknown } | null;
-            };
-            if (parent.type === 'folder') {
-              const existing = Array.isArray(parent.data?.childItemIds)
-                ? (parent.data!.childItemIds as unknown[]).filter(
-                    (x): x is string => typeof x === 'string',
-                  )
-                : [];
-              if (!existing.includes(saved.id)) {
-                const next = {
-                  version: 1,
-                  childItemIds: [...existing, saved.id],
-                };
-                await fetch(`/api/portal/items/${parentFolderId}`, {
-                  method: 'PATCH',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({ data: next }),
-                });
-              }
-            }
-          }
+          await updateFolderChildren(parentFolderId, (existing) =>
+            existing.includes(saved.id) ? null : [...existing, saved.id],
+          );
         } catch (parentErr) {
-          console.error('Could not append to parent folder:', parentErr);
+          parentError =
+            parentErr instanceof Error ? parentErr.message : String(parentErr);
         }
-        // Land the user back on the parent folder detail page so the
-        // new subfolder is visible in its parent's contents.
-        startTransition(() => router.push(`/items/${parentFolderId}`));
-        return;
       }
 
       // data_layer with staged file uploads: fan out per-layer ingest
@@ -1609,56 +1615,56 @@ export function NewItemWizard({
       // itself. Surface those inline; the user can retry per-layer
       // from the detail page. Per-layer-import-while-running errors
       // surface in the detail-page banner from the import_job row.
-      const ingestErrors: string[] = [];
+      // Only layers still in the schema get an import. The list only
+      // grows while the builder is open, so a layer imported and then
+      // removed would otherwise be reported as a failed import.
+      const liveLayerIds = new Set(
+        featureServiceData.layers.map((layer) => layer.id),
+      );
+      const livePending = pendingFileImports
+        .map((entry) => ({
+          ...entry,
+          layers: entry.layers.filter((layer) =>
+            liveLayerIds.has(layer.layerId),
+          ),
+        }))
+        .filter((entry) => entry.layers.length > 0);
+      const ingestErrors =
+        type === 'data_layer' && livePending.length > 0
+          ? await enqueueStagedLayerImports(saved.id, livePending)
+          : [];
       if (type === 'data_layer' && pendingFileImports.length > 0) {
-        for (const entry of pendingFileImports) {
-          for (const layer of entry.layers) {
-            try {
-              const enqueueUrl = `/api/portal/items/${saved.id}/layers/${layer.layerId}/import-jobs`;
-              const enqueueRes = await fetch(enqueueUrl, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  stagingId: entry.stagingId,
-                  sourceLayerName: layer.sourceLayerName,
-                  mode: 'replace',
-                }),
-              });
-              if (!enqueueRes.ok) {
-                const text = await enqueueRes.text().catch(() => '');
-                ingestErrors.push(
-                  `${layer.sourceLayerName}: ${enqueueRes.status} ${text.slice(0, 200)}`,
-                );
-              }
-            } catch (err) {
-              ingestErrors.push(
-                `${layer.sourceLayerName}: ${
-                  err instanceof Error ? err.message : 'network error'
-                }`,
-              );
-            }
-          }
-        }
         setPendingFileImports([]);
       }
       // data_layer still wants the ingest panel front and centre.
       // arcgis_service no longer needs #configure-arcgis because we baked
       // the probed config into dataJson above.
       const anchor = type === 'data_layer' ? '#add-data' : '';
-      const targetUrl = `/items/${saved.id}${anchor}`;
+      // From inside a folder, land back on the parent so the new
+      // item is visible in its contents.
+      const targetUrl =
+        parentFolderId && !parentError
+          ? `/items/${parentFolderId}`
+          : `/items/${saved.id}${anchor}`;
 
+      const problems: string[] = [];
+      if (parentError) {
+        problems.push(
+          `Item created, but it could not be added to the folder (${parentError}). You can drag it into the folder from the items page.`,
+        );
+      }
       if (ingestErrors.length > 0) {
-        // Don't auto-navigate when any layer's enqueue failed. The
-        // user just watched a row flip to red and needs the chance to
-        // read what went wrong before being kicked to the detail page.
-        // Stash the destination on the overlay state and let the user
-        // dismiss with the Continue button (handler in the overlay
-        // JSX) -- that's where the navigation actually fires now.
-        setError(
+        problems.push(
           `Item created, but feature import failed for ${ingestErrors.length} layer(s). ` +
             `Use the per-layer Import button on the detail page to retry. Details: ` +
             ingestErrors.join('; ').slice(0, 500),
         );
+      }
+      if (problems.length > 0) {
+        // Don't auto-navigate when something failed. The user needs
+        // the chance to read what went wrong before being moved on;
+        // the Continue button in the error banner does the navigation.
+        setError(problems.join(' '));
         setIngestNavTarget(targetUrl);
       } else {
         startTransition(() => router.push(targetUrl));
@@ -1679,14 +1685,18 @@ export function NewItemWizard({
     // Drop any type the portal cannot actually service, and any group
     // left empty as a result, so a disabled feature leaves no heading
     // hanging over nothing.
+    const PRIMARY = new Set(['data_layer', 'map', 'form']);
     const visibleGroups = TYPE_GROUPS.map((g) => ({
       ...g,
       options: g.options.filter(
-        (o) => o.value !== 'script' || scriptsEnabled,
+        (o) =>
+          (o.value !== 'script' || scriptsEnabled) &&
+          (showMoreTypes || PRIMARY.has(o.value) || queryType === o.value),
       ),
     })).filter((g) => g.options.length > 0);
     return (
       <div className="space-y-8">
+        <p className="text-sm text-ink-1">{t('newItem.taskIntro')}</p>
         {visibleGroups.map((group) => (
           <section key={group.groupKey}>
             {/* Group header inherits the group color via a small
@@ -1751,6 +1761,14 @@ export function NewItemWizard({
             </div>
           </section>
         ))}
+        <button
+          type="button"
+          className="rounded-md border border-border px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+          aria-expanded={showMoreTypes}
+          onClick={() => setShowMoreTypes((value) => !value)}
+        >
+          {showMoreTypes ? t('newItem.fewerTypes') : t('newItem.moreTypes')}
+        </button>
       </div>
     );
   }
@@ -2170,7 +2188,11 @@ export function NewItemWizard({
       ) : null}
 
       {type === 'basemap' ? (
-        <BasemapConfigSection value={basemapDraft} onChange={setBasemapDraft} />
+        <BasemapConfigSection
+          value={basemapDraft}
+          onChange={setBasemapDraft}
+          canProbe={canProbeBasemaps}
+        />
       ) : null}
 
       {type === 'service' ? (
@@ -2349,7 +2371,7 @@ function FileItemUploader({
               {value.fileName}
             </div>
             <div className="mt-0.5 text-xs text-muted">
-              {humanFileSize(value.sizeBytes)} &middot;{' '}
+              {formatBytes(value.sizeBytes)} &middot;{' '}
               <span className="font-mono">{value.mimeType}</span>
             </div>
           </div>
@@ -2490,7 +2512,7 @@ function ServiceConfigSection({
               {data.serviceTitle ? (
                 <>
                   <span className="font-medium text-ink-0">{data.serviceTitle}</span>
-                  {' Â· '}
+                  {' · '}
                 </>
               ) : null}
               {data.layers.length} layer{data.layers.length === 1 ? '' : 's'}
@@ -2649,10 +2671,10 @@ function OgcConfigSection({
               {probeResult.title ? (
                 <>
                   <span className="font-medium text-ink-0">{probeResult.title}</span>
-                  {' Â· '}
+                  {' · '}
                 </>
               ) : null}
-              {protocolLabel} {probeResult.protocolVersion} Â· {probeResult.layers.length}{' '}
+              {protocolLabel} {probeResult.protocolVersion} · {probeResult.layers.length}{' '}
               {layerWord}
               {probeResult.layers.length === 1 ? '' : 's'}
             </div>
@@ -2722,14 +2744,6 @@ function OgcConfigSection({
   );
 }
 
-
-/** Human-friendly size string for the file metadata row. */
-function humanFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
 
 interface ArcgisConfigProps {
   urlDraft: string;
@@ -2977,12 +2991,12 @@ function ArcgisConfigSection({
               </p>
               <p className="mt-0.5 flex items-center gap-1 text-2xs text-muted">
                 <span>{probeResult.serviceType}</span>
-                <span aria-hidden="true">Â·</span>
+                <span aria-hidden="true">·</span>
                 <span>
                   {probeResult.layers.length}{' '}
                   {probeResult.layers.length === 1 ? 'layer' : 'layers'}
                 </span>
-                <span aria-hidden="true">Â·</span>
+                <span aria-hidden="true">·</span>
                 <a
                   href={`${probeResult.url}?f=html`}
                   target="_blank"

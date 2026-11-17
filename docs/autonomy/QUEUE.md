@@ -1,39 +1,126 @@
 # Autonomy work queue
 
-Driver-owned. Newest proposals at the top of each section.
+Three-stream process (see [PLAYBOOK.md](./PLAYBOOK.md)): Researcher
+proposes → Scoper ranks into [PROPOSALS.md](./PROPOSALS.md) → morning
+yay/nay → Developer builds `approved` only.
+
+Standing rule: skip issues labeled `good first issue`, `help wanted`,
+or `human-contributor`, and any issue assigned to a person. #183
+(point-cloud viewer performance) is assigned and labeled `help wanted`.
+The loop may only comment there.
+
+Process note (2026-11-01): retired autonomous `ship-without-input`
+builds. New product work needs an explicit yay. Historical done rows
+that say ship-without-input are unchanged.
+
+Research on file: [research-cycle-17.json](./research-cycle-17.json)
+(2026-10-31); [analyze-workflow-ux-2026-10-30.md](../research/analyze-workflow-ux-2026-10-30.md)
+(2026-10-30). Do not Nest-throttle MVT / OGC Tiles / storage /
+point-cloud / health / portal-info.
+
+## awaiting-decision
+
+Ranked for the next morning list. Scoper owns this section.
+
+| id | source | summary | notes |
+| --- | --- | --- | --- |
+| recipe-dag | analyze-workflow-ux-2026-10-30 | PostGIS-backed branching recipe graph | Parked: param shell in v1.1.0; needs thinner recipe research before ranking |
+
+## approved
+
+Matthew said yay. Developer takes from the top.
+
+| id | source | summary | approved |
+| --- | --- | --- | --- |
 
 ## in-progress
 
 | id | source | summary | notes |
 | --- | --- | --- | --- |
 
-## queued (ship-without-input)
-
-| id | source | summary | notes |
-| --- | --- | --- | --- |
-| R13-i18n-builder-viewer-editor-titles | research-cycle-13 | BuilderShell Back/Close + viewer/editor panel titles (#162) | |
-| R13-i18n-sharing-panel-chrome | research-cycle-13 | Sharing visibility / share-row chrome (#162) | Partial catalog exists |
-| R13-i18n-analyze-sql-starters | research-cycle-13 | Analyze SQL Preview / Count by + DuckDB footer (#162) | Guides already t() |
-| R13-i18n-dialog-sheet-close | research-cycle-13 | Dialog/Sheet Close + attribute-form Cancel aria (#162) | common.close/cancel |
-| SEC-citation-throttle | research-cycle-13 | @Throttle 60/min on Public citation .bib/.ris/.jsonld | |
-| SEC-ogc-features-collections-throttle | research-cycle-13 | @Throttle 60/min on OGC Features collections / + :id | |
-| SEC-public-features-geojson-throttle | research-cycle-13 | @Throttle 60/min on Public /features + /geojson | Leave MVT alone |
-| SEC-public-aggregate-throttle | research-cycle-13 | @Throttle 60/min on Public layer aggregate | |
-| R13-form-help-survey123-honesty | research-cycle-13 | Soften form.md "native equivalent of Survey123" | Docs-only; api.md Rate limits fold into SEC-citation |
-
-## queued (needs-maintainer)
+## blocked
 
 | id | source | summary | why blocked |
 | --- | --- | --- | --- |
-| Q-162b / R5-weblate-hosting | issue #162 | Weblate vs Crowdin vs Tolgee + community workflow | Process / hosting decision |
-| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Strategy phase B |
-| R1-presence-crdt / R5-presence-crdt | research-cycle-1 | Live cursors Phase 2 CRDT on drawings | Abuse / transport defaults |
-| R2-comments-mentions / R5-comments-mentions | research-cycle-2 / #155 | @-mentions on notifications | Abuse / email defaults |
+| R16-i18n-point-cloud-panel-chrome | research-cycle-16 / #162 | Point-cloud panel file/upload/shaded-relief chrome i18n | #162 is `help wanted`. The loop does not take it. |
+| Q-183b / R5-tile3d-heavy-clouds | issue #183 | COPC to 3D Tiles heavy-cloud path | Assignee owns #183; the loop may only comment. |
+
+## rejected
+
+| id | when | reason |
+| --- | --- | --- |
 
 ## done
 
 | id | when | result |
 | --- | --- | --- |
+| Q-573-nas-datalayer-polygon | 2026-11-07 | Parallel Grok session: merged #578 data_layer shapefile/KMZ/GPKG/GeoJSON ingest |
+| Q-575-nas-tailscale-redirect | 2026-11-07 | Parallel Grok session: merged #579 Tailscale/LAN sign-in stays on GRATIS_BASE_URL |
+| Q-574-nas-http-locate | 2026-11-07 | Parallel Grok session: merged #580 geocode matcher + GPS secure-context honesty (#581 build fix) |
+| R1-presence-crdt / R5-presence-crdt | 2026-11-03 | Thin Yjs drawings co-edit for signed-in writers; 256 KiB frames; snapshot to data.drawings; anon stays REST |
+| R2-comments-mentions / R5-comments-mentions | 2026-11-03 | @username in create/reply → comment_mentioned email (cap 10, ACL, self-skip); create/reply 30/min |
+| Q-162b / R5-weblate-hosting | 2026-11-03 | Chose Weblate over Crowdin/Tolgee; git PR catalogs remain the community path until Weblate hosting is stood up |
+| analyze-param-manifests | 2026-11-03 | Shared AnalyzeManifestGuide + param manifests for centroid / convex-hull / bbox / dissolve / vertices; Buffer and param-heavy guides stay bespoke |
+| release-1.2.0 | 2026-11-05 | Stamp v1.2.0: NAS UUID-on-HTTP + Keycloak users roles + Updates page + showcase + security hardenings |
+| release-1.1.0 | 2026-11-03 | Stamp v1.1.0: NAS install + @mentions + Yjs markup co-edit + Analyze param manifests + Weblate choice |
+| release-1.0.0 | 2026-10-31 | Stamp v1.0.0: Past runs + area scale + print/STAC landing throttles + honesty/status for semver 1.0 |
+| R17-derived-layer-help-honesty | 2026-10-31 | Soften derived-layer related help (materialize / Refresh / ArcGIS streaming) |
+| R17-measure-widget-help-honesty | 2026-10-31 | Measure help retargeted to Viewer/Editor/map tool |
+| SEC-print-render-token-throttle | 2026-10-31 | Print consume-render-token + load-job @Throttle 60/min |
+| SEC-stac-ogc-landing-doc-throttle | 2026-10-31 | STAC/OGC landing/conformance/api + catalog root @Throttle 60/min |
+| Q-research-cycle-17 | 2026-10-31 | Research refill: five ship-without-input (derived-layer + measure honesty; analyze-run-history thin vertical; print-token + optional STAC/OGC landing throttles) |
+| analyze-run-history | 2026-10-31 | Analyze Past runs shelf: list / Re-run / Edit & re-run |
+| release-0.9.126 | 2026-10-30 | Stamp Analyze deep-link / map quick actions + deps + basemap honesty |
+| R16-basemap-help-composed-map-honesty | 2026-10-30 | Soften basemap.md composed-map / Portal map (Phase 2 not authored) |
+| deps-npm-minor-patch | 2026-10-30 | Merged #504: npm minor/patch sweep; Dependabot open = 0 |
+| analyze-layer-quick-actions | 2026-10-30 | PR #505: Map kebab Buffer / Centroid / Hull → Analyze deep link |
+| analyze-tool-deeplink | 2026-10-30 | PR #506: `?tool=` + `#data` opens matching Analyze guide |
+| Q-analyze-workflow-ux | 2026-10-30 | Research plan + queue refill (deeplink / quick actions / history) |
+| R16-i18n-basemap-config-section-chrome | 2026-10-29 | Merged #502: BasemapConfigSection chrome i18n (#162) |
+| R16-i18n-print-parameters-chrome | 2026-10-29 | Merged #503: Print template Parameters / rail chrome i18n (#162) |
+| release-0.9.125 | 2026-10-29 | Stamp Measure top-down lock + Public osm/presets + thumbnail throttles |
+| measure-flatten-immediate | 2026-10-29 | Merged #500: Measure jumpTo pitch 0 + maxPitch lock while open |
+| SEC-thumbnail-svg-throttle | 2026-10-29 | Merged #499: Public thumbnail.svg @Throttle 60/min |
+| SEC-osm-presets-throttle | 2026-10-29 | Merged #498: Public osm/presets @Throttle 60/min |
+| release-0.9.124 | 2026-10-29 | Merged #497 + tagged/deployed v0.9.124 (Measure pitch-flatten live) |
+| SEC-public-basemap-items-throttle | 2026-10-29 | Merged #496: Public basemap items list @Throttle 60/min |
+| SEC-public-item-throttle | 2026-10-29 | Merged #495: Public items/:id @Throttle 60/min |
+| SEC-public-landing-throttle | 2026-10-29 | Merged #494: Public landing @Throttle 60/min |
+| measure-flatten-pitch | 2026-10-29 | Merged #493: Measure auto-flattens pitched 3D while open so sketch matches ground/deed acres |
+| R15-what-is-gratisgis-honesty | 2026-10-29 | Merged #491: soften what-is-gratisgis.md ArcGIS Online sameness claims |
+| R15-i18n-share-geo-limit-chrome | 2026-10-29 | Merged #490: share Restrict-to-area dialog chrome i18n (#162) |
+| R15-i18n-basemap-editor-chrome | 2026-10-29 | Merged #489: basemap editor source / unsaved chrome i18n (#162) |
+| R15-i18n-recipe-editor-chrome | 2026-10-29 | Merged #488: recipe-editor template/params/AOI/Pipeline chrome i18n (#162) |
+| R15-i18n-form-responses-chrome | 2026-10-29 | Merged #487: form responses Previous/Next/Submitted/empty chrome i18n (#162) |
+| SEC-aardvark-throttle | 2026-10-29 | Merged #486: Public Aardvark :itemId.json @Throttle 60/min |
+| SEC-records-item-throttle | 2026-10-29 | Merged #485: Public Records + catalog single-item GETs @Throttle 60/min |
+| SEC-ogc-styles-list-throttle | 2026-10-29 | Merged #484: Public OGC Styles list + style/metadata @Throttle 60/min |
+| SEC-stac-collections-throttle | 2026-10-29 | Merged #483: Public STAC collections + collection id @Throttle 60/min |
+| Q-research-cycle-16 | 2026-10-29 | Research refill: nine ship-without-input (Public landing/item/basemap-items/osm-presets/thumbnail throttles; basemap-config / print Parameters / point-cloud panel i18n; basemap composed-map honesty) |
+| Q-research-cycle-15 | 2026-10-29 | Research refill: nine ship-without-input (STAC collections / Styles / Records-item / Aardvark throttles; form responses / recipe / basemap / share-geo i18n; what-is honesty) |
+| measure-ground-slope-area | 2026-10-29 | Merged #479: Measure ground/slope primary on terrain; released v0.9.123 |
+| SEC-public-catalog-json-throttle | 2026-10-29 | Merged #477: Public catalog.json DCAT dump @Throttle 60/min |
+| SEC-csw-throttle | 2026-10-29 | Merged #476: Public CSW GetCapabilities / GetRecords @Throttle 60/min |
+| SEC-public-filtered-extent-throttle | 2026-10-29 | Merged #475: Public layer filtered-extent @Throttle 60/min |
+| R14-data-layer-help-honesty | 2026-10-29 | Merged #474: soften data-layer.md Esri feature-service claim |
+| R14-i18n-print-template-chrome | 2026-10-29 | Merged #473: print template designer Paper / Zoom / Delete parameter i18n |
+| R14-i18n-folder-detail-chrome | 2026-10-29 | Merged #471: folder detail Apply sharing / New subfolder / Add items i18n |
+| R14-i18n-item-page-chrome | 2026-10-29 | Merged #469: item detail Sharing/Back/Responses/Open builder i18n |
+| measure-area-scale-bar | 2026-10-29 | Merged #468: Measure pane above scale bar; geodesic math confirmed |
+| SEC-pointcloud-pip-prune-fix | 2026-10-28 | Merged #466: pointcloud-worker pip strip keeps python (exit 127) |
+| R14-i18n-viewer-editor-detail-chrome | 2026-10-28 | Merged #463: Viewer/editor detail builder chrome (#162) |
+| whats-new-history-releases | 2026-10-28 | Merged #461: What's new full history + release groupings |
+| R13-i18n-analyze-sql-starters | 2026-10-28 | Merged #460: Analyze SQL Preview/Count-by + DuckDB footer i18n (#162) |
+| R13-i18n-sharing-panel-chrome | 2026-10-28 | Merged #459: Sharing panel visibility / share-row chrome (#162) |
+| SEC-public-features-geojson-throttle | 2026-10-28 | Merged #456: Public /features + /geojson @Throttle 60/min |
+| SEC-public-aggregate-throttle | 2026-10-28 | Merged #455: Public layer /aggregate @Throttle 60/min |
+| SEC-ogc-features-collections-throttle | 2026-10-28 | Merged #454: OGC Features collections @Throttle 60/min |
+| Q-research-cycle-14 | 2026-10-28 | Merged #462: research-cycle-14 refill ship-without-input queue |
+| SEC-citation-throttle | 2026-10-28 | Merged #452: Public OGC citation downloads @Throttle 60/min |
+| R13-form-help-survey123-honesty | 2026-10-28 | Merged #453: soften Form vs Survey123 equivalence claim |
+| R13-i18n-builder-viewer-editor-titles | 2026-10-28 | Merged #458: BuilderShell Back/Close + viewer/editor panel titles (#162) |
+| R13-i18n-dialog-sheet-close | 2026-10-28 | Merged #457: Dialog/Sheet Close + attribute-form Cancel aria (#162) |
+| map-measure-print-preview | 2026-10-28 | Merged #451: Measure tool, elevation profile fix, print preview UX |
 | R13-i18n-editor-runtime-chrome | 2026-10-28 | Merged #448: Feature Editor runtime toolbar / edit / measure i18n (#162) |
 | R13-i18n-map-settings-descriptions | 2026-10-28 | Merged #447: map settings descriptions + option labels i18n (#162) |
 | R13-i18n-map-layers-panel-title | 2026-10-28 | Merged #446: map Layers rail title via mapLayerPanel.title (#162) |
@@ -118,6 +205,43 @@ Driver-owned. Newest proposals at the top of each section.
 
 | id | reason |
 | --- | --- |
+| R17-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R17-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R17-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R17-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty points at derived_layer |
+| R17-reject-tile3d-local-rebuild | #183 stays open; help wanted + assigned |
+| R17-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R17-reject-i18n-chrome-while-162-help-wanted | #162 help wanted; leftover English recorded, not queued |
+| R17-reject-analyze-multi-input-shortcuts | Multi-source otherSource Analyze UX too heavy |
+| R17-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R17-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R17-reject-report-template-item | Report template not built |
+| R17-reject-ogc-tiles-byte-throttle | Nest throttle on tile/MVT/storage/point-cloud byte routes would break maps |
+| R17-reject-health-portalinfo-nest-throttle | health = probes; portal-info = every-client bootstrap |
+| R17-reject-presence-crdt | Abuse / transport defaults stay needs-maintainer |
+| R17-reject-comments-mentions | Abuse / email defaults stay needs-maintainer |
+| R17-reject-custom-app-builder-i18n-first | custom/detail.tsx dense; #162 help wanted |
+| R17-reject-analyze-zonal-stats-shortcut | Elevation worker path, not Buffer-shaped derived_layer |
+| R17-reject-analyze-param-manifests-now | After run history |
+| R17-reject-recipe-dag-now | After linear recipes + history |
+| R17-reject-deps-high-bump-now | No High; 3 moderate transitive only |
+| R17-reject-good-first-issue-docs | #507–#514 reserved for human contributors |
+| R15-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
+| R15-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
+| R15-reject-seat-pricing | Named-user pricing contradicts ethos |
+| R15-reject-recipe-materialize-sinks | Materialize sinks deferred; honesty points at derived_layer |
+| R15-reject-tile3d-local-rebuild | #183 stays open; no closing on local rebuilds |
+| R15-reject-weblate-hosting | Weblate vs Crowdin vs Tolgee stays needs-maintainer |
+| R15-reject-analyze-multi-input-shortcuts | Spatial join/filter multi-picker Analyze UX too heavy |
+| R15-reject-analyze-calculate-field-shortcut | Expression editor not a Buffer-shaped shortcut |
+| R15-reject-analyze-filter-shortcut | Filter expression stays builder-only |
+| R15-reject-report-template-item | Report template not built |
+| R15-reject-ogc-tiles-byte-throttle | Nest throttle on tile/MVT/storage/point-cloud byte routes would break maps |
+| R15-reject-health-portalinfo-nest-throttle | health = probes; portal-info = every-client bootstrap |
+| R15-reject-presence-crdt | Abuse / transport defaults stay needs-maintainer |
+| R15-reject-comments-mentions | Abuse / email defaults stay needs-maintainer |
+| R15-reject-custom-app-builder-i18n-first | Defer dense custom/detail.tsx behind sharper #162 slices |
+| R15-reject-public-landing-thumbnail-throttle-now | Defer landing/item/osm-presets/basemap/thumbnail behind R15 SEC four |
 | R13-reject-node-graph-canvas | Visual node-graph recipe canvas is polish, not honesty |
 | R13-reject-print-brand-kit | Brand / chrome redesign fails playbook brand test |
 | R13-reject-seat-pricing | Named-user pricing contradicts ethos |

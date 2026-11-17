@@ -32,11 +32,8 @@ import type { OsmGeoJsonFeature } from './osm-to-geojson.js';
  * promote-to-data_layer flows later, but each source has its own
  * field-typing quirks worth keeping local.
  *
- * Inputs are bounded: the OSM resolver caps responses at 50,000
- * features so the payload size we accept is whatever Overpass
- * already returned. We don't impose a second cap here because the
- * upstream cap is the only one that matters (anything we'd refuse
- * would have been rejected before reaching this service).
+ * Inputs are bounded: the controller's DTO refuses more than 50,000
+ * features (the OSM resolver's own cap), so this service adds none.
  */
 @Injectable()
 export class OsmSaveAsLayerService {
@@ -108,15 +105,32 @@ export class OsmSaveAsLayerService {
     // Bulk-insert features into the new sublayer. The features
     // arrived as the OSM resolver's converted GeoJSON shape; the
     // engine's bulk-insert path accepts that directly.
-    const inserted = await this.features.insertFeatures(
-      created.id,
-      layerId,
-      args.features.map((f) => ({
-        properties: f.properties as Record<string, unknown>,
-        geometry: geometryType === null ? null : (f.geometry as unknown),
-      })),
-      args.user,
-    );
+    let inserted: { inserted: number };
+    try {
+      inserted = await this.features.insertFeatures(
+        created.id,
+        layerId,
+        args.features.map((f) => ({
+          properties: f.properties as Record<string, unknown>,
+          geometry: geometryType === null ? null : (f.geometry as unknown),
+        })),
+        args.user,
+      );
+    } catch (err) {
+      // Do not leave an empty, titled layer behind: each retry of a
+      // failing save used to add another one to the user's content.
+      try {
+        await this.items.remove(args.user, created.id);
+        await this.items.purge(args.user, created.id);
+      } catch (cleanupErr) {
+        this.log.warn(
+          `Could not remove the empty layer ${created.id} after a failed OSM save: ${
+            cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)
+          }`,
+        );
+      }
+      throw err;
+    }
 
     this.log.log(
       `Saved OSM overlay as data_layer ${created.id} (layer ${layerId}, ${inserted.inserted} features).`,

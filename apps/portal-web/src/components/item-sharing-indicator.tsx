@@ -299,17 +299,31 @@ export function ItemSharingIndicator({
   }, [open]);
 
   const setAccess = useCallback(
-    async (next: ItemAccess) => {
+    async (next: ItemAccess, opts: { undoingCascadeFlip?: boolean } = {}) => {
       if (next === currentAccess) return;
       setError(null);
       const prev = currentAccess;
       setCurrentAccess(next); // optimistic
       setSaving('access');
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ access: next }),
-      });
+      // A request that never got an answer (offline, aborted) skipped
+      // the rollback and left the controls disabled for good.
+      let res: Response;
+      try {
+        res = await fetch(`/api/portal/items/${itemId}`, {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ access: next }),
+        });
+      } catch (err) {
+        setSaving(null);
+        setCurrentAccess(prev);
+        setError(
+          t('sharing.updateFailed', {
+            status: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return;
+      }
       setSaving(null);
       if (!res.ok) {
         setCurrentAccess(prev);
@@ -336,7 +350,11 @@ export function ItemSharingIndicator({
       // downgrade target tier from where the parent landed (org
       // or private) so the dialog's default keeps the cascade
       // visually consistent with what the author just chose.
-      if (prev === 'public' && next !== 'public') {
+      // Not when this change is the Cancel of the public-cascade
+      // dialog: that only undoes the flip just made, and the revert
+      // dialog then offered to un-publish dependencies that were
+      // public before the flow started.
+      if (prev === 'public' && next !== 'public' && !opts.undoingCascadeFlip) {
         setRevertTarget(next);
         setRevertOpen(true);
       }
@@ -350,14 +368,25 @@ export function ItemSharingIndicator({
       setError(null);
       const key = `${share.principalType}:${share.principalId}`;
       setSaving(key);
-      const res = await fetch(`/api/portal/items/${itemId}/share`, {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          principalType: share.principalType,
-          principalId: share.principalId,
-        }),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`/api/portal/items/${itemId}/share`, {
+          method: 'DELETE',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            principalType: share.principalType,
+            principalId: share.principalId,
+          }),
+        });
+      } catch (err) {
+        setSaving(null);
+        setError(
+          t('sharing.removeFailed', {
+            status: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return;
+      }
       setSaving(null);
       if (!res.ok) {
         setError(t('sharing.removeFailed', { status: res.status }));
@@ -543,7 +572,7 @@ export function ItemSharingIndicator({
           // tier. Reuse setAccess so the optimistic-flip-and-
           // revert handling is identical to a manual change.
           setCascadeOpen(false);
-          void setAccess(preCascadeAccess);
+          void setAccess(preCascadeAccess, { undoingCascadeFlip: true });
         }}
       />
       {/* #334 cascade-revert prompt. Same self-dismissing pattern

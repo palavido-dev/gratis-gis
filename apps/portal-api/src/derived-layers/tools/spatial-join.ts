@@ -258,7 +258,7 @@ export const spatialJoinGenerator: ToolGenerator<SpatialJoinParams> = {
       const keyPh = `$${paramOffset + sqlParams.length}`;
       joinedExpr = `
         jsonb_build_object(
-          ${keyPh},
+          ${keyPh}::text,
           (SELECT COUNT(*) FROM right_rows r WHERE ${joinPredicate})
         )
       `;
@@ -280,7 +280,7 @@ export const spatialJoinGenerator: ToolGenerator<SpatialJoinParams> = {
         sqlParams.push(`${prefix}${a}`);
         const keyPh = `$${paramOffset + sqlParams.length}`;
         const safeRightCol = a.replace(/'/g, "''");
-        return `${keyPh}, r.properties->>'${safeRightCol}'`;
+        return `${keyPh}::text, r.properties->>'${safeRightCol}'`;
       });
       joinedExpr = `
         COALESCE(

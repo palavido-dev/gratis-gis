@@ -75,7 +75,7 @@ sorting on an unindexed field can produce a brief loading state.
  layer if you need a combined view.
 - **Geometry isn't shown** in the table cell. The map handles
  geometry rendering; the table shows attributes.
-- **Read-only on derived layers.** Derived layers are
- materialized outputs; editing a derived row doesn't
- propagate back to the source. The table reflects this by
- hiding the edit affordance on derived-layer rows.
+- **Read-only on derived layers.** Derived layers are live
+ recipes; editing a derived row is not supported and would not
+ write back to the source. The table reflects this by hiding
+ the edit affordance on derived-layer rows.

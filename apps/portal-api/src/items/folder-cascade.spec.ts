@@ -137,4 +137,17 @@ describe('computeFolderCascade', () => {
     // root so it doesn't appear in the returned `folders` list.
     expect(result.folders.map((f) => f.id)).toEqual(['b']);
   });
+
+  // Anyone can list any folder in their own folder's childItemIds, so
+  // the cascade must not take folders the caller cannot delete.
+  it('leaves out and does not name folders the caller cannot delete', () => {
+    const folders = [
+      folder('a', 'Mine', ['b', 'x']),
+      folder('b', 'Their private folder', ['c']),
+      folder('c', 'Their subfolder', []),
+      folder('x', 'My subfolder', []),
+    ];
+    const result = computeFolderCascade('a', folders, (id) => id !== 'b' && id !== 'c');
+    expect(result.folders).toEqual([{ id: 'x', title: 'My subfolder' }]);
+  });
 });

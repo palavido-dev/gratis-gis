@@ -90,3 +90,48 @@ describe('NotificationsWorker.reclaimStaleSending', () => {
     }
   });
 });
+
+describe('NotificationsWorker.processOne render failures', () => {
+  it('counts a render that throws as a failed attempt instead of stranding the row', async () => {
+    const row = {
+      id: 'n1',
+      userId: 'u1',
+      type: 'share_received',
+      channel: 'email',
+      payload: {},
+      attempts: 0,
+      scheduledAt: new Date(0),
+      address: 'a@example.test',
+    };
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = {
+      notification: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findUnique: jest.fn().mockResolvedValue(row),
+        update,
+      },
+      user: { findUnique: jest.fn().mockRejectedValue(new Error('connection reset')) },
+    } as unknown as PrismaService;
+    const cfg = { get: () => undefined } as unknown as ConfigService;
+    const worker = new NotificationsWorker(
+      prisma,
+      { send: jest.fn() } as unknown as EmailTransport,
+      cfg,
+      {} as unknown as NotificationTemplateService,
+      {} as unknown as LeaderElectionService,
+    );
+    await (worker as unknown as { processOne(id: string): Promise<void> }).processOne('n1');
+    expect(update).toHaveBeenCalledTimes(1);
+    const data = (update.mock.calls[0]![0] as { data: Record<string, unknown> }).data;
+    expect(data.attempts).toEqual({ increment: 1 });
+    expect(data.sendingAt).toBeNull();
+    expect(data.lastError).toMatch(/connection reset/);
+  });
+
+  it('counts a reclaim as an attempt', async () => {
+    const { reclaim, updateMany } = build();
+    await reclaim();
+    const requeue = updateMany.mock.calls[0]![0] as { data: Record<string, unknown> };
+    expect(requeue.data.attempts).toEqual({ increment: 1 });
+  });
+});

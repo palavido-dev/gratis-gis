@@ -249,6 +249,54 @@ describe('WebMapJsonImportService', () => {
     expect(args.data.layers[1]?.source.sourceItemId).toBeUndefined();
   });
 
+  it('back-references an item stored as the service root', async () => {
+    const items = makeItemsMock();
+    const svc = new WebMapJsonImportService(
+      makePrismaMock({
+        arcgisItems: [
+          {
+            id: 'arcgis-root',
+            data: {
+              // Item URLs are service roots; the WebMap names a layer.
+              url: 'https://services.example.com/arcgis/rest/services/Transport/FeatureServer/',
+            },
+          },
+        ],
+      }),
+      items.service,
+    );
+    await svc.import({ user: makeUser(), webMap: baseWebMap });
+    const args = items.lastCreate.args as {
+      data: { layers: Array<{ source: { sourceItemId?: string } }> };
+    };
+    expect(args.data.layers[2]?.source.sourceItemId).toBe('arcgis-root');
+  });
+
+  it('keeps each layer visibility and opacity from the WebMap', async () => {
+    const items = makeItemsMock();
+    const svc = new WebMapJsonImportService(makePrismaMock({}), items.service);
+    await svc.import({
+      user: makeUser(),
+      webMap: {
+        ...baseWebMap,
+        operationalLayers: [
+          {
+            id: 'roads',
+            title: 'Roads',
+            url: 'https://services.example.com/arcgis/rest/services/Transport/FeatureServer/0',
+            layerType: 'ArcGISFeatureLayer',
+            visibility: false,
+            opacity: 0.3,
+          },
+        ],
+      },
+    });
+    const args = items.lastCreate.args as {
+      data: { layers: Array<{ visible: boolean; opacity: number }> };
+    };
+    expect(args.data.layers[0]).toMatchObject({ visible: false, opacity: 0.3 });
+  });
+
   it('builds imported layers from the shared MapLayer defaults', async () => {
     const items = makeItemsMock();
     const svc = new WebMapJsonImportService(makePrismaMock(), items.service);

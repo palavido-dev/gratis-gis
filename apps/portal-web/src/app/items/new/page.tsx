@@ -24,7 +24,7 @@ export default async function NewItemPage() {
   // on arrival instead. This is a courtesy, not the enforcement: the
   // gate that matters is in ItemsService.create, and this reads the
   // same capability it does so an admin-granted override agrees.
-  const me = await apiFetch<{ capabilities: CapabilityKey[] }>(
+  const me = await apiFetch<{ capabilities: CapabilityKey[]; orgRole?: string }>(
     '/api/users/me',
   );
   if (!hasCapability(me, 'can_publish_items')) {
@@ -106,6 +106,7 @@ export default async function NewItemPage() {
       <NewItemWizard
         appTemplates={appTemplates}
         scriptsEnabled={features.scripts}
+        canProbeBasemaps={me.orgRole === 'admin'}
       />
     </div>
   );

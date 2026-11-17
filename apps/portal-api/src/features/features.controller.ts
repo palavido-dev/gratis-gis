@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { withLockedItem } from '../items/item-data-lock.js';
 import {
   BadRequestException,
   Body,
@@ -22,13 +23,18 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { Prisma } from '@prisma/client';
+import type { ItemShare, Prisma } from '@prisma/client';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  isScopeLimited,
+  type FeatureScope,
+} from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { assertNotV3DataLayer } from './v3-guard.js';
 import {
   FeaturesService,
   type InsertFeatureInput,
@@ -98,6 +104,7 @@ export class FeaturesController {
     if (item.type !== 'data_layer') {
       throw new BadRequestException('Item is not a feature service');
     }
+    assertNotV3DataLayer(item);
     if (!(await this.features.tableExists(itemId))) {
       throw new NotFoundException('Feature table not provisioned for this item');
     }
@@ -122,6 +129,7 @@ export class FeaturesController {
     if (item.type !== 'data_layer') {
       throw new BadRequestException('Item is not a feature service');
     }
+    assertNotV3DataLayer(item);
     const shares = await this.prisma.itemShare.findMany({ where: { itemId } });
     if (!this.sharing.canEdit(user, item, shares)) {
       throw new ForbiddenException('You do not have edit permission on this item');
@@ -155,7 +163,8 @@ export class FeaturesController {
     @Query('offset') offsetStr?: string,
     @Query('meta') meta?: string,
   ) {
-    await this.requireReadAccess(user, id);
+    const item = await this.requireReadAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'read');
 
     let parsedBbox: [number, number, number, number] | undefined;
     if (bbox) {
@@ -179,6 +188,7 @@ export class FeaturesController {
     if (since !== undefined) queryOpts.since = since;
     else if (at !== undefined) queryOpts.at = at;
     if (meta === 'true') queryOpts.includeMeta = true;
+    if (scope) queryOpts.scope = scope;
 
     const feats = await this.features.query(id, queryOpts);
 
@@ -195,7 +205,14 @@ export class FeaturesController {
     @Param('id') id: string,
     @Body() dto: BulkImportDto,
   ) {
-    await this.requireEditAccess(user, id);
+    const item = await this.requireEditAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'edit');
+    if (scope) {
+      await this.features.assertGeometriesInsideLimit(
+        scope,
+        dto.features.map((f) => f.geometry),
+      );
+    }
     const inputs: InsertFeatureInput[] = dto.features.map((f) => {
       const input: InsertFeatureInput = { properties: f.properties ?? {} };
       if (f.globalId !== undefined) input.globalId = f.globalId;
@@ -218,13 +235,23 @@ export class FeaturesController {
     @Param('id') id: string,
     @Body() body: { type?: string; features?: unknown[] },
   ) {
-    await this.requireEditAccessAndProvision(user, id);
+    const item = await this.requireEditAccessAndProvision(user, id);
+    // Import replaces every row of the layer, which a share limited to
+    // some rows or some area cannot authorize.
+    if (await this.scopeFor(user, item, 'edit')) {
+      throw new ForbiddenException(
+        'Your share on this layer is limited to some rows or an area, so you cannot replace the whole layer',
+      );
+    }
 
     if (!body.features || !Array.isArray(body.features)) {
       throw new BadRequestException('Body must be a GeoJSON FeatureCollection with a features array');
     }
 
-    const inputs: InsertFeatureInput[] = body.features.map((f: unknown) => {
+    const inputs: InsertFeatureInput[] = body.features.map((f: unknown, i: number) => {
+      if (!f || typeof f !== 'object' || Array.isArray(f)) {
+        throw new BadRequestException(`features[${i}] is not a GeoJSON Feature object`);
+      }
       const feat = f as { type?: string; geometry?: unknown; properties?: Record<string, unknown>; id?: string };
       const input: InsertFeatureInput = { properties: feat.properties ?? {} };
       if (typeof feat.id === 'string') input.globalId = feat.id;
@@ -245,8 +272,9 @@ export class FeaturesController {
     @Param('fid') fid: string,
     @Query('at') at?: string,
   ) {
-    await this.requireReadAccess(user, id);
-    return this.features.getFeature(id, fid, at);
+    const item = await this.requireReadAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'read');
+    return this.features.getFeature(id, fid, at, scope);
   }
 
   /** Get the full version history for a feature. */
@@ -256,8 +284,9 @@ export class FeaturesController {
     @Param('id') id: string,
     @Param('fid') fid: string,
   ) {
-    await this.requireReadAccess(user, id);
-    return this.features.getHistory(id, fid);
+    const item = await this.requireReadAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'read');
+    return this.features.getHistory(id, fid, scope);
   }
 
   /** Update a feature's geometry and/or properties. */
@@ -268,11 +297,12 @@ export class FeaturesController {
     @Param('fid') fid: string,
     @Body() dto: UpdateFeatureDto,
   ) {
-    await this.requireEditAccess(user, id);
+    const item = await this.requireEditAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'edit');
     const patch: UpdateFeatureInput = {};
     if (dto.geometry !== undefined) patch.geometry = dto.geometry;
     if (dto.properties !== undefined) patch.properties = dto.properties;
-    const result = await this.features.updateFeature(id, fid, patch, user);
+    const result = await this.features.updateFeature(id, fid, patch, user, scope);
     await this.syncItemMeta(id);
     return result;
   }
@@ -284,8 +314,9 @@ export class FeaturesController {
     @Param('id') id: string,
     @Param('fid') fid: string,
   ) {
-    await this.requireEditAccess(user, id);
-    await this.features.deleteFeature(id, fid, user);
+    const item = await this.requireEditAccess(user, id);
+    const scope = await this.scopeFor(user, item, 'edit');
+    await this.features.deleteFeature(id, fid, user, scope);
     await this.syncItemMeta(id);
     return { deleted: true };
   }
@@ -319,19 +350,26 @@ export class FeaturesController {
     @Query('offset') offsetStr?: string,
   ) {
     // Caller must be able to read the parent AND the child.
-    await this.requireReadAccess(user, id);
-    await this.requireReadAccess(user, childItemId);
+    const parent = await this.requireReadAccess(user, id);
+    const child = await this.requireReadAccess(user, childItemId);
+    // The parent must be visible to the caller, and the children are
+    // clipped to the caller's scope on the child layer.
+    const fk = relationshipFk(parent, childItemId, fkColumn);
+    const parentScope = await this.scopeFor(user, parent, 'read');
+    await this.features.getFeature(id, fid, undefined, parentScope);
+    const childScope = await this.scopeFor(user, child, 'read');
 
     const opts: Parameters<typeof this.features.getRelatedFeatures>[3] = {
       limit: limitStr ? Math.min(parseInt(limitStr, 10), 5_000) : 500,
       offset: offsetStr ? parseInt(offsetStr, 10) : 0,
     };
     if (at !== undefined) opts.at = at;
+    if (childScope) opts.scope = childScope;
 
     const feats = await this.features.getRelatedFeatures(
       childItemId,
       fid,
-      fkColumn ?? 'parent_global_id',
+      fk,
       opts,
     );
     return { type: 'FeatureCollection', features: feats };
@@ -358,19 +396,36 @@ export class FeaturesController {
       fkColumn?: string;
     },
   ) {
-    await this.requireReadAccess(user, id);
-    await this.requireEditAccess(user, childItemId);
+    const parent = await this.requireReadAccess(user, id);
+    const child = await this.requireEditAccess(user, childItemId);
+    const fk = relationshipFk(parent, childItemId, body.fkColumn);
+    // The parent feature must exist (and be visible), whether or not
+    // the caller is scope-limited.
+    const parentScope = await this.scopeFor(user, parent, 'read');
+    await this.features.getFeature(id, fid, undefined, parentScope);
+    const childScope = await this.scopeFor(user, child, 'edit');
+    if (childScope) {
+      await this.features.assertGeometriesInsideLimit(childScope, [body.geometry]);
+    }
 
     const input: Parameters<typeof this.features.createRelatedFeature>[3] = {
       properties: body.properties ?? {},
     };
-    if (body.globalId) input.globalId = body.globalId;
+    if (body.globalId !== undefined) {
+      if (
+        typeof body.globalId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.globalId)
+      ) {
+        throw new BadRequestException('globalId must be a UUID');
+      }
+      input.globalId = body.globalId;
+    }
     if (body.geometry !== undefined) input.geometry = body.geometry;
 
     const result = await this.features.createRelatedFeature(
       childItemId,
       fid,
-      body.fkColumn ?? 'parent_global_id',
+      fk,
       input,
       user,
     );
@@ -383,6 +438,28 @@ export class FeaturesController {
   // -------------------------------------------------------------------------
 
   /**
+   * The caller's share scope on this layer, from the same resolver
+   * the v3 routes use, or undefined when nothing limits them. These
+   * routes read the per-item table directly, so without this a
+   * geo-limited or own-rows grantee read and wrote every row.
+   */
+  private async scopeFor(
+    user: AuthUser,
+    item: Awaited<ReturnType<ItemsService['get']>>,
+    action: 'read' | 'edit',
+  ): Promise<FeatureScope | undefined> {
+    const shares = (item as { shares?: ItemShare[] }).shares ?? [];
+    const editingPolicy = (item.data as { editingPolicy?: unknown } | null)
+      ?.editingPolicy;
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action,
+      layerPolicy:
+        editingPolicy === 'own-rows-only' ? 'own-rows-only' : 'all-rows',
+    });
+    return isScopeLimited(scope) ? scope : undefined;
+  }
+
+  /**
    * After any write, refresh the item's metadata (feature count, bbox,
    * updatedAt) so the portal item card reflects current state without a
    * separate manual step.
@@ -390,20 +467,27 @@ export class FeaturesController {
   private async syncItemMeta(itemId: string): Promise<void> {
     try {
       const s = await this.features.stats(itemId);
-      const item = await this.prisma.item.findUnique({ where: { id: itemId }, select: { data: true } });
-      const existing = (item?.data ?? {}) as Record<string, unknown>;
-      await this.prisma.item.update({
-        where: { id: itemId },
-        data: {
+      // Read and write under the item row lock so a concurrent writer
+      // (a syncVersion bump, a schema save) is not rolled back by a
+      // stale copy of item.data.
+      await withLockedItem(this.prisma, itemId, async (tx, locked) => {
+        if (!locked) return;
+        const existing = (locked.data ?? {}) as Record<string, unknown>;
+        // The route guards refuse v3 items; never downgrade one here.
+        if (existing.version === 3) return;
+        await tx.item.update({
+          where: { id: itemId },
           data: {
-            ...existing,
-            version: 2,
-            storageType: 'postgis',
-            featureCount: s.featureCount,
-            bbox: s.bbox,
-            updatedAt: new Date().toISOString(),
-          } as unknown as Prisma.InputJsonValue,
-        },
+            data: {
+              ...existing,
+              version: 2,
+              storageType: 'postgis',
+              featureCount: s.featureCount,
+              bbox: s.bbox,
+              updatedAt: new Date().toISOString(),
+            } as unknown as Prisma.InputJsonValue,
+          },
+        });
       });
     } catch (err) {
       // Non-fatal: metadata sync failure shouldn't roll back the write.
@@ -416,4 +500,30 @@ export class FeaturesController {
       console.warn('syncItemMeta failed for %s: %s', itemId, msg);
     }
   }
+}
+
+/**
+ * The FK column of the registered relationship from `parent` to the
+ * child layer. The routes used to take any column name from the
+ * caller, so a child row could point at a layer that is not its
+ * parent, and names like `properties` or `created_by` reached SQL.
+ */
+function relationshipFk(
+  parent: { data: unknown },
+  childItemId: string,
+  requested: string | undefined,
+): string {
+  const rels = (parent.data as { relationships?: unknown } | null)?.relationships;
+  const rel = Array.isArray(rels)
+    ? (rels as Array<{ relatedItemId?: unknown; fkColumn?: unknown }>).find(
+        (r) => r?.relatedItemId === childItemId,
+      )
+    : undefined;
+  if (!rel || typeof rel.fkColumn !== 'string') {
+    throw new BadRequestException('These layers have no registered relationship');
+  }
+  if (requested !== undefined && requested !== rel.fkColumn) {
+    throw new BadRequestException(`fkColumn must be "${rel.fkColumn}" for this relationship`);
+  }
+  return rel.fkColumn;
 }

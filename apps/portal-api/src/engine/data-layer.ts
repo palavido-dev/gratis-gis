@@ -15,7 +15,7 @@
 // `DataLayerFeaturesService` is unchanged. Phase 2.2 swaps the v3 service's
 // internals to call into this adapter.
 
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import {
@@ -27,10 +27,17 @@ import {
   uuidv7,
   validateObservation,
 } from '@gratis-gis/engine';
+import { MAX_FEATURES_PER_TILE as SERVER_MAX_FEATURES_PER_TILE } from '@gratis-gis/shared-types';
 
+import { syncVersionSource } from '../data-layer/layer-delta.js';
+import {
+  geoLimitIntersectsSql,
+  geoLimitSql,
+  isClosedGeoLimit,
+} from '../common/closed-geo-limit.js';
 import { EngineService } from './engine.service.js';
+import { featureWriteLocksSql } from './feature-locks.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { LensPolicyService } from '../policy/lens-policy.service.js';
 import {
   TileCacheService,
   aggregateCacheKey,
@@ -114,6 +121,11 @@ export interface DeltaChange {
   syncVersion: number;
   txTime: string;
   authorSub: string;
+  /** Author of the entity's `create` observation, null when the log
+   *  holds no create for it. Lets clients rebuild `_created_by`. */
+  createdBy: string | null;
+  /** Time of the entity's `create` observation (`_created_at`). */
+  createdAt: string | null;
   geometry: GeoJsonGeometry | null;
   properties: Record<string, unknown> | null;
 }
@@ -190,34 +202,6 @@ export interface ListFeaturesArgs {
    * non-spatial layers pass through cleanly.
    */
   isTable?: boolean;
-  /**
-   * Optional row-level policy filter (Cedar Phase D). When set,
-   * every feature returned by the SQL query is evaluated against
-   * `lensPolicy.policy` via LensPolicyService.checkFeature; rows
-   * that fail are dropped from the FeatureCollection.
-   *
-   * Pass `lens` with both an `id` and a `policy` text. Empty /
-   * absent policy text short-circuits to passthrough; same for
-   * an absent `lensPolicy` argument entirely (Phase B behaviour).
-   *
-   * `user` is the principal the policy evaluates against. Required
-   * when `lens.policy` is set; ignored otherwise.
-   *
-   * `spatialKeysFor` pre-resolves spatial predicates per feature.
-   * Cedar's WASM has no geometry extension, so callers that want
-   * spatial rules ("inside assigned polygon") compute the
-   * containment in PostGIS upstream and hand the engine the
-   * resulting `Set<string>` of qualifying keys per feature. Lens
-   * policies reference the same keys via
-   * `resource.spatial.contains("assigned_area")`. When omitted,
-   * every feature passes an empty spatial set; non-spatial
-   * policies (attribute predicates, role checks) work unchanged.
-   */
-  lensPolicy?: {
-    lens: { id: string; policy?: string };
-    user: AuthUser;
-    spatialKeysFor?: (feature: DataLayerFeature) => string[];
-  };
 }
 
 /**
@@ -229,13 +213,10 @@ export interface ListFeaturesArgs {
  *
  *   - `entity`: a single-entity lookup has nothing to iterate;
  *     callers that want one feature use `listFeatures`.
- *   - `lensPolicy`: no iterating caller needs row policies yet, and
- *     adding them later should be a conscious decision (the per-page
- *     filter would silently change page sizes).
  */
 export type IterateFeaturesArgs = Omit<
   ListFeaturesArgs,
-  'limit' | 'entity' | 'lensPolicy'
+  'limit' | 'entity'
 > & {
   /** Entities fetched per page. Exposed for tests; the default keeps
    *  per-query memory modest while bounding round-trips on big
@@ -359,10 +340,7 @@ export interface AggregateVia {
   parentItemId: string;
   parentLayerId: string;
   parentBbox?: [number, number, number, number];
-  parentWhere?: {
-    combinator: 'all' | 'any';
-    clauses: Array<{ field: string; op: string; value: string }>;
-  };
+  parentWhere?: AttrFilterGroup & { and?: AttrFilterGroup };
   parentGeoLimit?: GeoJsonGeometry;
 }
 
@@ -486,6 +464,9 @@ export function binRangeFor(
  */
 // eslint-disable-next-line no-control-regex
 const ATTR_NAME_RE = /^[^\x00-\x1f]{1,128}$/;
+/** An id in the shape Postgres accepts for a uuid column. */
+const UUID_SHAPE_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Compile an attribute predicate into content-filter SQL.
@@ -629,7 +610,7 @@ async function compileViaFilter(
         FROM observation
         WHERE scope = ${args.parentScope}
           AND valid_from <= ${args.asOf}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ) p
       WHERE p.kind <> 'delete'
         AND p.attrs->>${args.parentField} IS NOT NULL
@@ -693,11 +674,29 @@ async function compileViaFilter(
 /** What `compileViaFilter` stores in the tile cache, as JSON. */
 type CachedViaKeys = { keys: string[] } | { tooMany: true };
 
+type AttrFilterGroup = {
+  combinator: 'all' | 'any';
+  clauses: Array<{ field: string; op: string; value: string }>;
+};
+
+/**
+ * Compiles a filter to `AND (...)`, or null when nothing applies. A
+ * filter may carry a reader's cross-filter selection in `and`
+ * (ScopedLayerFilter in shared-types); that compiles to a second
+ * `AND (...)`, so the author's "match any" stays an OR.
+ */
 function compileAttrFilter(
-  filter: {
-    combinator: 'all' | 'any';
-    clauses: Array<{ field: string; op: string; value: string }>;
-  },
+  filter: AttrFilterGroup & { and?: AttrFilterGroup },
+  alias?: 'p',
+): Prisma.Sql | null {
+  const own = compileAttrGroup(filter, alias);
+  const extra = filter.and ? compileAttrGroup(filter.and, alias) : null;
+  if (own && extra) return Prisma.sql`${own} ${extra}`;
+  return own ?? extra;
+}
+
+function compileAttrGroup(
+  filter: AttrFilterGroup,
   /**
    * Table alias to read `attrs` from. Defaults to unqualified, which
    * is what every caller but the relate's semi-join wants; that one
@@ -709,6 +708,10 @@ function compileAttrFilter(
   const attrs = alias === 'p' ? Prisma.raw('p.attrs') : Prisma.raw('attrs');
   const parts: Prisma.Sql[] = [];
   for (const c of filter.clauses) {
+    // A clause with no field yet (the author is mid-edit) is skipped,
+    // as the map and the in-memory matcher skip it; it used to fail
+    // the whole read.
+    if (!c.field) continue;
     if (!ATTR_NAME_RE.test(c.field)) {
       throw new Error(`Invalid attribute name: ${c.field}`);
     }
@@ -756,6 +759,32 @@ function compileAttrFilter(
       case 'is-not-null':
         parts.push(Prisma.sql`(${text} IS NOT NULL)`);
         break;
+      case 'in': {
+        // A list of feature ids ("Use as filter" in the attribute
+        // table). `_global_id` is the row's entity id, not an
+        // attribute, so it matches the entity column. parseWhere has
+        // already checked the field and that every id is a uuid; the
+        // checks here keep a direct engine caller just as safe. The
+        // reads that join a candidate list name its column
+        // cand_entity, so a bare "entity" here is never ambiguous.
+        if (c.field !== '_global_id') {
+          throw new Error(`"in" applies only to _global_id, not ${c.field}`);
+        }
+        const ids = c.value
+          .split(',')
+          .map((v) => v.trim())
+          .filter((v) => v.length > 0);
+        if (ids.length === 0 || !ids.every((v) => UUID_SHAPE_RE.test(v))) {
+          throw new Error('"in" needs feature ids separated by commas');
+        }
+        const entity = alias === 'p' ? Prisma.raw('p.entity') : Prisma.raw('entity');
+        parts.push(
+          Prisma.sql`(${entity} = ANY(ARRAY[${Prisma.join(
+            ids.map((id) => Prisma.sql`${id}::uuid`),
+          )}]))`,
+        );
+        break;
+      }
       default:
         throw new Error(`Unsupported filter op: ${c.op}`);
     }
@@ -773,6 +802,22 @@ function compileAttrFilter(
  * for a data_layer sublayer. Every adapter call uses this; no other
  * surface should construct scopes by hand.
  */
+/**
+ * Appended to an own-rows predicate on a `create` row selected from
+ * an unaliased `observation`: keeps it only when it is the entity's
+ * latest create. An id deleted and then re-created by someone else
+ * has two creates, and the caller owns it only if they made the
+ * latest one. Same ordering as the per-entity collapse.
+ */
+const LATEST_CREATE_ONLY = Prisma.sql`AND NOT EXISTS (
+              SELECT 1 FROM observation later_create
+              WHERE later_create.scope = observation.scope
+                AND later_create.entity = observation.entity
+                AND later_create.kind = 'create'
+                AND (later_create.valid_from, later_create.tx_time, later_create.id)
+                  > (observation.valid_from, observation.tx_time, observation.id)
+            )`;
+
 export function dataLayerScope(itemId: string, layerId: string): string {
   return `data_layer:${itemId}:${layerId}`;
 }
@@ -866,7 +911,7 @@ export function dataLayerSourceSqlFragment(
         entity, geom, attrs, kind, valid_from, valid_to
       FROM observation
       WHERE scope = '${escapedScope}'${collapse}${candidateSemiJoin}
-      ORDER BY entity, valid_from DESC, tx_time DESC
+      ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
     ) latest
     WHERE kind <> 'delete'${latestRecheck}
   `;
@@ -903,10 +948,7 @@ export interface AggregateFeaturesArgs {
      * against the layer schema; this applies it as a content filter,
      * which is the only place a predicate on row content is safe.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     via?: AggregateVia;
     /**
      * Bin a numeric attribute into ranges and add it as the LAST group
@@ -946,6 +988,18 @@ export interface AggregateFeaturesResult {
 }
 
 /**
+ * Revision of the bytes `computeMvtTileBytes` produces for the same
+ * rows and options. Part of every disk tile's name (with the image
+ * version), so bump it in any change to the MVT query, its layer name,
+ * extent, buffer or feature cap: tiles a previous build wrote to
+ * `TILE_CACHE_DIR` must not be served by this one.
+ */
+export const TILE_BYTES_REVISION = 1;
+
+/** Statement timeout for `scopeDataVersion`, in milliseconds. */
+const SCOPE_VERSION_TIMEOUT_MS = 3_000;
+
+/**
  * Aggregate results live until the layer (or a via parent) is written,
  * which the tile cache's LISTEN connection reports; the TTL only bounds
  * staleness while that listener is down. Ten minutes, not the tile
@@ -982,19 +1036,300 @@ const AGGREGATE_MAX_QUEUED = parseIntEnv('AGGREGATE_MAX_QUEUED', 32, {
   min: 1,
 });
 
+function asItemData(value: unknown): {
+  version?: number;
+  layers?: Array<Record<string, unknown>>;
+} | null {
+  const parsed =
+    typeof value === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(value) as unknown;
+          } catch {
+            return null;
+          }
+        })()
+      : value;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as { version?: number; layers?: Array<Record<string, unknown>> };
+}
+
 @Injectable()
 export class DataLayerEngine {
   constructor(
     private readonly engine: EngineService,
     private readonly prisma: PrismaService,
-    private readonly lensPolicy: LensPolicyService,
     private readonly tileCache: TileCacheService,
   ) {
     this.engine.onWrite((scopes) => this.wrote(scopes));
+    // The disk tile tier files each tile under the data version of
+    // every scope it reads; this is where that version comes from.
+    this.tileCache.setScopeVersionSource(
+      (scope) => this.scopeDataVersion(scope),
+      `r${TILE_BYTES_REVISION}`,
+    );
+  }
+
+  /**
+   * A string that changes whenever the rows of `scope` change, read
+   * from Postgres so it also sees writes this process never heard
+   * about (made while it was down, or deletes, which fire no NOTIFY).
+   * Persisted disk tiles are keyed by it.
+   *
+   *   - row count catches any insert-only or delete-only change;
+   *   - the sum of a hash of every row id catches a delete and an
+   *     insert of the same number of rows in one transaction (a
+   *     replace import), since every inserted row has a fresh id;
+   *   - the count of rows whose valid_from is still ahead catches a
+   *     future-dated row coming into effect with no write at all.
+   *
+   * One indexed pass over the scope's rows, about 100 ms per 300k
+   * rows and 0.35 to 0.55 s per 1.4M, capped by a statement timeout. The cache memoizes it per scope until the next write or the
+   * memory TTL, so it runs at most about once a minute per scope that
+   * is being viewed, and only when memory missed.
+   */
+  async scopeDataVersion(scope: string): Promise<string> {
+    // Bounded well below the 30 s default: a probe that slow costs more
+    // than computing the tile, and a failure only skips the disk (the
+    // cache remembers it for the TTL rather than retrying every miss).
+    const rows = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SET LOCAL statement_timeout = ${SCOPE_VERSION_TIMEOUT_MS}`,
+      );
+      return tx.$queryRaw<Array<{ n: bigint; h: string; f: bigint }>>`
+        SELECT count(*) AS n,
+               COALESCE(sum(hashtextextended(id::text, 0)), 0)::text AS h,
+               count(*) FILTER (WHERE valid_from > now()) AS f
+        FROM observation
+        WHERE scope = ${scope}`;
+    });
+    const row = rows[0];
+    if (!row) return '0:0:0';
+    return `${String(row.n)}:${row.h}:${String(row.f)}`;
   }
 
   scope(itemId: string, layerId: string): string {
     return dataLayerScope(itemId, layerId);
+  }
+
+  /**
+   * Run `write` and the layer syncVersion bump in one transaction.
+   * The item row is locked first. `write` stamps observations with
+   * the next version. The item JSON is updated only when `wrote` is
+   * true. A throw rolls both back, so a failed insert cannot leave
+   * the cursor ahead of the log. A conflict that writes nothing
+   * leaves the cursor where it was.
+   */
+  async commitLayerSync<T>(
+    itemId: string,
+    layerId: string,
+    write: (ctx: {
+      tx: Prisma.TransactionClient;
+      source: SourceRef;
+      syncVersion: number;
+    }) => Promise<{ wrote: boolean; value: T }>,
+  ): Promise<{ syncVersion: number; wrote: boolean; value: T }> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ data_json: unknown }>>`
+        SELECT data_json FROM item WHERE id = ${itemId}::uuid FOR UPDATE
+      `;
+      if (rows.length === 0) throw new NotFoundException('Item not found');
+      const data = asItemData(rows[0]!.data_json);
+      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+        throw new BadRequestException(
+          'syncVersion is only defined on v3 data_layer items.',
+        );
+      }
+      const idx = data.layers.findIndex((l) => l.id === layerId);
+      if (idx < 0) throw new NotFoundException('Layer not found');
+      const current = data.layers[idx]!;
+      const prev =
+        typeof current.syncVersion === 'number' &&
+        Number.isFinite(current.syncVersion)
+          ? Math.max(0, Math.floor(current.syncVersion))
+          : 0;
+      const next = prev + 1;
+      const executed = await write({
+        tx,
+        source: syncVersionSource(next),
+        syncVersion: next,
+      });
+      if (!executed.wrote) {
+        return { syncVersion: prev, wrote: false, value: executed.value };
+      }
+      const nextLayers = data.layers.slice();
+      nextLayers[idx] = { ...current, syncVersion: next };
+      const nextData = { ...data, layers: nextLayers };
+      await tx.$executeRaw`
+        UPDATE item
+        SET data_json = ${JSON.stringify(nextData)}::jsonb,
+            updated_at = now()
+        WHERE id = ${itemId}::uuid
+      `;
+      return { syncVersion: next, wrote: true, value: executed.value };
+    });
+    if (outcome.wrote) this.wrote([this.scope(itemId, layerId)]);
+    return outcome;
+  }
+
+  /**
+   * Stamp a COPY import that is already sealed on `writer` and not
+   * yet committed. Rows this transaction inserted get the next
+   * syncVersion. Entities that a replace removed, and that the new
+   * file did not write back, become delete observations with that
+   * same version so a delta client drops them. The item cursor moves
+   * only when at least one of those rows exists. The caller commits.
+   * An abort before that commit leaves the cursor where it was.
+   *
+   * For a replace, the item row is locked FIRST and the set of live
+   * entities is recomputed under that lock. The replace deleted the
+   * scope at the start of a transaction that can run for minutes, and
+   * online edits are not blocked meanwhile: an edit committed during
+   * the COPY survives the delete. Online writes take the same item lock
+   * (commitLayerSync), so under it the scope is stable. Every entity
+   * still live that this import did not write is tombstoned, and
+   * tombstones are dated with clock_timestamp(), not the transaction's
+   * start time, so they sort after any edit they supersede.
+   */
+  async commitCopiedLayer(
+    writer: import('./copy-writer.js').CopyWriter,
+    args: {
+      itemId: string;
+      layerId: string;
+      removedEntityIds: readonly string[];
+      authorSub: string;
+      /** True for a replace import. */
+      replace?: boolean;
+    },
+  ): Promise<{ wrote: boolean; syncVersion: number }> {
+    const scope = this.scope(args.itemId, args.layerId);
+    let locked: { rows: Array<{ data_json: unknown }> } | null = null;
+    if (args.replace) {
+      locked = await writer.query<{ data_json: unknown }>(
+        'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
+        [args.itemId],
+      );
+    }
+    const fresh = await writer.query<{ entity: string }>(
+      `SELECT entity::text AS entity
+       FROM observation
+       WHERE scope = $1
+         AND xmin = pg_current_xact_id()::xid
+         AND kind <> 'delete'`,
+      [scope],
+    );
+    const written = new Set(fresh.rows.map((row) => row.entity));
+    const removedSet = new Set(
+      args.removedEntityIds.filter((id) => !written.has(id)),
+    );
+    if (args.replace) {
+      // Entities edited online while the COPY ran: their rows were
+      // committed after the replace's delete, so they are still live.
+      const stragglers = await writer.query<{ entity: string }>(
+        `SELECT entity::text AS entity
+         FROM (
+           SELECT DISTINCT ON (entity) entity, kind, xmin
+           FROM observation
+           WHERE scope = $1
+           ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+         ) latest
+         WHERE kind <> 'delete'
+           AND xmin <> pg_current_xact_id()::xid`,
+        [scope],
+      );
+      for (const row of stragglers.rows) {
+        if (!written.has(row.entity)) removedSet.add(row.entity);
+      }
+    }
+    const removed = [...removedSet];
+    if (written.size === 0 && removed.length === 0) {
+      const current = await writer.query<{ data_json: unknown }>(
+        'SELECT data_json FROM item WHERE id = $1::uuid',
+        [args.itemId],
+      );
+      const data = asItemData(current.rows[0]?.data_json);
+      const layer = data?.layers?.find((l) => l.id === args.layerId);
+      const prev =
+        layer && typeof layer.syncVersion === 'number' ? layer.syncVersion : 0;
+      return { wrote: false, syncVersion: prev };
+    }
+    locked ??= await writer.query<{ data_json: unknown }>(
+      'SELECT data_json FROM item WHERE id = $1::uuid FOR UPDATE',
+      [args.itemId],
+    );
+    if (locked.rows.length === 0) throw new NotFoundException('Item not found');
+    const data = asItemData(locked.rows[0]!.data_json);
+    if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+      throw new BadRequestException(
+        'syncVersion is only defined on v3 data_layer items.',
+      );
+    }
+    const idx = data.layers.findIndex((l) => l.id === args.layerId);
+    if (idx < 0) throw new NotFoundException('Layer not found');
+    const current = data.layers[idx]!;
+    const prev =
+      typeof current.syncVersion === 'number' &&
+      Number.isFinite(current.syncVersion)
+        ? Math.max(0, Math.floor(current.syncVersion))
+        : 0;
+    const next = prev + 1;
+    await writer.query(
+      `UPDATE observation
+       SET source = jsonb_set(
+         jsonb_set(
+           COALESCE(source, '{"kind":"data_layer:write"}'::jsonb),
+           '{details}',
+           COALESCE(source->'details', '{}'::jsonb),
+           true
+         ),
+         '{details,syncVersion}',
+         to_jsonb($2::int),
+         true
+       )
+       WHERE scope = $1
+         AND xmin = pg_current_xact_id()::xid`,
+      [scope, next],
+    );
+    if (removed.length > 0) {
+      // A replace physically deleted every earlier row of these
+      // entities, so a restricted delta client (own rows or a geo
+      // limit) has nothing left to prove it ever saw them, and the
+      // tombstone would be filtered out: its device would keep the old
+      // features forever. Mark replace tombstones so listDeltaSince
+      // sends them to every client as payload-free deletes.
+      const tombstoneSource = args.replace
+        ? {
+            ...syncVersionSource(next),
+            details: { syncVersion: next, replaced: true },
+          }
+        : syncVersionSource(next);
+      const ids = removed.map(() => uuidv7());
+      await writer.query(
+        `INSERT INTO observation (
+           id, tx_time, valid_from, scope, entity, kind,
+           author_sub, source, parents
+         )
+         SELECT u.id, now(), clock_timestamp(), $1, u.entity, 'delete',
+                $2, $3::jsonb, '{}'::uuid[]
+         FROM unnest($4::uuid[], $5::uuid[]) AS u(id, entity)`,
+        [
+          scope,
+          args.authorSub,
+          JSON.stringify(tombstoneSource),
+          ids,
+          removed,
+        ],
+      );
+    }
+    const nextLayers = data.layers.slice();
+    nextLayers[idx] = { ...current, syncVersion: next };
+    await writer.query(
+      `UPDATE item
+       SET data_json = $2::jsonb, updated_at = now()
+       WHERE id = $1::uuid`,
+      [args.itemId, JSON.stringify({ ...data, layers: nextLayers })],
+    );
+    return { wrote: true, syncVersion: next };
   }
 
   /**
@@ -1040,14 +1375,15 @@ export class DataLayerEngine {
    * Bulk variant of `writeFeatureCreate`. Used by the v3 ingest path
    * and by anything else that produces many features at once. Routes
    * through `EngineService.writeMany`, so all rows land in batched
-   * INSERTs (500 per statement) and a 100k-row import stays under
-   * the BFF timeout.
+   * INSERTs (WRITE_BATCH_SIZE, 2000 per statement) and a 100k-row
+   * import stays under the BFF timeout.
    *
    * Each input gets a fresh UUIDv7 entity id. The returned array is
    * order-aligned with the input array.
    */
   async writeFeaturesCreate(
     inputs: CreateFeatureArgs[],
+    db?: Prisma.TransactionClient,
   ): Promise<Array<{ globalId: string; observationId: string }>> {
     if (inputs.length === 0) return [];
 
@@ -1064,7 +1400,7 @@ export class DataLayerEngine {
       parents: [],
     }));
 
-    const written = await this.engine.writeMany(observations);
+    const written = await this.engine.writeMany(observations, db);
     return written.map((obs) => ({
       globalId: obs.entity,
       observationId: requireId(obs.id),
@@ -1097,7 +1433,8 @@ export class DataLayerEngine {
    * own: under READ COMMITTED two concurrent retries each take a
    * snapshot before the other commits, both pass the NOT EXISTS, and
    * both insert. So we serialise per (scope, entity) with a
-   * transaction-scoped advisory lock: the second retry blocks on
+   * transaction-scoped advisory lock (per entity bucket, see
+   * featureWriteLocksSql): the second retry blocks on
    * `pg_advisory_xact_lock` until the first commits, then its
    * NOT EXISTS probe (a fresh statement snapshot) sees the committed
    * row and skips the insert. The guarded INSERT is kept as well so
@@ -1112,6 +1449,7 @@ export class DataLayerEngine {
    */
   async writeFeaturesCreateIdempotent(
     inputs: CreateFeatureArgs[],
+    db?: Prisma.TransactionClient,
   ): Promise<
     Array<{ globalId: string; observationId: string | null; deduplicated: boolean }>
   > {
@@ -1138,6 +1476,7 @@ export class DataLayerEngine {
     if (withoutId.length > 0) {
       const written = await this.writeFeaturesCreate(
         withoutId.map((w) => w.args),
+        db,
       );
       withoutId.forEach((w, i) => {
         results[w.index] = { ...written[i]!, deduplicated: false };
@@ -1150,12 +1489,18 @@ export class DataLayerEngine {
       // rows for the same entity in one INSERT would both pass it.
       // First occurrence wins; later ones report deduplicated.
       const firstByEntity = new Map<string, number>();
+      // Input position of each key's first occurrence, so the result
+      // pass below is one lookup per row instead of a rescan of the
+      // batch (quadratic: seconds of blocked event loop at 5,000 rows,
+      // inside the transaction that holds the item row lock).
+      const firstInputIndex = new Map<string, number>();
       const uniqueRows: Array<{ args: CreateFeatureArgs; obs: Observation }> = [];
       for (const w of withId) {
         const scope = this.scope(w.args.itemId, w.args.layerId);
         const key = `${scope}|${w.entity}`;
         if (firstByEntity.has(key)) continue;
         firstByEntity.set(key, uniqueRows.length);
+        firstInputIndex.set(key, w.index);
         // Fill bookkeeping and validate exactly like EngineService
         // .write() would, so this path rejects the same malformed
         // input the plain path rejects.
@@ -1178,12 +1523,6 @@ export class DataLayerEngine {
         uniqueRows.push({ args: w.args, obs });
       }
 
-      // Sorted advisory-lock keys: global ordering prevents
-      // deadlocks between concurrent overlapping batches.
-      const lockKeys = uniqueRows
-        .map(({ obs }) => `${obs.scope}|${obs.entity}`)
-        .sort();
-
       const ids = uniqueRows.map(({ obs }) => requireId(obs.id));
       const txTimes = uniqueRows.map(({ obs }) => obs.txTime as Date);
       const validFroms = uniqueRows.map(({ obs }) => obs.validFrom);
@@ -1199,7 +1538,7 @@ export class DataLayerEngine {
       const authors = uniqueRows.map(({ obs }) => obs.author.sub);
       const sourceJson = uniqueRows.map(({ obs }) => JSON.stringify(obs.source));
 
-      const insertedKeys = await this.prisma.$transaction(async (tx) => {
+      const insertGuarded = async (tx: Prisma.TransactionClient) => {
         // One statement takes every lock in sorted order. The ORDER
         // BY subquery pins evaluation order; xact locks release at
         // commit/rollback automatically.
@@ -1213,10 +1552,7 @@ export class DataLayerEngine {
         // OSM save-as-layer, AGO import, sample seeding) on Prisma 7.8.
         // We discard the result anyway, so ask for a row count instead
         // of rows. Do not "simplify" this back to $queryRaw.
-        await tx.$executeRaw`
-          SELECT pg_advisory_xact_lock(hashtextextended(k, 0))
-          FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) locks
-        `;
+        await tx.$executeRaw(featureWriteLocksSql(scopes, entities));
         // Set-based guarded insert: one row per unnest element,
         // skipped when the entity's latest observation is live.
         // `parents` is the constant empty array on the create path
@@ -1255,7 +1591,7 @@ export class DataLayerEngine {
               FROM observation
               WHERE scope = t.scope
                 AND entity = t.entity
-              ORDER BY valid_from DESC, tx_time DESC
+              ORDER BY valid_from DESC, tx_time DESC, id DESC
               LIMIT 1
             ) latest
             WHERE latest.kind <> 'delete'
@@ -1266,7 +1602,10 @@ export class DataLayerEngine {
         // same entity id deduping in one scope must not mask a real
         // insert of that id in another.
         return new Set(rows.map((r) => `${r.scope}|${r.entity}`));
-      });
+      };
+      const insertedKeys = db
+        ? await insertGuarded(db)
+        : await this.prisma.$transaction(insertGuarded);
 
       for (const w of withId) {
         const scope = this.scope(w.args.itemId, w.args.layerId);
@@ -1277,10 +1616,7 @@ export class DataLayerEngine {
           insertedKeys.has(key) &&
           // A same-batch duplicate is a dedupe even though its first
           // occurrence inserted.
-          withId.find(
-            (x) =>
-              `${this.scope(x.args.itemId, x.args.layerId)}|${x.entity}` === key,
-          ) === w;
+          firstInputIndex.get(key) === w.index;
         results[w.index] = {
           globalId: w.entity,
           observationId: inserted ? requireId(row.obs.id) : null,
@@ -1289,7 +1625,7 @@ export class DataLayerEngine {
       }
     }
 
-    this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
+    if (!db) this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
     return results;
   }
 
@@ -1339,6 +1675,7 @@ export class DataLayerEngine {
    */
   async writeFeatureUpdate(
     args: UpdateFeatureArgs,
+    db?: Prisma.TransactionClient,
   ): Promise<GuardedWriteResult> {
     return this.writeGuarded(
       {
@@ -1354,6 +1691,7 @@ export class DataLayerEngine {
         parents: [],
       },
       args.expectedHeadObservationId,
+      db,
     );
   }
 
@@ -1361,12 +1699,17 @@ export class DataLayerEngine {
   private async writeGuarded(
     observation: Observation,
     expectedHeadObservationId: string | undefined,
+    db?: Prisma.TransactionClient,
   ): Promise<GuardedWriteResult> {
     if (expectedHeadObservationId === undefined) {
-      const obs = await this.engine.write(observation);
+      const obs = await this.engine.write(observation, db);
       return { observationId: requireId(obs.id) };
     }
-    const result = await this.engine.writeIfHead(observation, expectedHeadObservationId);
+    const result = await this.engine.writeIfHead(
+      observation,
+      expectedHeadObservationId,
+      db,
+    );
     if ('written' in result) {
       return { observationId: requireId(result.written.id) };
     }
@@ -1381,22 +1724,171 @@ export class DataLayerEngine {
    */
   async writeFeaturesUpdate(
     inputs: UpdateFeatureArgs[],
-  ): Promise<Array<{ observationId: string }>> {
-    if (inputs.length === 0) return [];
-    const observations: Observation[] = inputs.map((args) => ({
-      scope: this.scope(args.itemId, args.layerId),
-      entity: args.globalId,
-      kind: 'update',
-      validFrom: new Date(),
-      validTo: null,
-      attrs: args.properties ?? null,
-      geom: args.geometry ?? null,
-      author: args.principal,
-      source: args.source ?? DEFAULT_SOURCE,
-      parents: [],
-    }));
-    const written = await this.engine.writeMany(observations);
-    return written.map((obs) => ({ observationId: requireId(obs.id) }));
+    db?: Prisma.TransactionClient,
+  ): Promise<{
+    applied: Array<{ globalId: string; observationId: string }>;
+    conflicts: Array<{ globalId: string; headObservationId: string | null }>;
+  }> {
+    if (inputs.length === 0) return { applied: [], conflicts: [] };
+    const guarded = inputs.some((i) => i.expectedHeadObservationId !== undefined);
+    if (!guarded) {
+      const observations: Observation[] = inputs.map((args) => ({
+        scope: this.scope(args.itemId, args.layerId),
+        entity: args.globalId,
+        kind: 'update',
+        validFrom: new Date(),
+        validTo: null,
+        attrs: args.properties ?? null,
+        geom: args.geometry ?? null,
+        author: args.principal,
+        source: args.source ?? DEFAULT_SOURCE,
+        parents: [],
+      }));
+      const written = await this.engine.writeMany(observations, db);
+      if (!db) this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
+      return {
+        applied: written.map((obs) => ({
+          globalId: obs.entity,
+          observationId: requireId(obs.id),
+        })),
+        conflicts: [],
+      };
+    }
+    const run = (tx: Prisma.TransactionClient) => this.insertUpdatesIfHead(tx, inputs);
+    const result = db ? await run(db) : await this.prisma.$transaction(run);
+    if (!db && result.applied.length > 0) {
+      this.wrote(inputs.map((a) => this.scope(a.itemId, a.layerId)));
+    }
+    return result;
+  }
+
+  /**
+   * Insert update rows whose expected head is still the head, under
+   * one advisory lock per entity. Rows that lost the race are not
+   * inserted. The check and the insert are one statement, so a
+   * commit that lands between them cannot be missed.
+   */
+  private async insertUpdatesIfHead(
+    tx: Prisma.TransactionClient,
+    inputs: UpdateFeatureArgs[],
+  ): Promise<{
+    applied: Array<{ globalId: string; observationId: string }>;
+    conflicts: Array<{ globalId: string; headObservationId: string | null }>;
+  }> {
+    // One row per (scope, entity). A later row for the same entity is
+    // not written; it is reported as a conflict below rather than
+    // vanishing from both lists.
+    const firstByEntity = new Map<string, UpdateFeatureArgs>();
+    const duplicates: UpdateFeatureArgs[] = [];
+    for (const args of inputs) {
+      const key = `${this.scope(args.itemId, args.layerId)}|${args.globalId}`;
+      if (!firstByEntity.has(key)) firstByEntity.set(key, args);
+      else duplicates.push(args);
+    }
+    const rows = [...firstByEntity.values()];
+    const prepared = rows.map((args) => {
+      const obs: Observation = {
+        scope: this.scope(args.itemId, args.layerId),
+        entity: args.globalId,
+        kind: 'update',
+        validFrom: new Date(),
+        validTo: null,
+        attrs: args.properties ?? null,
+        geom: args.geometry ?? null,
+        author: args.principal,
+        source: args.source ?? DEFAULT_SOURCE,
+        parents: [],
+        id: uuidv7(),
+        txTime: new Date(),
+        cell: cellForGeometry(args.geometry ?? null),
+      };
+      validateObservation(obs);
+      // No expected head means last writer wins for that row (the
+      // UpdateFeatureArgs contract). It used to be sent as '' and the
+      // ::uuid cast failed the whole statement in a mixed batch.
+      return { args, obs, expected: args.expectedHeadObservationId ?? null };
+    });
+    await tx.$executeRaw(
+      featureWriteLocksSql(
+        prepared.map(({ obs }) => obs.scope),
+        prepared.map(({ obs }) => obs.entity),
+      ),
+    );
+    const inserted = await tx.$queryRaw<Array<{ id: string; scope: string; entity: string }>>`
+      INSERT INTO observation (
+        id, tx_time, valid_from, valid_to, scope, entity, kind,
+        attrs, geom, cell, author_sub, source, parents
+      )
+      SELECT
+        t.id, t.tx_time, t.valid_from, NULL, t.scope, t.entity, 'update',
+        t.attrs::jsonb,
+        CASE WHEN t.geom_json IS NULL THEN NULL
+             ELSE ST_GeomFromGeoJSON(t.geom_json) END,
+        t.cell, t.author_sub, t.source::jsonb, '{}'::uuid[]
+      FROM unnest(
+        ${prepared.map((p) => requireId(p.obs.id))}::uuid[],
+        ${prepared.map((p) => p.obs.txTime as Date)}::timestamptz[],
+        ${prepared.map((p) => p.obs.validFrom)}::timestamptz[],
+        ${prepared.map((p) => p.obs.scope)}::text[],
+        ${prepared.map((p) => p.obs.entity)}::uuid[],
+        ${prepared.map((p) => (p.obs.attrs !== null ? JSON.stringify(p.obs.attrs) : null))}::text[],
+        ${prepared.map((p) => (p.obs.geom !== null ? JSON.stringify(p.obs.geom) : null))}::text[],
+        ${prepared.map((p) => p.obs.cell ?? null)}::text[],
+        ${prepared.map((p) => p.obs.author.sub)}::text[],
+        ${prepared.map((p) => JSON.stringify(p.obs.source))}::text[],
+        ${prepared.map((p) => p.expected)}::uuid[]
+      ) AS t(id, tx_time, valid_from, scope, entity, attrs,
+             geom_json, cell, author_sub, source, expected_head)
+      WHERE t.expected_head IS NULL
+         OR (
+        SELECT o.id
+        FROM observation o
+        WHERE o.scope = t.scope AND o.entity = t.entity
+        ORDER BY o.valid_from DESC, o.tx_time DESC, o.id DESC
+        LIMIT 1
+      ) = t.expected_head
+      RETURNING id, scope, entity
+    `;
+    // Keyed by scope AND entity: the same entity id in two layers of
+    // one batch must not read the other layer's result.
+    const keyOf = (scope: string, entity: string) => `${scope}|${entity}`;
+    const insertedIds = new Map(inserted.map((r) => [keyOf(r.scope, r.entity), r.id]));
+    const missed = prepared.filter((p) => !insertedIds.has(keyOf(p.obs.scope, p.obs.entity)));
+    let heads = new Map<string, string>();
+    if (missed.length > 0) {
+      const headRows = await tx.$queryRaw<Array<{ scope: string; entity: string; id: string }>>`
+        SELECT DISTINCT ON (o.scope, o.entity)
+          o.scope, o.entity::text AS entity, o.id::text AS id
+        FROM unnest(
+          ${missed.map((p) => p.obs.scope)}::text[],
+          ${missed.map((p) => p.obs.entity)}::uuid[]
+        ) AS m(scope, entity)
+        JOIN observation o ON o.scope = m.scope AND o.entity = m.entity
+        ORDER BY o.scope, o.entity, o.valid_from DESC, o.tx_time DESC, o.id DESC
+      `;
+      heads = new Map(headRows.map((r) => [keyOf(r.scope, r.entity), r.id]));
+    }
+    return {
+      applied: prepared
+        .filter((p) => insertedIds.has(keyOf(p.obs.scope, p.obs.entity)))
+        .map((p) => ({
+          globalId: p.obs.entity,
+          observationId: insertedIds.get(keyOf(p.obs.scope, p.obs.entity))!,
+        })),
+      conflicts: [
+        ...missed.map((p) => ({
+          globalId: p.obs.entity,
+          headObservationId: heads.get(keyOf(p.obs.scope, p.obs.entity)) ?? null,
+        })),
+        ...duplicates.map((args) => {
+          const key = keyOf(this.scope(args.itemId, args.layerId), args.globalId);
+          return {
+            globalId: args.globalId,
+            headObservationId: insertedIds.get(key) ?? heads.get(key) ?? null,
+          };
+        }),
+      ],
+    };
   }
 
   /**
@@ -1407,6 +1899,7 @@ export class DataLayerEngine {
    */
   async writeFeatureDelete(
     args: DeleteFeatureArgs,
+    db?: Prisma.TransactionClient,
   ): Promise<GuardedWriteResult> {
     return this.writeGuarded(
       {
@@ -1422,6 +1915,7 @@ export class DataLayerEngine {
         parents: [],
       },
       args.expectedHeadObservationId,
+      db,
     );
   }
 
@@ -1430,9 +1924,32 @@ export class DataLayerEngine {
    *
    * Returns every observation in this scope whose
    * `source.details.syncVersion` is strictly greater than `since`,
-   * including tombstones (`kind='delete'`). Share geo limits and
-   * own-rows filters match the listFeatures candidate rules so a
-   * field client cannot learn about edits outside its clip.
+   * including tombstones (`kind='delete'`), ordered by the total
+   * order `(syncVersion, tx_time, id)`. One write batch stamps one
+   * syncVersion on every row it writes, so a page can end in the
+   * middle of a version. `after` resumes inside that version: pass
+   * the last row's `observationId` with `since` set to that row's
+   * syncVersion, and the scan continues strictly after that row.
+   * The cursor predicate and ORDER BY use the same tuple, so pages
+   * neither overlap nor skip. See docs/sync-protocol.md.
+   *
+   * Row scope and geo limit are decided per entity, the same way
+   * listFeatures decides them:
+   * - own rows: the entity's `create` observation must be the
+   *   caller's. Every later observation of that entity is returned,
+   *   whoever wrote it, so a supervisor's edit or delete reaches the
+   *   field worker who created the row.
+   * - geo limit: a non-delete observation inside the clip (or with
+   *   no geometry, as on reads) is returned as is. A delete, or an
+   *   observation outside the clip, is returned as a delete with no
+   *   payload only when an earlier observation of the entity was
+   *   visible, so a feature moved out of the share's area leaves the
+   *   device. Entities never visible are never returned, tombstones
+   *   included.
+   *
+   * Each row carries the entity's creation author and time, so a
+   * client can rebuild the same `_created_*` / `_edited_*` /
+   * `_observation_id` properties a full read inlines.
    *
    * Observations written before syncVersion stamping (pre-delta
    * rollout) have no stamp and never appear here; clients that
@@ -1443,32 +1960,105 @@ export class DataLayerEngine {
     itemId: string;
     layerId: string;
     since: number;
+    /** Observation id of the last row already applied. Must belong
+     *  to this layer and carry syncVersion `since`. */
+    after?: string;
     limit?: number;
     geoLimit?: GeoJsonGeometry;
+    /**
+     * WGS84 [w, s, e, n] area the client caches. Applied like the geo
+     * limit (both when both are set): a row outside it is sent only as
+     * a delete for a feature the client held inside it.
+     */
+    bbox?: [number, number, number, number];
     ownRowsOnly?: { userId: string };
     isTable?: boolean;
   }): Promise<DeltaChange[]> {
     const scope = this.scope(args.itemId, args.layerId);
-    const limit = Math.min(Math.max(args.limit ?? 1000, 1), 10000);
+    // 10001, not 10000: listDelta probes one row past the client's page
+    // (clients ask for 10000) to set `truncated`. Capping at 10000 hid
+    // that probe row, so a delta over 10000 rows never reported more.
+    const limit = Math.min(Math.max(args.limit ?? 1000, 1), 10001);
     validateGeoJson(args.geoLimit);
 
-    const filters: Prisma.Sql[] = [
-      Prisma.sql`scope = ${scope}`,
-      Prisma.sql`COALESCE((source->'details'->>'syncVersion')::bigint, 0) > ${args.since}`,
-    ];
-    if (args.ownRowsOnly !== undefined) {
-      filters.push(Prisma.sql`author_sub = ${args.ownRowsOnly.userId}`);
+    const sv = Prisma.sql`COALESCE((o.source->'details'->>'syncVersion')::bigint, 0)`;
+    const filters: Prisma.Sql[] = [Prisma.sql`o.scope = ${scope}`];
+    if (args.after !== undefined) {
+      const anchor = await this.prisma.$queryRaw<Array<{ sync_version: number | bigint }>>`
+        SELECT COALESCE((source->'details'->>'syncVersion')::bigint, 0) AS sync_version
+        FROM observation
+        WHERE scope = ${scope} AND id = ${args.after}::uuid
+        LIMIT 1
+      `;
+      if (anchor.length === 0 || Number(anchor[0]!.sync_version) !== args.since) {
+        throw new BadRequestException(
+          'after must be the observationId of a change at syncVersion since on this layer. Restart the delta from your stored syncVersion.',
+        );
+      }
+      // tx_time is read in SQL, not round-tripped through a JS Date,
+      // so microsecond timestamps from COPY imports compare exactly.
+      filters.push(Prisma.sql`(${sv}, o.tx_time, o.id) > (
+        ${args.since}::bigint,
+        (SELECT a.tx_time FROM observation a
+          WHERE a.scope = ${scope} AND a.id = ${args.after}::uuid LIMIT 1),
+        ${args.after}::uuid
+      )`);
+    } else {
+      filters.push(Prisma.sql`${sv} > ${args.since}`);
     }
-    if (args.isTable !== true && args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
-      // Null geom (deletes, tables) passes the clip so tombstones
-      // still reach the client; spatial creates/updates must intersect.
+    // Tombstones written by a replace import (see commitCopiedLayer).
+    // Nothing earlier of the entity survives, so the own-rows and
+    // geo-limit checks below cannot see that the caller held it. They
+    // go to every caller as bare deletes; that reveals only an id.
+    const replacedTombstone = Prisma.sql`(o.kind = 'delete' AND (o.source->'details'->>'replaced') = 'true')`;
+    if (args.ownRowsOnly !== undefined) {
       filters.push(
-        Prisma.sql`(geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        Prisma.sql`(cr.author_sub = ${args.ownRowsOnly.userId} OR ${replacedTombstone})`,
       );
+    }
+    let insideSql: Prisma.Sql = Prisma.sql`true`;
+    if (args.isTable !== true && args.geoLimit !== undefined && isClosedGeoLimit(args.geoLimit)) {
+      // A closed clip matches nothing, tombstones included.
+      filters.push(Prisma.sql`false`);
+    } else if (args.isTable !== true && (args.geoLimit !== undefined || args.bbox !== undefined)) {
+      const clips: Prisma.Sql[] = [];
+      if (args.geoLimit !== undefined) {
+        clips.push(
+          Prisma.sql`ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(args.geoLimit)}::text), 4326)`,
+        );
+      }
+      if (args.bbox !== undefined) {
+        const [w, s, e, n] = args.bbox;
+        clips.push(
+          Prisma.sql`ST_MakeEnvelope(${w}::float8, ${s}::float8, ${e}::float8, ${n}::float8, 4326)`,
+        );
+      }
+      const inClips = (geom: Prisma.Sql) =>
+        Prisma.join(
+          clips.map((c) => Prisma.sql`ST_Intersects(${geom}, ${c})`),
+          ' AND ',
+        );
+      // A row is visible when it is not a delete and its geometry is
+      // null (unlocated, same rule as reads) or inside the clip. A
+      // delete, or a row outside the clip, is sent only when an
+      // earlier non-delete observation of the entity was visible:
+      // the caller then holds the feature and must drop it. Anything
+      // else (a feature created and deleted outside the clip) is
+      // never sent, so neither its id nor its creator leaks.
+      insideSql = Prisma.sql`(o.kind <> 'delete' AND (o.geom IS NULL OR (${inClips(Prisma.sql`o.geom`)})))`;
+      filters.push(Prisma.sql`(${insideSql} OR ${replacedTombstone} OR EXISTS (
+        SELECT 1 FROM observation p
+        WHERE p.scope = o.scope
+          AND p.entity = o.entity
+          AND p.kind <> 'delete'
+          AND (p.tx_time, p.id) < (o.tx_time, o.id)
+          AND (p.geom IS NULL OR (${inClips(Prisma.sql`p.geom`)}))
+      ))`);
     }
 
     const where = Prisma.join(filters, ' AND ');
+    // Always a LEFT join: a replace tombstone has no create row left.
+    const createJoin = Prisma.sql`LEFT JOIN LATERAL`;
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -1479,29 +2069,45 @@ export class DataLayerEngine {
         geom_json: string | null;
         author_sub: string;
         sync_version: number | bigint | null;
+        inside: boolean;
+        created_by: string | null;
+        created_at: Date | null;
       }>
     >(Prisma.sql`
       SELECT
-        id::text AS id,
-        entity::text AS entity,
-        kind,
-        tx_time,
-        attrs,
-        CASE WHEN geom IS NULL THEN NULL
-             ELSE ST_AsGeoJSON(geom)::text END AS geom_json,
-        author_sub,
-        COALESCE((source->'details'->>'syncVersion')::bigint, 0) AS sync_version
-      FROM observation
+        o.id::text AS id,
+        o.entity::text AS entity,
+        o.kind,
+        o.tx_time,
+        o.attrs,
+        CASE WHEN o.geom IS NULL THEN NULL
+             ELSE ST_AsGeoJSON(o.geom)::text END AS geom_json,
+        o.author_sub,
+        ${sv} AS sync_version,
+        ${insideSql} AS inside,
+        cr.author_sub AS created_by,
+        cr.tx_time AS created_at
+      FROM observation o
+      ${createJoin} (
+        SELECT c.author_sub, c.tx_time
+        FROM observation c
+        WHERE c.scope = o.scope AND c.entity = o.entity AND c.kind = 'create'
+          -- The create this observation belongs to: the latest one at
+          -- or before it. A re-created id (deleted, then created again
+          -- by someone else) belongs to its new creator from then on.
+          AND (c.tx_time, c.id) <= (o.tx_time, o.id)
+        ORDER BY c.tx_time DESC, c.id DESC
+        LIMIT 1
+      ) cr ON true
       WHERE ${where}
-      ORDER BY COALESCE((source->'details'->>'syncVersion')::bigint, 0) ASC,
-               tx_time ASC,
-               id ASC
+      ORDER BY ${sv} ASC, o.tx_time ASC, o.id ASC
       LIMIT ${limit}
     `);
 
     return rows.map((r) => {
+      const outside = r.inside === false;
       let geometry: GeoJsonGeometry | null = null;
-      if (r.geom_json) {
+      if (r.geom_json && !outside) {
         try {
           geometry = JSON.parse(r.geom_json) as GeoJsonGeometry;
         } catch {
@@ -1511,12 +2117,14 @@ export class DataLayerEngine {
       return {
         observationId: r.id,
         entity: r.entity,
-        kind: r.kind as DeltaChange['kind'],
+        kind: outside ? 'delete' : (r.kind as DeltaChange['kind']),
         syncVersion: Number(r.sync_version ?? 0),
         txTime: r.tx_time.toISOString(),
         authorSub: r.author_sub,
+        createdBy: r.created_by,
+        createdAt: r.created_at ? r.created_at.toISOString() : null,
         geometry,
-        properties: r.attrs ?? null,
+        properties: outside ? null : (r.attrs ?? null),
       };
     });
   }
@@ -1592,10 +2200,6 @@ export class DataLayerEngine {
     // (by creates + the outer SELECT) so Postgres materializes
     // the full DISTINCT ON otherwise.
     const usesCandidateCte = candidateFilters.length > 0;
-    const canPushCandidateLimit =
-      usesCandidateCte &&
-      currentFilters.length === 0 &&
-      contentFilters.length === 0;
     // Inner LIMIT must be >= the outer LIMIT to satisfy the user's
     // request, plus a small buffer so the kind='delete' filter in the
     // outer SELECT doesn't leave us short. The previous floor of 100
@@ -1612,13 +2216,15 @@ export class DataLayerEngine {
     if (contentFilters.length === 0) {
       // No content predicates: the DISTINCT ON collapse over the
       // scope IS the correct read (the canonical unfiltered shape).
-      // This branch's SQL is unchanged from before the ghost-feature
-      // fix so the hot map-render path keeps its plan and its cache
-      // behaviour.
-      const candidateLimit = canPushCandidateLimit
-        ? Prisma.sql`ORDER BY entity LIMIT ${innerLimit}`
-        : Prisma.empty;
-      const currentsLimit = Prisma.sql`LIMIT ${innerLimit}`;
+      //
+      // Tombstones are dropped BELOW the limit. The limit used to sit
+      // on the collapse and the `kind <> 'delete'` filter only in the
+      // outer SELECT, so more than 10 deleted entities early in uuid
+      // order made a limited read come back short or empty (after a
+      // replace import, `limit=1` returned nothing). The collapse
+      // still streams in entity order, so the limit still stops the
+      // scan early. For the same reason the candidate set is not
+      // limited either: its first rows may all be deleted entities.
       const candidateCte = usesCandidateCte
         ? Prisma.sql`
         candidate_entities AS (
@@ -1627,7 +2233,6 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             ${candidateExtras}
-          ${candidateLimit}
         ),`
         : Prisma.empty;
       const currentsCandidateFilter = usesCandidateCte
@@ -1636,30 +2241,48 @@ export class DataLayerEngine {
       rows = await this.prisma.$queryRaw<FeatureRow[]>`
       WITH ${candidateCte}
       currents AS (
-        SELECT DISTINCT ON (entity)
-          id AS observation_id,
-          entity,
-          attrs,
-          ST_AsGeoJSON(geom)::jsonb AS geom_geojson,
-          kind,
-          author_sub AS edited_by,
-          tx_time AS edited_at
-        FROM observation
-        WHERE scope = ${scope}
-          AND valid_from <= ${asOf}
-          ${currentsCandidateFilter}
-          ${currentExtras}
-        ORDER BY entity, valid_from DESC, tx_time DESC
-        ${currentsLimit}
+        SELECT
+          latest.observation_id,
+          latest.entity,
+          latest.attrs,
+          ST_AsGeoJSON(latest.geom)::jsonb AS geom_geojson,
+          latest.kind,
+          latest.edited_by,
+          latest.edited_at
+        FROM (
+          SELECT DISTINCT ON (entity)
+            id AS observation_id,
+            entity,
+            attrs,
+            geom,
+            kind,
+            author_sub AS edited_by,
+            tx_time AS edited_at
+          FROM observation
+          WHERE scope = ${scope}
+            AND valid_from <= ${asOf}
+            ${currentsCandidateFilter}
+            ${currentExtras}
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+        ) latest
+        WHERE latest.kind <> 'delete'
+        ORDER BY latest.entity
+        LIMIT ${innerLimit}
       ),
       creates AS (
-        SELECT entity,
+        -- One create per entity. A resurrected entity (a create
+        -- replayed after a delete) has two, and joining both listed it
+        -- twice; the latest one at or before asOf is its birth.
+        SELECT DISTINCT ON (entity)
+               entity,
                author_sub AS created_by,
                tx_time    AS created_at
         FROM observation
         WHERE scope = ${scope}
           AND kind = 'create'
+          AND valid_from <= ${asOf}
           AND entity IN (SELECT entity FROM currents)
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         c.entity,
@@ -1668,10 +2291,13 @@ export class DataLayerEngine {
         c.geom_geojson,
         c.edited_by,
         c.edited_at,
-        cr.created_by,
-        cr.created_at
+        COALESCE(cr.created_by, c.edited_by) AS created_by,
+        COALESCE(cr.created_at, c.edited_at) AS created_at
       FROM currents c
-      JOIN creates cr ON cr.entity = c.entity
+      -- LEFT JOIN: an entity whose create row is missing still reads,
+      -- as it does on tiles, aggregates and search; the head row
+      -- stands in for the creation stamp.
+      LEFT JOIN creates cr ON cr.entity = c.entity
       WHERE c.kind <> 'delete'
       ORDER BY c.entity
       LIMIT ${limit}
@@ -1743,7 +2369,7 @@ export class DataLayerEngine {
           l.kind,
           l.edited_by,
           l.edited_at
-        FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+        FROM (SELECT entity AS cand_entity FROM content_candidates ORDER BY entity) cand
         CROSS JOIN LATERAL (
           SELECT
             id AS observation_id,
@@ -1756,9 +2382,9 @@ export class DataLayerEngine {
             tx_time AS edited_at
           FROM observation
           WHERE scope = ${scope}
-            AND entity = cand.entity
+            AND entity = cand.cand_entity
             AND valid_from <= ${asOf}
-          ORDER BY valid_from DESC, tx_time DESC
+          ORDER BY valid_from DESC, tx_time DESC, id DESC
           LIMIT 1
         ) l
         WHERE l.kind <> 'delete'
@@ -1767,13 +2393,19 @@ export class DataLayerEngine {
         LIMIT ${innerLimit}
       ),
       creates AS (
-        SELECT entity,
+        -- One create per entity. A resurrected entity (a create
+        -- replayed after a delete) has two, and joining both listed it
+        -- twice; the latest one at or before asOf is its birth.
+        SELECT DISTINCT ON (entity)
+               entity,
                author_sub AS created_by,
                tx_time    AS created_at
         FROM observation
         WHERE scope = ${scope}
           AND kind = 'create'
+          AND valid_from <= ${asOf}
           AND entity IN (SELECT entity FROM currents)
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         c.entity,
@@ -1782,10 +2414,13 @@ export class DataLayerEngine {
         c.geom_geojson,
         c.edited_by,
         c.edited_at,
-        cr.created_by,
-        cr.created_at
+        COALESCE(cr.created_by, c.edited_by) AS created_by,
+        COALESCE(cr.created_at, c.edited_at) AS created_at
       FROM currents c
-      JOIN creates cr ON cr.entity = c.entity
+      -- LEFT JOIN: an entity whose create row is missing still reads,
+      -- as it does on tiles, aggregates and search; the head row
+      -- stands in for the creation stamp.
+      LEFT JOIN creates cr ON cr.entity = c.entity
       WHERE c.kind <> 'delete'
       ORDER BY c.entity
       LIMIT ${limit}
@@ -1793,14 +2428,7 @@ export class DataLayerEngine {
     }
 
     const features: DataLayerFeature[] = rows.map(rowToFeature);
-
-    // Phase D: row-level filter through LensPolicyService when the
-    // caller attached a lens with policy text. The service short-
-    // circuits on absent / whitespace policy so the unpolicied
-    // path stays at Phase B speed.
-    const filtered = this.applyLensPolicy(features, args.lensPolicy);
-
-    return { type: 'FeatureCollection', features: filtered };
+    return { type: 'FeatureCollection', features };
   }
 
   /**
@@ -1855,7 +2483,8 @@ export class DataLayerEngine {
 
     if (args.ownRowsOnly !== undefined) {
       candidateFilters.push(
-        Prisma.sql`AND author_sub = ${args.ownRowsOnly.userId}`,
+        Prisma.sql`AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}`,
       );
     }
 
@@ -1890,9 +2519,8 @@ export class DataLayerEngine {
         );
       }
       if (args.geoLimit !== undefined) {
-        const json = JSON.stringify(args.geoLimit);
         contentFilters.push(
-          Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.geoLimit, 'geom', 'AND '),
         );
       }
       if (args.boundaryClip !== undefined) {
@@ -1905,11 +2533,8 @@ export class DataLayerEngine {
 
     if (args.parentFkFilter !== undefined) {
       // Column name is caller-validated against the layer schema in
-      // the v3 controller. Quote-safe by virtue of the schema regex
-      // matching only [a-z0-9_]+; we still wrap in a JSONB key
-      // expression that uses single quotes so the column name lives
-      // inside the SQL string, not as a bound parameter (JSONB key
-      // operators do not bind via $params).
+      // the v3 controller, and reaches SQL as a bound parameter of
+      // the `->>` operator like every other attribute name here.
       const col = sanitizeJsonbKey(args.parentFkFilter.column);
       contentFilters.push(
         Prisma.sql`AND attrs->>${col} = ${args.parentFkFilter.parentId}`,
@@ -1917,28 +2542,28 @@ export class DataLayerEngine {
     }
 
     if (args.timeFilter !== undefined) {
-      // Same sanitize / interpolation discipline as parentFkFilter:
-      // the column is validated against the layer schema upstream
-      // and the value is rendered into the SQL string via the
-      // sanitizeJsonbKey helper (PostgreSQL doesn't bind JSONB key
-      // operators through $params).
+      // The column is validated against the layer schema upstream and
+      // reaches SQL as a bound parameter, as in parentFkFilter.
       //
-      // The regex guard `~` filters to ISO-8601-shaped strings
-      // before the ::timestamptz cast so a single malformed row
-      // (`attrs->>field = "n/a"`) can't 500 the whole query. The
-      // pattern matches `YYYY-MM-DD` plus an optional time tail; any
-      // value that doesn't start with a date drops to NULL via the
-      // CASE expression and naturally fails the comparison.
+      // Only values that start like a date AND parse as a timestamp
+      // are cast; anything else is NULL and fails the comparison. The
+      // date-shape check alone let `0000-00-00`, `2024-02-30` or
+      // `2024-05-01 approx` reach the cast and fail the whole read
+      // with a 500. The shape check stays so words Postgres accepts
+      // as timestamps ('today', 'epoch') do not count as dates.
       const col = sanitizeJsonbKey(args.timeFilter.column);
       const dateRe = '^[0-9]{4}-[0-9]{2}-[0-9]{2}';
+      const value = Prisma.sql`(CASE WHEN attrs->>${col} ~ ${dateRe}
+          AND pg_input_is_valid(attrs->>${col}, 'timestamptz')
+        THEN (attrs->>${col})::timestamptz END)`;
       if (args.timeFilter.from !== undefined) {
         contentFilters.push(
-          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) >= ${args.timeFilter.from}::timestamptz`,
+          Prisma.sql`AND ${value} >= ${args.timeFilter.from}::timestamptz`,
         );
       }
       if (args.timeFilter.to !== undefined) {
         contentFilters.push(
-          Prisma.sql`AND (CASE WHEN attrs->>${col} ~ ${dateRe} THEN (attrs->>${col})::timestamptz END) <= ${args.timeFilter.to}::timestamptz`,
+          Prisma.sql`AND ${value} <= ${args.timeFilter.to}::timestamptz`,
         );
       }
     }
@@ -2124,7 +2749,7 @@ export class DataLayerEngine {
             l.edited_by,
             l.edited_at,
             (TRUE ${contentExtras}) AS content_match
-          FROM content_candidates cand
+          FROM (SELECT entity AS cand_entity FROM content_candidates) cand
           CROSS JOIN LATERAL (
             SELECT
               id AS observation_id,
@@ -2137,20 +2762,26 @@ export class DataLayerEngine {
               tx_time AS edited_at
             FROM observation
             WHERE scope = ${scope}
-              AND entity = cand.entity
+              AND entity = cand.cand_entity
               AND valid_from <= ${asOf}
-            ORDER BY valid_from DESC, tx_time DESC
+            ORDER BY valid_from DESC, tx_time DESC, id DESC
             LIMIT 1
           ) l
         ),
         creates AS (
-          SELECT entity,
+          -- One create per entity. A resurrected entity (a create
+          -- replayed after a delete) has two, and joining both listed it
+          -- twice; the latest one at or before asOf is its birth.
+          SELECT DISTINCT ON (entity)
+                 entity,
                  author_sub AS created_by,
                  tx_time    AS created_at
           FROM observation
           WHERE scope = ${scope}
             AND kind = 'create'
+            AND valid_from <= ${asOf}
             AND entity IN (SELECT entity FROM currents)
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         )
         SELECT
           c.entity,
@@ -2161,10 +2792,13 @@ export class DataLayerEngine {
           c.content_match,
           c.edited_by,
           c.edited_at,
-          cr.created_by,
-          cr.created_at
+          COALESCE(cr.created_by, c.edited_by) AS created_by,
+          COALESCE(cr.created_at, c.edited_at) AS created_at
         FROM currents c
-        JOIN creates cr ON cr.entity = c.entity
+        -- LEFT JOIN: an entity whose create row is missing still reads,
+        -- as it does on tiles, aggregates and search; the head row
+        -- stands in for the creation stamp.
+        LEFT JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `
         : await this.prisma.$queryRaw<IterRow[]>`
@@ -2184,17 +2818,23 @@ export class DataLayerEngine {
             ${cursorFilter}
             ${currentsCandidateFilter}
             ${currentExtras}
-          ORDER BY entity, valid_from DESC, tx_time DESC
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
           LIMIT ${pageSize}
         ),
         creates AS (
-          SELECT entity,
+          -- One create per entity. A resurrected entity (a create
+          -- replayed after a delete) has two, and joining both listed it
+          -- twice; the latest one at or before asOf is its birth.
+          SELECT DISTINCT ON (entity)
+                 entity,
                  author_sub AS created_by,
                  tx_time    AS created_at
           FROM observation
           WHERE scope = ${scope}
             AND kind = 'create'
+            AND valid_from <= ${asOf}
             AND entity IN (SELECT entity FROM currents)
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         )
         SELECT
           c.entity,
@@ -2204,10 +2844,13 @@ export class DataLayerEngine {
           c.kind,
           c.edited_by,
           c.edited_at,
-          cr.created_by,
-          cr.created_at
+          COALESCE(cr.created_by, c.edited_by) AS created_by,
+          COALESCE(cr.created_at, c.edited_at) AS created_at
         FROM currents c
-        JOIN creates cr ON cr.entity = c.entity
+        -- LEFT JOIN: an entity whose create row is missing still reads,
+        -- as it does on tiles, aggregates and search; the head row
+        -- stands in for the creation stamp.
+        LEFT JOIN creates cr ON cr.entity = c.entity
         ORDER BY c.entity
       `;
     if (rows.length === 0) return { features: [], nextCursor: null, asOf };
@@ -2301,10 +2944,7 @@ export class DataLayerEngine {
      * button was the sharpest version, since it wrote a filter the
      * table then ignored.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     /** Share row-scope (#40). See the collapseFilters push below for
      *  why this is entity-level rather than a content predicate. */
     ownRowsOnly?: { userId: string };
@@ -2353,9 +2993,8 @@ export class DataLayerEngine {
         );
       }
       if (args.geoLimit !== undefined) {
-        const json = JSON.stringify(args.geoLimit);
         contentFilters.push(
-          Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.geoLimit, 'geom', 'AND '),
         );
       }
       if (args.boundaryClip !== undefined) {
@@ -2384,6 +3023,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
         )`,
       );
     }
@@ -2406,14 +3046,10 @@ export class DataLayerEngine {
         .replace(/%/g, '\\%')
         .replace(/_/g, '\\_');
       const pattern = `%${escaped}%`;
-      // Cast the entire JSONB to text and ILIKE over it. This
-      // searches every attribute value in one comparison. It's a
-      // single per-row predicate so the planner doesn't fan out
-      // per-column. Returns false negatives on values stored as
-      // numbers/booleans (their text repr matches) which is
-      // acceptable -- the user is doing a free-text search, they
-      // expect "contains" semantics.
-      contentFilters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
+      // Match attribute VALUES only. ILIKE over `attrs::text` also
+      // matched the key names, so typing "status" or "name" returned
+      // every row of a layer that merely has such a column.
+      contentFilters.push(Prisma.sql`AND ${attrValuesIlike(pattern)}`);
     }
     if (args.where !== undefined && args.where.clauses.length > 0) {
       // A CONTENT filter, never a collapse filter. An attribute
@@ -2442,9 +3078,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -2481,11 +3116,39 @@ export class DataLayerEngine {
     // would be another version-dependent filter waiting to
     // resurrect rows if valid_to ever were maintained.
     //
-    // The CALLER's sort is applied as a JS pass over the bounded
-    // result; with limit+1 capped at 5001 the JS sort cost is
-    // negligible.
+    // The caller's sort runs in SQL, before the LIMIT. It used to be
+    // a JS pass over the first limit+1 rows in entity order, so on a
+    // truncated page "largest first" meant the largest of the oldest
+    // 5,000 features, not of the layer. Sorting the collapsed set is
+    // the honest answer and costs a sort of the whole (filtered)
+    // layer; the table's default "extent only" keeps that bounded.
+    // Numbers sort as numbers, then any non-number values as text, so
+    // a column holding both still has one consistent order.
     const sortCol = args.sort;
-    const sortDirDesc = args.dir === 'desc';
+    const dirSql = Prisma.raw(args.dir === 'desc' ? 'DESC' : 'ASC');
+    const orderBy = (alias: string): Prisma.Sql => {
+      const a = Prisma.raw(alias);
+      if (!sortCol || sortCol === '_global_id') {
+        return Prisma.sql`ORDER BY ${a}.entity ${dirSql}`;
+      }
+      if (sortCol === '_edited_at') {
+        return Prisma.sql`ORDER BY ${a}.edited_at ${dirSql}, ${a}.entity`;
+      }
+      if (sortCol === '_created_at') {
+        return Prisma.sql`ORDER BY (
+          SELECT c.tx_time FROM observation c
+          WHERE c.scope = ${scope} AND c.entity = ${a}.entity AND c.kind = 'create'
+          ORDER BY c.valid_from DESC, c.tx_time DESC, c.id DESC
+          LIMIT 1
+        ) ${dirSql} NULLS LAST, ${a}.entity`;
+      }
+      return Prisma.sql`ORDER BY
+        CASE WHEN jsonb_typeof(${a}.attrs->${sortCol}) = 'number'
+             THEN (${a}.attrs->>${sortCol})::numeric END ${dirSql} NULLS LAST,
+        CASE WHEN jsonb_typeof(${a}.attrs->${sortCol}) NOT IN ('number', 'null')
+             THEN ${a}.attrs->>${sortCol} END ${dirSql} NULLS LAST,
+        ${a}.entity`;
+    };
 
     interface Row {
       entity: string;
@@ -2513,9 +3176,10 @@ export class DataLayerEngine {
         WHERE scope = ${scope}
           AND valid_from <= ${asOf}
           ${collapseExtras}
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       ) latest
       WHERE kind <> 'delete'
+      ${orderBy('latest')}
       LIMIT ${fetchN}
     `
         : // Content predicates: candidate-then-collapse-then-filter,
@@ -2532,7 +3196,7 @@ export class DataLayerEngine {
           ${Prisma.join(contentFilters, ' ')}
       )
       SELECT l.entity, l.attrs, l.edited_by, l.edited_at
-      FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+      FROM (SELECT entity AS cand_entity FROM content_candidates ORDER BY entity) cand
       CROSS JOIN LATERAL (
         SELECT
           entity,
@@ -2543,50 +3207,60 @@ export class DataLayerEngine {
           tx_time AS edited_at
         FROM observation
         WHERE scope = ${scope}
-          AND entity = cand.entity
+          AND entity = cand.cand_entity
           AND valid_from <= ${asOf}
-        ORDER BY valid_from DESC, tx_time DESC
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
         ${Prisma.join(contentFilters, ' ')}
-      ORDER BY l.entity
+      ${orderBy('l')}
       LIMIT ${fetchN}
     `;
-    const sortKey: (r: Row) => string | number = (() => {
-      if (sortCol === '_global_id' || !sortCol) {
-        return (r: Row) => r.entity;
-      }
-      if (sortCol === '_edited_at') {
-        return (r: Row) => r.edited_at.getTime();
-      }
-      const col = sortCol;
-      return (r: Row) => {
-        const v = r.attrs?.[col] as unknown;
-        if (v === null || v === undefined) return '';
-        return typeof v === 'number' ? v : String(v);
-      };
-    })();
-    rows.sort((a, b) => {
-      const va = sortKey(a);
-      const vb = sortKey(b);
-      if (va < vb) return sortDirDesc ? 1 : -1;
-      if (va > vb) return sortDirDesc ? -1 : 1;
-      return 0;
-    });
 
     const truncated = rows.length > limit;
     const kept = truncated ? rows.slice(0, limit) : rows;
+    // Creation stamps for the kept rows only, so the table's Edit
+    // history columns are filled. One indexed lookup per entity on the
+    // page, after the LIMIT, rather than a join inside the sorted
+    // collapse above. Same rule as listFeatures: the latest create at
+    // or before asOf is the entity's birth, and the head row stands in
+    // when the log holds no create.
+    const created = new Map<string, { by: string; at: Date }>();
+    if (kept.length > 0) {
+      const createRows = await this.prisma.$queryRaw<
+        Array<{ entity: string; created_by: string; created_at: Date }>
+      >`
+        SELECT DISTINCT ON (entity)
+               entity,
+               author_sub AS created_by,
+               tx_time    AS created_at
+        FROM observation
+        WHERE scope = ${scope}
+          AND kind = 'create'
+          AND valid_from <= ${asOf}
+          AND entity = ANY(${kept.map((r) => r.entity)}::uuid[])
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+      `;
+      for (const c of createRows) {
+        created.set(c.entity, { by: c.created_by, at: c.created_at });
+      }
+    }
     return {
-      features: kept.map((r) => ({
-        id: r.entity,
-        properties: {
-          ...(r.attrs ?? {}),
-          _global_id: r.entity,
-          _edited_by: r.edited_by,
-          _edited_at: r.edited_at.toISOString(),
-        },
-      })),
+      features: kept.map((r) => {
+        const c = created.get(r.entity);
+        return {
+          id: r.entity,
+          properties: {
+            ...(r.attrs ?? {}),
+            _global_id: r.entity,
+            _created_by: c?.by ?? r.edited_by,
+            _created_at: (c?.at ?? r.edited_at).toISOString(),
+            _edited_by: r.edited_by,
+            _edited_at: r.edited_at.toISOString(),
+          },
+        };
+      }),
       count: kept.length,
       truncated,
     };
@@ -2775,9 +3449,8 @@ export class DataLayerEngine {
       );
     }
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       contentFilters.push(
-        Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        geoLimitSql(args.geoLimit, 'geom', 'AND '),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -2797,6 +3470,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
         )`,
       );
     }
@@ -2814,9 +3488,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -3020,7 +3693,7 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND valid_from <= ${asOf}
             ${collapseExtras}
-          ORDER BY entity, valid_from DESC, tx_time DESC
+          ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
         ) l
         WHERE l.kind <> 'delete'
           ${contentExtras}
@@ -3086,7 +3759,8 @@ export class DataLayerEngine {
    * the same query so the caller needs no second round-trip.
    *
    * Matching is two-layered:
-   *   1. `attrs::text ILIKE '%q%'` matches across every attribute.
+   *   1. With no `fields`, every attribute VALUE is matched (not the
+   *      key names, see attrValuesIlike).
    *      No index backs this whole-blob predicate and none should:
    *      the trigram index over the full attrs JSON that briefly
    *      existed (`observation_attrs_trgm`) was dropped by migration
@@ -3163,8 +3837,15 @@ export class DataLayerEngine {
     const pattern = `%${escaped}%`;
 
     const filters: Prisma.Sql[] = [];
-    filters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
     const fields = (args.fields ?? []).filter((f) => f.length > 0);
+    if (fields.length === 0) {
+      // No configured fields: search every value, but only values.
+      // The whole-blob `attrs::text` match also hit key names.
+      filters.push(Prisma.sql`AND ${attrValuesIlike(pattern)}`);
+    } else {
+      // Cheap whole-blob prefilter; the per-field arms below decide.
+      filters.push(Prisma.sql`AND attrs::text ILIKE ${pattern}`);
+    }
     if (fields.length > 0) {
       // Each field name is a bound parameter to `->>`, so an arbitrary
       // attribute key can't be smuggled into the SQL text. The caller
@@ -3175,9 +3856,8 @@ export class DataLayerEngine {
       filters.push(Prisma.sql`AND (${Prisma.join(perField, ' OR ')})`);
     }
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       filters.push(
-        Prisma.sql`AND (geom IS NULL OR ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+        geoLimitSql(args.geoLimit, 'geom', 'AND '),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3201,6 +3881,7 @@ export class DataLayerEngine {
             WHERE scope = ${scope}
               AND kind = 'create'
               AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
           )`
         : Prisma.empty;
 
@@ -3242,13 +3923,13 @@ export class DataLayerEngine {
         CASE WHEN geom IS NOT NULL THEN ST_YMin(geom) END AS miny,
         CASE WHEN geom IS NOT NULL THEN ST_XMax(geom) END AS maxx,
         CASE WHEN geom IS NOT NULL THEN ST_YMax(geom) END AS maxy
-      FROM (SELECT entity FROM content_candidates ORDER BY entity) cand
+      FROM (SELECT entity AS cand_entity FROM content_candidates ORDER BY entity) cand
       CROSS JOIN LATERAL (
         SELECT entity, attrs, geom, kind
         FROM observation
         WHERE scope = ${scope}
-          AND entity = cand.entity
-        ORDER BY valid_from DESC, tx_time DESC
+          AND entity = cand.cand_entity
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
@@ -3325,9 +4006,8 @@ export class DataLayerEngine {
 
     const filters: Prisma.Sql[] = [];
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       filters.push(
-        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        geoLimitIntersectsSql(args.geoLimit),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3380,10 +4060,11 @@ export class DataLayerEngine {
                   WHERE scope = ${scope}
                     AND kind = 'create'
                     AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
                 )`
               : Prisma.empty
           }
-        ORDER BY entity, valid_from DESC, tx_time DESC
+        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
       )
       SELECT
         ST_XMin(ST_Extent(geom)) AS xmin,
@@ -3428,10 +4109,7 @@ export class DataLayerEngine {
   async filteredExtent(args: {
     itemId: string;
     layerId: string;
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     via?: AggregateVia;
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
@@ -3455,13 +4133,13 @@ export class DataLayerEngine {
           WHERE scope = ${scope}
             AND kind = 'create'
             AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
         )`,
       );
     }
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       contentFilters.push(
-        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        geoLimitIntersectsSql(args.geoLimit),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3484,9 +4162,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -3536,14 +4213,14 @@ export class DataLayerEngine {
         ST_YMin(ST_Extent(l.geom)) AS ymin,
         ST_XMax(ST_Extent(l.geom)) AS xmax,
         ST_YMax(ST_Extent(l.geom)) AS ymax
-      FROM (SELECT entity FROM content_candidates) cand
+      FROM (SELECT entity AS cand_entity FROM content_candidates) cand
       CROSS JOIN LATERAL (
         SELECT entity, attrs, geom, kind
         FROM observation
         WHERE scope = ${scope}
-          AND entity = cand.entity
+          AND entity = cand.cand_entity
           AND valid_from <= ${asOf}
-        ORDER BY valid_from DESC, tx_time DESC
+        ORDER BY valid_from DESC, tx_time DESC, id DESC
         LIMIT 1
       ) l
       WHERE l.kind <> 'delete'
@@ -3592,13 +4269,8 @@ export class DataLayerEngine {
    * the web client fetches full attrs on demand.
    *
    * Authz model is the same as listFeatures: the caller has already
-   * passed the canRead check via the controller. We do NOT plumb
-   * lens-policy row filters through MVT yet; if a layer's lens
-   * policy filters rows out, those rows would still leak in the
-   * tile. Acceptable for v1 (lens policies aren't widely used);
-   * tracked as a Phase-D follow-up. Geo-limit and boundary clip,
-   * which are the much more common scoping mechanisms, ARE honored
-   * via ST_Intersects clauses.
+   * passed the canRead check via the controller. Geo-limit and
+   * boundary clip ARE honored via ST_Intersects clauses.
    *
    * Geometry-less ("table mode") sublayers return an empty MVT.
    */
@@ -3640,10 +4312,7 @@ export class DataLayerEngine {
      * is for pushing an author's static filter down, where the saving
      * is bytes on the wire rather than correctness.
      */
-    where?: {
-      combinator: 'all' | 'any';
-      clauses: Array<{ field: string; op: string; value: string }>;
-    };
+    where?: AttrFilterGroup & { and?: AttrFilterGroup };
     /**
      * Relate. This one IS correctness: a semi-join against the keys
      * surviving on a parent layer cannot be expressed client side,
@@ -3655,6 +4324,21 @@ export class DataLayerEngine {
      * right; see FeaturesController.resolveVia.
      */
     via?: AggregateVia;
+    /**
+     * Per-layer feature cap from the layer's tile settings. Clamped to
+     * the server ceiling (MAX_FEATURES_PER_TILE) in the compute step, so
+     * a setting can only lower it. Part of the cache key like every
+     * other option here.
+     */
+    maxFeaturesPerTile?: number;
+    /**
+     * Add a second MVT layer, `labels`, with one point per line or
+     * polygon feature, emitted only in the tile that contains it, so a
+     * map can label each feature exactly once instead of once per tile
+     * piece. Off unless the layer's tile settings turn it on. Part of
+     * the cache key like every other option here.
+     */
+    labelPoints?: boolean;
   }): Promise<TileResult> {
     if (args.isTable === true) {
       // Empty MVT is stable (always Buffer.alloc(0)); compute the
@@ -3692,7 +4376,13 @@ export class DataLayerEngine {
     const result = await this.tileCache.getOrCompute(
       cacheKey,
       () => this.computeMvtTileBytes(args, scope),
-      { dependsOn },
+      // persist: the disk tier, when configured, keeps this tile across
+      // restarts under the same key plus the data version of `scope`.
+      // Never a relate tile: its parent key set comes from the memory
+      // cache with the aggregate TTL, so after a write nobody heard (a
+      // restore, a raw DELETE) it can be older than the parent version
+      // the file would be named by, and the disk would keep it forever.
+      { dependsOn, persist: !args.via },
     );
     return { mvt: result.buf, etag: result.etag };
   }
@@ -3717,10 +4407,8 @@ export class DataLayerEngine {
       ownRowsOnly?: { userId: string };
       fields?: Array<{ name: string; type?: string }>;
       maxFeaturesPerTile?: number;
-      where?: {
-        combinator: 'all' | 'any';
-        clauses: Array<{ field: string; op: string; value: string }>;
-      };
+      labelPoints?: boolean;
+      where?: AttrFilterGroup & { and?: AttrFilterGroup };
       via?: AggregateVia;
     },
     scope: string,
@@ -3730,9 +4418,8 @@ export class DataLayerEngine {
     let viaCte: Prisma.Sql | null = null;
 
     if (args.geoLimit !== undefined) {
-      const json = JSON.stringify(args.geoLimit);
       filters.push(
-        Prisma.sql`AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+        geoLimitIntersectsSql(args.geoLimit),
       );
     }
     if (args.boundaryClip !== undefined) {
@@ -3755,9 +4442,8 @@ export class DataLayerEngine {
         );
       }
       if (args.via.parentGeoLimit !== undefined) {
-        const json = JSON.stringify(args.via.parentGeoLimit);
         parentFilters.push(
-          Prisma.sql`AND (p.geom IS NULL OR ST_Intersects(p.geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326)))`,
+          geoLimitSql(args.via.parentGeoLimit, 'p.geom', 'AND '),
         );
       }
       if (args.via.parentWhere !== undefined) {
@@ -3803,20 +4489,25 @@ export class DataLayerEngine {
     // path should have caught it upstream.
     const SAFE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
     const fieldProjections: Prisma.Sql[] = [];
+    // Column names the tile query already uses. A declared field with
+    // one of these names (a CSV's WKT column called `geom` kept as an
+    // attribute) made two columns of the same name, and every tile of
+    // the layer failed as ambiguous. Such a field is left out of the
+    // tile; GeoJSON reads still carry it. A field declared twice is
+    // projected once for the same reason.
+    const projected = new Set<string>(['geom', '_global_id', '_label_point']);
     if (Array.isArray(args.fields)) {
       for (const f of args.fields) {
         if (!SAFE_NAME.test(f.name)) continue;
-        const cast = sqlCastForFieldType(f.type);
+        if (projected.has(f.name)) continue;
+        projected.add(f.name);
         // `attrs` is the JSONB column on observation; `->>'name'`
         // extracts as text, then we cast where the schema declares
-        // a numeric / boolean / date type so MapLibre's typed
-        // expressions (e.g. `['>', ['get', 'pop'], 5]`) actually
-        // work without string coercion warnings.
-        fieldProjections.push(
-          Prisma.raw(
-            `(attrs->>'${f.name}')${cast} AS "${f.name}"`,
-          ),
-        );
+        // a numeric type so MapLibre's typed expressions (e.g.
+        // `['>', ['get', 'pop'], 5]`) actually work without string
+        // coercion warnings. The cast is guarded: see
+        // tileFieldProjection.
+        fieldProjections.push(Prisma.raw(tileFieldProjection(f.name, f.type)));
       }
     }
     const fieldProjection =
@@ -3895,7 +4586,16 @@ export class DataLayerEngine {
     // 30s statement_timeout and downstream MVT serialization stays
     // bounded. Layers that are sparse enough to fit in fewer rows
     // are unaffected -- this is a worst-case ceiling, not a floor.
-    const MAX_FEATURES_PER_TILE = args.maxFeaturesPerTile ?? 5000;
+    //
+    // A layer's tile settings may lower the cap (never raise it), so
+    // the requested value is clamped to the ceiling here, where the
+    // SQL is built, rather than trusted from the caller.
+    const MAX_FEATURES_PER_TILE =
+      args.maxFeaturesPerTile !== undefined &&
+      Number.isInteger(args.maxFeaturesPerTile) &&
+      args.maxFeaturesPerTile >= 1
+        ? Math.min(args.maxFeaturesPerTile, SERVER_MAX_FEATURES_PER_TILE)
+        : SERVER_MAX_FEATURES_PER_TILE;
     // Row-scope (#40), mirroring listFeatures' candidate_entities CTE
     // exactly. The predicate belongs on the entity's `create`
     // observation, NOT on whichever version this tile happens to
@@ -3910,16 +4610,127 @@ export class DataLayerEngine {
             WHERE scope = ${scope}
               AND kind = 'create'
               AND author_sub = ${args.ownRowsOnly.userId}
+            ${LATEST_CREATE_ONLY}
           ),`
         : Prisma.empty;
     const ownerFilter =
       args.ownRowsOnly !== undefined
         ? Prisma.sql`AND entity IN (SELECT entity FROM candidate_entities)`
         : Prisma.empty;
+    // Label points (tile settings `labelPoints`). One point per line
+    // or polygon, computed from the feature's WHOLE stored geometry
+    // (EPSG:4326, the layer's CRS) before any tile clipping, so every
+    // tile that sees the feature computes the same point:
+    //
+    //   polygon: ST_PointOnSurface, which is guaranteed to be inside
+    //            the polygon (a centroid is not, for a C shape);
+    //   line:    the midpoint of the longest part after merging, so a
+    //            multi-part road is labelled on its main run.
+    //
+    // The point is then emitted only in the tile that contains it,
+    // tested half-open in Web Mercator (left and top edges in, right
+    // and bottom edges out), so a point exactly on a tile edge lands
+    // in one tile, not two. Neighbouring tiles that also see the
+    // feature compute the same point and leave it out. The work is
+    // bounded by `currents`, which already carries the per-tile cap,
+    // and it inherits every access filter applied there (geo limit,
+    // row scope, where, via), so a label never names a feature the
+    // viewer cannot see.
+    //
+    // `_label_point` marks a feature in the `features` layer whose
+    // label point exists and lies inside the Web Mercator world (so
+    // exactly one tile emits it). The map labels marked features from
+    // the `labels` layer and everything else from the geometry. A
+    // point above about 85 degrees latitude, or a degenerate geometry
+    // with no point, is not marked, so it keeps its geometry label.
+    //
+    // A tile whose candidate set reached the feature cap is a sample,
+    // not the whole picture: a feature can be cut from the one tile
+    // that holds its label point. Such a tile emits no `labels` layer
+    // and marks nothing, so the map falls back to geometry labels
+    // there, as it did before label points existed.
+    //
+    // Cost: one point per feature in the tile, computed from the full
+    // stored geometry in every tile the feature crosses. Cheap for
+    // parcels and roads; heavier for very large polygons. There is no
+    // safe prefilter: the flag needs the point in every tile anyway.
+    const wantLabels = args.labelPoints === true;
+    const tileEnv = Prisma.sql`ST_TileEnvelope(${args.z}::integer, ${args.x}::integer, ${args.y}::integer)`;
+    // Half-open world bounds in EPSG:4326, matching the half-open tile
+    // test below: a point here falls in exactly one tile at any zoom.
+    const MERC_MAX_LAT = 85.0511287798066;
+    const labelPrelude = wantLabels
+      ? Prisma.sql`
+      label_cap AS (
+        SELECT count(*) >= ${MAX_FEATURES_PER_TILE} AS hit FROM tile_candidates
+      ),
+      label_points AS (
+        SELECT
+          c.entity,
+          CASE
+            WHEN lp.pt IS NOT NULL
+              AND ST_X(lp.pt) >= -180 AND ST_X(lp.pt) < 180
+              AND ST_Y(lp.pt) > ${-MERC_MAX_LAT} AND ST_Y(lp.pt) < ${MERC_MAX_LAT}
+            THEN ST_Transform(lp.pt, 3857)
+          END AS lp3857
+        FROM currents c
+        CROSS JOIN LATERAL (
+          SELECT CASE
+            WHEN ST_Dimension(c.geom) = 2 THEN
+              ST_PointOnSurface(ST_CollectionExtract(c.geom, 3))
+            WHEN ST_Dimension(c.geom) = 1 THEN (
+              SELECT ST_LineInterpolatePoint(part.geom, 0.5)
+              FROM ST_Dump(ST_LineMerge(ST_CollectionExtract(c.geom, 2))) part
+              WHERE GeometryType(part.geom) = 'LINESTRING'
+              ORDER BY ST_Length(part.geom) DESC
+              LIMIT 1
+            )
+          END AS pt
+        ) lp
+        WHERE NOT (SELECT hit FROM label_cap)
+      ),`
+      : Prisma.empty;
+    const labelMarker = wantLabels
+      ? Prisma.sql`, (lpj.lp3857 IS NOT NULL) AS _label_point`
+      : Prisma.empty;
+    const labelJoin = wantLabels
+      ? Prisma.sql`LEFT JOIN label_points lpj ON lpj.entity = currents.entity`
+      : Prisma.empty;
+    const labelCtes = wantLabels
+      ? Prisma.sql`,
+      label_features AS (
+        SELECT
+          currents.entity::text AS _global_id,
+          ST_AsMVTGeom(lpj.lp3857, ${tileEnv}, 4096, 0, true) AS geom
+          ${fieldProjection}
+        FROM currents
+        JOIN label_points lpj ON lpj.entity = currents.entity
+        WHERE lpj.lp3857 IS NOT NULL
+          AND ST_X(lpj.lp3857) >= ST_XMin(${tileEnv})
+          AND ST_X(lpj.lp3857) <  ST_XMax(${tileEnv})
+          AND ST_Y(lpj.lp3857) >  ST_YMin(${tileEnv})
+          AND ST_Y(lpj.lp3857) <= ST_YMax(${tileEnv})
+      ),
+      visible_labels AS (
+        SELECT * FROM label_features WHERE geom IS NOT NULL
+      )`
+      : Prisma.empty;
+    // Without labels the statement is exactly what it always was. With
+    // them, the two layers are encoded separately and concatenated:
+    // an MVT is a protobuf whose layers field repeats, so two encoded
+    // tiles back to back are one tile with both layers.
+    const finalSelect = wantLabels
+      ? Prisma.sql`COALESCE((SELECT ST_AsMVT(visible_features, 'features', 4096, 'geom') FROM visible_features), '\\x'::bytea)
+          || COALESCE((SELECT ST_AsMVT(visible_labels, 'labels', 4096, 'geom') FROM visible_labels), '\\x'::bytea) AS mvt`
+      : Prisma.sql`COALESCE(ST_AsMVT(visible_features, 'features', 4096, 'geom'), '\\x'::bytea) AS mvt
+      FROM visible_features`;
     const rows = await this.prisma.$queryRaw<TileRow[]>`
       WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty} ${ownerCte}
       tile_candidates AS (
-        SELECT entity
+        -- Named cand_entity so the predicates re-checked in currents
+        -- below see one "entity" column (the latest row's), not two:
+        -- an id-list filter on _global_id reads it.
+        SELECT entity AS cand_entity
         FROM observation
         WHERE scope = ${scope}
           ${ownerFilter}
@@ -3969,8 +4780,8 @@ export class DataLayerEngine {
           SELECT entity, geom, kind${currentsAttrs}
           FROM observation
           WHERE scope = ${scope}
-            AND entity = cand.entity
-          ORDER BY valid_from DESC, tx_time DESC
+            AND entity = cand.cand_entity
+          ORDER BY valid_from DESC, tx_time DESC, id DESC
           LIMIT 1
         ) l
         WHERE l.kind <> 'delete'
@@ -3984,25 +4795,28 @@ export class DataLayerEngine {
           ${filterExtras}
         LIMIT ${MAX_FEATURES_PER_TILE}
       ),
+      ${labelPrelude}
       tile_features AS (
         SELECT
-          entity::text AS _global_id,
+          currents.entity::text AS _global_id,
           ST_AsMVTGeom(
-            ST_Transform(geom, 3857),
+            ST_Transform(currents.geom, 3857),
             ST_TileEnvelope(${args.z}::integer, ${args.x}::integer, ${args.y}::integer),
             4096,
             64,
             true
           ) AS geom
+          ${labelMarker}
           ${fieldProjection}
         FROM currents
+        ${labelJoin}
       ),
       visible_features AS (
         SELECT * FROM tile_features WHERE geom IS NOT NULL
       )
+      ${labelCtes}
       SELECT
-        COALESCE(ST_AsMVT(visible_features, 'features', 4096, 'geom'), '\\x'::bytea) AS mvt
-      FROM visible_features
+        ${finalSelect}
     `;
     // Prisma 7's @prisma/adapter-pg returns Postgres `bytea` values
     // as Uint8Array, not Buffer. The previous `raw instanceof Buffer`
@@ -4019,40 +4833,6 @@ export class DataLayerEngine {
     }
     return Buffer.alloc(0);
   }
-
-  /**
-   * Apply a Cedar-evaluated row filter to the engine's read output.
-   * Pulled into its own method so the spec for Phase D can drive
-   * it directly without rebuilding a full PostGIS query path.
-   *
-   * Honours the caller-supplied `spatialKeysFor` to resolve spatial
-   * predicates upstream of the policy check; the policy then sees
-   * a Set<string> of keys the feature qualifies for and evaluates
-   * `.contains("assigned_area")` natively.
-   */
-  private applyLensPolicy(
-    features: DataLayerFeature[],
-    spec: ListFeaturesArgs['lensPolicy'],
-  ): DataLayerFeature[] {
-    if (!spec) return features;
-    if (!spec.lens.policy || spec.lens.policy.trim().length === 0) {
-      return features;
-    }
-    return features.filter((feature) => {
-      const spatial = spec.spatialKeysFor
-        ? spec.spatialKeysFor(feature)
-        : [];
-      return this.lensPolicy.checkFeature({
-        user: spec.user,
-        lens: spec.lens,
-        feature: {
-          entityId: feature.id,
-          attrs: feature.properties as Record<string, unknown>,
-          spatial,
-        },
-      });
-    });
-  }
 }
 
 /**
@@ -4061,6 +4841,17 @@ export class DataLayerEngine {
  * validation, so this is belt-and-suspenders against an upstream miss.
  * Replaces every character that is not `[a-zA-Z0-9_]` with `_`.
  */
+/**
+ * True when any top-level attribute VALUE matches the ILIKE pattern.
+ * Attribute rows are JSON objects; anything else falls back to the
+ * text match so jsonb_each_text never sees a non-object.
+ */
+function attrValuesIlike(pattern: string): Prisma.Sql {
+  return Prisma.sql`(CASE WHEN jsonb_typeof(attrs) = 'object'
+    THEN EXISTS (SELECT 1 FROM jsonb_each_text(attrs) kv WHERE kv.value ILIKE ${pattern})
+    ELSE attrs::text ILIKE ${pattern} END)`;
+}
+
 function sanitizeJsonbKey(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_]/g, '_');
 }
@@ -4073,16 +4864,20 @@ function requireId(id: string | undefined): string {
 }
 
 /**
- * Map a FeatureFieldType to a PostgreSQL cast suffix so the JSONB
- * `->>` text extraction lands in MVT with the right typed
- * property. Boolean and date are intentionally string-typed in
- * MVT (MVT itself doesn't have boolean/date wire types; MapLibre
- * compares them as strings), so we leave those uncast. Number
- * fields go through `::numeric` so `['>', ['get', 'pop'], 5]`
- * works without coercion warnings. Unknown / missing types fall
- * back to text.
+ * The SQL that projects one attribute into an MVT tile, typed by its
+ * FeatureFieldType. Boolean and date are intentionally string-typed
+ * in MVT (MVT itself doesn't have boolean/date wire types; MapLibre
+ * compares them as strings), so those stay text. Number fields are
+ * cast to numeric so `['>', ['get', 'pop'], 5]` works without
+ * coercion warnings, but only when the value parses: an empty string
+ * or text left over from before a type change would otherwise fail
+ * the whole tile with 22P02. Such a value projects as null, the same
+ * guard the aggregates use. Unknown / missing types fall back to
+ * text. `name` must already match SAFE_NAME.
  */
-function sqlCastForFieldType(type: string | undefined): string {
-  if (type === 'number') return '::numeric';
-  return '';
+export function tileFieldProjection(name: string, type: string | undefined): string {
+  if (type === 'number') {
+    return `CASE WHEN pg_input_is_valid(attrs->>'${name}', 'numeric') THEN (attrs->>'${name}')::numeric END AS "${name}"`;
+  }
+  return `(attrs->>'${name}') AS "${name}"`;
 }

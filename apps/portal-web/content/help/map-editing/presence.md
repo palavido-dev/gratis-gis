@@ -63,6 +63,16 @@ immediately for everyone else.
 - Presence is signed-in only. Anonymous public-link visitors do
   not appear in the avatar strip.
 
+## Live markup co-editing
+
+When two signed-in people open the same markup set, edits merge
+over a short-lived CRDT room (Yjs) instead of last-write-wins on
+the whole feature list. Only the set author or a map editor can
+write; other viewers with map access can watch. Anonymous markup
+stays on the older REST path. If the live socket cannot open,
+markup falls back to ordinary save-and-refresh (no pretend merge).
+Cursors still use the presence WebSocket above.
+
 ## Related
 
 - [Markup](map-editing-markup) for leaving persistent pins on

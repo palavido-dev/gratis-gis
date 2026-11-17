@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationStatus } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { textEnv } from '../common/env.js';
 import { EmailTransport } from './email-transport.js';
 import { NotificationTemplateService } from './notification-template.service.js';
 import { renderNotification, type RenderContext } from './templates.js';
@@ -52,6 +53,8 @@ export class NotificationsWorker {
   private readonly enabled: boolean;
   private readonly batchSize: number;
   private readonly maxAttempts: number;
+  /** See expireStaleQueued(). */
+  private readonly maxQueuedMs: number;
   private readonly renderCtx: RenderContext;
 
   constructor(
@@ -70,8 +73,14 @@ export class NotificationsWorker {
     this.maxAttempts = Number(
       this.cfg.get<string>('NOTIFICATIONS_MAX_ATTEMPTS') ?? '5',
     );
+    const maxQueuedHours = Number(
+      this.cfg.get<string>('NOTIFICATIONS_MAX_QUEUED_HOURS') ?? '48',
+    );
+    this.maxQueuedMs =
+      (Number.isFinite(maxQueuedHours) && maxQueuedHours > 0 ? maxQueuedHours : 48) *
+      3_600_000;
     this.renderCtx = {
-      orgLabel: this.cfg.get<string>('PORTAL_NAME') ?? 'GratisGIS',
+      orgLabel: textEnv(this.cfg.get<string>('PORTAL_NAME'), 'GratisGIS'),
       baseUrl:
         (this.cfg.get<string>('PORTAL_BASE_URL') ?? 'http://localhost:3000').replace(
           /\/$/,
@@ -102,6 +111,9 @@ export class NotificationsWorker {
       // so gating it on SMTP would leave the stuck row invisible until
       // SMTP recovered. The drain itself still needs a live transport.
       await this.reclaimStaleSending();
+      // Also before the transport check: this is what keeps the queue
+      // from growing while SMTP is off.
+      await this.expireStaleQueued();
       if (await this.transport.isAvailable()) {
         await this.drainBatch();
       }
@@ -148,6 +160,9 @@ export class NotificationsWorker {
         status: NotificationStatus.queued,
         scheduledAt: new Date(),
         sendingAt: null,
+        // Counts as an attempt, so a row that strands every time runs
+        // out of budget instead of being retried forever.
+        attempts: { increment: 1 },
         lastError: 'Sending was interrupted before it completed; requeued.',
       },
     });
@@ -174,6 +189,37 @@ export class NotificationsWorker {
   }
 
   /**
+   * Give up on queued rows that have waited too long to be sent
+   * (NOTIFICATIONS_MAX_QUEUED_HOURS, default 48). Enqueue only needs
+   * NOTIFICATIONS_ENABLED, while sending needs a working SMTP row, so
+   * with SMTP off or unset every share, mention and form receipt kept
+   * queuing, and the whole backlog went out (weeks-old "expires soon"
+   * warnings included) the moment SMTP came back. Marked failed with
+   * a reason, so the admin list shows them and retention prunes them.
+   *
+   * Measured from scheduledAt, the time the row became due. A retry's
+   * backoff and an admin's Retry both move it forward, so neither is
+   * expired by this.
+   */
+  async expireStaleQueued(): Promise<number> {
+    const hours = Math.round(this.maxQueuedMs / 3_600_000);
+    const res = await this.prisma.notification.updateMany({
+      where: {
+        status: NotificationStatus.queued,
+        scheduledAt: { lt: new Date(Date.now() - this.maxQueuedMs) },
+      },
+      data: {
+        status: NotificationStatus.failed,
+        lastError: `Not sent: waited more than ${hours} hours for the mail server.`,
+      },
+    });
+    if (res.count > 0) {
+      this.log.warn(`Expired ${res.count} queued notification(s) older than ${hours} hours.`);
+    }
+    return res.count;
+  }
+
+  /**
    * Pull up to batchSize queued rows whose scheduledAt has elapsed
    * and process them sequentially. Sequential rather than parallel
    * because nodemailer's SMTP transport is connection-pooled but
@@ -194,7 +240,14 @@ export class NotificationsWorker {
     if (due.length === 0) return;
     this.log.debug(`Draining ${due.length} notification(s)`);
     for (const row of due) {
-      await this.processOne(row.id);
+      try {
+        await this.processOne(row.id);
+      } catch (err) {
+        // One row must not stop the rest of the batch.
+        this.log.warn(
+          `Notification ${row.id} could not be processed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 
@@ -235,21 +288,30 @@ export class NotificationsWorker {
     let rendered = null as Awaited<
       ReturnType<typeof renderNotification>
     > | null;
-    const recipient = await this.prisma.user.findUnique({
-      where: { id: row.userId },
-      select: { orgId: true },
-    });
-    if (recipient?.orgId) {
-      rendered = await this.templates.renderOverride(
-        recipient.orgId,
-        row.type,
-        row.channel,
-        row.payload,
-        this.renderCtx,
-      );
-    }
-    if (!rendered) {
-      rendered = renderNotification(row.type, row.payload, this.renderCtx);
+    try {
+      const recipient = await this.prisma.user.findUnique({
+        where: { id: row.userId },
+        select: { orgId: true },
+      });
+      if (recipient?.orgId) {
+        rendered = await this.templates.renderOverride(
+          recipient.orgId,
+          row.type,
+          row.channel,
+          row.payload,
+          this.renderCtx,
+        );
+      }
+      if (!rendered) {
+        rendered = renderNotification(row.type, row.payload, this.renderCtx);
+      }
+    } catch (err) {
+      // A lookup or render that throws (a malformed payload, a
+      // transient database error) is a failed attempt like a failed
+      // send. Left outside, it stranded the row in `sending`, cut the
+      // batch short, and never counted against the retry budget.
+      await this.recordFailure(row, err);
+      return;
     }
     if (!rendered) {
       await this.prisma.notification.update({
@@ -285,41 +347,50 @@ export class NotificationsWorker {
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const nextAttempts = row.attempts + 1;
-      const isFinal = nextAttempts >= this.maxAttempts;
-      // Backoff in milliseconds: 60s, 5m, 30m, 2h, 12h. The index
-      // is the attempt-just-completed; if next attempt would still
-      // be retryable, push scheduledAt forward by the matching
-      // delay. The last entry is reused if we somehow exceed it.
-      const backoffMs = [
-        60_000,
-        5 * 60_000,
-        30 * 60_000,
-        2 * 60 * 60_000,
-        12 * 60 * 60_000,
-      ];
-      const delay =
-        backoffMs[Math.min(nextAttempts - 1, backoffMs.length - 1)] ??
-        backoffMs[backoffMs.length - 1]!;
-      await this.prisma.notification.update({
-        where: { id },
-        data: {
-          status: isFinal
-            ? NotificationStatus.failed
-            : NotificationStatus.queued,
-          attempts: { increment: 1 },
-          // Truncate at ~1KB so a verbose SMTP error doesn't blow
-          // up the row size.
-          lastError: message.slice(0, 1024),
-          scheduledAt: isFinal ? row.scheduledAt : new Date(Date.now() + delay),
-          sendingAt: null,
-        },
-      });
-      this.log.warn(
-        `Notification ${id} attempt ${nextAttempts} failed: ${message}` +
-          (isFinal ? ' (final, marked failed)' : ' (will retry)'),
-      );
+      await this.recordFailure(row, err);
     }
+  }
+
+  /** Count a failed attempt and requeue with backoff, or fail the row. */
+  private async recordFailure(
+    row: { id: string; attempts: number; scheduledAt: Date },
+    err: unknown,
+  ) {
+    const id = row.id;
+    const message = err instanceof Error ? err.message : String(err);
+    const nextAttempts = row.attempts + 1;
+    const isFinal = nextAttempts >= this.maxAttempts;
+    // Backoff in milliseconds: 60s, 5m, 30m, 2h, 12h. The index
+    // is the attempt-just-completed; if next attempt would still
+    // be retryable, push scheduledAt forward by the matching
+    // delay. The last entry is reused if we somehow exceed it.
+    const backoffMs = [
+      60_000,
+      5 * 60_000,
+      30 * 60_000,
+      2 * 60 * 60_000,
+      12 * 60 * 60_000,
+    ];
+    const delay =
+      backoffMs[Math.min(nextAttempts - 1, backoffMs.length - 1)] ??
+      backoffMs[backoffMs.length - 1]!;
+    await this.prisma.notification.update({
+      where: { id },
+      data: {
+        status: isFinal
+          ? NotificationStatus.failed
+          : NotificationStatus.queued,
+        attempts: { increment: 1 },
+        // Truncate at ~1KB so a verbose SMTP error doesn't blow
+        // up the row size.
+        lastError: message.slice(0, 1024),
+        scheduledAt: isFinal ? row.scheduledAt : new Date(Date.now() + delay),
+        sendingAt: null,
+      },
+    });
+    this.log.warn(
+      `Notification ${id} attempt ${nextAttempts} failed: ${message}` +
+        (isFinal ? ' (final, marked failed)' : ' (will retry)'),
+    );
   }
 }

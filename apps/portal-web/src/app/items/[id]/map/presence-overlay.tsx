@@ -199,11 +199,22 @@ export function PresenceOverlay({
               ws.send(JSON.stringify({ type: 'heartbeat' }));
             }
           }, WS_HEARTBEAT_INTERVAL_MS);
+          // Send the cursor only when it changed. Every frame costs the
+          // server a read check and a roster broadcast to everyone on
+          // the map, and this used to send four a second for as long
+          // as the tab was open, moving or not. The server keeps the
+          // last cursor, and the heartbeat above carries liveness. A
+          // new connection starts with no cursor on the server, which
+          // is what `null` here stands for.
+          let lastSentCursor = 'null';
           cursorTimer = setInterval(() => {
             if (ws.readyState !== WebSocket.OPEN) return;
             const now = Date.now();
             if (now - lastSentRef.current < CURSOR_THROTTLE_MS) return;
+            const cursorJson = JSON.stringify(lastCursorRef.current);
+            if (cursorJson === lastSentCursor) return;
             lastSentRef.current = now;
+            lastSentCursor = cursorJson;
             ws.send(
               JSON.stringify({
                 type: 'cursor',

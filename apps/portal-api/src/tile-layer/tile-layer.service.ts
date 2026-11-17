@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { promisify } from 'node:util';
+import { gunzip } from 'node:zlib';
 import { statfs } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -20,12 +23,17 @@ import type {
 import { isTileLayerData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { ItemsService } from '../items/items.service.js';
+import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { assertServerHeavyTier } from '../analysis/analysis-tiers.js';
 import {
+  MOSAIC_MAX_SOURCES,
   estimateMosaic,
   mosaicCostModel,
   validateMosaicSources,
@@ -86,31 +94,30 @@ const PMTILES_ARCHIVE_CACHE_SIZE = 32;
  *
  *   1. After a browser uploads a .pmtiles file directly to MinIO
  *      via the presigned PUT minted by StorageService, the client
- *      calls finalizeUpload(). We read the file header via HTTP
- *      range requests against the MinIO public URL, extract the
- *      metadata (min/max zoom, bbox, center, tile type,
- *      attribution, name, description), and persist it on the
- *      item's data_json. Subsequent renders read from item.data
- *      without re-parsing the header.
+ *      calls finalizeUpload(). We read the file header by storage
+ *      key through the S3 SDK, extract the metadata (min/max zoom,
+ *      bbox, center, tile type, attribution, name, description),
+ *      and persist it on the item's data_json. Subsequent renders
+ *      read from item.data without re-parsing the header.
  *
- *   2. proxyTileRequest() serves the bytes for the API's pmtiles
- *      proxy endpoint. MapLibre's pmtiles plugin range-reads this
- *      URL, so we have to honor the Range header. We do that by
- *      passing it through to MinIO's presigned GET; MinIO returns
- *      a 206 with the requested byte range and we stream it back
- *      to the caller. Zero per-tile compute on our side; the cost
- *      is one S3-API hop per range request.
+ *   2. resolveStorageKey() gives the controller's file proxy the
+ *      key to stream. MapLibre's pmtiles plugin range-reads that
+ *      URL, so the controller forwards the Range header to an SDK
+ *      GetObject with portal-api's credentials and streams the 206
+ *      back. Zero per-tile compute on our side; the cost is one
+ *      S3-API hop per range request.
  *
  * Why a proxy endpoint instead of letting the browser hit MinIO
- * directly: the MinIO bucket is anonymous-read by design for
- * stable URLs, but a static URL stored on the item baked into a
- * map would leak across orgs once shared. Proxying through the
- * API lets us apply the item's read ACL (the same gate as every
- * other item endpoint), and gives us an obvious spot to add
- * caching or hot-tile prefetching later.
+ * directly: the item-tile-layer prefix is private (the bucket
+ * policy grants anonymous read only to thumbnails, avatars, hero
+ * images and map icons), so the bytes are only reachable through
+ * the API, which applies the item's read ACL (the same gate as
+ * every other item endpoint) on every request.
  */
 @Injectable()
 export class TileLayerService {
+  /** Items with a finalize in progress in this process. */
+  private readonly finalizing = new Set<string>();
   private readonly log = new Logger(TileLayerService.name);
 
   /**
@@ -148,6 +155,35 @@ export class TileLayerService {
       sizeBytes: number;
     },
   ): Promise<TileLayerData> {
+    // A conversion runs inside this request and can take many
+    // minutes. When the browser or a proxy gave up, a retry started a
+    // second conversion of the same item beside the first, two
+    // multi-GB downloads competing on the API box, and the later
+    // finisher won while the other's output was orphaned. One at a
+    // time per item, per process.
+    if (this.finalizing.has(itemId)) {
+      throw new ConflictException(
+        'A file for this layer is already being processed. Wait for it to finish, then reload.',
+      );
+    }
+    this.finalizing.add(itemId);
+    try {
+      return await this.finalizeUploadOnce(user, itemId, input);
+    } finally {
+      this.finalizing.delete(itemId);
+    }
+  }
+
+  private async finalizeUploadOnce(
+    user: AuthUser,
+    itemId: string,
+    input: {
+      storageKey: string;
+      storageUrl: string;
+      fileName: string;
+      sizeBytes: number;
+    },
+  ): Promise<TileLayerData> {
     const item = await this.items.get(user, itemId);
     if (item.type !== 'tile_layer') {
       throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
@@ -167,6 +203,15 @@ export class TileLayerService {
     if (!input.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
       throw new BadRequestException('storageKey is not a tile-layer upload');
     }
+    // The prefix alone does not make the key this caller's: another
+    // item's key is readable by anyone who can read that item, and
+    // finalize deletes the source once it converts.
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      [input.storageKey],
+      itemDataStorageKeys(item.data),
+    );
     if (typeof input.storageUrl !== 'string' || input.storageUrl.length === 0) {
       throw new BadRequestException('storageUrl is required');
     }
@@ -210,9 +255,8 @@ export class TileLayerService {
         input.fileName,
       );
     } catch (err) {
-      // convertUpload owns its own temp-dir lifecycle: any workdir
-      // it created before throwing is its own to clean up. We don't
-      // have a handle to it from out here. The original upload
+      // convertUpload removes its own work dir when it throws; we
+      // have no handle to it from out here. The original upload
       // stays in MinIO so the user can retry without re-uploading.
       throw new BadRequestException(
         `Conversion failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -248,7 +292,12 @@ export class TileLayerService {
         // source TIFF / JP2 once the COG has landed.  A failed
         // delete leaks bytes but doesn't break the item.
         try {
-          await this.storage.deleteObject(input.storageKey);
+          await deleteIfUnreferenced(
+            this.prisma,
+            this.storage,
+            input.storageKey,
+            { itemId },
+          );
         } catch (err) {
           this.log.warn(
             `Failed to delete original upload ${input.storageKey}: ${err instanceof Error ? err.message : err}`,
@@ -329,7 +378,7 @@ export class TileLayerService {
     let metadata: Record<string, unknown> = {};
     try {
       const source = new StorageRangeSource(this.storage, effectiveStorageKey);
-      const pmt = new PMTiles(source);
+      const pmt = new PMTiles(source, undefined, cappedPmtilesDecompress);
       header = await pmt.getHeader();
       metadata = (await pmt.getMetadata()) as Record<string, unknown>;
     } catch (err) {
@@ -420,35 +469,12 @@ export class TileLayerService {
   }
 
   /**
-   * Resolve the storageUrl for a tile_layer item the caller has
-   * read access to. Used by the proxy endpoint to know where to
-   * forward range requests. NotFound when the caller can't read
-   * the item; that's the ACL gate.
-   */
-  async resolveStorageUrl(user: AuthUser, itemId: string): Promise<string> {
-    const item = await this.items.get(user, itemId);
-    if (item.type !== 'tile_layer') {
-      throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
-    }
-    const data: unknown = item.data;
-    if (!isTileLayerData(data)) {
-      throw new NotFoundException(
-        'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
-      );
-    }
-    if (!data.storageUrl) {
-      throw new NotFoundException('Tile layer file URL is missing.');
-    }
-    return data.storageUrl;
-  }
-
-  /**
    * Resolve the MinIO storage KEY for the active tile-layer file.
-   * Used by the range-proxy controller after the bucket policy was
-   * tightened to deny anonymous GET on `item-tile-layer/*`: the
-   * controller uses the key to fetch via the SDK with portal-api's
-   * credentials instead of hitting the public URL.  Performs the
-   * same ACL check as resolveStorageUrl.
+   * Used by the range-proxy controller: the bucket policy denies
+   * anonymous GET on `item-tile-layer/*`, so the controller fetches
+   * by key via the SDK with portal-api's credentials. The item's
+   * read ACL is checked here; NotFound when the caller can't read
+   * the item.
    */
   async resolveStorageKey(
     user: AuthUser | null,
@@ -656,13 +682,26 @@ export class TileLayerService {
   ): Promise<{ data: Buffer; contentType: string } | null> {
     const archive = this.archives.get(
       storageKey,
-      (key) => new PMTiles(new StorageRangeSource(this.storage, key)),
+      (key) =>
+        new PMTiles(new StorageRangeSource(this.storage, key), undefined, cappedPmtilesDecompress),
     );
-    const tile = await archive.getZxy(z, x, y);
-    if (!tile) return null;
-    // Free after getZxy: the same instance already resolved and
-    // cached the header to find the tile.
-    const header = await archive.getHeader();
+    let tile: Awaited<ReturnType<PMTiles['getZxy']>>;
+    let header: Awaited<ReturnType<PMTiles['getHeader']>>;
+    try {
+      tile = await archive.getZxy(z, x, y);
+      if (!tile) return null;
+      // Free after getZxy: the same instance already resolved and
+      // cached the header to find the tile.
+      header = await archive.getHeader();
+    } catch (err) {
+      // The pmtiles library caches the header and directory promises
+      // before they settle and keeps them when they reject, so one
+      // transient storage error used to fail every later tile of this
+      // archive until a restart. Drop the instance; the next request
+      // opens a fresh one.
+      this.archives.delete(storageKey, archive);
+      throw err;
+    }
     return {
       data: Buffer.from(tile.data),
       contentType: tileTypeContentType(header.tileType),
@@ -734,6 +773,13 @@ export class TileLayerService {
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     const item = await this.assertMosaicTarget(user, itemId, 'build');
     const sources = validateMosaicSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      sources.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
+    await this.useStoredMosaicSizes(sources);
     // A rebuild over already-registered sources (the failed-build
     // retry path) keeps each source's original addedAt instead of
     // restamping history.
@@ -763,6 +809,13 @@ export class TileLayerService {
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
     const item = await this.assertMosaicTarget(user, itemId, 'add');
     const added = validateMosaicSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      added.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
+    await this.useStoredMosaicSizes(added);
     const prev = isTileLayerData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding images to a layer that was a single-file upload: fold
@@ -801,7 +854,55 @@ export class TileLayerService {
         );
       }
     }
-    return this.enqueueMosaic(user, item, [...existingSources, ...added]);
+    // The per-call cap alone let repeated adds grow the list without
+    // limit; the worker builds over the whole list.
+    const merged = [...existingSources, ...added];
+    if (merged.length > MOSAIC_MAX_SOURCES) {
+      throw new BadRequestException(
+        `A mosaic can hold at most ${MOSAIC_MAX_SOURCES} images, and this ` +
+          `one already has ${existingSources.length}. Start a new imagery ` +
+          'layer for the rest.',
+      );
+    }
+    return this.enqueueMosaic(user, item, merged);
+  }
+
+  /**
+   * Replace each declared source size with the size storage reports.
+   * The time ceiling in enqueueMosaic is computed from these, and the
+   * body's numbers are the client's: `sizeBytes: 1` on multi-GB images
+   * got a 4 hour build past it.
+   */
+  private async useStoredMosaicSizes(sources: TileLayerSource[]): Promise<void> {
+    for (const s of sources) {
+      const size = await this.storage.headObjectSize(s.storageKey);
+      if (size === null) {
+        throw new BadRequestException(
+          `The image ${s.fileName} has not finished uploading.`,
+        );
+      }
+      s.sizeBytes = size;
+    }
+  }
+
+  /**
+   * One mosaic build at a time per layer. Each call queued another
+   * long job for the same item, and the later one overwrote the
+   * earlier one's result anyway.
+   */
+  private async assertNoMosaicInFlight(itemId: string): Promise<void> {
+    const running = await this.prisma.analysisJob.count({
+      where: {
+        kind: 'imagery-mosaic',
+        targetItemId: itemId,
+        state: { in: ['queued', 'running', 'cancel_requested'] },
+      },
+    });
+    if (running > 0) {
+      throw new ConflictException(
+        'This mosaic is already being built. Wait for it to finish, or cancel it, and try again.',
+      );
+    }
   }
 
   /** Shared guards for both mosaic entry points. */
@@ -849,6 +950,7 @@ export class TileLayerService {
     item: { id: string; data: unknown },
     sources: TileLayerSource[],
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    await this.assertNoMosaicInFlight(item.id);
     const totalBytes = sources.reduce((n, s) => n + s.sizeBytes, 0);
     const estimate = estimateMosaic(totalBytes, sources.length);
     if (estimate.overCeiling) {
@@ -1092,34 +1194,6 @@ export class TileLayerService {
     const { tilingError: _stripped, ...rest } = data;
     return { ...rest, ...patch };
   }
-
-  /**
-   * Drop the MinIO object backing this tile layer. Called by the
-   * items service during purge. Best-effort: a missing key is
-   * fine (the item may have been created without the upload ever
-   * completing).
-   */
-  async tearDownStorage(itemId: string, data: unknown): Promise<void> {
-    if (!isTileLayerData(data)) return;
-    const tl: TileLayerData = data;
-    if (!tl.storageKey) return;
-    // Re-check the prefix before deleting: item.data is owner-
-    // writable, so a key edited to point at another prefix would
-    // otherwise turn purge into an arbitrary-object delete.
-    if (!tl.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
-      this.log.warn(
-        `Refusing to delete non-tile-layer key ${tl.storageKey} while purging item ${itemId}`,
-      );
-      return;
-    }
-    try {
-      await this.storage.deleteObject(tl.storageKey);
-    } catch (err) {
-      this.log.warn(
-        `Failed to delete tile_layer storage object for item ${itemId}: ${err instanceof Error ? err.message : err}`,
-      );
-    }
-  }
 }
 
 /**
@@ -1222,6 +1296,16 @@ export class PmtilesArchiveCache {
     }
     return archive;
   }
+
+  /**
+   * Forget `key`, but only while it still maps to `archive`, so a
+   * late failure on an old instance cannot drop a fresh one.
+   */
+  delete(key: string, archive?: PMTiles): void {
+    if (archive === undefined || this.open.get(key) === archive) {
+      this.open.delete(key);
+    }
+  }
 }
 
 function pickString(
@@ -1246,6 +1330,33 @@ function pickString(
  * No higher-level caching here: the package caches decoded
  * directories internally and the header itself is small.
  */
+/** Largest single read a PMTiles archive may ask for (tile, directory, metadata). */
+export const PMTILES_MAX_READ_BYTES = 16 * 1024 * 1024;
+/** Largest decompressed tile, directory or metadata block. */
+export const PMTILES_MAX_INFLATED_BYTES = 64 * 1024 * 1024;
+
+const gunzipAsync = promisify(gunzip);
+
+/**
+ * pmtiles' default decompress inflates gzip with no output limit, so a
+ * small tile could expand to gigabytes in the API process. Same
+ * contract (None / Unknown pass through, Gzip inflates), with a cap.
+ */
+export async function cappedPmtilesDecompress(
+  buf: ArrayBuffer,
+  compression: number,
+): Promise<ArrayBuffer> {
+  // pmtiles Compression: 0 Unknown, 1 None, 2 Gzip.
+  if (compression === 0 || compression === 1) return buf;
+  if (compression !== 2) throw new Error('Compression method not supported');
+  const out = await gunzipAsync(Buffer.from(buf), {
+    maxOutputLength: PMTILES_MAX_INFLATED_BYTES,
+  });
+  const ab = new ArrayBuffer(out.byteLength);
+  new Uint8Array(ab).set(out);
+  return ab;
+}
+
 class StorageRangeSource implements Source {
   constructor(
     private readonly storage: StorageService,
@@ -1257,6 +1368,15 @@ class StorageRangeSource implements Source {
   }
 
   async getBytes(offset: number, length: number): Promise<RangeResponse> {
+    // Offsets and lengths come from the archive's own header and
+    // directories, which the uploader wrote. Without a ceiling one
+    // crafted directory entry made a tile request buffer gigabytes.
+    if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(length) || offset < 0 || length < 0) {
+      throw new Error('PMTiles archive asked for an invalid byte range');
+    }
+    if (length > PMTILES_MAX_READ_BYTES) {
+      throw new Error(`PMTiles archive asked for ${length} bytes in one read; the limit is ${PMTILES_MAX_READ_BYTES}`);
+    }
     const upstream = await this.storage.streamObject(
       this.key,
       `bytes=${offset}-${offset + length - 1}`,

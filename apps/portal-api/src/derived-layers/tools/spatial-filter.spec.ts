@@ -9,6 +9,9 @@ const FIELDS: FeatureField[] = [
   { name: 'acres', label: 'Acres', type: 'number', nullable: true },
 ];
 
+const ID_A = '00000000-0000-4000-8000-00000000000a';
+const ID_B = '00000000-0000-4000-8000-00000000000b';
+
 describe('spatialFilterGenerator.validate', () => {
   it('accepts a data_layer reference with intersects predicate', () => {
     const out = spatialFilterGenerator.validate({
@@ -272,13 +275,27 @@ describe('spatialFilterGenerator.toSql', () => {
         otherSource: {
           kind: 'data_layer',
           itemId: 'parcels-001',
-          featureIds: ['abc', 'def'],
+          featureIds: [ID_A, ID_B],
         },
         predicate: 'intersects',
       },
       0,
     );
-    expect(fragment.sql).toMatch(/r\.global_id = ANY\(\$1::text\[\]\)/);
-    expect(fragment.params[0]).toEqual(['abc', 'def']);
+    // global_id is a uuid column; text[] has no matching operator.
+    expect(fragment.sql).toMatch(/r\.global_id = ANY\(\$1::uuid\[\]\)/);
+    expect(fragment.params[0]).toEqual([ID_A, ID_B]);
+  });
+
+  it('refuses feature ids that are not uuids with a 400', () => {
+    expect(() =>
+      spatialFilterGenerator.toSql(
+        'source',
+        {
+          otherSource: { kind: 'data_layer', itemId: 'parcels-001', featureIds: ['abc'] },
+          predicate: 'intersects',
+        },
+        0,
+      ),
+    ).toThrow(BadRequestException);
   });
 });

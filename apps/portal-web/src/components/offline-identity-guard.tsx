@@ -11,7 +11,8 @@
  * outcome. Until ownership existed that meant whoever signed in next
  * replayed them under THEIR session, and the server stamped
  * `submitted_by` from the caller. Rows now record who captured them
- * and both drains send only the current account's, which leaves two
+ * and every drain (feature queue, form outbox, service worker) sends
+ * only the current account's, which leaves two
  * jobs for the page, done here on every authenticated load:
  *
  *   1. Persist the session's user id as the device identity, so the
@@ -52,7 +53,7 @@ import { clearUserCaches } from '@/components/user-menu';
 import { useT } from '@/lib/i18n/locale-context';
 import {
   describeForeignOfflineData,
-  getOfflineIdentity,
+  getOfflineIdentityState,
   purgeCachedReadData,
   removeForeignOfflineData,
   setOfflineIdentity,
@@ -77,19 +78,26 @@ export function OfflineIdentityGuard({ userId }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        const previous = await getOfflineIdentity();
-        if (previous === userId) return;
+        const { userId: previous, purgePending } = await getOfflineIdentityState();
+        if (previous === userId && !purgePending) return;
+        const switched = previous !== null && previous !== userId;
         // Persist FIRST. From this write on the service worker drains
         // as the new account, so the previous account's rows are
         // parked before anything else here has a chance to run; a
         // background sync firing during the dialog cannot send them.
-        await setOfflineIdentity(userId);
-        if (previous !== null) {
+        // The same write records that a purge is owed, so if the purge
+        // below fails it is run again on the next load. It used to be
+        // forgotten: the next load saw its own identity and stopped.
+        if (previous !== userId) {
+          await setOfflineIdentity(userId, { purgePending: switched || purgePending });
+        }
+        if (switched || purgePending) {
           // A different account was here and did not sign out (sign-out
           // would have cleared the identity and purged already). What
           // it fetched is not this account's to read.
           await purgeCachedReadData();
           await clearUserCaches();
+          await setOfflineIdentity(userId);
         }
         const left = await describeForeignOfflineData(userId);
         if (cancelled) return;
@@ -98,8 +106,8 @@ export function OfflineIdentityGuard({ userId }: Props) {
         // IndexedDB refused (private mode, another tab holding an
         // upgrade). The drains carry their own ownership check, so a
         // failure here cannot cause a row to be sent under the wrong
-        // account; it only means the question is asked on a later
-        // load instead.
+        // account, and an owed purge stays marked on the identity row
+        // for the next load.
       }
     })();
     return () => {

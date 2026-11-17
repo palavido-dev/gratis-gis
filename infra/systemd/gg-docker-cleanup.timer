@@ -1,6 +1,8 @@
 [Unit]
 Description=GratisGIS docker cleanup - run daily at 03:30 UTC
-Requires=gg-docker-cleanup.service
+# No Requires=: it started the prune whenever the timer itself started,
+# so every boot deleted every image with no container. The timer runs
+# gg-docker-cleanup.service by name.
 
 [Timer]
 OnCalendar=*-*-* 03:30:00

@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { Check, Copy, Key, Loader2, Plus, Trash2 } from 'lucide-react';
 
 import { toast } from '@/lib/toast';
+import { NEW_API_KEY_DEFAULTS } from '@/lib/api-key-defaults';
 
 export interface ApiKeySummary {
   id: string;
@@ -28,8 +29,10 @@ export function ApiKeysManager({ initial }: { initial: ApiKeySummary[] }) {
   const router = useRouter();
   const [keys, setKeys] = useState(initial);
   const [name, setName] = useState('');
-  const [readOnly, setReadOnly] = useState(false);
-  const [expiryDays, setExpiryDays] = useState<number | null>(90);
+  const [readOnly, setReadOnly] = useState<boolean>(NEW_API_KEY_DEFAULTS.readOnly);
+  const [expiryDays, setExpiryDays] = useState<number | null>(
+    NEW_API_KEY_DEFAULTS.expiryDays,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The one and only time the plaintext token exists in the browser.

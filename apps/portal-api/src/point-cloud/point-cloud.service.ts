@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -17,10 +18,14 @@ import type {
 } from '@gratis-gis/shared-types';
 import { isPointCloudData } from '@gratis-gis/shared-types';
 
-import { ItemsService } from '../items/items.service.js';
+import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
+import {
+  assertKeysAttachable,
+  deleteIfUnreferenced,
+} from '../storage/key-ownership.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -150,6 +155,13 @@ export class PointCloudService {
       );
     }
     const sources = this.validateSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      sources.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
+    await this.useStoredSizes(sources);
     return this.enqueueBuild(user, item, sources);
   }
 
@@ -177,6 +189,13 @@ export class PointCloudService {
       );
     }
     const added = this.validateSources(body.sources);
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      added.map((s) => s.storageKey),
+      itemDataStorageKeys(item.data),
+    );
+    await this.useStoredSizes(added);
     const prev = isPointCloudData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding tiles to a cloud that was a single-file upload: the
@@ -218,6 +237,7 @@ export class PointCloudService {
     item: { id: string; data: unknown },
     sources: PointCloudSource[],
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    await this.assertNoBuildInFlight(item.id);
     // #205: refuse a merge that cannot finish inside the worker's
     // wall BEFORE queueing it, so nobody waits hours for a timeout.
     // The client shows the same model's numbers pre-upload; this is
@@ -280,6 +300,42 @@ export class PointCloudService {
     };
   }
 
+  /**
+   * Replace each declared tile size with the size MinIO reports. The
+   * merge-time ceiling below is computed from these, and the body's
+   * numbers are the client's: `sizeBytes: 1` on multi-GB tiles used to
+   * get a 4 hour merge past it.
+   */
+  private async useStoredSizes(sources: PointCloudSource[]): Promise<void> {
+    for (const s of sources) {
+      const size = await this.storage.headObjectSize(s.storageKey);
+      if (size === null) {
+        throw new BadRequestException(`The tile ${s.fileName} has not finished uploading.`);
+      }
+      s.sizeBytes = size;
+    }
+  }
+
+  /**
+   * One build at a time per point cloud. Each call queued another
+   * multi-hour job for the same item, and a finalize during a build
+   * was overwritten by the worker's final write.
+   */
+  private async assertNoBuildInFlight(itemId: string): Promise<void> {
+    const running = await this.prisma.analysisJob.count({
+      where: {
+        kind: 'copc-build',
+        targetItemId: itemId,
+        state: { in: ['queued', 'running', 'cancel_requested'] },
+      },
+    });
+    if (running > 0) {
+      throw new ConflictException(
+        'This point cloud is already being built. Wait for it to finish, or cancel it, and try again.',
+      );
+    }
+  }
+
   async finalizeUpload(
     user: AuthUser,
     itemId: string,
@@ -309,6 +365,15 @@ export class PointCloudService {
     if (!isValidAssetKey(input.storageKey, ITEM_ASSET_KIND.point_cloud)) {
       throw new BadRequestException('storageKey is not a point-cloud upload');
     }
+    // The prefix alone does not make the key this caller's. A
+    // re-finalize deletes the previous key, so a copied key would be
+    // a delete primitive over another item's cloud.
+    await assertKeysAttachable(
+      this.prisma,
+      user.id,
+      [input.storageKey],
+      itemDataStorageKeys(item.data),
+    );
     if (typeof input.fileName !== 'string' || input.fileName.length === 0) {
       throw new BadRequestException('fileName is required');
     }
@@ -370,20 +435,25 @@ export class PointCloudService {
     const bboxWgs84 = boundsToWgs84(parsed.bounds, parsed.crsWkt);
     if (bboxWgs84) data.bboxWgs84 = bboxWgs84;
 
+    await this.assertNoBuildInFlight(itemId);
+    await this.items.update(user, itemId, {
+      data: data as unknown as Prisma.JsonObject,
+    });
+
     // Replacing an existing upload: delete the old object so a
-    // re-upload doesn't leak gigabytes in MinIO.
+    // re-upload doesn't leak gigabytes in MinIO. Only after the item
+    // points at the new file: deleting first left the item pointing
+    // at a missing object whenever the update failed.
     const previous: unknown = item.data;
     if (
       isPointCloudData(previous) &&
       previous.storageKey &&
       previous.storageKey !== input.storageKey
     ) {
-      await this.storage.deleteObject(previous.storageKey);
+      await deleteIfUnreferenced(this.prisma, this.storage, previous.storageKey, {
+        itemId,
+      });
     }
-
-    await this.items.update(user, itemId, {
-      data: data as unknown as Prisma.JsonObject,
-    });
     this.log.log(
       `point_cloud ${itemId}: finalized ${input.fileName} (${parsed.pointCount} pts, LAS ${parsed.lasVersion}, pdrf ${parsed.pointFormat})`,
     );
@@ -399,6 +469,11 @@ export class PointCloudService {
     user: AuthUser | null,
     itemId: string,
   ): Promise<string> {
+    // A malformed id on this public route reached a uuid column and
+    // came back as a 500 with a stack trace in the log.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) {
+      throw new NotFoundException('Point cloud not found.');
+    }
     let data: unknown;
     if (user) {
       const item = await this.items.get(user, itemId);

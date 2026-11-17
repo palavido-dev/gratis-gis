@@ -9,6 +9,8 @@ export interface CreateGroupInput {
   title: string;
   description?: string;
   access?: GroupAccess;
+  /** Sent by the create form when a thumbnail was uploaded first. */
+  thumbnailUrl?: string | null;
 }
 
 export interface UpdateGroupInput {
@@ -72,6 +74,7 @@ export class GroupsService {
         title: input.title,
         description: input.description ?? '',
         access: input.access ?? 'private',
+        ...(input.thumbnailUrl ? { thumbnailUrl: input.thumbnailUrl } : {}),
         members: {
           create: { userId: user.id, role: 'admin' },
         },
@@ -142,7 +145,7 @@ export class GroupsService {
     if (!this.canAdmin(user, group)) {
       throw new ForbiddenException('Only the group owner or an org admin can purge a group');
     }
-    await this.prisma.group.delete({ where: { id: groupId } });
+    await purgeGroups(this.prisma, [groupId]);
   }
 
   async get(user: AuthUser, groupId: string, opts: { includeTrashed?: boolean } = {}) {
@@ -161,9 +164,7 @@ export class GroupsService {
     // Roster visibility is its own gate, not canSee. canSee lets a
     // caller open a public (or own-org) group without being a member;
     // the roster stays limited to members, the owner, and an admin of
-    // THIS group's org. Calling get() first would also hide a private
-    // group from an actual member, because canSee does not consult
-    // membership (that check lives here).
+    // THIS group's org.
     const group = await this.prisma.group.findUnique({ where: { id: groupId } });
     if (!group || group.deletedAt) throw new NotFoundException('Group not found');
     // orgRole admin is not membership in every group. A cross-org
@@ -211,15 +212,21 @@ export class GroupsService {
     return membership;
   }
 
-  private canSee(user: AuthUser, group: { orgId: string; access: string; ownerId: string }) {
+  private canSee(
+    user: AuthUser,
+    group: { id: string; orgId: string; access: string; ownerId: string },
+  ) {
     // Same org bound as canAdmin. An admin of org A does not see
     // org B's private or org-access groups; owner / public / org
     // rules still apply on top of that.
     if (group.ownerId === user.id) return true;
+    // A member sees their own group, private or not. The list already
+    // includes it; without this the detail page answered 404.
+    if (user.groupIds.includes(group.id)) return true;
     if (user.orgRole === 'admin' && group.orgId === user.orgId) return true;
     if (group.access === 'public') return true;
     if (group.access === 'org' && group.orgId === user.orgId) return true;
-    return false; // Membership check handled at query time for private groups.
+    return false;
   }
 
   /** Owner or org-admin can edit/delete/restore/purge the group. */
@@ -230,9 +237,12 @@ export class GroupsService {
 
   async removeMember(user: AuthUser, groupId: string, memberId: string) {
     await this.assertAdminOfGroup(user, groupId);
-    await this.prisma.groupMember.delete({
-      where: { groupId_userId: { groupId, userId: memberId } },
+    // deleteMany so a second click, or two admins removing the same
+    // person, is a 404 and not an unmapped Prisma error (500).
+    const r = await this.prisma.groupMember.deleteMany({
+      where: { groupId, userId: memberId },
     });
+    if (r.count === 0) throw new NotFoundException('That user is not a member of this group');
     this.authSync.invalidate(memberId);
   }
 
@@ -252,6 +262,9 @@ export class GroupsService {
       throw new NotFoundException('Group not found or you are not a member');
     }
     if (user.orgRole === 'admin') return group;
+    // The owner can manage members without a membership row of their
+    // own (see listVisible): ownership lives on the group, not here.
+    if (group.ownerId === user.id) return group;
     const membership = await this.prisma.groupMember.findUnique({
       where: { groupId_userId: { groupId, userId: user.id } },
     });
@@ -261,4 +274,24 @@ export class GroupsService {
     }
     return group;
   }
+}
+
+/**
+ * Hard-delete groups and the item shares that name them. item_share
+ * has no foreign key to group (principalId is polymorphic), so the
+ * share rows would otherwise outlive the group. Used by the manual
+ * purge here and the nightly trash purge.
+ */
+export async function purgeGroups(
+  prisma: Pick<PrismaService, '$transaction'>,
+  groupIds: string[],
+): Promise<number> {
+  if (groupIds.length === 0) return 0;
+  return prisma.$transaction(async (tx) => {
+    await tx.itemShare.deleteMany({
+      where: { principalType: 'group', principalId: { in: groupIds } },
+    });
+    const r = await tx.group.deleteMany({ where: { id: { in: groupIds } } });
+    return r.count;
+  });
 }

@@ -6,6 +6,7 @@ import { StorageModule } from '../storage/storage.module.js';
 import { FeedbackAdminController } from './feedback-admin.controller.js';
 import { FeedbackController } from './feedback.controller.js';
 import { FeedbackService } from './feedback.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 
 /**
  * In-portal feedback (#146). Reuses EmailTransport from
@@ -18,6 +19,6 @@ import { FeedbackService } from './feedback.service.js';
 @Module({
   imports: [NotificationsModule, StorageModule],
   controllers: [FeedbackController, FeedbackAdminController],
-  providers: [FeedbackService],
+  providers: [FeedbackService, OperatorOrgGuard],
 })
 export class FeedbackModule {}

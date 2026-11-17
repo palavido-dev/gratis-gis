@@ -23,11 +23,9 @@ Type=oneshot
 # (open) mode rather than failing and leaving no rules at all.
 EnvironmentFile=-/opt/gratis-gis/infra/.env.prod
 ExecStart=/opt/gratis-gis/infra/script-net-firewall.sh
-# Do not fail the boot over this. The unit is re-run by its timer every
-# few minutes, so a transient failure here (docker not answering yet)
-# self-corrects rather than leaving the operator with a failed unit and
-# no rules.
-SuccessExitStatus=0
+# A transient failure here (docker not answering yet) leaves the unit
+# failed until its timer re-runs it a few minutes later, which then
+# succeeds. The failed state is visible on purpose.
 StandardOutput=journal
 StandardError=journal
 

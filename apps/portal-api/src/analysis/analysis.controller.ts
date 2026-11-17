@@ -6,12 +6,10 @@ import {
   HttpCode,
   Param,
   Post,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { AnalysisService } from './analysis.service.js';
 import {
@@ -31,7 +29,6 @@ import {
 @ApiTags('analysis')
 @ApiBearerAuth()
 @Controller()
-@UseGuards(JwtAuthGuard)
 export class AnalysisController {
   constructor(private readonly analysis: AnalysisService) {}
 

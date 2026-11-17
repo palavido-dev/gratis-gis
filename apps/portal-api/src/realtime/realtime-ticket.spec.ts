@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { RealtimeService } from './realtime.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
@@ -74,5 +74,40 @@ describe('RealtimeService tickets', () => {
         '22222222-2222-4222-8222-222222222222',
       ),
     ).toThrow(UnauthorizedException);
+  });
+});
+
+describe('RealtimeService heartbeat ownership', () => {
+  const mapId = '11111111-1111-4111-8111-111111111111';
+  function svc() {
+    const prisma = {
+      item: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: mapId,
+          type: 'map',
+          deletedAt: null,
+          orgId: 'o1',
+          access: 'org',
+          ownerId: 'u1',
+        }),
+      },
+      itemShare: { findMany: jest.fn().mockResolvedValue([]) },
+      user: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const sharing = { canRead: jest.fn().mockReturnValue(true) };
+    return new RealtimeService(prisma as never, sharing as never);
+  }
+
+  it("refuses a heartbeat that names another user's connection", async () => {
+    const s = svc();
+    const a = await s.heartbeat(fakeUser('u1'), mapId, { connectionId: 'conn-a' });
+    await expect(
+      s.heartbeat(fakeUser('u2'), mapId, {
+        connectionId: a.me.connectionId,
+        cursor: { lng: 10, lat: 10 },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    const roster = await s.list(fakeUser('u1'), mapId);
+    expect(roster.find((m) => m.connectionId === 'conn-a')?.cursor).toBeNull();
   });
 });

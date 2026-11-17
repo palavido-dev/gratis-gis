@@ -38,7 +38,7 @@
  *    write. The tools here are a convenience gate only.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as maplibregl from 'maplibre-gl';
 import {
   Check,
@@ -52,6 +52,7 @@ import {
 import type { FeatureField, MapLayer, PickListData } from '@gratis-gis/shared-types';
 import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
+import { clientUuid } from '@/lib/uuid';
 import { useT } from '@/lib/i18n/locale-context';
 import { useConfirm } from '@/components/dialog-provider';
 import {
@@ -240,7 +241,13 @@ export function useFeatureEditing({
     [draw],
   );
 
+  // Moves on whenever the tool is left or switched, so a feature load
+  // that finishes afterwards is dropped instead of opening an edit
+  // session for a tool that is no longer active.
+  const toolEpochRef = useRef(0);
+
   const leaveTool = useCallback(() => {
+    toolEpochRef.current += 1;
     if (pendingCreate) clearSketch(pendingCreate.sketchId);
     setPendingCreate(null);
     setPendingEdit(null);
@@ -261,6 +268,7 @@ export function useFeatureEditing({
         leaveTool();
         return;
       }
+      toolEpochRef.current += 1;
       if (pendingCreate) clearSketch(pendingCreate.sketchId);
       setPendingCreate(null);
       setPendingEdit(null);
@@ -329,6 +337,7 @@ export function useFeatureEditing({
       }
       setLoadingFeature(true);
       setSaveError(null);
+      const epoch = toolEpochRef.current;
       void (async () => {
         try {
           const full = await fetchFeatureFromServer(
@@ -337,6 +346,7 @@ export function useFeatureEditing({
             featureId,
             t('featureEdit.loadFailed'),
           );
+          if (epoch !== toolEpochRef.current) return;
           if (!full) {
             toast.error(t('featureEdit.notFound'));
             return;
@@ -350,6 +360,7 @@ export function useFeatureEditing({
             layerTitle: layer.title,
           });
         } catch (err) {
+          if (epoch !== toolEpochRef.current) return;
           toast.error(err instanceof Error ? err.message : t('featureEdit.loadFailed'));
         } finally {
           setLoadingFeature(false);
@@ -406,7 +417,7 @@ export function useFeatureEditing({
             body: JSON.stringify({
               features: [
                 {
-                  globalId: crypto.randomUUID(),
+                  globalId: clientUuid(),
                   geometry: roundCoordsToPrecision(pendingCreate.geometry),
                   properties: values,
                 },
@@ -527,6 +538,7 @@ export function useFeatureEditing({
             </DialogHeader>
             {pendingCreate ? (
               <AttributeForm
+                key={`${pendingCreate.layerId}:${pendingCreate.sketchId}`}
                 fields={layerInfo[pendingCreate.layerId]?.fields ?? []}
                 editableFieldNames={null}
                 pickLists={pickLists}

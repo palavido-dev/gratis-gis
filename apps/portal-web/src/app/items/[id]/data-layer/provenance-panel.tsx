@@ -10,6 +10,7 @@ import type {
   DataLayerDataV3,
   DataLayerSource,
 } from '@gratis-gis/shared-types';
+import { formatBytes } from '@/lib/format-bytes';
 
 /**
  * Passive read-only panel that surfaces where the feature-service
@@ -127,7 +128,7 @@ function ProvenanceRow({
         {source.format}
       </span>
       {typeof source.sizeBytes === 'number' ? (
-        <span className="text-muted">{formatSize(source.sizeBytes)}</span>
+        <span className="text-muted">{formatBytes(source.sizeBytes)}</span>
       ) : null}
       <span className="inline-flex items-center gap-1 text-muted">
         <Calendar className="h-3 w-3" />
@@ -174,8 +175,3 @@ function SpatialRefRow({ source }: { source: DataLayerSource }) {
   );
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}

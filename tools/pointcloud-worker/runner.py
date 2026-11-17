@@ -52,6 +52,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -107,6 +108,13 @@ GRID_MAX_CHUNKS = int(_env_num("GRID_MAX_CHUNKS", 512))
 # too; the worker re-checks because jobs could be inserted by
 # future paths that forget.
 VIEWSHED_MAX_CELLS = 12000 * 12000
+# How often an idle worker re-runs the scratch sweep.
+RECLAIM_EVERY_SECONDS = 600
+# Zonal stats reads the whole band into this process (float64 values,
+# an Int32 zone mask and the masked copies: about 30 bytes a cell), in
+# a container capped at 2.5 GB. Refuse above this instead of being
+# OOM-killed and leaving the job "running" until the sweep.
+ZONAL_MAX_CELLS = 40_000_000
 
 # Disk safety for the point cloud merge (#203). A merge downloads
 # every source tile into scratch AND untwine builds a large out-of-
@@ -234,15 +242,10 @@ def run(
                 except subprocess.TimeoutExpired:
                     pass
                 if conn is not None and job_id is not None:
-                    try:
-                        # Beat without touching progress; raises
-                        # JobCancelled on a user cancel and the
-                        # finally below kills the child.
-                        set_progress(conn, job_id, None)
-                    except JobCancelled:
-                        raise
-                    except Exception:
-                        pass  # liveness is best effort; a DB blip must not kill the tool
+                    # Beat without touching progress; raises
+                    # JobCancelled on a user cancel and the finally
+                    # below kills the child.
+                    tool_beat(conn, job_id, None)
                 if time.time() > deadline:
                     kill_proc(proc)
                     raise RuntimeError(
@@ -326,18 +329,13 @@ def run_long(
                 pct = min(
                     prog_from + int((prog_to - prog_from) * frac), prog_to - 1
                 )
-                try:
-                    # Beat EVERY pass, not only when the percentage
-                    # moved: near the curve's asymptote pct can sit
-                    # still for many minutes, and heartbeat_at is
-                    # what keeps the reclaim sweep from shooting a
-                    # long, healthy grid. pct=None writes just the
-                    # beat. The beat also carries the cancel check.
-                    set_progress(conn, job_id, pct if pct != last else None)
-                except JobCancelled:
-                    raise  # finally kills the child on the way out
-                except Exception:
-                    pass  # progress/liveness is best effort; never fail the job over it
+                # Beat EVERY pass, not only when the percentage moved:
+                # near the curve's asymptote pct can sit still for many
+                # minutes, and heartbeat_at is what keeps the reclaim
+                # sweep from shooting a long, healthy grid. pct=None
+                # writes just the beat. The beat also carries the
+                # cancel check; the finally kills the child on the way out.
+                tool_beat(conn, job_id, pct if pct != last else None)
                 last = pct
                 if time.time() > deadline:
                     kill_proc(proc)
@@ -404,12 +402,7 @@ def run_with_disk_watchdog(
                     and now - last_beat >= POLL_SECONDS
                 ):
                     last_beat = now
-                    try:
-                        set_progress(conn, job_id, None)
-                    except JobCancelled:
-                        raise  # finally kills untwine on the way out
-                    except Exception:
-                        pass  # liveness is best effort
+                    tool_beat(conn, job_id, None)  # finally kills untwine on the way out
                 if time.time() > deadline:
                     kill_proc(proc)
                     raise RuntimeError(
@@ -424,34 +417,121 @@ def run_with_disk_watchdog(
             raise RuntimeError(f"{cmd[0]} failed: {err}")
 
 
+class JobLost(Exception):
+    """This process no longer holds the analysis row's claim token."""
+
+
+# job id -> claim token for the worker process that claimed it.
+_leases: dict[str, str] = {}
+# Set around a handler so item writes can refuse a stale owner.
+_current_job_id: str | None = None
+
+
+def remember_lease(job_id: str, token: str) -> None:
+    _leases[str(job_id)] = token
+
+
+def forget_lease(job_id: str) -> None:
+    _leases.pop(str(job_id), None)
+
+
+def lease_for(job_id: str) -> str | None:
+    return _leases.get(str(job_id))
+
+
+def present_lease(cur, token: str) -> None:
+    """Show the token to the lease trigger in this transaction."""
+    cur.execute(
+        "SELECT set_config('gratis.claim_token', %s, true)",
+        (token,),
+    )
+
+
+def owns_job(conn, job_id: str, token: str | None = None) -> bool:
+    token = token if token is not None else lease_for(job_id)
+    if not token:
+        return False
+    with conn.cursor() as cur:
+        present_lease(cur, token)
+        cur.execute(
+            """
+            SELECT 1 FROM analysis_job
+            WHERE id = %s
+              AND claim_token = %s::uuid
+              AND state IN ('running', 'cancel_requested')
+            """,
+            (job_id, token),
+        )
+        owned = cur.fetchone() is not None
+    # Same as item_data: do not leave the read transaction open.
+    conn.commit()
+    return owned
+
+
+def require_lease(conn, job_id: str) -> str:
+    token = lease_for(job_id)
+    if not token or not owns_job(conn, job_id, token):
+        raise JobLost()
+    return token
+
+
+def tool_beat(conn, job_id: str, pct: int | None) -> None:
+    """A beat from inside a tool's wait loop.
+
+    A cancel or a lost lease stops the tool (the caller's finally kills
+    it). A database error is rolled back so later beats can work; a
+    closed connection stops the tool too. Swallowing everything let a
+    reclaimed job run its tool for hours with every beat failing.
+    """
+    try:
+        set_progress(conn, job_id, pct)
+    except (JobCancelled, JobLost):
+        raise
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if getattr(conn, "closed", 0):
+            raise RuntimeError(
+                "Lost the database connection while the tool was running."
+            )
+
+
 def set_progress(conn, job_id: str, pct: int | None) -> None:
     """Progress write, liveness beat, and cancel check in ONE round
-    trip. heartbeat_at is how the API-side reclaim sweep tells a
-    slow-but-alive worker from a dead one, so every progress write
-    doubles as a beat; pct=None beats without touching progress
-    (long tool runs that have nothing new to report). RETURNING
-    state piggybacks the cancel check on the same UPDATE, so
-    honoring cancel costs no extra query: when the API flipped the
-    row to cancel_requested, raise JobCancelled and let the call
-    stack unwind (the subprocess wait loops kill their child on the
-    way out)."""
+    trip. The write matches this worker's claim token and a state
+    this worker still owns. A reclaimed row, or a row a newer claim
+    is running, updates zero rows and raises JobLost so this process
+    does not publish a result for the new owner.
+    """
+    token = lease_for(job_id)
+    if not token:
+        raise JobLost()
     with conn.cursor() as cur:
+        present_lease(cur, token)
         if pct is None:
             cur.execute(
                 "UPDATE analysis_job SET heartbeat_at = now() "
-                "WHERE id = %s RETURNING state",
-                (job_id,),
+                "WHERE id = %s AND claim_token = %s::uuid "
+                "AND state IN ('running', 'cancel_requested') "
+                "RETURNING state",
+                (job_id, token),
             )
         else:
             cur.execute(
                 "UPDATE analysis_job "
                 "SET progress = %s, heartbeat_at = now() "
-                "WHERE id = %s RETURNING state",
-                (pct, job_id),
+                "WHERE id = %s AND claim_token = %s::uuid "
+                "AND state IN ('running', 'cancel_requested') "
+                "RETURNING state",
+                (pct, job_id, token),
             )
         row = cur.fetchone()
     conn.commit()
-    if row is not None and is_cancel_requested(row[0]):
+    if row is None:
+        raise JobLost()
+    if is_cancel_requested(row[0]):
         raise JobCancelled()
 
 
@@ -491,18 +571,28 @@ class TransferBeat:
             try:
                 if self.conn is None or self.conn.closed:
                     self.conn = db_connect()
+                token = lease_for(self.job_id)
+                if not token:
+                    self.cancelled = True
+                    raise JobLost()
                 with self.conn.cursor() as cur:
+                    present_lease(cur, token)
                     cur.execute(
                         "UPDATE analysis_job SET heartbeat_at = now() "
-                        "WHERE id = %s RETURNING state",
-                        (self.job_id,),
+                        "WHERE id = %s AND claim_token = %s::uuid "
+                        "AND state IN ('running', 'cancel_requested') "
+                        "RETURNING state",
+                        (self.job_id, token),
                     )
                     row = cur.fetchone()
                 self.conn.commit()
-                if row is not None and is_cancel_requested(row[0]):
+                if row is None:
+                    self.cancelled = True
+                    raise JobLost()
+                if is_cancel_requested(row[0]):
                     self.cancelled = True
                     raise JobCancelled()
-            except JobCancelled:
+            except (JobCancelled, JobLost):
                 raise
             except Exception:
                 # Liveness is best effort here; a beat that cannot
@@ -572,7 +662,9 @@ def reclaim_abandoned_scratch(conn) -> int:
     its own naming.
     """
     removed = 0
-    prefixes = ("job-", "copc-", "mosaic-")
+    # colorize- too: do_colorize works in SCRATCH/colorize-<id>, and an
+    # interrupted one was never cleaned.
+    prefixes = ("job-", "copc-", "mosaic-", "colorize-")
     try:
         entries = [
             p for p in SCRATCH.iterdir()
@@ -634,45 +726,66 @@ def claim_job(conn):
         # heartbeat_at starts at claim time so the reclaim window
         # opens from the moment this worker owns the row, not from
         # its first progress write.
+        token = str(uuid.uuid4())
         cur.execute(
             """
             UPDATE analysis_job
             SET state = 'running', started_at = now(),
-                heartbeat_at = now(), progress = 1
+                heartbeat_at = now(), progress = 1,
+                claim_token = %s
             WHERE id = %s
             """,
-            (job["id"],),
+            (token, job["id"]),
         )
+        job["claim_token"] = token
+        remember_lease(str(job["id"]), token)
     conn.commit()
     return job
 
 
-def mark_cancelled(conn, job_id: str) -> None:
-    """Terminal stamp for a user cancel. Guarded on the states this
-    worker legitimately owns so a concurrent reclaim sweep (which
-    may already have settled the row) is never overwritten."""
+def mark_cancelled(conn, job_id: str, claim_token: str | None = None) -> None:
+    """Terminal stamp for a user cancel. Only the claim that still
+    owns the row may write it, so a newer running owner is left alone."""
+    token = claim_token or lease_for(job_id)
+    if not token:
+        return
     with conn.cursor() as cur:
+        present_lease(cur, token)
         cur.execute(
             """
             UPDATE analysis_job
             SET state = 'cancelled', finished_at = now()
-            WHERE id = %s AND state IN ('running', 'cancel_requested')
+            WHERE id = %s
+              AND claim_token = %s::uuid
+              AND state IN ('running', 'cancel_requested')
             """,
-            (job_id,),
+            (job_id, token),
         )
     conn.commit()
 
 
-def finish_job(conn, job_id: str, error: str | None) -> None:
+def finish_job(conn, job_id: str, error: str | None, claim_token: str | None = None) -> bool:
+    """Terminal stamp for the worker that owns the row.
+
+    The token must match exactly. A NULL argument or a NULL column
+    does not match, so a stale owner cannot finish a row that was
+    reclaimed and claimed again. Returns whether a row changed.
+    """
+    token = claim_token or lease_for(job_id)
+    if not token:
+        return False
     with conn.cursor() as cur:
+        present_lease(cur, token)
         if error is None:
             cur.execute(
                 """
                 UPDATE analysis_job
                 SET state = 'done', progress = 100, finished_at = now()
                 WHERE id = %s
+                  AND claim_token = %s::uuid
+                  AND state IN ('running', 'cancel_requested')
                 """,
-                (job_id,),
+                (job_id, token),
             )
         else:
             cur.execute(
@@ -680,10 +793,29 @@ def finish_job(conn, job_id: str, error: str | None) -> None:
                 UPDATE analysis_job
                 SET state = 'failed', error = %s, finished_at = now()
                 WHERE id = %s
+                  AND claim_token = %s::uuid
+                  AND state IN ('running', 'cancel_requested')
                 """,
-                (error[:2000], job_id),
+                (error[:2000], job_id, token),
             )
+        changed = cur.rowcount
     conn.commit()
+    return changed == 1
+
+
+def zonal_too_large(width: int, height: int) -> bool:
+    return width * height > ZONAL_MAX_CELLS
+
+
+def mercator_units_per_meter(lat_deg: float) -> float:
+    """Web mercator raster units per ground meter at a latitude."""
+    c = math.cos(math.radians(max(-85.0, min(85.0, lat_deg))))
+    return 1.0 / c
+
+
+def mercator_y_to_lat(y: float) -> float:
+    """Latitude in degrees of a web mercator y."""
+    return math.degrees(math.atan(math.sinh(y / 6378137.0)))
 
 
 def item_data(conn, item_id: str) -> dict:
@@ -693,6 +825,12 @@ def item_data(conn, item_id: str) -> dict:
             (item_id,),
         )
         row = cur.fetchone()
+    # End the read transaction. Left open, the main connection sat idle
+    # in transaction through the whole first download (beats use their
+    # own connection), and Postgres's idle_in_transaction timeout (5
+    # minutes on the VPS) killed it, failing every large job after the
+    # download. Not autocommit: present_lease needs a transaction.
+    conn.commit()
     if row is None:
         raise RuntimeError("Source item no longer exists.")
     return row[0] or {}
@@ -705,15 +843,46 @@ def merge_item_data(conn, item_id: str, patch: dict) -> None:
     # the worker computed (or snapshotted at job start) silently
     # erases those concurrent changes. The jsonb || merge only
     # touches the keys the worker owns, so everything else survives.
+    #
+    # The claim check and the item write are one statement. A prior
+    # SELECT then a later UPDATE lets a reclaim land in between and
+    # the stale worker still publish. FOR UPDATE on the job row makes
+    # the reclaim wait, then the EXISTS sees the token that committed.
+    job_id = _current_job_id
+    token = lease_for(job_id) if job_id is not None else None
+    if job_id is not None and not token:
+        raise JobLost()
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE item
-            SET data_json = data_json || %s::jsonb, updated_at = now()
-            WHERE id = %s
-            """,
-            (json.dumps(patch), item_id),
-        )
+        if job_id is not None:
+            present_lease(cur, token)
+            cur.execute(
+                """
+                WITH held AS (
+                  SELECT id FROM analysis_job
+                  WHERE id = %s
+                    AND claim_token = %s::uuid
+                    AND state IN ('running', 'cancel_requested')
+                  FOR UPDATE
+                )
+                UPDATE item
+                SET data_json = data_json || %s::jsonb, updated_at = now()
+                WHERE id = %s
+                  AND EXISTS (SELECT 1 FROM held)
+                """,
+                (job_id, token, json.dumps(patch), item_id),
+            )
+            if cur.rowcount != 1:
+                conn.rollback()
+                raise JobLost()
+        else:
+            cur.execute(
+                """
+                UPDATE item
+                SET data_json = data_json || %s::jsonb, updated_at = now()
+                WHERE id = %s
+                """,
+                (json.dumps(patch), item_id),
+            )
     conn.commit()
 
 
@@ -735,6 +904,40 @@ RASTER_TARGET_KINDS = {
 }
 
 
+TILE_LAYER_KEY_PREFIX = "item-tile-layer/"
+POINT_CLOUD_KEY_PREFIX = "item-point-cloud/"
+
+
+def pinned_source_key(data: dict, prefix: str, *fields: str) -> str | None:
+    """The first non-empty key among `fields`, refused unless it sits
+    under `prefix`.
+
+    Source item data is owner-writable through the generic items PATCH,
+    and this worker downloads with service credentials that can read
+    the whole bucket. Without the pin an owner could point a source at
+    another org's raster, an analysis artifact, or a feedback
+    screenshot, run an analysis over it, and get the derived result
+    written into an item they own. The serve path pins the same way.
+    Returns None when no field is set, so callers keep their own
+    "has no file" message.
+    """
+    for field in fields:
+        key = data.get(field)
+        if not key:
+            continue
+        if (
+            not isinstance(key, str)
+            or not key.startswith(prefix)
+            or any(seg in ("", ".", "..") for seg in key[len(prefix):].split("/"))
+        ):
+            raise RuntimeError(
+                "This layer's file is not stored where this kind of layer "
+                "keeps its files, so it was not read."
+            )
+        return key
+    return None
+
+
 def stamp_target_failed(conn, job, error: str) -> None:
     """Mark a failed job's pre-created target item as failed.
 
@@ -749,6 +952,19 @@ def stamp_target_failed(conn, job, error: str) -> None:
     target = job.get("target_item_id")
     if not target:
         return
+    # A handler that already stamped its own failure (colorize writes a
+    # plain-language reason, and its own cancel text) keeps it: this
+    # generic stamp used to overwrite it with the raw tool error.
+    try:
+        current = item_data(conn, target)
+    except Exception:
+        current = {}
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    if current.get("processingState") == "failed" and current.get("processingError"):
+        return
     try:
         merge_item_data(
             conn,
@@ -760,6 +976,34 @@ def stamp_target_failed(conn, job, error: str) -> None:
         )
     except Exception:
         conn.rollback()
+
+
+def settle_cancelled(conn, job) -> None:
+    """Stamp the husk item, then mark the job cancelled.
+
+    In that order: merge_item_data only writes while the job row is
+    still running or cancel_requested under this claim. Marking the job
+    first made every stamp lose its lease and silently roll back, so a
+    cancelled raster job left its pre-created item with no state and
+    no explanation.
+    """
+    stamp_target_failed(
+        conn,
+        job,
+        "This analysis was cancelled before it finished.",
+    )
+    mark_cancelled(conn, job["id"], job.get("claim_token"))
+
+
+def settle_failed(conn, job, error: str) -> None:
+    """Stamp the husk item, then mark the job failed. Order as above.
+
+    Raster jobs pre-create their target tile_layer item; without the
+    stamp a failure leaves that item as a blank husk with no state and
+    no explanation.
+    """
+    stamp_target_failed(conn, job, error)
+    finish_job(conn, job["id"], error, job.get("claim_token"))
 
 
 def wgs84_bbox(tif: Path) -> list[float] | None:
@@ -844,6 +1088,15 @@ def plan_grid_chunks(
         )
     nx = math.ceil(cells_x / edge)
     ny = math.ceil(cells_y / edge)
+    # Refuse before building the list: bounds come from item data, and
+    # a huge extent planned millions of dicts and OOM-killed the worker
+    # before the GRID_MAX_CHUNKS check below the call ever ran.
+    if nx * ny > GRID_MAX_CHUNKS:
+        raise RuntimeError(
+            f"This build would need {nx * ny} gridding passes, over "
+            f"this server's limit of {GRID_MAX_CHUNKS}. Pick a coarser "
+            "resolution or raise GRID_MAX_CHUNKS."
+        )
     buf = buffer_cells * resolution
     chunks: list[dict] = []
     for iy in range(ny):
@@ -1022,8 +1275,17 @@ def grid_chunked(
     if len(tiles) == 1 and len(chunks) == 1:
         return tiles[0]
     vrt = work / f"{name}.vrt"
+    # -te pins the VRT to the planned extent (the union of the chunk
+    # cores, which tile it exactly). A skipped empty chunk at an edge
+    # otherwise shrinks one surface and not the other, and gdal_calc
+    # then refuses heightmap's DSM and DTM as different sizes.
+    ex0 = min(c["core"][0] for c in chunks)
+    ey0 = min(c["core"][1] for c in chunks)
+    ex1 = max(c["core"][2] for c in chunks)
+    ey1 = max(c["core"][3] for c in chunks)
     run(
-        ["gdalbuildvrt", str(vrt)] + [str(t) for t in tiles],
+        ["gdalbuildvrt", "-te", str(ex0), str(ey0), str(ex1), str(ey1), str(vrt)]
+        + [str(t) for t in tiles],
         work,
         conn,
         job_id,
@@ -1041,7 +1303,7 @@ def do_hillshade(conn, s3, job) -> None:
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -1061,9 +1323,7 @@ def do_hillshade(conn, s3, job) -> None:
         # pass). The hillshade itself runs on the combined surface
         # (VRT), never per chunk: shading stitched per-tile
         # hillshades would leave seams at every tile edge.
-        bounds = source.get("bounds") or copc_header_meta(
-            src, conn, job["id"]
-        )["bounds"]
+        bounds = metric_cloud_bounds(source, src, conn, job["id"])
         dem = grid_chunked(
             src, work, "dem", resolution, bounds,
             ground_only=(mode == "dtm"), output_type="idw",
@@ -1176,7 +1436,7 @@ def do_elevation(conn, s3, job) -> None:
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -1191,9 +1451,7 @@ def do_elevation(conn, s3, job) -> None:
         # #208: chunked gridding; see do_hillshade for the rationale.
         # The gdalwarp COG step below reads the VRT block-by-block,
         # so the full-extent DEM never materializes uncompressed.
-        bounds = source.get("bounds") or copc_header_meta(
-            src, conn, job["id"]
-        )["bounds"]
+        bounds = metric_cloud_bounds(source, src, conn, job["id"])
         dem = grid_chunked(
             src, work, "dem", resolution, bounds,
             ground_only=True, output_type="idw",
@@ -1315,7 +1573,9 @@ def do_viewshed(conn, s3, job) -> None:
         )
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
 
@@ -1346,7 +1606,11 @@ def do_viewshed(conn, s3, job) -> None:
         y_min = y_max + gt[5] * raster_h
         ds = None
 
-        radius_px = max_dist / res
+        # Web mercator units are 1/cos(lat) ground meters. The look
+        # distance is in ground meters, so in raster units it is longer;
+        # passed as is, a 1600 m viewshed at 39 N reached about 1243 m.
+        map_dist = max_dist * mercator_units_per_meter(lat)
+        radius_px = map_dist / res
         if (2 * radius_px) ** 2 > VIEWSHED_MAX_CELLS:
             raise RuntimeError(
                 "That distance is too far for this server at this "
@@ -1359,11 +1623,11 @@ def do_viewshed(conn, s3, job) -> None:
 
         # Window = observer +- distance, clipped to the raster. The
         # small margin keeps the observer's own cell interior.
-        margin = max_dist * 0.02 + res * 2
-        w_ulx = max(x_min, ox - max_dist - margin)
-        w_uly = min(y_max, oy + max_dist + margin)
-        w_lrx = min(x_max, ox + max_dist + margin)
-        w_lry = max(y_min, oy - max_dist - margin)
+        margin = map_dist * 0.02 + res * 2
+        w_ulx = max(x_min, ox - map_dist - margin)
+        w_uly = min(y_max, oy + map_dist + margin)
+        w_lrx = min(x_max, ox + map_dist + margin)
+        w_lry = max(y_min, oy - map_dist - margin)
         crop = work / "crop.tif"
         run(
             [
@@ -1399,7 +1663,7 @@ def do_viewshed(conn, s3, job) -> None:
                 "-oz",
                 str(height_m),
                 "-md",
-                str(max_dist),
+                str(map_dist),
                 str(crop),
                 str(vis),
             ],
@@ -1558,7 +1822,9 @@ def do_contours(conn, s3, job):
         )
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
 
@@ -1646,15 +1912,22 @@ def do_contours(conn, s3, job):
         # Conditional on 'running' so a cancel that lands between
         # our last beat and this handoff wins: without the guard the
         # flip would overwrite cancel_requested and the import would
-        # run a job the user already stopped.
+        # run a job the user already stopped. The token is cleared
+        # here because the API bridge owns the row from 'ingest' on
+        # and does not present one.
         with conn.cursor() as cur:
+            token = job.get("claim_token")
+            if token:
+                present_lease(cur, token)
             cur.execute(
                 """
                 UPDATE analysis_job
-                SET state = 'ingest', params = %s, progress = 80
+                SET state = 'ingest', params = %s, progress = 80,
+                    claim_token = NULL
                 WHERE id = %s AND state = 'running'
+                  AND claim_token = %s::uuid
                 """,
-                (json.dumps(new_params), job["id"]),
+                (json.dumps(new_params), job["id"], token),
             )
             flipped = cur.rowcount
         conn.commit()
@@ -1733,7 +2006,9 @@ def do_zonal_stats(conn, s3, job):
         raise RuntimeError("The zone features were not staged for this job.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The raster layer has no file.")
 
@@ -1759,6 +2034,12 @@ def do_zonal_stats(conn, s3, job):
         if band_i < 1 or band_i > ds.RasterCount:
             raise RuntimeError(
                 f"Band {band_i} is not on this raster (it has {ds.RasterCount})."
+            )
+        if zonal_too_large(ds.RasterXSize, ds.RasterYSize):
+            raise RuntimeError(
+                "This raster is too large for zonal statistics on this server "
+                f"({ds.RasterXSize} x {ds.RasterYSize} cells). Use a smaller "
+                "or coarser raster."
             )
         band = ds.GetRasterBand(band_i)
         values = band.ReadAsArray().astype("float64")
@@ -1877,13 +2158,18 @@ def do_zonal_stats(conn, s3, job):
         new_params["artifactKey"] = key
         new_params["featureCount"] = len(out_features)
         with conn.cursor() as cur:
+            token = job.get("claim_token")
+            if token:
+                present_lease(cur, token)
             cur.execute(
                 """
                 UPDATE analysis_job
-                SET state = 'ingest', params = %s, progress = 80
+                SET state = 'ingest', params = %s, progress = 80,
+                    claim_token = NULL
                 WHERE id = %s AND state = 'running'
+                  AND claim_token = %s::uuid
                 """,
-                (json.dumps(new_params), job["id"]),
+                (json.dumps(new_params), job["id"], token),
             )
             flipped = cur.rowcount
         conn.commit()
@@ -1911,7 +2197,9 @@ def do_steepness(conn, s3, job) -> None:
     cog->pmtiles pyramid path. Nodata stays transparent.
     """
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("cogStorageKey") or source.get("storageKey")
+    storage_key = pinned_source_key(
+        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
 
@@ -1927,8 +2215,15 @@ def do_steepness(conn, s3, job) -> None:
 
         gdal.UseExceptions()
         ds = gdal.Open(str(src))
-        res = abs(ds.GetGeoTransform()[1])
+        gt = ds.GetGeoTransform()
+        res = abs(gt[1])
+        center_y = gt[3] + gt[5] * ds.RasterYSize / 2
         ds = None
+        # The DEM is web mercator (do_elevation always writes
+        # GoogleMapsCompatible), whose horizontal unit is cos(lat)
+        # ground meters. Without -s every slope came out flatter
+        # (a true 30 degrees read as 24 at 39 N).
+        scale = 1.0 / mercator_units_per_meter(mercator_y_to_lat(center_y))
 
         slope = work / "slope.tif"
         run(
@@ -1938,6 +2233,8 @@ def do_steepness(conn, s3, job) -> None:
                 str(src),
                 str(slope),
                 "-compute_edges",
+                "-s",
+                f"{scale:.9f}",
             ],
             work,
             conn,
@@ -2052,7 +2349,7 @@ def do_heightmap(conn, s3, job) -> None:
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -2068,9 +2365,7 @@ def do_heightmap(conn, s3, job) -> None:
         # bounds (grid_chunked always pins the lattice to them), so
         # DSM and DTM stay cell-aligned for the subtraction no
         # matter how the ground subset's extent differs.
-        bounds = source.get("bounds") or copc_header_meta(
-            src, conn, job["id"]
-        )["bounds"]
+        bounds = metric_cloud_bounds(source, src, conn, job["id"])
         dsm = grid_chunked(
             src, work, "dsm", resolution, bounds,
             ground_only=False, output_type="max",
@@ -2253,7 +2548,7 @@ def do_sam_embed(conn, s3, job) -> None:
         raise RuntimeError("Zoom in further to use the outline tool.")
 
     source = item_data(conn, job["source_item_id"])
-    key = source.get("cogStorageKey")
+    key = pinned_source_key(source, TILE_LAYER_KEY_PREFIX, "cogStorageKey")
     if not key:
         raise RuntimeError("This imagery layer has no image file.")
 
@@ -2390,6 +2685,69 @@ def copc_header_meta(path: Path, conn=None, job_id: str | None = None) -> dict:
     }
 
 
+_WKT_UNIT_RE = re.compile(
+    r'\b(LENGTHUNIT|ANGLEUNIT|SCALEUNIT|TIMEUNIT|UNIT)\s*\[\s*"([^"]*)"\s*,\s*([0-9.eE+-]+)'
+)
+_ANGLE_UNIT_NAMES = ("degree", "radian", "grad", "arc-second", "arc-minute", "gon")
+
+
+def non_metric_crs_reason(wkt: str) -> str | None:
+    """Why a cloud's CRS cannot be gridded in meters, or None.
+
+    Resolution goes to PDAL's writers.gdal in CRS units and Z is
+    carried through as is, while the API, the terrain layer and the
+    contour fields all treat both as meters. A geographic CRS or any
+    length unit other than the metre (horizontal or vertical) would
+    grid at the wrong cell size and store feet as meters. An empty WKT
+    is unknown and passes, as before. Parsed from the WKT text so the
+    check does not depend on GDAL's Python bindings.
+    """
+    if not wkt:
+        return None
+    if not re.search(r"\b(PROJCS|PROJCRS|PROJECTEDCRS)\s*\[", wkt):
+        return (
+            "This point cloud uses a geographic coordinate system "
+            "(degrees). Reproject it to a projected system in meters, "
+            "then run the analysis again."
+        )
+    for kind, name, factor in _WKT_UNIT_RE.findall(wkt):
+        if kind in ("ANGLEUNIT", "SCALEUNIT", "TIMEUNIT"):
+            continue
+        if any(a in name.lower() for a in _ANGLE_UNIT_NAMES):
+            continue
+        try:
+            f = float(factor)
+        except ValueError:
+            continue
+        if abs(f - 1.0) > 1e-6:
+            return (
+                f"This point cloud is in {name} units. Analyses here grid "
+                "and label elevations in meters, so reproject the cloud to "
+                "a system in meters (horizontal and vertical), then run "
+                "the analysis again."
+            )
+    return None
+
+
+def metric_cloud_bounds(source: dict, src: Path, conn, job_id: str) -> list[float]:
+    """The cloud's bounds, after refusing a CRS that is not in meters.
+
+    Uses the item's stamped bounds and crsWkt when present, otherwise
+    one header read supplies both.
+    """
+    bounds = source.get("bounds")
+    wkt = source.get("crsWkt")
+    if not bounds or wkt is None:
+        meta = copc_header_meta(src, conn, job_id)
+        bounds = bounds or meta["bounds"]
+        if wkt is None:
+            wkt = meta.get("crsWkt") or ""
+    reason = non_metric_crs_reason(wkt)
+    if reason:
+        raise RuntimeError(reason)
+    return bounds
+
+
 def bounds_to_wgs84(bounds: list[float], wkt: str) -> list[float] | None:
     """[w, s, e, n] from native bounds + WKT via osr. None on failure;
     the viewer just skips the pre-load bounding when it is absent."""
@@ -2440,7 +2798,7 @@ def do_colorize(conn, s3, job) -> None:
         raise RuntimeError("Colorize job is missing its target item.")
 
     source = item_data(conn, job["source_item_id"])
-    storage_key = source.get("storageKey")
+    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -2450,7 +2808,9 @@ def do_colorize(conn, s3, job) -> None:
             "Elevation layers have no color to paint with. "
             "Pick an aerial or satellite imagery layer."
         )
-    raster_key = raster.get("cogStorageKey") or raster.get("storageKey")
+    raster_key = pinned_source_key(
+        raster, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+    )
     if not raster_key:
         raise RuntimeError("The imagery layer has no image file yet.")
 
@@ -2481,11 +2841,26 @@ def do_colorize(conn, s3, job) -> None:
             wkt_file.write_text(crs_wkt)
             warped = work / "imagery-in-cloud-crs.tif"
             log("  warping imagery into the point cloud CRS")
+            # Only the cloud's footprint (plus a small margin): warping
+            # a whole county mosaic for one tile's worth of points
+            # cost tens of GB of scratch and hours for nothing.
+            b = meta.get("bounds") or []
+            clip: list[str] = []
+            if len(b) == 6:
+                pad = max(b[3] - b[0], b[4] - b[1]) * 0.01 + 1.0
+                clip = [
+                    "-te",
+                    str(b[0] - pad),
+                    str(b[1] - pad),
+                    str(b[3] + pad),
+                    str(b[4] + pad),
+                ]
             run_long(
                 [
                     "gdalwarp",
                     "-t_srs",
                     str(wkt_file),
+                    *clip,
                     "-r",
                     "bilinear",
                     "-of",
@@ -3307,13 +3682,22 @@ def main() -> None:
     if reclaimed:
         log(f"scratch reclaim: {reclaimed} abandoned dir(s) removed")
     s3 = s3_client()
+    last_reclaim = time.monotonic()
     while True:
         try:
             job = claim_job(conn)
             if job is None:
+                # Sweep again while idle. At startup the job a restart
+                # just interrupted still has a fresh heartbeat, so its
+                # dir was kept, and nothing swept until the next restart.
+                if time.monotonic() - last_reclaim > RECLAIM_EVERY_SECONDS:
+                    last_reclaim = time.monotonic()
+                    reclaim_abandoned_scratch(conn)
                 time.sleep(POLL_SECONDS)
                 continue
             kind = job["kind"]
+            global _current_job_id
+            _current_job_id = str(job["id"])
             log(f"job {job['id']}: {kind}")
             handler = HANDLERS.get(kind)
             if handler is None:
@@ -3321,6 +3705,7 @@ def main() -> None:
                     conn,
                     job["id"],
                     f"This worker does not understand job kind '{kind}'.",
+                    job.get("claim_token"),
                 )
                 continue
             try:
@@ -3331,8 +3716,11 @@ def main() -> None:
                     # API-side bridge). Do not mark it done.
                     log(f"job {job['id']}: handed off")
                 else:
-                    finish_job(conn, job["id"], None)
+                    finish_job(conn, job["id"], None, job.get("claim_token"))
                     log(f"job {job['id']}: done")
+            except JobLost:
+                conn.rollback()
+                log(f"job {job['id']}: lost the claim; not publishing a result")
             except JobCancelled:
                 # Before the generic handler on purpose (it IS an
                 # Exception): a user cancel is a clean stop, not a
@@ -3345,20 +3733,14 @@ def main() -> None:
                 # handler, same as its failure path).
                 conn.rollback()
                 log(f"job {job['id']}: cancelled by user")
-                mark_cancelled(conn, job["id"])
-                stamp_target_failed(
-                    conn,
-                    job,
-                    "This analysis was cancelled before it finished.",
-                )
+                settle_cancelled(conn, job)
             except Exception as err:
                 conn.rollback()
                 log(f"job {job['id']}: FAILED\n{traceback.format_exc()}")
-                finish_job(conn, job["id"], str(err))
-                # Raster jobs pre-create their target tile_layer item;
-                # without this stamp a failure leaves that item as a
-                # blank husk with no state and no explanation.
-                stamp_target_failed(conn, job, str(err))
+                settle_failed(conn, job, str(err))
+            finally:
+                _current_job_id = None
+                forget_lease(str(job["id"]))
         except psycopg2.Error:
             log("db connection lost; reconnecting")
             time.sleep(5)

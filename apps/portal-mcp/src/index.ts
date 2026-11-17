@@ -10,7 +10,8 @@
  *   - list_items, get_item, read_layer_features
  *   - query_osm: GET /api/osm/query (capped Overpass facade)
  *   - search_catalog: GET public OGC Records catalog (no token)
- * Phase 2 (write; needs a non-read-only API key):
+ * Phase 2 (write; needs a non-read-only API key AND
+ * GRATIS_MCP_ALLOW_WRITES=1, see safety.ts):
  *   - run_tool: POST /api/tools/:id/run
  *   - create_data_layer_from_geojson: POST /api/items then
  *     POST /api/items/:id/layers/:layerKey/features
@@ -45,7 +46,9 @@ import {
 } from './auth-token.js';
 import {
   APPEND_BATCH_SIZE,
+  appendInBatches,
   buildV3LayerData,
+  capFeatureCollection,
   chunk,
   inferFields,
   inferGeometryType,
@@ -70,10 +73,24 @@ import {
   clientRejectSearchCatalog,
   type SearchCatalogArgs,
 } from './search-catalog.js';
+import {
+  READ_FEATURES_DEFAULT_LIMIT,
+  buildListItemsPath,
+  buildReadLayerPath,
+} from './item-paths.js';
+import {
+  assertAccessAllowed,
+  assertToolAllowed,
+  parseSafetyConfig,
+  visibleTools,
+  wrapUntrusted,
+  formatToolError,
+  PortalHttpError,
+} from './safety.js';
 
 const BASE_URL = (
   process.env.GRATIS_GIS_BASE_URL ?? 'http://localhost:4000'
-).replace(/\/+$/, '');
+).replace(/(?<!\/)\/+$/, '');
 const TOKEN = process.env.GRATIS_GIS_TOKEN ?? '';
 const USER_AGENT = 'gratis-gis-mcp/0.1';
 
@@ -103,6 +120,18 @@ if (!TOKEN) {
   // eslint-disable-next-line no-console
   console.error(JWT_TOKEN_MESSAGE);
 }
+
+const SAFETY = parseSafetyConfig(process.env);
+for (const w of SAFETY.warnings) {
+  // eslint-disable-next-line no-console
+  console.error(w);
+}
+// eslint-disable-next-line no-console
+console.error(
+  SAFETY.writesEnabled
+    ? `gratis-gis-mcp: write tools enabled; new layers may be shared up to ${SAFETY.maxAccess}.`
+    : 'gratis-gis-mcp: read-only (set GRATIS_MCP_ALLOW_WRITES=1 to enable write tools).',
+);
 
 function requireToken(): string {
   if (!TOKEN) throw new Error(MISSING_TOKEN_MESSAGE);
@@ -300,7 +329,8 @@ const TOOLS: Tool[] = [
       'Read features from a data_layer item as a GeoJSON FeatureCollection. ' +
       'Pass `layerKey` for multi-layer v3 items (omit for legacy single-' +
       'table items). Capped to `limit` features so an MCP call against a ' +
-      'large layer cannot exhaust the model context.',
+      'large layer cannot exhaust the model context; a trimmed result ' +
+      'carries `truncated: true`.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -481,7 +511,11 @@ const TOOLS: Tool[] = [
       'append into an existing itemId for reuse. Public create cannot ' +
       'set a custom item UUID. Pass stable Feature.id UUIDs for ' +
       'feature-level idempotency. Requires a non-read-only API key. ' +
-      'At most 50_000 features; append batches of 5000.',
+      'At most 50_000 features; append batches of 5000. If a batch ' +
+        'fails, the result reports itemId and how much landed so you can ' +
+        'resume by passing that itemId instead of creating a new item. ' +
+        'Sharing wider than private needs the operator to allow it ' +
+        '(GRATIS_MCP_MAX_ACCESS).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -493,7 +527,9 @@ const TOOLS: Tool[] = [
         access: {
           type: 'string',
           enum: ['private', 'org', 'public'],
-          description: 'Sharing tier. Defaults to private.',
+          description:
+            'Sharing tier. Defaults to private. org or public is refused ' +
+            'unless the operator allows it.',
         },
         tags: {
           type: 'array',
@@ -557,11 +593,13 @@ async function portalFetch(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    const base = `GratisGIS ${res.status}: ${text || res.statusText}`;
-    if (opts.requireAuth && (res.status === 401 || res.status === 403)) {
-      throw new Error(`${base}\n${TOKEN_SETUP_HINT}`);
-    }
-    throw new Error(base);
+    throw new PortalHttpError(
+      res.status,
+      text || res.statusText,
+      opts.requireAuth && (res.status === 401 || res.status === 403)
+        ? TOKEN_SETUP_HINT
+        : undefined,
+    );
   }
   if (res.status === 204) return null;
   const text = await res.text();
@@ -601,7 +639,13 @@ function firstSublayerId(item: unknown): string | undefined {
   return typeof id === 'string' ? id : undefined;
 }
 
-function toContent(json: unknown): { content: Array<{ type: 'text'; text: string }> } {
+type ToolResult = {
+  content: Array<{ type: 'text'; text: string }>;
+  isError?: boolean;
+};
+
+/** For results this server wrote itself (ids, counts). */
+function toContent(json: unknown): ToolResult {
   return {
     content: [
       { type: 'text', text: JSON.stringify(json, null, 2) },
@@ -609,35 +653,39 @@ function toContent(json: unknown): { content: Array<{ type: 'text'; text: string
   };
 }
 
+/** For results that carry portal or OSM content written by others. */
+function toUntrustedContent(source: string, json: unknown): ToolResult {
+  return { content: [{ type: 'text', text: wrapUntrusted(source, json) }] };
+}
+
 async function runTool(
   name: string,
   rawArgs: unknown,
-): Promise<ReturnType<typeof toContent>> {
+): Promise<ToolResult> {
+  assertToolAllowed(name, SAFETY);
   switch (name) {
     case 'list_items': {
       const args = listItemsSchema.parse(rawArgs ?? {});
-      const params = new URLSearchParams();
-      if (args.type) params.set('type', args.type);
-      if (args.query) params.set('query', args.query);
-      params.set('limit', String(args.limit ?? 25));
-      const out = await authedGet(`/api/items?${params.toString()}`);
-      return toContent(out);
+      const out = await authedGet(buildListItemsPath(args));
+      return toUntrustedContent('gratisgis:list_items', out);
     }
     case 'get_item': {
       const args = getItemSchema.parse(rawArgs ?? {});
       const out = await authedGet(`/api/items/${args.id}`);
-      return toContent(out);
+      return toUntrustedContent('gratisgis:get_item', out);
     }
     case 'read_layer_features': {
       const args = readLayerFeaturesSchema.parse(rawArgs ?? {});
-      const limit = args.limit ?? 1000;
-      // Prefer the per-sublayer route when the caller supplied a
-      // layerKey; fall back to the item-level dump otherwise.
-      const path = args.layerKey
-        ? `/api/items/${args.itemId}/layers/${encodeURIComponent(args.layerKey)}/geojson?limit=${limit}`
-        : `/api/items/${args.itemId}/geojson?limit=${limit}`;
-      const out = await authedGet(path);
-      return toContent(out);
+      const limit = args.limit ?? READ_FEATURES_DEFAULT_LIMIT;
+      // The item-level route takes no limit (it returns up to the
+      // server's own cap), so the result is trimmed here either way.
+      const out = await authedGet(
+        buildReadLayerPath({ itemId: args.itemId, layerKey: args.layerKey, limit }),
+      );
+      return toUntrustedContent(
+        'gratisgis:read_layer_features',
+        capFeatureCollection(out, limit),
+      );
     }
     case 'search_catalog': {
       const args = searchCatalogSchema.parse(
@@ -646,21 +694,21 @@ async function runTool(
       const reject = clientRejectSearchCatalog(args);
       if (reject) throw new Error(reject);
       const out = await publicGet(buildSearchCatalogPath(args));
-      return toContent(out);
+      return toUntrustedContent('gratisgis:search_catalog', out);
     }
     case 'query_osm': {
       const args = queryOsmSchema.parse(rawArgs ?? {}) as OsmQueryArgs;
       const reject = clientRejectOsmQuery(args);
       if (reject) throw new Error(reject);
       const out = await authedGet(buildOsmQueryPath(args));
-      return toContent(out);
+      return toUntrustedContent('openstreetmap:query_osm', out);
     }
     case 'run_tool': {
       const args = runToolSchema.parse(rawArgs ?? {});
       const out = await authedPost(`/api/tools/${args.toolId}/run`, {
         parameters: args.parameters ?? {},
       });
-      return toContent(out);
+      return toUntrustedContent('gratisgis:run_tool', out);
     }
     case 'create_data_layer_from_geojson': {
       const args = createDataLayerSchema.parse(rawArgs ?? {});
@@ -706,7 +754,19 @@ async function runTool(
             `Item ${itemId} has no sublayers; pass layerKey or recreate the item.`,
           );
         }
+        // Appending into an already-public item publishes the new rows
+        // just as surely as creating a public one.
+        const existingAccess =
+          existing && typeof existing === 'object'
+            ? (existing as { access?: unknown }).access
+            : undefined;
+        assertAccessAllowed(
+          typeof existingAccess === 'string' ? existingAccess : 'public',
+          SAFETY,
+          `Item ${itemId}`,
+        );
       } else {
+        assertAccessAllowed(args.access, SAFETY, 'The new layer');
         layerKey = layerKey ?? 'default';
         const data = buildV3LayerData({
           layerId: layerKey,
@@ -731,27 +791,47 @@ async function runTool(
         created = true;
       }
 
-      let inserted = 0;
-      let deduplicated = 0;
       const batches = chunk(appendPayload, APPEND_BATCH_SIZE);
-      for (const batch of batches) {
-        const res = (await authedPost(
+      const outcome = await appendInBatches(batches, (batch) =>
+        authedPost(
           `/api/items/${itemId}/layers/${encodeURIComponent(layerKey!)}/features`,
           { features: batch },
-        )) as { inserted?: number; deduplicated?: number } | null;
-        inserted += res?.inserted ?? batch.length;
-        deduplicated += res?.deduplicated ?? 0;
-      }
+        ),
+      );
 
-      return toContent({
+      const summary = {
         itemId,
         layerId: layerKey,
         created,
-        inserted,
-        deduplicated,
-        batches: batches.length,
+        inserted: outcome.inserted,
+        deduplicated: outcome.deduplicated,
+        batches: outcome.batches,
+        batchesDone: outcome.batchesDone,
         featureCount: features.length,
-      });
+      };
+      if (outcome.failedBatch !== undefined) {
+        const ours = toContent({
+          ...summary,
+          failedBatch: outcome.failedBatch,
+          resume:
+              `Batch ${outcome.failedBatch} of ${outcome.batches} failed. ` +
+              `Call again with itemId ${itemId} and layerKey ${layerKey} to ` +
+              'append into this item instead of creating another, sending ' +
+              `features from index ${outcome.batchesDone * APPEND_BATCH_SIZE} ` +
+              'onward. Features with UUID ids are deduplicated on retry; ' +
+              'others would be inserted twice if resent.',
+        });
+        // The portal's error text goes in the envelope, apart from the
+        // resume guidance this server wrote.
+        return {
+          content: [
+            ...ours.content,
+            { type: 'text', text: wrapUntrusted('gratisgis:error', { error: outcome.error }) },
+          ],
+          isError: true,
+        };
+      }
+      return toContent(summary);
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -769,16 +849,17 @@ async function main(): Promise<void> {
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: visibleTools(TOOLS, SAFETY),
+  }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params;
     try {
       return await runTool(name, args ?? {});
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       return {
-        content: [{ type: 'text', text: `Error: ${message}` }],
+        content: [{ type: 'text', text: formatToolError(err) }],
         isError: true,
       };
     }

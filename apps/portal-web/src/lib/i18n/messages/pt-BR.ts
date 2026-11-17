@@ -14,6 +14,8 @@ import type { CatalogShape } from '../locales';
 
 export const ptBR: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Outra pessoa salvou este item depois que você o abriu, então seu salvamento não foi aplicado. Suas alterações continuam na tela. Recarregue para ver a versão mais recente e refaça suas alterações.',
     save: 'Salvar',
     cancel: 'Cancelar',
     delete: 'Excluir',
@@ -23,6 +25,48 @@ export const ptBR: Partial<CatalogShape> = {
     backToItems: 'Voltar aos itens',
     settings: 'Configurações',
     language: 'Idioma',
+    geolocationInsecure:
+      'O navegador não compartilha o GPS neste endereço HTTP simples. A busca de endereço não usa GPS. Para usar Minha localização, abra o portal com HTTPS. Num NAS, isso é o Tailscale Serve com o nome MagicDNS. localhost também é permitido.',
+  },
+  /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
+  builderShell: {
+    backToItem: 'Voltar ao item',
+    closePanel: 'Fechar painel',
+    pinPanel: 'Fixar painel',
+    unpinPanel: 'Desafixar painel',
+    pinPanelTitle: 'Fixar painel aberto',
+    unpinPanelTitle: 'Desafixar (reduzir a ícone)',
+    openLeftPanel: 'Abrir painel esquerdo',
+    openRightPanel: 'Abrir painel direito',
+  },
+  editorDetail: {
+    unsavedChanges: 'Alterações não salvas',
+    saved: 'Salvo',
+    openInWorkspace: 'Abrir no espaço de trabalho',
+    openInWorkspaceTitle: 'Abrir este editor em uma nova aba',
+    openEditorNewTab: 'Abrir o editor em uma nova aba',
+    discard: 'Descartar',
+    addFromMap: 'Adicionar do mapa',
+    addFromMapTitle: 'Importar camadas editáveis de um mapa',
+    addTarget: 'Adicionar destino',
+    clearReferenceMapAria: 'Limpar mapa de referência',
+    configurationTitle: 'Configuração do editor',
+    removeTargetAria: 'Remover destino',
+    removeTemplateAria: 'Remover modelo',
+  },
+  viewerDetail: {
+    unsavedChanges: 'Alterações não salvas',
+    saved: 'Salvo',
+    openViewer: 'Abrir visualizador',
+    openViewerTitle: 'Abrir este visualizador em uma nova aba',
+    openViewerNewTab: 'Abrir o visualizador em uma nova aba',
+    discard: 'Descartar',
+    addFromMap: 'Adicionar do mapa',
+    addFromMapTitle: 'Importar camadas de um mapa',
+    addLayer: 'Adicionar camada',
+    clearReferenceMapAria: 'Limpar mapa de referência',
+    configurationTitle: 'Configuração do visualizador',
+    removeLayerAria: 'Remover camada',
   },
   nav: {
     items: 'Itens',
@@ -42,11 +86,40 @@ export const ptBR: Partial<CatalogShape> = {
     notifications: 'Notificações',
     ai: 'IA',
     build: 'Criar',
+    buildHint: 'Descreva uma camada, um mapa, um formulário ou um app',
     security: 'Acesso',
     fieldQueues: 'Filas de campo',
     migrations: 'Migrações',
     feedback: 'Feedback',
     gettingStarted: 'Primeiros passos',
+    audit: 'Auditoria',
+    permissions: 'Permissões',
+    diagnostics: 'Diagnóstico',
+    jobs: 'Trabalhos',
+    operations: 'Operações',
+    updates: 'Atualizações',
+  },
+  updates: {
+    title: 'Updates',
+    intro: 'This page only tells you what is new. It does not change the install. Take a backup, then follow the steps for this machine.',
+    back: 'Back to portal',
+    current: 'This install',
+    latest: 'Available',
+    channel: 'Channel',
+    install: 'Install',
+    changelog: 'Changelog',
+    offline: 'Could not reach GitHub. The versions above are what this install already knows.',
+    banner: 'An update is available.',
+    createBackup: 'Create backup',
+    backupWorking: 'Starting backup...',
+    downloadBackup: 'Download backup',
+    backupPage: 'Open the backup page',
+    backupFailed: 'Could not start a backup',
+    loadFailed: 'Could not load update information',
+    nasCompose: 'Copy the new compose file for this channel:',
+    nasComposePaste: 'In TrueNAS, edit the app and paste the file, then Save. In Dockge, open the stack, paste the file, and Save. Keep GRATIS_HTTP_PORT if you changed it.',
+    nasImages: 'The compose file is current. In TrueNAS, Stop the app and then Start it, or use Update. In Dockge, click Update. The stack pulls the new edge or latest images.',
+    dev: 'Pull the newest checkout and restart pnpm dev.',
   },
   shell: {
     notificationsLabel: 'Notificações',
@@ -55,8 +128,9 @@ export const ptBR: Partial<CatalogShape> = {
     closeNavigation: 'Fechar navegação',
   },
   search: {
-    placeholder: 'Pesquisar itens...',
+    placeholder: 'Pesquisar só itens',
     label: 'Pesquisar itens',
+    scopeHint: 'Pesquisa títulos, descrições e etiquetas de itens. Pessoas e grupos não entram.',
   },
   help: {
     buttonTitle: 'Ajuda (pressione ? a qualquer momento)',
@@ -117,6 +191,9 @@ export const ptBR: Partial<CatalogShape> = {
     viewerBlocked:
       'Sua conta tem a função Visualizador, que pode abrir e baixar itens, mas não criá-los. Um administrador da organização pode alterar sua função ou conceder apenas a capacidade de publicar.',
     changeType: 'Alterar tipo',
+    taskIntro: 'Comece com um envio, um mapa ou um formulário. Os outros tipos ficam em Mais, e um link que nomeia o tipo continua abrindo.',
+    moreTypes: 'Mais tipos de item',
+    fewerTypes: 'Menos tipos de item',
     detailsEyebrow: 'Novo {type}',
     detailsEyebrowFallback: 'item',
     titleLabel: 'Título',
@@ -198,7 +275,7 @@ export const ptBR: Partial<CatalogShape> = {
   },
   custom: {
     label: 'Web app',
-    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+    desc: 'Aplicativo web de mapa e widgets. Um painel é um modelo deste tipo, não um item separado. Escolha um modelo na próxima tela ou comece em branco.',
   },
   theme: {
     label: 'Theme',
@@ -240,6 +317,13 @@ export const ptBR: Partial<CatalogShape> = {
     term: 'XML de metadados',
     importTitle:
       'Importe um arquivo XML de metadados exportado pelo ArcGIS, QGIS ou por um catálogo de dados (ISO 19115, FGDC CSDGM ou Dublin Core) para preencher previamente os campos abaixo',
+    sectionAria: 'Importação opcional de metadados XML',
+    optional: 'Opcional',
+    importButton: 'Importar metadados XML',
+    parsed: 'Lido como {standard}. Preenchemos o que foi possível; o resto é com você.',
+    notMetadata: 'O arquivo XML não parece ISO 19115, FGDC CSDGM nem Dublin Core. Ignorado.',
+    readFailed: 'Não foi possível ler esse arquivo.',
+    metadataOnly: 'Somente metadados. Isto não envia o conteúdo do item. Seu arquivo fica no navegador.',
   },
   layerBuilder: {
     tableName: 'Nome da tabela',
@@ -267,8 +351,7 @@ export const ptBR: Partial<CatalogShape> = {
     expandAria: 'Expand',
     allowEditing: 'Allow editing',
     allowAttachments: 'Allow attachments',
-    attachmentsSoon: '(storage soon)',
-    attachmentsTitle: 'Attachment storage is a Phase E backend change: the toggle persists so you can opt in now.',
+    attachmentsTitle: 'Lets editors attach photos and files to features in this layer. When off, attachment uploads are refused.',
     editorScope: 'Editor scope',
     editorScopeTitle: 'Limit editors to the rows they themselves created',
     allFeatures: 'All features',
@@ -347,7 +430,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Todas as camadas do arquivo são adicionadas. Criar o item, ou salvar o esquema, carrega as feições. O painel pode usar a camada quando essa importação terminar.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -378,6 +461,31 @@ export const ptBR: Partial<CatalogShape> = {
     invalidGeoJson: 'File is not a valid GeoJSON FeatureCollection.',
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
+  },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Blocos vetoriais',
+    intro:
+      'Como esta camada é dividida em blocos do mapa. Deixe um campo vazio para manter o padrão.',
+    fieldsHeading: 'Campos nos blocos',
+    allFields: 'Todos os campos (padrão)',
+    someFields: 'Somente estes campos',
+    noFields: 'Esta camada ainda não tem campos.',
+    fieldsNote:
+      'Os campos que um mapa usa para estilo, rótulos, filtro ou pop-up ao passar o mouse são sempre incluídos de volta, então os mapas continuam desenhando. Os outros campos desmarcados ficam fora dos blocos, então widgets de aplicativos que filtram o mapa por eles no navegador não os verão. Isso só deixa os blocos menores. Não esconde dados: todo campo continua legível pelas feições, pop-ups e exportações da camada.',
+    minZoom: 'Zoom mínimo',
+    maxZoom: 'Zoom máximo',
+    maxFeatures: 'Máx. de feições por bloco',
+    cacheMaxAge: 'Cache do navegador (segundos)',
+    default: 'padrão',
+    zoomHint:
+      'O zoom máximo é o nível mais profundo para o qual os blocos são gerados; mapas com mais zoom continuam mostrando esses blocos ampliados. Abaixo do zoom mínimo a camada não é desenhada. Zoom de {min} a {max}.',
+    maxFeaturesHint: 'O limite de feições só pode ser reduzido, até {max}.',
+    cacheHint:
+      'Cache de 0 a {max} segundos. Os blocos de uma camada que não é pública são sempre guardados apenas de forma privada no navegador de quem vê.',
+    labelPoints: 'Rotular cada linha e polígono uma só vez',
+    labelPointsHint:
+      'Adiciona aos blocos um ponto de rótulo por linha ou polígono, para que uma feição que cruza bordas de blocos não seja rotulada uma vez por bloco. Os mapas passam a rotular a partir desse ponto (exceto rótulos colocados ao longo de linhas).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
@@ -478,6 +586,17 @@ export const ptBR: Partial<CatalogShape> = {
   exprErrorAt: '{message} (at position {pos})',
   contourSourceField: 'Source numeric field',
   pickNumericFieldOption: '(pick a numeric field)',
+  missingFieldOption: '{field} (não está nesta camada)',
+  measureLength: 'Comprimento',
+  measurePerimeter: 'Perímetro',
+  measureArea: 'Área',
+  predicateIntersects: 'Intersecta',
+  predicateWithin: 'Dentro de',
+  predicateNearest: 'Mais próximo',
+  predicateContains: 'Contém',
+  predicateTouches: 'Toca',
+  predicateNear: 'Perto',
+  loadDataLayersFailed: 'Não foi possível carregar as camadas de dados',
   contourNoNumeric: 'The source layer has no numeric fields. Add one (e.g. via Calculate field) earlier in the pipeline.',
   levels: 'Levels',
   contourAuto: 'Auto: walk by interval between min / max',
@@ -743,6 +862,7 @@ export const ptBR: Partial<CatalogShape> = {
     basemapActive: 'ativo',
     elevationProfileButton: 'Perfil de elevação',
     visibilityButton: 'Visibilidade',
+    measureButton: 'Medir',
     createAppButton: 'Criar app',
     savingIndicator: 'Salvando...',
     saveAsTitle: 'Salvar este mapa',
@@ -751,8 +871,33 @@ export const ptBR: Partial<CatalogShape> = {
     mapNamePlaceholder: 'Nome do mapa',
     cancel: 'Cancelar',
   },
+  mapMeasure: {
+    title: 'Medir',
+    closeAria: 'Fechar medição',
+    modeAria: 'Modo de medição',
+    distance: 'Distância',
+    area: 'Área',
+    unit: 'Unidade',
+    hintDistance:
+      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
+    hintArea:
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
+    hintAreaTerrain:
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
+    groundArea: 'Área do terreno',
+    horizontalLabel: 'Horizontal',
+    surfaceLabel: 'Superfície em declive',
+    perimeterLabel: 'Perímetro',
+    newMeasurement: 'Nova medição',
+  },
+  mapAreaScale: {
+    ariaLabel: 'Referência de área nesta escala',
+    title:
+      'Área nesta escala. Clique para alternar a unidade (acres, hectares, m², km², mi², ft²).',
+  },
   /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
   editorRuntime: {
+    targetsPanelTitle: 'Destinos',
     printTitle: 'Imprimir a vista atual',
     printAria: 'Imprimir',
     formViewButton: 'Vista de formulário',
@@ -763,9 +908,15 @@ export const ptBR: Partial<CatalogShape> = {
     area: 'Área',
     unit: 'Unidade',
     measureHintDistance:
-      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir.',
+      'Clique para adicionar pontos no mapa. Clique duas vezes para concluir. Compare com a barra de escala.',
     measureHintArea:
-      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir.',
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. A área é horizontal (geodésica) — a mesma base dos campos de acres das parcelas. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
+    measureHintAreaTerrain:
+      'Clique para adicionar vértices no mapa. Clique duas vezes para concluir. O número principal é a área do terreno (declive) no MDE. A área horizontal planimétrica (base de escritura) aparece abaixo. Medir trava o mapa em vista de cima para o desenho bater com a barra de escala.',
+    measureGroundArea: 'Área do terreno',
+    measureHorizontalLabel: 'Horizontal',
+    measureSurfaceLabel: 'Superfície em declive',
+    measurePerimeterLabel: 'Perímetro',
     newMeasurement: 'Nova medição',
     select: 'Selecionar',
     selectWithMode: 'Selecionar ({mode})',
@@ -789,7 +940,7 @@ export const ptBR: Partial<CatalogShape> = {
     editableLayersCount:
       '{count, plural, one {# camada editável} other {# camadas editáveis}}',
     toolAdd: 'Adicionar',
-    toolMagic: 'Magic outline-solid',
+    toolMagic: 'Magic outline',
     toolSnap: 'Ajuste',
     toolUndo: 'Desfazer',
     toolRedo: 'Refazer',
@@ -817,12 +968,12 @@ export const ptBR: Partial<CatalogShape> = {
     deleteThisFeature: 'Excluir esta feição',
     layerFallback: 'Camada',
     magicNeedsImagery:
-      'Adicione uma camada de imagens a este mapa para usar outline-solid.',
+      'Adicione uma camada de imagens a este mapa para usar Magic Outline.',
     outlining: 'Contornando...',
     magicProblem:
-      'A ferramenta outline-solid encontrou um problema. Tente de novo.',
+      'A ferramenta Magic Outline encontrou um problema. Tente de novo.',
     magicNeedsPolygon:
-      'A ferramenta outline-solid precisa de uma camada de polígonos editável como destino. Abra a configuração do editor para adicionar uma.',
+      'A ferramenta Magic Outline precisa de uma camada de polígonos editável como destino. Abra a configuração do editor para adicionar uma.',
     noEditableTargetsAdd:
       'Nenhuma camada de destino editável configurada. Abra a configuração do editor para adicionar uma.',
     noEditableTargetsEdit:
@@ -858,6 +1009,7 @@ export const ptBR: Partial<CatalogShape> = {
     moreAddOptions: 'Mais opções de adicionar',
     addGroup: 'Adicionar grupo',
     emptyNoLayers: 'Ainda não há camadas.',
+    tablesHeading: 'Tabelas',
     emptyCanEdit: 'Adicione uma por URL, portal ou catálogo.',
     emptyViewer: 'O proprietário não adicionou camadas.',
     newGroupDefaultTitle: 'Novo grupo',
@@ -906,6 +1058,9 @@ export const ptBR: Partial<CatalogShape> = {
   layerActionsAria: 'Ações da camada',
   menu: {
     openAttributeTable: 'Abrir tabela de atributos',
+    analyzeBuffer: 'Buffer…',
+    analyzeCentroid: 'Centróides…',
+    analyzeConvexHull: 'Envelope convexo…',
     hideLabels: 'Ocultar rótulos',
     showLabels: 'Mostrar rótulos',
     zoomToExtent: 'Zoom na extensão da camada',
@@ -1049,22 +1204,24 @@ export const ptBR: Partial<CatalogShape> = {
     tintWithFill: 'Tingir com a cor de preenchimento',
     tintHint:
       'O tingimento renderiza o ícone como um campo de distância assinado para que a cor de preenchimento se aplique limpa em qualquer tamanho. Desmarque se quiser manter a cor original do ícone.',
+    rasterNoTint:
+      'Ícones PNG e JPEG mantêm as próprias cores. O tingimento só funciona com ícones SVG.',
     background: 'Fundo',
     shape: 'Forma',
     shapeNone: 'Nenhuma',
     shapeCircle: 'Círculo',
     shapeRoundedSquare: 'Quadrado arredondado',
-    roundedSquareHint:
-      'O quadrado arredondado aparece como uma pílula suave até o renderizador sprite-bake chegar; a aparência é parecida, mas os cantos parecem totalmente circulares.',
     searchIcons: 'Buscar ícones...',
     categoryAll: 'todos',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Imagem',
+    uploadIconTitle: 'Envie um ícone SVG, PNG ou JPEG',
     uploading: 'Enviando {name}...',
     uploadFailed: 'Falha no envio',
     yourUploads: 'Seus envios',
     noIconsMatch: 'Nenhum ícone corresponde.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Somente as {count} feições escolhidas na tabela de atributos',
     clauses: 'Cláusulas',
     noFilter: 'Sem filtro',
     matchAll: 'corresponder a TODAS',
@@ -1216,29 +1373,6 @@ export const ptBR: Partial<CatalogShape> = {
   presence: {
     youSuffix: ' (você)',
   },
-  comments: {
-    title: 'Comentários',
-    showResolved: 'Mostrar resolvidos',
-    startThread: 'Iniciar um novo tópico...',
-    post: 'Publicar',
-    reply: 'Responder...',
-    resolve: 'Resolver',
-    reopen: 'Reabrir',
-    threadCount: '{count, plural, one {# tópico} other {# tópicos}}',
-    noOpen:
-      'Nenhum tópico aberto. Ative "Mostrar resolvidos" para ver os fechados.',
-    noComments:
-      'Ainda sem comentários. Inicie a conversa abaixo.',
-    signInPrompt: 'Entre para comentar neste mapa.',
-  },
-  markup: {
-    title: 'Anotações',
-    add: 'Adicionar anotação',
-    empty:
-      'Sem anotações ainda. Adicione um conjunto e então coloque marcadores para anotar o mapa.',
-    dropPin: 'Colocar marcador no centro',
-    signInPrompt: 'Entre para adicionar anotações neste mapa.',
-  },
   print: {
     chooserTitle: 'Imprimir este mapa',
     startSection: 'Criar um novo layout',
@@ -1249,6 +1383,14 @@ export const ptBR: Partial<CatalogShape> = {
     pickSection: 'Usar um layout existente',
     pickEmpty:
       'Ainda não há layouts de impressão disponíveis. Use "Criar um novo layout" acima para criar um.',
+    layoutPreview: 'Layout',
+    layoutPreviewHint:
+      'Passe o mouse sobre um layout para ver a estrutura da página.',
+    previewTitle: 'Prévia: {title}',
+    previewFrameAria: 'Prévia em PDF de {title}',
+    renderingPreview: 'Gerando prévia…',
+    backToLayouts: 'Voltar aos layouts',
+    downloadPdf: 'Baixar PDF',
   },
   errors: {
     generic: 'Algo deu errado',
@@ -1330,6 +1472,108 @@ export const ptBR: Partial<CatalogShape> = {
   folders: {
     hide: 'Ocultar pastas',
   },
+  folderDetail: {
+    applyFolderSharing: 'Aplicar compartilhamento da pasta',
+    applyFolderSharingTitle:
+      'Aplica o compartilhamento desta pasta a cada item dentro dela. Cada item termina com as mesmas linhas de compartilhamento que a pasta.',
+    sortLabel: 'Ordenação',
+    sortAz: 'A a Z',
+    sortCustom: 'Personalizada',
+    sortCustomTitle: 'Sua ordem salva. Arraste as linhas para alterá-la.',
+    newSubfolder: 'Nova subpasta',
+    newSubfolderTitle: 'Criar uma nova subpasta dentro desta pasta',
+    addItems: 'Adicionar itens',
+    addItemsTitle: 'Escolher itens existentes para adicionar a esta pasta',
+    applySharing: 'Aplicar compartilhamento',
+    applying: 'Aplicando...',
+    empty:
+      'Esta pasta está vazia. Adicione itens da lista de itens, ou crie uma subpasta.',
+    emptyHidden:
+      'Você não consegue ver nenhum dos itens desta pasta. Peça ao autor da pasta para compartilhá-los com você.',
+  },
+  formResponses: {
+    previousSubmissionAria: 'Envio anterior',
+    nextSubmissionAria: 'Próximo envio',
+    positionOf: '{current} de {total}',
+    closeFormViewAria: 'Fechar visualização do formulário',
+    loadingSchema: 'Carregando esquema do formulário...',
+    emptySelect:
+      'Selecione um envio no mapa ou na tabela para ver as respostas.',
+    submissionFallbackTitle: 'Envio',
+    submittedBy: 'Enviado por',
+    submittedAt: 'Enviado em',
+    attachments: 'Anexos',
+    loadingAttachments: 'Carregando...',
+    noAttachments: 'Sem anexos',
+    entrySingular: 'entrada',
+    entryPlural: 'entradas',
+    noEntries: 'Sem entradas',
+    entryNumber: 'Entrada {n}',
+    noAnswer: 'Sem resposta',
+  },
+  recipeEditor: {
+    startFromTemplate: 'Começar a partir de um modelo',
+    startFromTemplateHint:
+      'Monte uma receita funcional com um clique. Você pode editar tudo depois.',
+    selectionCap: 'Limite de seleção',
+    selectionCapHint:
+      'Máximo de ids de feições retornados por execução. O aviso em tempo de execução alerta quando o limite é atingido para que se saiba que a seleção está incompleta.',
+    parameters: 'Parâmetros',
+    areaOfInterest: 'Área de interesse',
+    areaOfInterestParameter: 'Parâmetro de área de interesse',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Remover parâmetro',
+    removeStepAria: 'Remover etapa',
+  },
+  basemapEditor: {
+    source: 'Fonte do mapa base',
+    sourceHintEdit:
+      'Configure como este mapa base é servido. Mapas que referenciam este item usam a fonte abaixo.',
+    sourceHintReadonly:
+      'Você tem acesso somente leitura a este mapa base. A fonte é mostrada abaixo; peça a um administrador ou ao proprietário para alterá-la.',
+    sourceHintConfig:
+      'Escolha como este mapa base é servido. Mapas que o referenciam usam a fonte configurada aqui. O caminho mais rápido é Probe URL: cole qualquer URL de tile ou serviço e nós detectamos o formato e preenchemos os campos.',
+    modeProbe: 'Probe URL',
+    modeFromService: 'De um item de serviço',
+    modeXyz: 'Tiles XYZ',
+    modeWms: 'WMS',
+    modeStyleUrl: 'URL de estilo',
+    probe: 'Sondar',
+    probing: 'Sondando...',
+    loadServicesHttp: 'Não foi possível carregar os serviços (HTTP {status}).',
+    loadServicesFailed: 'Não foi possível carregar os serviços.',
+    loadServiceHttp: 'Não foi possível carregar o serviço (HTTP {status}).',
+    loadServiceFailed: 'Não foi possível carregar o serviço.',
+    serviceNotBasemap:
+      'Esse serviço ainda não pode servir de mapa base (hoje só WMS e serviços Map ArcGIS em cache).',
+    noChanges: 'Sem alterações.',
+    preview: 'Pré-visualização',
+    previewHint:
+      'Renderização ao vivo com base nos campos à esquerda. Desloque e amplie para confirmar que os tiles são servidos nos níveis necessários.',
+  },
+  printTemplate: {
+    paper: 'Papel',
+    size: 'Tamanho',
+    orientation: 'Orientação',
+    portrait: 'Retrato',
+    landscape: 'Paisagem',
+    marginInches: 'Margem (polegadas)',
+    zoomInAria: 'Aumentar zoom',
+    zoomOutAria: 'Diminuir zoom',
+    typeTextPlaceholder: 'Digite o texto…',
+    deleteParameterAria: 'Excluir parâmetro',
+    saving: 'Salvando…',
+    saveChanges: 'Salvar alterações',
+    saved: 'Salvo',
+    elements: 'Elementos',
+    properties: 'Propriedades',
+    parameters: 'Parâmetros',
+    parametersHint:
+      'Os parâmetros viram campos de formulário que o usuário preenche antes de imprimir.',
+    addParameter: 'Adicionar',
+    removeTextAria: 'Remover texto',
+    removeChipAria: 'Remover chip',
+  },
   folderRail: {
     newButton: '+ Nova',
     collapse: 'Recolher pasta',
@@ -1371,6 +1615,20 @@ export const ptBR: Partial<CatalogShape> = {
     copyLink: 'Copiar link',
     copied: 'Copiado',
     openOnPhone: 'Abrir em um celular',
+    eyebrow: 'Conteúdo',
+    intro: 'Implantações para abrir em campo, com cache offline e estado de sincronização deste dispositivo.',
+    newDeployment: 'Nova implantação',
+    sessionExpiredTitle: 'A sessão expirou',
+    sessionExpiredBody: 'Entre de novo para carregar as implantações. Isto não é um catálogo vazio. O que já foi salvo neste dispositivo permanece e sincroniza depois do acesso.',
+    emptyTitle: 'Nenhuma implantação de campo ainda',
+    emptyBody: 'Uma implantação aponta para um mapa e para o formulário preenchido ao adicionar feições.',
+    createDeployment: 'Criar uma implantação',
+    loadFailedTitle: 'Não foi possível carregar as implantações',
+    loadFailedBody: 'O catálogo não respondeu. Isto não é uma lista vazia. Tente de novo em instantes.',
+  },
+  buildPage: {
+    title: 'Criar a partir de uma descrição',
+    intro: 'Descreva uma camada, um mapa, um formulário ou um app. Um painel é um modelo de aplicativo web, não esta página. Nada é criado até você escolher criar.',
   },
   fieldQueue: {
     rejectedChip:
@@ -1481,6 +1739,7 @@ export const ptBR: Partial<CatalogShape> = {
       'As camadas estão somente para visualização. Ative "Editável em implantações de campo" em uma camada do mapa e confirme que a edição está habilitada na própria camada de dados.',
     nothingToCollectNoLayers:
       "O mapa não tem camadas às quais você possa adicionar.",
+    nothingToCollectSignIn: 'Entre para adicionar ou editar feições nesta implantação.',
     removeFromDevice: "Remover do dispositivo",
     confirmRemoveFromDevice: "Confirmar remoção do dispositivo",
     downloadLayers: "Camadas",
@@ -1578,6 +1837,9 @@ export const ptBR: Partial<CatalogShape> = {
     removeWillLoseOthers:
       '{count, plural, one {# delas pertence a outra conta.} other {# delas pertencem a outra conta.}}',
     downloadForOffline: 'Baixar para uso offline',
+    deviceOnlyWarning:
+      'As edições e as fotos ficam neste dispositivo até a sincronização. Elas não estão no servidor e não entram em um backup do portal. Descartar uma, ou limpar os dados deste navegador, apaga esse trabalho. Salve uma cópia se precisar das fotos e das formas antes da sincronização.',
+    saveUnsyncedCopy: 'Salvar uma cópia do trabalho não sincronizado',
     refreshOfflineCache: 'Atualizar cache offline',
     confirmRefresh: 'Confirmar atualização',
     refreshUnsyncedWarn:
@@ -1724,6 +1986,21 @@ export const ptBR: Partial<CatalogShape> = {
       'Esta camada não tem feições com localização, então não há nada para mostrar em um mapa.',
     previewFailed: 'Não foi possível carregar a pré-visualização',
     previewLoading: 'Carregando a pré-visualização',
+    backToItems: 'Voltar aos itens',
+    sharingHeading: 'Compartilhamento',
+    publicBoundaryWarning:
+      'O limite geográfico público está ausente ou sem geometria. Leitores públicos não veem feições até que um limite existente seja escolhido.',
+    shareAction: 'Compartilhar',
+    shareActionHint: 'Abre compartilhamento e acesso. As dependências aparecem nessa aba antes de publicar.',
+    openForm: 'Abrir',
+    openFormTitle: 'Abrir o formulário para enviar uma resposta',
+    responses: 'Respostas',
+    responsesTitle:
+      'Navegar pelas respostas enviadas em um mapa e na visualização de formulário',
+    printTemplateDesignerTitle: 'Designer de modelos de impressão',
+    printTemplateDesignerBody:
+      'Abra o construtor em tela cheia para editar o layout do papel, as posições dos elementos e os parâmetros declarados.',
+    openBuilder: 'Abrir construtor',
   },
   itemTabs: {
     overview: 'Visão geral',
@@ -1752,6 +2029,9 @@ export const ptBR: Partial<CatalogShape> = {
     viewTitle: 'Aplicativo web',
     viewBody: 'Abra este aplicativo e use-o como seus leitores o veem.',
     viewAction: 'Abrir aplicativo',
+  },
+  groupDetail: {
+    rosterHidden: 'Somente membros deste grupo podem ver quem faz parte dele.',
   },
   groupItems: {
     title: 'Compartilhado com este grupo',
@@ -1851,7 +2131,9 @@ export const ptBR: Partial<CatalogShape> = {
   v3Editor: {
     structureTitle: 'Estrutura da camada',
     structureIntro:
-      'Edite camadas, campos, domínios e restrições aqui. Salvar tem efeito imediato; importar e explorar linhas fica na aba Dados.',
+      'Edite camadas, campos, domínios e restrições aqui. Salvar grava o esquema e inicia a importação do arquivo que você acabou de adicionar. Explorar as linhas continua na aba Dados.',
+    pendingImportNote:
+      'Salve o esquema para carregar as feições do arquivo. Até isso terminar, a camada não tem linhas.',
     dataTitle: 'Dados da camada',
     dataIntro: 'Explore as linhas de cada camada, adicione mais dados ou baixe-os.',
   },
@@ -1891,27 +2173,22 @@ export const ptBR: Partial<CatalogShape> = {
     autoZoomOff: 'Clique para ligar o zoom automático (cliques na linha aproximam a feição). Também aproxima a seleção atual uma vez.',
     useAsFilter: 'Usar como filtro',
     useAsFilterTitle: 'Filtrar a camada apenas para as feições selecionadas',
+    useAsFilterNoId: 'Nenhuma coluna distingue as linhas selecionadas das demais, então um filtro incluiria mais do que a seleção.',
+    useAsFilterTooMany: 'Selecione no máximo {max} linhas para usá-las como filtro.',
+    useAsFilterNotLoaded: 'Algumas linhas selecionadas não estão carregadas na tabela. Carregue-as ou reduza a seleção primeiro.',
     calculate: 'Calcular',
     calculateTitle: 'Definir o valor de uma coluna para muitas linhas de uma vez a partir de uma expressão',
     closeAria: 'Fechar',
     truncatedBanner: 'Mostrando 5.000+ linhas{extent}. Aproxime{extentHint} ou filtre para ver mais.',
     truncatedInExtent: ' nesta extensão',
     truncatedEnableExtent: ', ative "Na extensão",',
+    showSelectedCapped: 'Mostrando as primeiras {max} linhas selecionadas. Selecione menos para ver o restante.',
     noLayer: 'Nenhuma camada selecionada.',
     loadingFeatures: 'Carregando feições...',
     loadFailed: 'Falha ao carregar: {error}',
     noFeaturesInExtent: 'Nenhuma feição nesta extensão do mapa.',
     noFeatures: 'Nenhuma feição para mostrar.',
     sortAndCalculate: 'Clique para ordenar, clique com o botão direito para Calcular campo',
-  },
-  addToMap: {
-    newMap: 'Novo mapa',
-    existingMap: 'Um mapa existente',
-    loadingMaps: 'Carregando mapas...',
-    noMaps: 'Nenhum mapa ainda',
-    layerGone: '{item} não tem mais uma camada "{layerKey}".',
-    tableNoShapes:
-      '{layer} é uma tabela sem formas, então não há nada para desenhar.',
     export: 'Exportar',
     exportAllRows: 'Todas as linhas ({count})',
     exportSelectedRows: 'Linhas selecionadas ({count})',
@@ -1937,6 +2214,8 @@ export const ptBR: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Carregando esquema da camada…',
     bundleDone:
       'Concluído -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} anexos não puderam ser baixados e não estão no ZIP. Exporte novamente.',
     calculateModalTitle: 'Calcular campo',
     calculateUpdatesPrefix: 'Atualiza',
     calculateUpdatesSuffix: 'em todas as linhas do escopo.',
@@ -1995,6 +2274,13 @@ export const ptBR: Partial<CatalogShape> = {
     readOnlyHere:
       'Esta tabela é somente leitura aqui. As linhas podem ser editadas em camadas que você tem permissão para alterar.',
   },
+  addToMap: {
+    newMap: 'Novo mapa',
+    existingMap: 'Um mapa existente',
+    loadingMaps: 'Carregando mapas...',
+    noMaps: 'Nenhum mapa ainda',
+    layerGone: '{item} não tem mais uma camada "{layerKey}".',
+  },
   mapAddLayer: {
     title: 'Adicionar camada',
     description:
@@ -2046,6 +2332,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Nenhum serviço corresponde. Envie dados vetoriais como serviço de feições ou salve uma URL REST do ArcGIS como item de serviço ArcGIS para escolher aqui.',
     portalFootnote:
       'Serviços de feições vêm do PostGIS; serviços ArcGIS consultam a origem ao vivo conforme você move e amplia.',
+    listTruncated: 'Mostrando os primeiros {count} de {total}. Pesquise para refinar a lista.',
     sublayerBadge: '+{count} camadas',
     sublayerBadgeTitle:
       'Este serviço expõe {count} subcamadas; ao clicar, todas são adicionadas.',
@@ -2096,6 +2383,10 @@ export const ptBR: Partial<CatalogShape> = {
     errors: {
       newNameRequired: 'Dê um nome à nova camada.',
       createFailed: 'Não foi possível criar a camada.',
+      addFailed: 'Não foi possível adicionar a camada.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'ID da solicitação: {id}',
       arcgisUrlRequired:
         'Cole uma URL de ArcGIS MapServer ou FeatureServer.',
       arcgisProbeFailed:
@@ -2130,6 +2421,9 @@ export const ptBR: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Oculta',
+    hiddenLayerHint:
+      'Esta camada está desligada. Escolher o resultado a liga.',
     geocoderUnavailable:
       'A busca de lugares está indisponível no momento ({reason}). Os resultados de camadas acima não são afetados.',
     noPlaces:
@@ -2154,6 +2448,7 @@ export const ptBR: Partial<CatalogShape> = {
     drawContinue:
       'Clique para adicionar pontos. Clique duplo (ou Enter) para terminar.',
     drawAgain: 'Desenhar de novo',
+    emptyHint: 'Desenhe uma linha no mapa para ver a elevação do terreno ao longo dela.',
     reading: 'Lendo a elevação do terreno...',
     fromSource: 'de {title}',
     distance: 'Distância',
@@ -2297,6 +2592,9 @@ export const ptBR: Partial<CatalogShape> = {
     addAndPrepare: 'Adicionar e preparar',
     saveFailed: 'Não foi possível salvar a área: {status}',
     buildStartFailed: 'Não foi possível iniciar a preparação: {status}',
+    loadFailed: 'Não foi possível carregar as áreas. Adicionar e excluir ficam desativados até que carreguem.',
+    retry: 'Tentar novamente',
+    buildNotStarted: 'A área foi salva, mas a preparação não pôde ser iniciada. Use Preparar agora para tentar de novo.',
   },
   offlineBasemap: {
     preparedMap: 'Mapa preparado',
@@ -2493,6 +2791,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Qualquer pessoa na internet poderá ver os {count} itens selecionados sem fazer login. Use isto para links compartilháveis de mapas / visualizadores. Os itens referenciados pela seleção (camadas, mapas base, etc.) também precisam ser públicos; você será solicitado a aplicar em cascata ao concluir.',
     geographicScope: 'Escopo geográfico',
     noBoundaryItems: 'Ainda não há itens de limite nesta organização',
+    keepScope: 'Manter o escopo atual de cada item',
     noScope: 'Sem escopo (irrestrito)',
     geoScopeHint:
       'Quando definido, quem acessa estes itens via {via} vê apenas as feições dentro do limite. Aplicado na camada da API.',
@@ -2517,6 +2816,9 @@ export const ptBR: Partial<CatalogShape> = {
     summaryType: 'Tipo: {labels}',
     summaryTemplate: 'Modelo: {labels}',
     summaryArea: 'Área: {label}',
+    summaryOwner: 'Proprietário: {labels}',
+    summaryAccess: 'Acesso: {labels}',
+    summaryTags: 'Tags: {labels}',
     cardView: 'Visualização em cartões',
     cards: 'Cartões',
     listView: 'Visualização em lista',
@@ -2562,6 +2864,9 @@ export const ptBR: Partial<CatalogShape> = {
       'Nada em {scope} corresponde a "{query}". Tente outro termo ou limpe a pesquisa.',
     scopeYourItems: 'seus itens',
     scopeSharedWithYou: 'os itens compartilhados com você',
+    folderMissingTitle: 'Esta pasta não está disponível',
+    folderMissingDescription: 'Ela pode ter sido excluída ou não está mais compartilhada com você.',
+    backToItems: 'Voltar aos itens',
     emptyFolderTitle: '{folder} está vazia',
     emptyFolderDescription:
       'Adicione itens existentes, crie algo novo ou arraste itens para cá a partir da visualização de todos os itens.',
@@ -2601,6 +2906,7 @@ export const ptBR: Partial<CatalogShape> = {
     moreNotShown: '+{count} a mais não exibidos.',
   },
   mapComments: {
+    loadOlder: 'Carregar tópicos anteriores',
     title: 'Comentários',
     panelAria: 'Comentários do mapa',
     closeAria: 'Fechar painel de comentários',
@@ -2620,7 +2926,9 @@ export const ptBR: Partial<CatalogShape> = {
     threadOpened: 'Tópico aberto {when}',
     resolvedSuffix: ' • Resolvido',
     editedSuffix: ' (editado)',
-    newAnchoredPlaceholder: 'Comentar a seleção…',
+    newAnchoredPlaceholder: 'Comentar a seleção… @usuário para avisar',
+    mentionHint:
+      'Digite @usuário para enviar um e-mail a um membro da organização que possa ver este mapa.',
     composeHint:
       'Selecione uma feição no mapa para ancorar um tópico, ou publique no nível do mapa.',
     composeOn: 'Em {label}',
@@ -2767,6 +3075,12 @@ export const ptBR: Partial<CatalogShape> = {
     clearSelection: 'Limpar seleção',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Custom access: each column decides what that viewer gets. Everyone else covers org members and public viewers the map is not shared with by name.",
+    everyoneElse: 'Todos os outros',
+    everyoneElseType: 'organização e público',
+    everyoneElseHint: 'Membros da organização e visitantes públicos com quem o mapa não é compartilhado nominalmente.',
     title: 'Acesso às camadas',
     description:
       'Ajuste o que cada usuário ou grupo compartilhado vê neste mapa. A matriz restringe o acesso; um aviso aparece quando um principal não tem acesso em nível de item aos dados de origem de uma camada.',
@@ -2802,6 +3116,14 @@ export const ptBR: Partial<CatalogShape> = {
     editDescUnavailable: 'Indisponível: esta camada não tem origem gravável',
     editOnlyFeatureService:
       'Editar só está disponível para camadas de serviço de feições. Origens remotas (ArcGIS REST, URL, inline) ficam somente leitura na matriz para não oferecer permissões sem efeito.',
+  },
+  resumableUpload: {
+    resumingHeadline: 'Retomando o envio {pct}%',
+    networkError:
+      'A conexão caiu e o envio não pôde continuar. Escolha o mesmo arquivo de novo para retomar de onde parou.',
+    partFailed:
+      'O armazenamento recusou uma parte do arquivo. Escolha o mesmo arquivo de novo para retomar o envio de onde parou.',
+    failed: 'Falha no envio',
   },
   layerDataPanel: {
     tablistAria: 'Visualizações de {label}',
@@ -2904,6 +3226,7 @@ export const ptBR: Partial<CatalogShape> = {
     done: 'Concluído',
   },
   sharing: {
+    networkError: "Não foi possível acessar o portal. Nada foi alterado.",
     sharing: 'Compartilhamento',
     dialogLabel: 'Compartilhamento de {title}',
     whoCanSee: 'Quem pode ver isto',
@@ -2923,6 +3246,42 @@ export const ptBR: Partial<CatalogShape> = {
       org: 'Organização',
       public: 'Público',
     },
+    /** Detail SharingPanel visibility / share-row chrome (#162 / R13). */
+    visibility: 'Visibilidade',
+    yourOrganization: 'Sua organização',
+    accessPrivateDesc:
+      'Somente você e as pessoas com quem você compartilha abaixo.',
+    accessOrgDescDefault:
+      'Qualquer pessoa com login na sua organização pode ver isto.',
+    accessOrgDescNamed:
+      'Qualquer pessoa com login em {org} pode ver isto.',
+    accessPublicDesc: 'Qualquer pessoa na internet, sem login.',
+    orgAlreadySeesRest:
+      'já pode ver este item. Os compartilhamentos abaixo só servem para conceder edição ou administração além disso.',
+    publicMeansAnyoneRest:
+      'significa que qualquer pessoa na internet pode ver isto. Os compartilhamentos abaixo só servem para conceder edição ou administração.',
+    changePermissionAria: 'Alterar permissão',
+    canView: 'pode ver',
+    canDownload: 'pode baixar',
+    canEdit: 'pode editar',
+    canAdmin: 'pode administrar',
+    rowScopeAria: 'Escopo de linhas',
+    rowScopeTitle: 'O que eles podem ver / editar?',
+    allFeatures: 'todas as feições',
+    onlyTheirs: 'somente as deles',
+    restrictToAreaAria: 'Restringir a uma área',
+    editGeoRestrictionTitle: 'Editar restrição geográfica',
+    restrictGeoTitle: 'Restringir a uma área geográfica',
+    removeShareAria: 'Remover compartilhamento',
+    searchGroupsPlaceholder: 'Pesquisar grupos...',
+    searchPeoplePlaceholder: 'Pesquisar pessoas na sua org...',
+    noGroupsYet: 'Ainda não há grupos. Crie um em /groups.',
+    startTypingGroups: 'Comece a digitar para filtrar grupos.',
+    startTypingPeople: 'Comece a digitar um nome ou usuário.',
+    groupTab: 'Grupo',
+    userTab: 'Usuário',
+    editorItemAccess: 'Acesso ao item do editor',
+    checkingDependencyAccess: 'Verificando acesso às dependências...',
     permission: {
       view: 'Ver',
       download: 'Baixar',
@@ -2936,6 +3295,40 @@ export const ptBR: Partial<CatalogShape> = {
     expiryDialogLabel: 'Expiração do compartilhamento',
     days: '{count, plural, one {# dia} other {# dias}}',
     set: 'Definir',
+    geoLimit: {
+      title: 'Restringir à área',
+      description:
+        'Limite o que {principal} pode ver neste item às feições dentro de um polígono. Itens cujo bbox não intersecta também são ocultados. Administradores estão isentos.',
+      modeBoundary: 'Limite',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Caixa delimitadora',
+      boundaryLabel: 'Limite',
+      pickBoundary: 'Escolher um limite...',
+      noBoundaries: 'Nenhum limite visível para você',
+      boundaryHint:
+        'O compartilhamento guarda uma referência ao item de limite. Edições na geometria do limite fluem para todos os compartilhamentos que o apontam sem salvar de novo.',
+      createBoundaryLead: 'Precisa desenhar um?',
+      createBoundaryLink: 'Criar um item Boundary',
+      createBoundaryTail:
+        '. O editor tem uma aba Desenhar para traçar um polígono no mapa. Salve-o e ele aparecerá aqui.',
+      pasteGeojson: 'Colar GeoJSON',
+      geojsonHint:
+        'Aceita Polygon, MultiPolygon, Feature ou FeatureCollection. Coordenadas EPSG:4326 (lng, lat).',
+      minLng: 'Lng mín. (oeste)',
+      minLat: 'Lat mín. (sul)',
+      maxLng: 'Lng máx. (leste)',
+      maxLat: 'Lat máx. (norte)',
+      clearRestriction: 'Remover restrição',
+      needInput: 'Escolha um limite, cole um polígono ou informe uma caixa delimitadora.',
+      boundaryMissing: 'O limite selecionado não está na sua biblioteca visível.',
+      expectedGeojson:
+        'Esperava-se um GeoJSON Polygon, MultiPolygon, Feature ou FeatureCollection contendo um.',
+      invalidJson: 'JSON inválido: {detail}',
+      minLessThanMax: 'o mínimo deve ser menor que o máximo nos dois eixos.',
+      invalidWgs84: 'As coordenadas devem ser WGS84 válidas (lon ±180, lat ±90).',
+      summaryBoundary: 'Limite: {title}',
+      summaryRectangle: 'Retângulo · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'Sem correspondências.',
@@ -3008,11 +3401,31 @@ export const ptBR: Partial<CatalogShape> = {
     loadSample: 'Carregar dados de exemplo',
     loadSampleDesc:
       'Explore um espaço de trabalho pronto do condado de Randolph: camadas, mapas, um formulário, aplicativos e um levantamento de campo.',
+    loadShowcase: 'Carregar painéis de demonstração',
+    loadShowcaseDesc:
+      'Tempestades, qualidade da água da Virgínia Ocidental e Elkins em 3D. Separado do espaço de Randolph, e pode ser carregado de novo.',
     loading: 'Carregando dados de exemplo...',
+    loadingShowcase: 'Carregando painéis de demonstração...',
     loaded: '{count, plural, one {# item de exemplo criado} other {# itens de exemplo criados}}',
+    loadedShowcase:
+      '{count, plural, one {# item de demonstração criado} other {# itens de demonstração criados}}',
     allSkipped: 'Os dados de exemplo já estão carregados',
+    allSkippedShowcase: 'Os painéis de demonstração já estão carregados',
     failed: 'Não foi possível carregar os dados de exemplo',
+    failedShowcase: 'Não foi possível carregar os painéis de demonstração',
     dismiss: 'Dispensar o painel de boas-vindas',
+  },
+  whatsNewPage: {
+    metaTitle: 'Novidades',
+    metaDescription:
+      'Atualizações visíveis do GratisGIS, agrupadas por versão quando houver.',
+    title: 'Novidades',
+    intro:
+      'Notas em linguagem simples sobre recursos que os visitantes podem ver e usar. Agrupadas por versão quando marcamos uma; notas mais antigas ficam em Atualizações anteriores.',
+    backToHome: 'Voltar ao início',
+    releaseHeading: 'Versão {version}',
+    earlierHeading: 'Atualizações anteriores',
+    empty: 'Nenhuma atualização publicada ainda.',
   },
   landing: {
     openMyItems: 'Abrir meus itens',
@@ -3022,6 +3435,7 @@ export const ptBR: Partial<CatalogShape> = {
     publicItemsEmpty:
       'Nada foi compartilhado publicamente ainda. Se você tem uma conta no portal, entre para ver o conteúdo compartilhado com você.',
     whatsNew: 'Novidades',
+    whatsNewViewAll: 'Ver histórico completo',
     builtOn: 'Construído sobre',
     projectEyebrow: 'Portal GIS de código aberto',
     projectHeadline: 'Um portal auto-hospedado, um PWA de campo e QGIS',
@@ -3059,23 +3473,32 @@ export const ptBR: Partial<CatalogShape> = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       'Enviar feedback vai para a caixa de entrada do mantenedor; nenhuma conta necessária. Discussions é o espaço do GitHub para threads mais longos.',
-    testingTitle:
-      'Esta é uma instância pública de teste. Ela volta a um estado de referência todos os dias às 04:00 UTC.',
-    testingBodyBefore: 'Entre com',
-    testingBodyOr: 'ou',
-    testingBodyAfter:
-      '. Itens, usuários e edições que você criar desaparecem no próximo reset. Achou um problema? Use o botão de Feedback no canto de qualquer página. Nenhuma conta necessária.',
-    testingSampleLead: 'Novo por aqui? Abra a pasta',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'depois de entrar: um espaço de trabalho de demonstração completo com camadas estilizadas, um mapa, um formulário com respostas, um levantamento de campo e apps públicos, tudo baseado em um pequeno condado da West Virginia.',
+    testingNotice: 'Demo pública. Ela é reiniciada todos os dias às 04:00 UTC.',
+    testingSignInLink: 'As contas de teste estão na página de login.',
   },
   auth: {
     redirecting: 'Redirecionando para o login...',
     redirectFallback: 'Se nada acontecer,',
     continueToKeycloak: 'continue para o Keycloak',
+    wrongHostTitle: 'O login usa outro endereço',
+    wrongHostBody:
+      'Você abriu {opened}. O login está configurado para {canonical}, então continuar enviaria o navegador para lá. Defina isto no arquivo compose e reinicie:',
+    wrongHostRestart:
+      'Mantenha os volumes. A próxima inicialização atualiza o Keycloak. Para HTTPS no Tailscale, use o nome MagicDNS com https:// e o Tailscale Serve. Um IP da tailnet continua em http:// com a porta.',
   },
   adminSecurity: {
+    embedTitle:
+      'Sites que os apps podem incorporar',
+    embedIntro:
+      'O widget Incorporar dos apps personalizados pode mostrar páginas destes sites. Digite um endereço por linha, por exemplo https://dashboards.example.org. Use https://*.example.org para todos os subdomínios. As outras páginas do portal continuam sem incorporar nada externo.',
+    embedSave:
+      'Salvar sites',
+    embedSaving:
+      'Salvando…',
+    embedSaved:
+      'Salvo.',
+    embedErr:
+      'Não foi possível salvar os sites.',
     pageIntro:
       'Adicione uma conta de trabalho que as pessoas já tenham e decida se o próximo login deve configurar um autenticador.',
     errLoad: 'Não foi possível carregar as configurações de login.',
@@ -3160,6 +3583,83 @@ export const ptBR: Partial<CatalogShape> = {
     docsDesc:
       'O guia integrado cobre papéis, backups, marca e manutenção. Dez minutos agora evitam surpresas depois.',
     docsAction: 'Abrir o guia',
+    secondAdminTitle: 'Adicionar um segundo administrador',
+    secondAdminDesc:
+      '{count, plural, one {# administrador ativo} other {# administradores ativos}}. Um segundo administrador pode recuperar a organização se o primeiro não conseguir entrar. O portal continua funcionando com um só, e este item não pode ser marcado à mão.',
+    secondAdminAction: 'Abrir usuários',
+  },
+  adminAudit: {
+    title: 'Auditoria',
+    intro:
+      'Mudanças privilegiadas desta organização: usuários, papéis, compartilhamento, propriedade, cópia e ajustes de administração. Não é o histórico das feições do mapa. Senhas e corpos de mensagem não são gravados.',
+    refresh: 'Carregar eventos',
+    loading: 'Carregando…',
+    loadFailed: 'Não foi possível carregar a auditoria.',
+    empty: 'Ainda não há eventos. Carregue a lista ou faça uma mudança privilegiada e carregue de novo.',
+    more: 'Eventos anteriores',
+    when: 'Quando',
+    action: 'Ação',
+    actor: 'Ator',
+    target: 'Alvo',
+    outcome: 'Resultado',
+  },
+  adminPermissions: {
+    title: 'Permissões',
+    intro:
+      'Instantâneo atual do compartilhamento: acesso público, da organização, de grupo e de usuário, o dono e os principais que não existem mais. Não é um histórico.',
+    refresh: 'Carregar instantâneo',
+    loading: 'Carregando…',
+    loadFailed: 'Não foi possível carregar as permissões.',
+    download: 'Baixar CSV',
+    generated: 'Instantâneo de {at}.',
+    empty: 'Nenhum item nesta organização.',
+    item: 'Item',
+    access: 'Acesso',
+    owner: 'Dono',
+    share: 'Compartilhamento',
+    missingOwner: 'Dono ausente',
+    missingPrincipal: 'principal ausente',
+    tierOnly: 'Só o nível de acesso',
+  },
+  adminDiagnostics: {
+    title: 'Diagnóstico',
+    intro:
+      'Crie um pacote de suporte de propósito. Ele inclui versões, se o banco respondeu, a manutenção e contagens de trabalhos de importação, análise e cópia. Segredos e nomes são removidos. Nenhum comando de shell é executado.',
+    create: 'Criar pacote',
+    working: 'Criando…',
+    failed: 'Não foi possível criar o pacote.',
+    download: 'Baixar JSON',
+  },
+  opsJobs: {
+    title: 'Trabalhos',
+    intro: 'Importações e análises desta organização. Cancelar e tentar de novo só aparecem quando o estado permite. Uma nova tentativa confere o item e quem pediu, e mantém as permissões. As cópias ficam na página de backup.',
+    refresh: 'Carregar trabalhos',
+    loading: 'Carregando…',
+    loadFailed: 'Não foi possível carregar os trabalhos.',
+    actionFailed: 'A ação não foi aceita.',
+    empty: 'Ainda não há trabalhos.',
+    kind: 'Tipo',
+    source: 'Origem',
+    status: 'Estado',
+    error: 'Erro',
+    cancel: 'Cancelar',
+    retry: 'Tentar de novo',
+  },
+  opsPage: {
+    title: 'Operações',
+    intro: 'A prontidão é para administradores. A saúde pública continua sendo o banco. Uma restauração que falhou permanece até outra restauração terminar.',
+    readiness: 'Prontidão',
+    check: 'Verificar serviços',
+    maintenance: 'Manutenção',
+    maintenanceHint: 'Ligar a manutenção faz o portal responder 503, exceto a saúde e este controle. Uma restauração que falhou permanece até outra restauração terminar. Reconhecê-la não a remove.',
+    maintenanceOn: 'Ligar manutenção',
+    maintenanceOff: 'Desligar manutenção',
+    failed: 'A solicitação falhou.',
+    operatorOnly: 'Prontidão e manutenção valem para toda a instalação, então só administradores da organização operadora podem usá-las.',
+    backupUiDisabled: 'Backup, restauração e manutenção estão desligados nesta instalação (GRATIS_DISABLE_BACKUP_UI).',
+  },
+  opsBackup: {
+    failureBanner: 'Uma cópia não terminou. Leia a execução que falhou. Um aviso é enviado uma vez se as notificações estiverem ativas.',
   },
   apiKeys: {
     copyTitle: 'Copie sua chave agora',
@@ -3313,7 +3813,6 @@ export const ptBR: Partial<CatalogShape> = {
     approxSuffix: 'approx',
     orphanBadge: 'orphan',
     expired: 'Expired',
-    expiryIn: 'In',
     pastDue: 'Past due',
     extendShare30Title: 'Extend by 30 days',
     extend30d: '+30d',
@@ -3331,7 +3830,7 @@ export const ptBR: Partial<CatalogShape> = {
     scheduleIntro: 'Have the portal tidy up on its own. Off until you turn it on. Pick which kind of cleanup you want, how long something has to sit around before it gets cleaned up, and when the portal should run the cleanup. The lists below keep showing the same things you can clean up by hand whenever you want.',
     scheduleAutoTrash: 'Trash items nobody is using',
     scheduleAutoTrashBefore:
-      'Move items to the trash if no one has edited or shared them in the last',
+      'Move private items to the trash if no one has edited or shared them in the last',
     scheduleAutoTrashAfter:
       'days. They aren\'t deleted right away: trashed items stay in Recently deleted and can be put back at any time.',
     scheduleAutoDisable: 'Pause sign-in for inactive accounts',
@@ -3356,6 +3855,9 @@ export const ptBR: Partial<CatalogShape> = {
     scheduleModeDaily: 'Every day',
     scheduleModeWeekly: 'Once a week',
     scheduleHour: 'Hour (0-23)',
+    scheduleServerTime: "horário do servidor, {zone}",
+    scheduleRunNowUnsaved:
+      "Salve suas alterações primeiro. A execução imediata usa as configurações salvas.",
     scheduleMinute: 'Minute (0-59)',
     scheduleDayOfWeek: 'Day of week',
     daySunday: 'Sunday',
@@ -3480,14 +3982,12 @@ export const ptBR: Partial<CatalogShape> = {
     hidePassword: 'ocultar',
     checkboxEnabled: 'Ativado',
     checkboxSslTls: 'SSL / TLS na conexão (porta 465)',
-    labelSendTestTo: 'Enviar teste para',
-    placeholderTestEmail: 'voce@exemplo.com',
     sendTest: 'Enviar teste',
     smtpSavedRealmWarning:
       'SMTP salvo, mas a sincronização do realm Keycloak falhou: {warning}',
     smtpSavedOk: 'Salvo. O worker usará o novo SMTP no próximo envio.',
     saveFailed: 'Falha ao salvar.',
-    testEmailInvalid: 'Digite um endereço de e-mail válido para o teste.',
+    testGoesToYou: 'O teste vai para o e-mail da sua própria conta.',
     testSent: 'Teste enviado para {email}.',
     testFailedUnclear: 'Teste falhou sem erro claro.',
     testFailed: 'Teste falhou.',
@@ -3502,6 +4002,8 @@ export const ptBR: Partial<CatalogShape> = {
     preview: 'Pré-visualizar',
     defaultsFootnote:
       'Desligar aqui silencia o tipo em toda a plataforma para usuários que não optaram explicitamente. Preferências por usuário ainda valem. Personalizar reescreve o corpo do e-mail da sua organização; modelos salvos substituem placeholders mustache como {{itemTitle}} e {{baseUrl}} do payload do gatilho.',
+    operatorOnlyNote:
+      'O servidor de e-mail, a fila de envio, a atividade recente e os padrões valem para toda a instalação, então só administradores da organização operadora podem vê-los ou alterá-los. Você pode editar os modelos e as pré-visualizações.',
     previewHeading: 'Pré-visualização',
     subject: 'Assunto',
     html: 'HTML',
@@ -3623,10 +4125,12 @@ export const ptBR: Partial<CatalogShape> = {
       sendInvite: 'Enviar convite',
       errUsernameMin: 'O usuário deve ter pelo menos 2 caracteres.',
       errEmailInvalid: 'Digite um endereço de e-mail válido.',
-      errInviteFailed: 'Falha no convite: {status} {detail}',
-      alertEmailFailedTitle: 'Usuário criado, e-mail falhou',
+      errDuplicate: 'Já existe uma conta com esse nome ou e-mail. O endereço não aparece aqui.',
+      errUpstream: 'O servidor de identidade não conseguiu criar a conta. Tente de novo em instantes. Se continuar falhando, verifique se o servidor de identidade está em execução. O endereço não aparece aqui.',
+      errInviteFailed: 'O convite não terminou (status {status}). Nenhum detalhe da conta é mostrado.',
+      alertEmailFailedTitle: 'Conta criada, e-mail não enviado',
       alertEmailFailedMessage:
-        'O usuário "{username}" foi criado, mas o e-mail de configuração de senha não pôde ser enviado:\n\n{error}\n\nQuando o SMTP estiver ok, clique em "Redefinir senha" neste usuário para reenviar o e-mail.',
+        'A conta foi criada, mas o e-mail de acesso não foi enviado. Abra Notificações, corrija o SMTP e use Redefinir senha na conta nova. Esta mensagem não inclui o endereço.',
     },
     edit: {
       title: 'Editar usuário',
@@ -3830,6 +4334,8 @@ export const ptBR: Partial<CatalogShape> = {
     errors: {
       moveRepeatInAttachment: "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
       saveFailed: "Save failed.",
+      repeatGroupUnbound:
+        "Repeat group {groups} has no related table in the linked layer to save its rows into. Rebuild it with \"Start from a data layer\" from one of the layer's related tables, or remove it.",
       layerSyncFailed: "Form saved, but couldn't update the linked layer's columns: {detail}",
       invalidJson: "That file is not valid JSON.",
       questionIdUsed: "Question id \"{id}\" is already used.",
@@ -3867,7 +4373,7 @@ export const ptBR: Partial<CatalogShape> = {
       defaultLookbackHint: "Pre-filter to N days back from now. Blank = show all.",
       hideSubmitter: "Hide submitter",
       hideSubmitterHint: "For anonymous-feedback workflows.",
-      persistNote: "Look-back and Hide submitter persist on the form schema; the runtime hooks land in a follow-up.",
+      persistNote: "Look-back and Hide submitter are not available yet. The Responses page does not read them, so it still shows every response and who submitted it.",
       tools: {
         select: "Select",
         selectHint: "Pick responses to inspect.",
@@ -4120,6 +4626,7 @@ export const ptBR: Partial<CatalogShape> = {
         in: "contains",
         between: "between",
         matches: "matches pattern",
+        notEmpty: "is not empty",
       },
     },
     dependents: {
@@ -4188,6 +4695,8 @@ export const ptBR: Partial<CatalogShape> = {
       matchAny: "any match",
       of: "of:",
       removeConditionAria: "Remove condition",
+      rawRule:
+        "This part of the expression can't be shown as a row. It is kept as it is when you save.",
       removeGroupAria: "Remove group",
       cancel: "Cancel",
       save: "Save",
@@ -4213,6 +4722,7 @@ export const ptBR: Partial<CatalogShape> = {
         in: "string or list contains a value",
         between: "value falls in a range",
         matches: "regex match",
+        notEmpty: "has an answer (text, a choice or a list)",
       },
       functionsIntro:
         "Reference for the calculate / default editor. Click a signature to copy it to the clipboard. The row-based editor on the left works in field-op-value form, so functions can't be inserted into rules directly.",
@@ -4415,10 +4925,18 @@ export const ptBR: Partial<CatalogShape> = {
     latitude: "Latitude",
     longitude: "Longitude",
     geolocationUnsupported: "Geolocalização não é suportada neste dispositivo.",
+    mapPickerAria: "Mapa para escolher o local",
+    mapPickerHint: "Toque no mapa ou arraste o marcador para definir o local.",
+    mapPickerFailed: 'Não foi possível carregar o mapa. Use o GPS ou digite as coordenadas.',
+    signatureAria: "Área de assinatura",
+    signatureHint: "Assine dentro da caixa com o dedo, uma caneta ou o mouse.",
+    signatureSigned: "Assinado",
     ranked: "Classificados",
     available: "Disponíveis",
     rankingEmpty: "Nenhum item classificado ainda. Toque em um item abaixo para adicionar.",
     removeFromRankingAria: "Remover da classificação",
+    rankUpAria: "Subir na classificação",
+    rankDownAria: "Descer na classificação",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",
@@ -4580,24 +5098,27 @@ export const ptBR: Partial<CatalogShape> = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
+      exportNoFeatures: "This layer has no features to export.",
+      exportFailed: "Export failed: {message}",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
+      printSnapshotTooLarge: "The map snapshot was too large to pass to the print page, so the print shows a placeholder map. Try a smaller window.",
       savePrompt: "Save these features as a new data layer. Choose a name:",
       selectedNotInViewport: "Selected features are not in the current viewport.",
       submitFailed: "Submit failed",
@@ -4607,6 +5128,11 @@ export const ptBR: Partial<CatalogShape> = {
     export: {
       hint: "Exports the features currently loaded for this layer (the map viewport plus its surrounding tile cache).  For a full-layer dump including related tables + attachments, use the bundle export on the data layer's detail page.",
     },
+    legend: {
+      under: "under {value}",
+      andUp: "{value} and up",
+      range: "{lo} to {hi}",
+    },
     features: {
       addingTo: "Adding to",
       clickEditable: "Click an editable feature on the map to edit it. Click here again to exit edit mode.",
@@ -4614,6 +5140,7 @@ export const ptBR: Partial<CatalogShape> = {
       multiVertexNote: "(Note: only single-point placement is supported in this first cut; multi-vertex sketching for lines / polygons is queued as a follow-up.)",
       pickLayerToAdd: "Pick a layer to add to",
       placeOnMap: "click on the map to place the new {geometryType}.",
+      sketchUnsupported: "Adding a {geometryType} here is not supported yet: this widget can only place single points. Use the map editor to draw it.",
       reselectFeatures: "Reselect the features on the map, then try again.",
       selectOnMapFirst: "Select feature(s) on the bound map first.",
       timeTravelDisabled: "Editing is disabled while viewing a past snapshot. Reset the time slider to enable.",
@@ -4662,7 +5189,6 @@ export const ptBR: Partial<CatalogShape> = {
       layers: "Camadas",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "My Location",
       myLocationShort: "My location",
       print: "Imprimir",
@@ -4840,6 +5366,7 @@ export const ptBR: Partial<CatalogShape> = {
       'Criar camadas exige a funcao de colaborador ou administrador.',
     jobStartFailed: 'Nao foi possivel iniciar o trabalho.',
     intervalRequired: 'Informe uma altura entre as linhas.',
+    intervalTooSmall: "O intervalo deve ser de pelo menos {min}.",
     zoneRequired: 'Escolha uma camada de dados poligonal para as zonas.',
     labelContours: 'Curvas de nivel',
     labelSteepness: 'Mapa de inclinacao',
@@ -4870,6 +5397,8 @@ export const ptBR: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Não foi possível acessar o portal. As imagens enviadas foram mantidas; tente novamente.",
+    errRetryHttp: "Não foi possível tentar a compilação novamente (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -4925,6 +5454,16 @@ export const ptBR: Partial<CatalogShape> = {
     modeSqlTitle: "Editar o SQL diretamente",
     starterColumnProfile: "Perfil de colunas",
     starterGeometrySummary: "Resumo de geometria",
+    starterPreview: "Prévia",
+    starterCountBy: "Contar por {field}",
+    sqlFooterLayerAvailable: "A camada está disponível como",
+    sqlFooterSpatialLead: "O SQL espacial funciona na coluna",
+    sqlFooterSpatialMid:
+      "para transformações seguras quanto ao SRC e medidas esferoidais (área, comprimento). Buffers em metros precisam de dados PROJ que este motor do navegador não inclui — use",
+    sqlFooterSpatialTail:
+      "acima para criar uma camada derivada PostGIS em vez de uma armadilha de unidades em graus.",
+    sqlFooterSpatialUnavailable:
+      "A extensão espacial não pôde ser carregada, então a coluna geometry é WKB bruto e só SQL de atributos nesta sessão.",
     browserOnlyHint: "Roda no seu navegador. O servidor nunca vê a consulta.",
     sqlAriaLabel: "Consulta SQL",
     run: "Executar (Ctrl+Enter)",
@@ -5312,9 +5851,34 @@ export const ptBR: Partial<CatalogShape> = {
     groupByValidateAggField: 'Escolha um campo numérico para sum ou avg.',
     groupByValidateOutput: 'O nome de saída deve ser um id de campo com letra/underscore.',
     groupByValidateOutputCollision: 'O nome de saída não deve colidir com a chave de grupo.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Execuções anteriores',
+    pastRunsHint:
+      'Suas camadas derivadas desta camada. Executar de novo cria uma cópia privada nova; Editar e executar de novo abre o guia correspondente.',
+    pastRunsLoading: 'Carregando execuções anteriores…',
+    pastRunsEmpty: 'Ainda não há camadas derivadas desta camada.',
+    pastRunsLoadFailed: 'Não foi possível carregar as execuções anteriores ({status}).',
+    pastRunsRetry: 'Tentar de novo',
+    pastRunsRefresh: 'Atualizar',
+    pastRunsUnknownDate: 'data desconhecida',
+    pastRunsRerun: 'Executar de novo',
+    pastRunsRerunTitleAttr:
+      'Criar uma camada derivada privada nova com a mesma receita',
+    pastRunsEdit: 'Editar e executar de novo',
+    pastRunsEditTitleAttr:
+      'Abrir o guia do Analyze desta ferramenta para alterar parâmetros',
+    pastRunsRerunTitle: '{title} (nova execução)',
+    pastRunsRerunDescription:
+      'Nova execução de "{title}" da prateleira Execuções anteriores do Analyze.',
+    pastRunsRerunToast: 'Camada derivada "{title}" criada',
+    pastRunsRerunFailed:
+      'Não foi possível executar de novo a camada derivada ({status}): {detail}',
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Este serviço precisa de senha, então Sondar lê a URL salva. Salve a nova URL primeiro e sonde novamente.",
     connection: "Conexão",
     serviceEndpoint: "Endpoint do serviço",
     probe: "Sondar",
@@ -5331,6 +5895,8 @@ export const ptBR: Partial<CatalogShape> = {
     saving: "Salvando...",
     saved: "Salvo",
     saveFailed: "Falha ao salvar.",
+    reprobeBeforeSave: "Sonde a nova URL antes de salvar. A lista de camadas vem da sondagem.",
+    pickAtLeastOneLayer: "Escolha pelo menos uma camada antes de salvar.",
     selectAll: "Selecionar tudo",
     selectAllShort: "Todas",
     selectNoneShort: "Nenhuma",

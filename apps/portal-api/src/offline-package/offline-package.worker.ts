@@ -220,7 +220,10 @@ export class OfflinePackageWorker implements OnModuleInit {
    * Only areas with a ready package are considered: an area that has
    * never built successfully, or whose last build failed, is the
    * author's to retry, and re-queueing it on a timer would hide a
-   * persistent failure behind an endlessly retrying job.
+   * persistent failure behind an endlessly retrying job. "Last build
+   * failed" includes an automatic rebuild that failed after the ready
+   * package: the old ready row is still past its age, and without the
+   * failed rows here the sweep queued it again every minute.
    */
   private async queueDueRefreshes(): Promise<void> {
     const itemIds = await this.packages.itemsWithPackages();
@@ -237,7 +240,7 @@ export class OfflinePackageWorker implements OnModuleInit {
     const allRows = await this.prisma.offlinePackage.findMany({
       where: {
         itemId: { in: items.map((i) => i.id) },
-        status: { in: ['queued', 'building', 'ready'] },
+        status: { in: ['queued', 'building', 'ready', 'failed'] },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -252,52 +255,85 @@ export class OfflinePackageWorker implements OnModuleInit {
     // resolution (the first version) could stall the whole worker
     // for two minutes per area when the upstream was down, during
     // which claimNext never ran.
-    let sourceUrl: string | null = null;
+    let sourceUrl: Promise<string> | null = null;
     for (const item of items) {
       const areas = readAreas(item.data);
       if (areas.length === 0) continue;
       const rows = rowsByItem.get(item.id) ?? [];
       for (const area of areas) {
-        if (!area.refreshDays) continue;
-        // The manual path validates in the controller; this path has
-        // nobody watching, and an author can PATCH the area wider
-        // after its first validated build. The tile-count dry run
-        // still backstops disk, but a nonsense extent should be
-        // skipped here, not discovered as a build failure.
-        if (validateOfflineArea(area) !== null) continue;
-        // A build already in flight, or a failure the author has not
-        // dealt with, both mean hands off.
-        if (
-          rows.some(
-            (r) =>
-              r.areaId === area.id &&
-              (r.status === 'queued' || r.status === 'building'),
-          )
-        ) {
-          continue;
+        try {
+          await this.maybeQueueRefresh(item, area, rows, () =>
+            (sourceUrl ??= resolveBasemapSource()),
+          );
+        } catch (err) {
+          // One bad area must not end the sweep for every later item.
+          this.log.warn(
+            `Automatic refresh skipped area ${String(area.id)} on item ${item.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
         }
-        const current = rows.find(
-          (r) => r.areaId === area.id && r.status === 'ready',
-        );
-        if (!current?.finishedAt) continue;
-        const ageMs = Date.now() - current.finishedAt.getTime();
-        if (ageMs < area.refreshDays * 24 * 60 * 60 * 1000) continue;
-        sourceUrl ??= await resolveBasemapSource();
-        await this.packages.enqueue({
-          orgId: item.orgId,
-          itemId: item.id,
-          area,
-          // Attributed to the item's owner rather than to whoever
-          // last pressed a button: nobody pressed one.
-          createdBy: item.ownerId,
-          sourceUrl,
-        });
-        this.log.log(
-          `Queued automatic rebuild of area "${area.name}" on item ${item.id} ` +
-            `(package was ${Math.floor(ageMs / 86_400_000)} days old).`,
-        );
       }
     }
+  }
+
+  private async maybeQueueRefresh(
+    item: { id: string; orgId: string; ownerId: string },
+    area: OfflineArea,
+    rows: Array<{ areaId: string; status: string; finishedAt: Date | null; createdAt: Date }>,
+    source: () => Promise<string>,
+  ): Promise<void> {
+    if (!area.refreshDays) return;
+    // The manual path validates in the controller; this path has
+    // nobody watching, and an author can PATCH the area wider
+    // after its first validated build. The tile-count dry run
+    // still backstops disk, but a nonsense extent should be
+    // skipped here, not discovered as a build failure.
+    if (validateOfflineArea(area) !== null) return;
+    // A build already in flight, or a failure the author has not
+    // dealt with, both mean hands off.
+    if (
+      rows.some(
+        (r) =>
+          r.areaId === area.id &&
+          (r.status === 'queued' || r.status === 'building'),
+      )
+    ) {
+      return;
+    }
+    const current = rows.find(
+      (r) => r.areaId === area.id && r.status === 'ready',
+    );
+    if (!current?.finishedAt) return;
+    // A build that failed after this package was made is the
+    // author's to look at, not something to retry every minute.
+    const readyAt = current.finishedAt;
+    if (
+      rows.some(
+        (r) =>
+          r.areaId === area.id &&
+          r.status === 'failed' &&
+          r.createdAt > readyAt,
+      )
+    ) {
+      return;
+    }
+    const ageMs = Date.now() - current.finishedAt.getTime();
+    if (ageMs < area.refreshDays * 24 * 60 * 60 * 1000) return;
+    const sourceUrl = await source();
+    await this.packages.enqueue({
+      orgId: item.orgId,
+      itemId: item.id,
+      area,
+      // Attributed to the item's owner rather than to whoever
+      // last pressed a button: nobody pressed one.
+      createdBy: item.ownerId,
+      sourceUrl,
+    });
+    this.log.log(
+      `Queued automatic rebuild of area "${area.name}" on item ${item.id} ` +
+        `(package was ${Math.floor(ageMs / 86_400_000)} days old).`,
+    );
   }
 
   /**
