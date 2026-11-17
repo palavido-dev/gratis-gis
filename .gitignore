@@ -206,3 +206,6 @@ OSGEO-SUBMISSION.md
 # MapLibre 6 ships a worker that imports a sibling chunk; both are copied
 # here so the relative import resolves. Regenerated on every build.
 apps/portal-web/public/maplibre/
+
+# Code-graph tool cache (regenerated).
+graphify-out/

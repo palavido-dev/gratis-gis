@@ -15,7 +15,7 @@ items, and what has to change in portal-api, Keycloak and the shared
 packages to support it. iOS is covered only where an Android decision
 would foreclose it.
 
-The visual design is settled and lives in `design_handoff_field_app/`.
+The visual design is settled and lives in `docs/design/field-app/`.
 Read that README before writing any UI. This document is the
 engineering plan behind it, and where the two disagree about what the
 server stores, this one is correct.

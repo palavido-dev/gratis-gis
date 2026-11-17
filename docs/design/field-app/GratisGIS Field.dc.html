@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+body{margin:0;background:#E7E4DC;font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#4C5B4A}a:hover{color:#3A4639}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 22px}
+.dv-tid{font:600 10px ui-monospace,"Geist Mono",monospace;padding:3px 7px;background:#262320;color:#fff;border-radius:4px;text-decoration:none}
+.dv-tname{font:600 13px/1.2 Inter,sans-serif;color:#262320}
+.dv-opts{display:flex;flex-wrap:wrap;gap:34px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px;scroll-margin-top:16px;width:402px}
+.dv-oid{font:600 10.5px ui-monospace,"Geist Mono",monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#262320;border-radius:5px;text-decoration:none}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:500 12px/1.4 Inter,sans-serif;color:#262320}
+.dv-onote{font:400 11.5px/1.55 Inter,sans-serif;color:#6B655E;margin:0 0 2px;max-width:402px;text-wrap:pretty}
+.dv-opt:target .dv-oid{background:#5A6858;color:#fff}
+.dv-next{margin:26px 0 0;font:12px/1.6 Inter,sans-serif;color:#6B655E}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Settled: round 1, with the day log as the Outbox</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="3a">
+<div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Outbox — day log, refusals pinned</div>
+<p class="dv-onote">Replaces <a class="dv-oid" href="#1i">1i</a>. <a class="dv-oid" href="#2d">2d</a>'s chronology is the body, because "did I get all twelve pools?" is the real question — but the one refusal keeps <a class="dv-oid" href="#1i">1i</a>'s pinned card and the server's own sentence, so a failure can't scroll out of sight. Everything else in the app stays as round 1: three tabs, the status strip, the map-first FAB.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;padding:2px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px">
+<div><p style="margin:0;font:700 28px/34px Inter,sans-serif;letter-spacing:-.5px">Today</p><p style="margin:3px 0 0;font:400 12.5px/1.4 Inter,sans-serif;color:#78726B">Thu 13 Sept · 17 records · 6.2 km walked</p></div>
+<button style="height:34px;padding:0 12px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;color:#5F5952;font:600 12.5px/1 Inter,sans-serif">Earlier</button>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 20px">
+<div style="display:flex;gap:10px;margin-bottom:13px">
+<div style="flex:1;padding:9px 11px;border:1px solid rgba(30,122,75,.3);border-radius:9px;background:rgba(30,122,75,.07)"><p style="margin:0;font:600 19px/1 'Geist Mono',monospace;color:#155E3A">3</p><p style="margin:4px 0 0;font:500 11px/1.2 Inter,sans-serif;color:#256B47">sent</p></div>
+<div style="flex:1;padding:9px 11px;border:1px solid rgba(223,129,16,.32);border-radius:9px;background:rgba(223,129,16,.09)"><p style="margin:0;font:600 19px/1 'Geist Mono',monospace;color:#8A4F06">13</p><p style="margin:4px 0 0;font:500 11px/1.2 Inter,sans-serif;color:#8A4F06">waiting</p></div>
+<div style="flex:1;padding:9px 11px;border:1px solid rgba(210,43,43,.32);border-radius:9px;background:rgba(210,43,43,.06)"><p style="margin:0;font:600 19px/1 'Geist Mono',monospace;color:#9E1F1F">1</p><p style="margin:4px 0 0;font:500 11px/1.2 Inter,sans-serif;color:#9E1F1F">refused</p></div>
+</div>
+<div style="border:1px solid rgba(210,43,43,.35);border-radius:10px;background:rgba(210,43,43,.06);padding:12px;margin-bottom:14px">
+<div style="display:flex;align-items:center;gap:9px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B22424" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"></path><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+<p style="margin:0;flex:1;font:600 13.5px/1.3 Inter,sans-serif;color:#9E1F1F">Refused by the server</p>
+<span style="font:500 11.5px/1 'Geist Mono',monospace;color:#9E1F1F">09:31</span>
+</div>
+<p style="margin:7px 0 0;font:500 13px/1.4 Inter,sans-serif">Egg mass observation · BC-11-R1</p>
+<p style="margin:4px 0 0;font:400 12.5px/1.5 Inter,sans-serif;color:#7A2222;text-wrap:pretty">“Species is not one of the allowed values for this layer.” (422)</p>
+<div style="margin-top:10px;display:flex;gap:8px">
+<button style="flex:1;height:36px;border-radius:8px;border:1px solid rgba(178,36,36,.4);background:rgba(210,43,43,.1);color:#9E1F1F;font:600 12.5px/1 Inter,sans-serif">Fix and resend</button>
+<button style="flex:1;height:36px;border-radius:8px;border:1px solid #E3DED3;background:#F7F5EF;color:#5F5952;font:600 12.5px/1 Inter,sans-serif">Discard</button>
+</div>
+</div>
+<div style="display:flex;flex-direction:column">
+<div style="display:flex;gap:12px;padding-bottom:13px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">10:42</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#DF8110;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Egg mass observation · BC-14-R2</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">23 masses · 2 photos · waiting to send</p></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:13px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">10:18</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#DF8110;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Vegetation plot · BC-14-P4</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#8A4F06">needs review before sending (v3 → v4)</p></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:13px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">09:55</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#DF8110;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Culvert condition · CV-208</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">condition 3 · 1 photo</p></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:13px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">08:47</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#1E7A4B;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Water quality site · WQ-04</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#256B47">sent 08:52</p></div>
+</div>
+<div style="display:flex;gap:12px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">07:40</div>
+<div style="width:15px;flex:none;display:flex;justify-content:center"><span style="width:11px;height:11px;border-radius:999px;background:#C4BEB4;margin-top:3px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif;color:#5F5952">Track log started</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">Bear Creek trailhead</p></div>
+</div>
+</div>
+</div>
+<div style="flex:none;padding:10px 20px;border-top:1px solid #E3DED3;background:#F7F5EF">
+<button style="width:100%;height:48px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 15px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>Send 13 waiting</button>
+</div>
+<div style="flex:none;height:83px;border-top:1px solid #E3DED3;background:rgba(247,245,239,.96);display:flex;align-items:flex-start;padding-top:7px">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg><span style="font:500 10.5px/1 Inter,sans-serif">Collections</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg><span style="font:500 10.5px/1 Inter,sans-serif">Map</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#5A6858;position:relative"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg><span style="font:600 10.5px/1 Inter,sans-serif">Outbox</span><span style="position:absolute;top:-3px;left:calc(50% + 8px);min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#D22B2B;color:#fff;font:700 11px/19px Inter,sans-serif;text-align:center">14</span></div>
+</div>
+</div>
+</x-import>
+</div>
+
+</div>
+<p class="dv-next">Next: the tappable capture flow.</p>
+</section>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Variations on the five axes</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Navigation — map-first, no tabs</div>
+<p class="dv-onote">Against <a class="dv-oid" href="#1d">1d</a>: the map <em>is</em> the app. No tab bar, so the canvas gains 83px and the thumb arc is uncontested. The collection name in the header is a switcher, and the outbox becomes a single status chip that only asserts itself when it has something to say. Costs you a persistent route to Collections — you swipe or switch.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 815" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="815" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 90C60 60 120 120 190 96S320 34 420 80"></path><path d="M-10 180C60 150 120 210 190 186S320 124 420 170"></path><path d="M-10 274C60 244 120 304 190 280S320 218 420 264"></path><path d="M-10 380C60 350 120 410 190 386S320 324 420 370"></path><path d="M-10 492C60 462 120 522 190 498S320 436 420 482"></path><path d="M-10 610C60 580 120 640 190 616S320 554 420 600"></path><path d="M-10 730C60 700 120 760 190 736S320 674 420 720"></path></g><path d="M-10 540C70 566 130 530 210 574S340 640 420 606L420 815L-10 815Z" fill="#E7EADC"></path><path d="M-10 300C60 330 120 288 200 334S330 384 420 350" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 150 160 310 140 500S200 700 240 830" stroke="#FFFFFF" stroke-width="7" fill="none"></path></svg>
+<span style="position:absolute;left:170px;top:262px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:266px;top:246px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:132px;top:402px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:238px;top:452px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<div style="position:absolute;left:210px;top:520px;width:30px;height:30px;border-radius:999px;background:rgba(27,124,187,.18)"></div>
+<span style="position:absolute;left:219px;top:529px;width:12px;height:12px;border-radius:999px;background:#1B7CBB;border:2.5px solid #fff"></span>
+<div style="position:absolute;left:10px;right:10px;top:8px;display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #E3DED3;border-radius:12px;background:rgba(247,245,239,.97);box-shadow:0 1px 4px rgba(0,0,0,.12)">
+<span style="width:32px;height:32px;flex:none;border-radius:8px;background:rgba(90,104,88,.12);display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 13.5px/1.25 Inter,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Riparian Amphibian Survey</p>
+<p style="margin:1px 0 0;font:400 11px/1.2 Inter,sans-serif;color:#78726B">Bear Creek reach · 6 today</p>
+</div>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#78726B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<div style="position:absolute;left:10px;right:10px;top:66px;display:flex;gap:7px">
+<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;border:1px solid rgba(223,129,16,.35);background:rgba(247,245,239,.96);color:#8A4F06;font:600 11.5px/1 Inter,sans-serif"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A4F06" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8A16 16 0 0 1 9 5.6"></path><path d="M9 16.8a6 6 0 0 1 6 0"></path><path d="M12 20h.01"></path><path d="m2 2 20 20"></path></svg>Offline</span>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;border:1px solid rgba(30,122,75,.4);background:rgba(247,245,239,.96);color:#1E7A4B;font:600 11.5px/1 Inter,sans-serif"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>2.4 m</span>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:999px;border:1px solid rgba(210,43,43,.4);background:rgba(210,43,43,.1);color:#9E1F1F;font:600 11.5px/1 Inter,sans-serif"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9E1F1F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>14 to send</span>
+</div>
+<div style="position:absolute;right:10px;bottom:96px;display:flex;flex-direction:column;gap:8px">
+<button style="width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5z"></path><path d="m3 12 9 5 9-5"></path></svg></button>
+<button style="width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.6-3.6"></path></svg></button>
+<button style="width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B7CBB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2"></path></svg></button>
+</div>
+<button style="position:absolute;right:10px;bottom:20px;height:64px;padding:0 22px 0 18px;border-radius:999px;border:none;background:#5A6858;box-shadow:0 6px 18px rgba(38,35,32,.32);display:flex;align-items:center;gap:9px">
+<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+<span style="font:600 17px/1 Inter,sans-serif;color:#fff">Add</span>
+</button>
+<div style="position:absolute;left:10px;bottom:20px;width:64px;height:64px;border-radius:999px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);box-shadow:0 1px 4px rgba(0,0,0,.14);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg>
+<span style="font:600 9.5px/1 Inter,sans-serif;color:#4C5B4A">TODAY</span>
+</div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Map layout — layer rail with per-layer Add</div>
+<p class="dv-onote">Against <a class="dv-oid" href="#1d">1d</a>: the docs describe map mode as "tap Add against a layer". Here the legend is a permanent peeking sheet with an Add button on each editable layer, so choosing <em>what</em> you're recording and <em>where</em> is one tap, not FAB → picker → map. Legend doubles as visibility control. Costs map height; wins on multi-layer collections.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:9px;padding:0 12px 8px">
+<p style="margin:0;flex:1;min-width:0;font:600 15.5px/1.25 Inter,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Riparian Amphibian Survey</p>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;border:1px solid rgba(30,122,75,.4);background:rgba(30,122,75,.1);color:#1E7A4B;font:600 11.5px/1 Inter,sans-serif">2.4 m</span>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;border:1px solid rgba(223,129,16,.35);background:rgba(223,129,16,.1);color:#8A4F06;font:600 11.5px/1 Inter,sans-serif">14</span>
+<button style="width:34px;height:34px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="5" r="1.4" fill="#262320"></circle><circle cx="12" cy="12" r="1.4" fill="#262320"></circle><circle cx="12" cy="19" r="1.4" fill="#262320"></circle></svg></button>
+</div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 460" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="460" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 54C60 30 120 80 190 58S320 8 420 48"></path><path d="M-10 128C60 104 120 154 190 132S320 82 420 122"></path><path d="M-10 208C60 184 120 234 190 212S320 162 420 202"></path><path d="M-10 296C60 272 120 322 190 300S320 250 420 290"></path><path d="M-10 392C60 368 120 418 190 396S320 346 420 386"></path></g><path d="M-10 330C70 352 130 322 210 358S340 410 420 384L420 460L-10 460Z" fill="#E7EADC"></path><path d="M-10 190C60 216 120 180 200 222S330 266 420 236" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 110 160 220 140 340" stroke="#FFFFFF" stroke-width="7" fill="none"></path></svg>
+<span style="position:absolute;left:170px;top:176px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:262px;top:150px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:130px;top:262px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<div style="position:absolute;left:96px;top:286px;width:120px;height:54px;border:2.5px solid #8A5A63;background:rgba(138,90,99,.16)"></div>
+<div style="position:absolute;left:186px;top:344px;width:28px;height:28px;border-radius:999px;background:rgba(27,124,187,.18)"></div>
+<span style="position:absolute;left:194px;top:352px;width:12px;height:12px;border-radius:999px;background:#1B7CBB;border:2.5px solid #fff"></span>
+<button style="position:absolute;left:12px;top:12px;width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.6-3.6"></path></svg></button>
+<button style="position:absolute;right:12px;top:12px;width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.12)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B7CBB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8"></circle><path d="M12 2v2M12 20v2M2 12h2M20 12h2"></path></svg></button>
+</div>
+<div style="flex:none;background:#FBFAF6;border-top:1px solid #E3DED3;box-shadow:0 -4px 16px rgba(38,35,32,.1)">
+<div style="display:flex;justify-content:center;padding:7px 0 3px"><span style="width:40px;height:4px;border-radius:999px;background:#D6D0C4"></span></div>
+<div style="display:flex;align-items:center;gap:8px;padding:2px 14px 9px">
+<p style="margin:0;flex:1;font:600 12px/1 Inter,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#78726B">Layers</p>
+<span style="font:500 11.5px/1 Inter,sans-serif;color:#78726B">tap Add to record</span>
+</div>
+<div style="border-top:1px solid #E3DED3">
+<div style="display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid #EDE9DF">
+<span style="width:15px;height:15px;flex:none;border-radius:999px;background:#5A6858;border:2px solid #fff;box-shadow:0 0 0 1px #CFC9BB"></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14px/1.3 Inter,sans-serif">Amphibian observations</span><span style="display:block;margin-top:1px;font:400 11px/1.3 Inter,sans-serif;color:#78726B">point · 41 nearby</span></span>
+<button style="height:36px;padding:0 14px;border-radius:8px;border:none;background:#5A6858;color:#fff;font:600 13px/1 Inter,sans-serif;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add</button>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid #EDE9DF">
+<span style="width:15px;height:15px;flex:none;border-radius:999px;background:#B78A5B;border:2px solid #fff;box-shadow:0 0 0 1px #CFC9BB"></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14px/1.3 Inter,sans-serif">Water quality sites</span><span style="display:block;margin-top:1px;font:400 11px/1.3 Inter,sans-serif;color:#78726B">point · 8 nearby</span></span>
+<button style="height:36px;padding:0 14px;border-radius:8px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);color:#4C5B4A;font:600 13px/1 Inter,sans-serif;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add</button>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:10px 14px;border-bottom:1px solid #EDE9DF">
+<span style="width:15px;height:15px;flex:none;background:rgba(138,90,99,.35);border:2px solid #8A5A63"></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14px/1.3 Inter,sans-serif">Invasive patches</span><span style="display:block;margin-top:1px;font:400 11px/1.3 Inter,sans-serif;color:#78726B">polygon · 3 nearby</span></span>
+<button style="height:36px;padding:0 14px;border-radius:8px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);color:#4C5B4A;font:600 13px/1 Inter,sans-serif;display:flex;align-items:center;gap:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add</button>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:10px 14px;opacity:.6">
+<span style="width:15px;height:15px;flex:none;border-radius:2px;background:#BCD3DC;border:2px solid #8FB2BE"></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14px/1.3 Inter,sans-serif">Stream network</span><span style="display:block;margin-top:1px;font:400 11px/1.3 Inter,sans-serif;color:#78726B">reference · view only</span></span>
+<span style="width:46px;height:28px;border-radius:999px;background:#5A6858;position:relative;flex:none"><span style="position:absolute;right:3px;top:3px;width:22px;height:22px;border-radius:999px;background:#fff"></span></span>
+</div>
+</div>
+<div style="height:34px"></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="2c">
+<div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Form — full screen, map as a strip</div>
+<p class="dv-onote">Against <a class="dv-oid" href="#1f">1f</a>: a long form gets the whole screen and the map collapses to a 96px strip that still shows the fix and is tappable to re-place. Right for form-heavy collections (the 4-page vegetation plot); wrong when the collector is reading the map while typing.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:2px 14px 10px">
+<button style="height:34px;padding:0 12px;border-radius:8px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 13.5px/1 Inter,sans-serif">Cancel</button>
+<div style="flex:1;min-width:0;text-align:center"><p style="margin:0;font:600 14.5px/1.25 Inter,sans-serif">Egg mass observation</p><p style="margin:1px 0 0;font:400 11.5px/1.2 Inter,sans-serif;color:#78726B">Page 1 of 3</p></div>
+<button style="height:34px;padding:0 14px;border-radius:8px;border:none;background:#5A6858;color:#fff;font:600 13.5px/1 Inter,sans-serif">Submit</button>
+</div>
+<div style="flex:none;position:relative;height:96px;margin:0 14px 14px;border:1px solid #E3DED3;border-radius:10px;overflow:hidden">
+<svg viewBox="0 0 374 96" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="374" height="96" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.1"><path d="M-10 22C50 10 96 38 150 26S260 -2 384 20"></path><path d="M-10 56C50 44 96 72 150 60S260 32 384 54"></path><path d="M-10 88C50 76 96 104 150 92S260 64 384 86"></path></g><path d="M-10 44C50 60 96 38 158 66S290 92 384 72" stroke="#BCD3DC" stroke-width="6" fill="none"></path></svg>
+<span style="position:absolute;left:178px;top:38px;width:17px;height:17px;border-radius:999px;background:#5A6858;border:3px solid #fff;box-shadow:0 0 0 5px rgba(90,104,88,.22)"></span>
+<span style="position:absolute;left:8px;bottom:8px;padding:4px 9px;border-radius:6px;background:rgba(247,245,239,.95);font:500 11px/1.35 'Geist Mono',monospace;color:#3E4A3C">48.4127, −121.0836 · ±2.4 m</span>
+<button style="position:absolute;right:8px;bottom:8px;height:30px;padding:0 11px;border-radius:999px;border:1px solid #CFD6CD;background:rgba(247,245,239,.96);color:#4C5B4A;font:600 11.5px/1 Inter,sans-serif">Re-place</button>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 14px">
+<div style="margin-bottom:16px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:6px">Site code <span style="color:#D22B2B">*</span></label>
+<div style="display:flex;gap:8px">
+<div style="flex:1;height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4;font:500 16px/1 'Geist Mono',monospace">BC-14-R2</div>
+<button style="width:48px;height:48px;flex:none;border-radius:9px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);display:flex;align-items:center;justify-content:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2" stroke-linecap="round"><path d="M3 5v14M7 5v14M11 5v14M15 5v10M19 5v14"></path></svg></button>
+</div>
+</div>
+<div style="margin-bottom:16px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:7px">Species <span style="color:#D22B2B">*</span></label>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1.5px solid #5A6858;border-radius:9px;background:rgba(90,104,88,.09)"><span style="width:20px;height:20px;border-radius:999px;border:2px solid #5A6858;display:flex;align-items:center;justify-content:center"><span style="width:10px;height:10px;border-radius:999px;background:#5A6858"></span></span><span style="font:500 15.5px/1 Inter,sans-serif">Northwestern salamander</span></div>
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F7F5EF"><span style="width:20px;height:20px;border-radius:999px;border:2px solid #C4BEB4"></span><span style="font:500 15.5px/1 Inter,sans-serif;color:#3E3A35">Pacific chorus frog</span></div>
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F7F5EF"><span style="width:20px;height:20px;border-radius:999px;border:2px solid #C4BEB4"></span><span style="font:500 15.5px/1 Inter,sans-serif;color:#3E3A35">Long-toed salamander</span></div>
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F7F5EF"><span style="width:20px;height:20px;border-radius:999px;border:2px solid #C4BEB4"></span><span style="font:500 15.5px/1 Inter,sans-serif;color:#3E3A35">Rough-skinned newt</span></div>
+</div>
+</div>
+<div>
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:6px">Egg masses counted</label>
+<div style="display:flex;align-items:center;gap:10px">
+<button style="width:56px;height:52px;border-radius:9px;border:1px solid #E3DED3;background:#F0EDE4;font:600 22px/1 Inter,sans-serif;color:#5F5952">−</button>
+<div style="flex:1;height:52px;display:flex;align-items:center;justify-content:center;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4;font:500 20px/1 'Geist Mono',monospace">23</div>
+<button style="width:56px;height:52px;border-radius:9px;border:1px solid #E3DED3;background:#F0EDE4;font:600 22px/1 Inter,sans-serif;color:#5F5952">+</button>
+</div>
+</div>
+</div>
+<div style="flex:none;padding:10px 14px;border-top:1px solid #E3DED3;background:#F7F5EF;display:flex;gap:9px">
+<button style="flex:1;height:50px;border-radius:10px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 15px/1 Inter,sans-serif">Save draft</button>
+<button style="flex:1.4;height:50px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 15px/1 Inter,sans-serif">Next</button>
+</div>
+<div style="flex:none;height:34px;background:#F7F5EF"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="2d">
+<div class="dv-olabel"><a class="dv-oid" href="#2d">2d</a>Outbox — the day log</div>
+<p class="dv-onote">Against <a class="dv-oid" href="#1i">1i</a>: instead of a queue that only shows what's stuck, a chronological record of the day with sync state as a column. A surveyor's real question at 4pm is "did I get all twelve pools?", not "what failed". Sent records stay listed, so the day is auditable; the sticky bar keeps the send action within reach.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;padding:2px 20px 12px;display:flex;align-items:flex-end;justify-content:space-between;gap:10px">
+<div><p style="margin:0;font:700 28px/34px Inter,sans-serif;letter-spacing:-.5px">Today</p><p style="margin:3px 0 0;font:400 12.5px/1.4 Inter,sans-serif;color:#78726B">Thu 13 Sept · 17 records · 6.2 km walked</p></div>
+<button style="height:34px;padding:0 12px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;color:#5F5952;font:600 12.5px/1 Inter,sans-serif">Earlier</button>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 20px">
+<div style="display:flex;gap:12px;padding-bottom:14px;border-bottom:1px solid #E3DED3;margin-bottom:14px">
+<div style="flex:1;padding:10px 12px;border:1px solid rgba(30,122,75,.3);border-radius:9px;background:rgba(30,122,75,.07)"><p style="margin:0;font:600 20px/1 'Geist Mono',monospace;color:#155E3A">3</p><p style="margin:4px 0 0;font:500 11px/1.2 Inter,sans-serif;color:#256B47">sent</p></div>
+<div style="flex:1;padding:10px 12px;border:1px solid rgba(223,129,16,.32);border-radius:9px;background:rgba(223,129,16,.09)"><p style="margin:0;font:600 20px/1 'Geist Mono',monospace;color:#8A4F06">13</p><p style="margin:4px 0 0;font:500 11px/1.2 Inter,sans-serif;color:#8A4F06">waiting</p></div>
+<div style="flex:1;padding:10px 12px;border:1px solid rgba(210,43,43,.32);border-radius:9px;background:rgba(210,43,43,.06)"><p style="margin:0;font:600 20px/1 'Geist Mono',monospace;color:#9E1F1F">1</p><p style="margin:4px 0 0;font:500 11px/1.2 Inter,sans-serif;color:#9E1F1F">refused</p></div>
+</div>
+<div style="display:flex;flex-direction:column">
+<div style="display:flex;gap:12px;padding-bottom:14px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">10:42</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#DF8110;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Egg mass observation · BC-14-R2</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">23 masses · 2 photos · waiting to send</p></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:14px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">10:18</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#DF8110;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Vegetation plot · BC-14-P4</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#8A4F06">needs review before sending (v3 → v4)</p></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:14px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">09:55</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#DF8110;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Culvert condition · CV-208</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">condition 3 · 1 photo</p></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:14px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">09:31</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#D22B2B;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Egg mass observation · BC-11-R1</p><p style="margin:2px 0 0;font:400 11.5px/1.4 Inter,sans-serif;color:#9E1F1F;text-wrap:pretty">Refused: “Species is not one of the allowed values for this layer.”</p><button style="margin-top:7px;height:32px;padding:0 12px;border-radius:8px;border:1px solid rgba(178,36,36,.4);background:rgba(210,43,43,.09);color:#9E1F1F;font:600 12.5px/1 Inter,sans-serif">Fix and resend</button></div>
+</div>
+<div style="display:flex;gap:12px;padding-bottom:14px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">08:47</div>
+<div style="width:15px;flex:none;display:flex;flex-direction:column;align-items:center"><span style="width:11px;height:11px;border-radius:999px;background:#1E7A4B;margin-top:3px"></span><span style="flex:1;width:1.5px;background:#E3DED3;margin-top:4px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Water quality site · WQ-04</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#256B47">sent 08:52</p></div>
+</div>
+<div style="display:flex;gap:12px">
+<div style="width:44px;flex:none;text-align:right;font:500 12px/1.4 'Geist Mono',monospace;color:#78726B">07:40</div>
+<div style="width:15px;flex:none;display:flex;justify-content:center"><span style="width:11px;height:11px;border-radius:999px;background:#C4BEB4;margin-top:3px"></span></div>
+<div style="flex:1;min-width:0"><p style="margin:0;font:500 14px/1.3 Inter,sans-serif;color:#5F5952">Track log started</p><p style="margin:2px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">Bear Creek trailhead</p></div>
+</div>
+</div>
+</div>
+<div style="flex:none;padding:11px 20px;border-top:1px solid #E3DED3;background:#F7F5EF">
+<button style="width:100%;height:50px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 15px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>Send 13 waiting</button>
+</div>
+<div style="flex:none;height:34px;background:#F7F5EF"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="2e">
+<div class="dv-olabel"><a class="dv-oid" href="#2e">2e</a>Offline — size before you commit</div>
+<p class="dv-onote">Against <a class="dv-oid" href="#1c">1c</a>: draw and download on one screen. The frame you see is the area, detail is a three-stop control rather than a zoom-range pair, and the number that matters (MB, and MB you have left) updates as you move the map. Refusals are declared before the download, not after.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:2px 14px 10px">
+<button style="width:36px;height:36px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+<p style="margin:0;flex:1;font:600 16px/1.2 Inter,sans-serif">New offline area</p>
+</div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 430" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="430" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 44C60 22 120 68 190 48S320 2 420 40"></path><path d="M-10 112C60 90 120 136 190 116S320 70 420 108"></path><path d="M-10 186C60 164 120 210 190 190S320 144 420 182"></path><path d="M-10 268C60 246 120 292 190 272S320 226 420 264"></path><path d="M-10 358C60 336 120 382 190 362S320 316 420 354"></path></g><path d="M-10 300C70 322 130 294 210 328S340 378 420 354L420 430L-10 430Z" fill="#E7EADC"></path><path d="M-10 170C60 196 120 162 200 202S330 244 420 216" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 100 160 200 140 310" stroke="#FFFFFF" stroke-width="7" fill="none"></path></svg>
+<div style="position:absolute;left:34px;right:34px;top:44px;bottom:74px;border:2.5px solid #5A6858;background:rgba(90,104,88,.1)">
+<span style="position:absolute;left:-7px;top:-7px;width:12px;height:12px;background:#fff;border:2.5px solid #5A6858"></span>
+<span style="position:absolute;right:-7px;top:-7px;width:12px;height:12px;background:#fff;border:2.5px solid #5A6858"></span>
+<span style="position:absolute;left:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2.5px solid #5A6858"></span>
+<span style="position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;background:#fff;border:2.5px solid #5A6858"></span>
+<span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:5px 11px;border-radius:6px;background:rgba(247,245,239,.95);font:500 11.5px/1 'Geist Mono',monospace;color:#3E4A3C">4.2 × 6.8 km</span>
+</div>
+<div style="position:absolute;left:14px;bottom:12px;padding:7px 11px;border:1px solid #E3DED3;border-radius:8px;background:rgba(247,245,239,.96);font:500 11.5px/1 Inter,sans-serif;color:#5F5952">Move and pinch the map to set the area</div>
+</div>
+<div style="flex:none;border-top:1px solid #E3DED3;background:#F7F5EF;padding:14px">
+<p style="margin:0 0 8px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">Detail</p>
+<div style="display:flex;gap:6px;margin-bottom:14px">
+<div style="flex:1;height:58px;border-radius:9px;border:1px solid #E3DED3;background:#FBFAF6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><span style="font:600 13.5px/1 Inter,sans-serif;color:#5F5952">Overview</span><span style="font:500 11px/1 'Geist Mono',monospace;color:#78726B">38 MB</span></div>
+<div style="flex:1;height:58px;border-radius:9px;border:1.5px solid #5A6858;background:rgba(90,104,88,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><span style="font:600 13.5px/1 Inter,sans-serif;color:#3E4A3C">Walking</span><span style="font:500 11px/1 'Geist Mono',monospace;color:#4C5B4A">148 MB</span></div>
+<div style="flex:1;height:58px;border-radius:9px;border:1px solid #E3DED3;background:#FBFAF6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px"><span style="font:600 13.5px/1 Inter,sans-serif;color:#5F5952">Survey</span><span style="font:500 11px/1 'Geist Mono',monospace;color:#78726B">612 MB</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:7px;padding:11px 12px;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4;margin-bottom:12px">
+<div style="display:flex;justify-content:space-between"><span style="font:400 12.5px/1.3 Inter,sans-serif;color:#5F5952">Basemap, zoom 10–17</span><span style="font:500 12.5px/1.3 'Geist Mono',monospace">121 MB</span></div>
+<div style="display:flex;justify-content:space-between"><span style="font:400 12.5px/1.3 Inter,sans-serif;color:#5F5952">4 layers · 812 features</span><span style="font:500 12.5px/1.3 'Geist Mono',monospace">24 MB</span></div>
+<div style="display:flex;justify-content:space-between"><span style="font:400 12.5px/1.3 Inter,sans-serif;color:#5F5952">1 form · 3 pick lists</span><span style="font:500 12.5px/1.3 'Geist Mono',monospace">3 MB</span></div>
+<div style="display:flex;justify-content:space-between;padding-top:7px;border-top:1px solid #E3DED3"><span style="font:600 13px/1.3 Inter,sans-serif">Total</span><span style="font:600 13px/1.3 'Geist Mono',monospace">148 MB</span></div>
+<p style="margin:2px 0 0;font:400 11.5px/1.4 Inter,sans-serif;color:#78726B">11.4 GB free on this device.</p>
+</div>
+<div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid rgba(223,129,16,.32);background:rgba(223,129,16,.09);border-radius:9px;margin-bottom:12px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B96A0B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4M12 16h.01"></path></svg>
+<p style="margin:0;font:500 12px/1.45 Inter,sans-serif;color:#8A4F06;text-wrap:pretty">Zoom 18 isn't available offline — the basemap provider refuses it. <em>Survey</em> detail stops at 17.</p>
+</div>
+<button style="width:100%;height:52px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 16px/1 Inter,sans-serif">Download 148 MB</button>
+</div>
+<div style="flex:none;height:34px;background:#F7F5EF"></div>
+</div>
+</x-import>
+</div>
+
+</div>
+<p class="dv-next">Try next: "take <a class="dv-oid" href="#2b">2b</a>'s layer rail into <a class="dv-oid" href="#1d">1d</a>" · "merge <a class="dv-oid" href="#2d">2d</a> and <a class="dv-oid" href="#1i">1i</a> — day log with a refusals section on top" · "prototype the capture flow" · "another navigation option".</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Screen set — iOS, Contour palette</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Connect a portal</div>
+<p class="dv-onote">Self-hosted means the portal URL is the first question, not the last. Recents are cached so a crew member re-signing-in after a lost token taps once. The last line is the promise the rest of the app keeps.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:0 24px">
+<div style="margin-top:56px;display:flex;flex-direction:column;align-items:center;gap:18px">
+<svg width="72" height="72" viewBox="0 0 64 64" fill="none"><path d="M34 8 C16 8 8 20 8 32 C8 46 19 56 34 56 C45 56 53 49 55 40 L37 40" stroke="#5A6858" stroke-width="5" stroke-linecap="round"></path><path d="M34 18 C22 18 17 24 17 32 C17 40 24 46 34 46" stroke="#B78A5B" stroke-width="4" stroke-linecap="round"></path><path d="M34 27 C29 27 26 29 26 32 C26 35 29 37 34 37" stroke="#8A5A63" stroke-width="3.5" stroke-linecap="round"></path></svg>
+<div style="text-align:center">
+<p style="margin:0;font:700 26px/1.2 Inter,sans-serif;letter-spacing:-.4px">Gratis<span style="color:#5A6858">GIS</span> Field</p>
+<p style="margin:6px 0 0;font:400 14px/1.5 Inter,sans-serif;color:#78726B">Collect data offline. Sync when you're back.</p>
+</div>
+</div>
+<div style="margin-top:44px;display:flex;flex-direction:column;gap:8px">
+<label style="font:600 12px/1 Inter,sans-serif;color:#78726B">Portal address</label>
+<div style="display:flex;align-items:center;gap:10px;height:52px;padding:0 14px;background:#F0EDE4;border:1px solid #E3DED3;border-radius:8px">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#78726B" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><path d="M2 12h20M12 2a15 15 0 0 1 0 20a15 15 0 0 1 0-20"></path></svg>
+<span style="font:500 16px/1 'Geist Mono',monospace">gis.parks.wa.gov</span>
+</div>
+</div>
+<button style="margin-top:16px;height:52px;border:none;border-radius:8px;background:#5A6858;color:#fff;font:600 16px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:8px" style-active="background:#4A5748">
+Continue
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+</button>
+<p style="margin:26px 0 10px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">Recent portals</p>
+<div style="border:1px solid #E3DED3;border-radius:8px;overflow:hidden;background:#F7F5EF">
+<div style="display:flex;align-items:center;gap:12px;padding:13px 14px;border-bottom:1px solid #E3DED3">
+<span style="width:30px;height:30px;border-radius:7px;background:rgba(90,104,88,.12);display:flex;align-items:center;justify-content:center;color:#5A6858;font:600 13px/1 Inter,sans-serif">WP</span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 14px/1.3 Inter,sans-serif">Washington Parks</p>
+<p style="margin:1px 0 0;font:400 12px/1.3 'Geist Mono',monospace;color:#78726B">gis.parks.wa.gov</p>
+</div>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;background:rgba(30,122,75,.1);color:#1E7A4B;font:600 11px/1 Inter,sans-serif">
+<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>signed in</span>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:13px 14px">
+<span style="width:30px;height:30px;border-radius:7px;background:rgba(183,138,91,.14);display:flex;align-items:center;justify-content:center;color:#8A6236;font:600 13px/1 Inter,sans-serif">CC</span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 14px/1.3 Inter,sans-serif">Cascadia Conservancy</p>
+<p style="margin:1px 0 0;font:400 12px/1.3 'Geist Mono',monospace;color:#78726B">portal.cascadia.org</p>
+</div>
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+</div>
+<div style="flex:1"></div>
+<p style="margin:0 0 34px;padding:12px 14px;background:#F0EDE4;border-radius:8px;font:400 12.5px/1.6 Inter,sans-serif;color:#4A453F;text-wrap:pretty">
+<strong style="font-weight:600">Signed in once, good for the field.</strong> Your session is refreshed for offline use before you leave signal, and captures keep queueing even after it lapses.
+</p>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Collections — home</div>
+<p class="dv-onote">One row per <code style="font-family:'Geist Mono',monospace;font-size:11px">data_collection</code>, sorted queued-first exactly as the web catalog does. The cache dot and the <em>Sync N</em> chip are the portal's own affordances; the download size and age are promoted onto the row so "is this ready to take out?" is answered without tapping.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;padding:2px 20px 10px;display:flex;align-items:flex-end;justify-content:space-between">
+<p style="margin:0;font:700 30px/36px Inter,sans-serif;letter-spacing:-.6px">Collections</p>
+<div style="display:flex;gap:6px">
+<button style="width:40px;height:40px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.6-3.6"></path></svg></button>
+<button style="width:40px;height:40px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"></circle><path d="M5 21a7 7 0 0 1 14 0"></path></svg></button>
+</div>
+</div>
+<div style="flex:none;margin:0 20px 14px;display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid rgba(223,129,16,.32);background:rgba(223,129,16,.1);border-radius:8px">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B96A0B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8A16 16 0 0 1 9 5.6"></path><path d="M15 5.7a16 16 0 0 1 7 3.1"></path><path d="M5.6 12.8a11 11 0 0 1 4-2.2"></path><path d="M14.5 10.7a11 11 0 0 1 3.9 2.1"></path><path d="M9 16.8a6 6 0 0 1 6 0"></path><path d="M12 20h.01"></path><path d="m2 2 20 20"></path></svg>
+<p style="margin:0;font:500 12.5px/1.45 Inter,sans-serif;color:#8A4F06;text-wrap:pretty">Offline. Cached collections still open; queued edits sync when you reconnect.</p>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+<div style="flex:none;margin:0 20px;border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden">
+
+<div style="display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid #E3DED3">
+<span style="position:relative;width:42px;height:42px;flex:none;border-radius:9px;background:rgba(90,104,88,.12);display:flex;align-items:center;justify-content:center">
+<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M9 12h6M9 16h4"></path></svg>
+<span style="position:absolute;right:-2px;bottom:-2px;width:13px;height:13px;border-radius:999px;background:#1E7A4B;border:2.5px solid #F7F5EF"></span>
+</span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 15.5px/1.3 Inter,sans-serif">Riparian Amphibian Survey</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 Inter,sans-serif;color:#78726B">Cached 148 MB · 6 h ago · 3 areas</p>
+<div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">
+<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;border:1px solid rgba(223,129,16,.32);background:rgba(223,129,16,.1);color:#8A4F06;font:600 11.5px/1 Inter,sans-serif">
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8A4F06" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>14 queued</span>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 11.5px/1 Inter,sans-serif">
+<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#5F5952" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 21V9"></path></svg>2 photos pending</span>
+</div>
+</div>
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;padding:14px;border-bottom:1px solid #E3DED3">
+<span style="position:relative;width:42px;height:42px;flex:none;border-radius:9px;background:rgba(90,104,88,.12);display:flex;align-items:center;justify-content:center">
+<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M9 12h6M9 16h4"></path></svg>
+<span style="position:absolute;right:-2px;bottom:-2px;width:13px;height:13px;border-radius:999px;background:#1E7A4B;border:2.5px solid #F7F5EF"></span>
+</span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 15.5px/1.3 Inter,sans-serif">Culvert Condition Inspection</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 Inter,sans-serif;color:#78726B">Cached 62 MB · yesterday · 1 area</p>
+</div>
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+
+<div style="display:flex;align-items:center;gap:12px;padding:14px;opacity:.72">
+<span style="position:relative;width:42px;height:42px;flex:none;border-radius:9px;background:#F0EDE4;display:flex;align-items:center;justify-content:center">
+<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#78726B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg>
+<span style="position:absolute;right:-2px;bottom:-2px;width:13px;height:13px;border-radius:999px;background:#C4BEB4;border:2.5px solid #F7F5EF"></span>
+</span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 15.5px/1.3 Inter,sans-serif">Invasive Species Sweep</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 Inter,sans-serif;color:#78726B">Not downloaded · needs ~90 MB</p>
+</div>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:7px 11px;border-radius:999px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);color:#4C5B4A;font:600 12px/1 Inter,sans-serif">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>Get</span>
+</div>
+
+</div>
+<div style="flex:1"></div>
+<p style="margin:0 20px 16px;font:400 12px/1.5 Inter,sans-serif;color:#78726B;text-wrap:pretty">Pull down to refresh from the portal. Only collections shared with you appear here — ask your supervisor to share more.</p>
+</div>
+<div style="flex:none;height:83px;border-top:1px solid #E3DED3;background:rgba(247,245,239,.96);display:flex;align-items:flex-start;padding-top:7px">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#5A6858"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M9 12h6M9 16h4"></path></svg><span style="font:600 10.5px/1 Inter,sans-serif">Collections</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg><span style="font:500 10.5px/1 Inter,sans-serif">Map</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B;position:relative"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg><span style="font:500 10.5px/1 Inter,sans-serif">Outbox</span><span style="position:absolute;top:-3px;left:calc(50% + 8px);min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#D22B2B;color:#fff;font:700 11px/19px Inter,sans-serif;text-align:center">14</span></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Offline areas</div>
+<p class="dv-onote">The doc's <code style="font-family:'Geist Mono',monospace;font-size:11px">workAreaPolygon</code> + tile package, made a first-class object you can hold several of. Size is quoted before the download, refusals are named (the portal already has the strings for blocked tile providers), and what <em>failed</em> to download is on the card, not in a log.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:4px 14px 12px">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:700 18px/1.2 Inter,sans-serif;letter-spacing:-.2px">Offline areas</p>
+<p style="margin:2px 0 0;font:400 12px/1.2 Inter,sans-serif;color:#78726B">Riparian Amphibian Survey</p>
+</div>
+<span style="font:500 12px/1 Inter,sans-serif;color:#78726B">210 MB used</span>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 14px">
+
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden;margin-bottom:12px">
+<div style="position:relative;height:132px">
+<svg viewBox="0 0 374 132" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="374" height="132" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.1"><path d="M-10 24C50 10 96 42 150 30S260 -4 384 22"></path><path d="M-10 52C50 40 96 70 150 58S260 26 384 50"></path><path d="M-10 84C50 70 96 102 150 90S260 56 384 82"></path><path d="M-10 114C50 100 96 128 150 118S260 88 384 112"></path></g><path d="M-10 64C60 78 110 58 170 84S300 116 384 96L384 132L-10 132Z" fill="#E7EADC"></path><path d="M-10 40C50 56 96 34 158 62S290 92 384 70" stroke="#BCD3DC" stroke-width="6" fill="none"></path><path d="M46 -10C58 34 92 70 82 110S110 150 130 150" stroke="#FFFFFF" stroke-width="5" fill="none"></path></svg>
+<div style="position:absolute;left:52px;top:22px;right:60px;bottom:22px;border:2px solid #5A6858;background:rgba(90,104,88,.14);border-radius:2px"></div>
+</div>
+<div style="padding:12px 14px;border-top:1px solid #E3DED3">
+<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+<p style="margin:0;font:600 15px/1.3 Inter,sans-serif">Bear Creek reach</p>
+<span style="display:inline-flex;align-items:center;gap:5px;font:600 11.5px/1 Inter,sans-serif;color:#1E7A4B"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>Ready</span>
+</div>
+<p style="margin:4px 0 0;font:400 12.5px/1.5 Inter,sans-serif;color:#5F5952">148 MB · zoom 10–18 · 4 layers, 1 form, 812 features · downloaded 6 h ago</p>
+<div style="margin-top:11px;display:flex;gap:8px">
+<button style="flex:1;height:38px;border-radius:8px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);color:#4C5B4A;font:600 13px/1 Inter,sans-serif">Update</button>
+<button style="flex:1;height:38px;border-radius:8px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 13px/1 Inter,sans-serif">Rename</button>
+<button style="width:38px;height:38px;border-radius:8px;border:1px solid #E3DED3;background:#F0EDE4;display:flex;align-items:center;justify-content:center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D22B2B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"></path></svg></button>
+</div>
+</div>
+</div>
+
+<div style="border:1px solid rgba(223,129,16,.35);border-radius:10px;background:rgba(223,129,16,.07);padding:13px 14px;margin-bottom:12px">
+<div style="display:flex;align-items:center;gap:8px">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#B96A0B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"></path><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+<p style="margin:0;font:600 14px/1.3 Inter,sans-serif;color:#8A4F06">Upper Meadow — incomplete</p>
+</div>
+<p style="margin:7px 0 0;font:400 12.5px/1.55 Inter,sans-serif;color:#6B4406;text-wrap:pretty">Incomplete: 1,240 basemap tiles and pick list <em>Substrate</em> did not download. The basemap provider does not allow offline downloads at zoom 17+.</p>
+<div style="margin-top:11px;display:flex;gap:8px">
+<button style="flex:1;height:38px;border-radius:8px;border:1px solid rgba(185,106,11,.4);background:rgba(223,129,16,.14);color:#8A4F06;font:600 13px/1 Inter,sans-serif">Retry the rest</button>
+<button style="flex:1;height:38px;border-radius:8px;border:1px solid #E3DED3;background:#F7F5EF;color:#5F5952;font:600 13px/1 Inter,sans-serif">Lower detail</button>
+</div>
+</div>
+
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;padding:13px 14px;margin-bottom:12px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:34px;height:34px;flex:none;border-radius:8px;background:rgba(27,124,187,.1);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1B7CBB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 14px/1.3 Inter,sans-serif">Trailhead loop</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 Inter,sans-serif;color:#78726B">Downloading map 2 of 3: 64%</p>
+</div>
+<button style="height:30px;padding:0 11px;border-radius:999px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 12px/1 Inter,sans-serif">Stop</button>
+</div>
+<div style="margin-top:10px;height:6px;border-radius:999px;background:#E3DED3;overflow:hidden"><div style="width:64%;height:100%;background:#1B7CBB"></div></div>
+<p style="margin:8px 0 0;font:400 11.5px/1.4 Inter,sans-serif;color:#78726B">Keeps running with the screen off. You'll get a notification when it's done.</p>
+</div>
+
+<button style="width:100%;height:50px;border-radius:10px;border:1.5px dashed #C9C2B5;background:transparent;color:#4C5B4A;font:600 14px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:8px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
+Draw a new area on the map
+</button>
+<p style="margin:10px 2px 0;font:400 12px/1.55 Inter,sans-serif;color:#78726B;text-wrap:pretty">Areas can also be set by your supervisor on the collection. Those arrive pre-drawn and are marked <em>assigned</em>.</p>
+</div>
+<div style="flex:none;height:34px"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Map capture — idle</div>
+<p class="dv-onote">The PWA's control geography kept, because it works and crews already know it: Layers top-left, search beside it, zoom/compass/locate as one right rail, add-FAB bottom-right. What's new is the status strip — connectivity, fix quality and queue depth on one always-visible line, so nothing about the device's state is ever a menu away.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:0 12px 8px">
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 16px/1.25 Inter,sans-serif;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Riparian Amphibian Survey</p>
+</div>
+<button style="width:36px;height:36px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="5" r="1.4" fill="#262320"></circle><circle cx="12" cy="12" r="1.4" fill="#262320"></circle><circle cx="12" cy="19" r="1.4" fill="#262320"></circle></svg></button>
+</div>
+<div style="flex:none;display:flex;align-items:stretch;gap:1px;margin:0 12px 8px;border:1px solid #E3DED3;border-radius:8px;overflow:hidden;background:#E3DED3">
+<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 4px;background:rgba(223,129,16,.1)">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8A4F06" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8A16 16 0 0 1 9 5.6"></path><path d="M9 16.8a6 6 0 0 1 6 0"></path><path d="M12 20h.01"></path><path d="m2 2 20 20"></path></svg>
+<span style="font:600 12px/1 Inter,sans-serif;color:#8A4F06">Offline</span>
+</div>
+<div style="flex:1.2;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 4px;background:rgba(30,122,75,.1)">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>
+<span style="font:600 12px/1 Inter,sans-serif;color:#1E7A4B">2.4 m · SXblue</span>
+</div>
+<div style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 4px;background:#F7F5EF">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5F5952" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>
+<span style="font:600 12px/1 Inter,sans-serif;color:#5F5952">14 queued</span>
+</div>
+</div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 640" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="640" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 70C60 44 120 96 190 74S320 20 420 60"></path><path d="M-10 140C60 114 120 166 190 144S320 90 420 130"></path><path d="M-10 214C60 188 120 240 190 218S320 164 420 204"></path><path d="M-10 300C60 274 120 326 190 304S320 250 420 290"></path><path d="M-10 392C60 366 120 418 190 396S320 342 420 382"></path><path d="M-10 486C60 460 120 512 190 490S320 436 420 476"></path><path d="M-10 580C60 554 120 606 190 584S320 530 420 570"></path></g><path d="M-10 430C70 452 130 420 210 460S340 520 420 490L420 640L-10 640Z" fill="#E7EADC"></path><path d="M-10 236C60 262 120 226 200 268S330 312 420 280" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 120 160 250 140 400S200 560 240 660" stroke="#FFFFFF" stroke-width="7" fill="none"></path><path d="M70 -10C90 120 160 250 140 400S200 560 240 660" stroke="#E0DACB" stroke-width="0.8" fill="none"></path></svg>
+<span style="position:absolute;left:170px;top:210px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:214px;top:262px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:132px;top:322px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:266px;top:196px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:238px;top:372px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:196px;top:300px;width:15px;height:15px;border-radius:999px;background:#8A837B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);opacity:.85"></span>
+<div style="position:absolute;left:180px;top:430px;width:30px;height:30px;border-radius:999px;background:rgba(27,124,187,.18)"></div>
+<span style="position:absolute;left:189px;top:439px;width:12px;height:12px;border-radius:999px;background:#1B7CBB;border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35)"></span>
+<button style="position:absolute;left:12px;top:12px;width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);box-shadow:0 1px 3px rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 9 5-9 5-9-5z"></path><path d="m3 12 9 5 9-5"></path><path d="m3 17 9 5 9-5"></path></svg></button>
+<button style="position:absolute;left:64px;top:12px;width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);box-shadow:0 1px 3px rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.6-3.6"></path></svg></button>
+<div style="position:absolute;right:12px;top:12px;width:44px;border:1px solid #E3DED3;border-radius:10px;overflow:hidden;background:rgba(247,245,239,.97);box-shadow:0 1px 3px rgba(0,0,0,.12)">
+<div style="height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid #E3DED3"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></div>
+<div style="height:44px;display:flex;align-items:center;justify-content:center;border-bottom:1px solid #E3DED3"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"></path></svg></div>
+<div style="height:44px;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="m14.5 9.5-5 1.5 1.5 5 5-1.5z"></path></svg></div>
+</div>
+<button style="position:absolute;right:12px;top:156px;width:44px;height:44px;border-radius:10px;border:1px solid #E3DED3;background:rgba(247,245,239,.97);box-shadow:0 1px 3px rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#1B7CBB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path><circle cx="12" cy="12" r="8"></circle></svg></button>
+<div style="position:absolute;left:12px;right:12px;bottom:12px;display:flex;align-items:flex-end;gap:10px">
+<div style="flex:1;padding:10px 12px;border:1px solid #E3DED3;border-radius:10px;background:rgba(247,245,239,.97);box-shadow:0 1px 3px rgba(0,0,0,.12)">
+<p style="margin:0;font:600 12.5px/1.3 Inter,sans-serif">Bear Creek reach · offline area</p>
+<p style="margin:3px 0 0;font:400 11.5px/1.35 Inter,sans-serif;color:#78726B">6 captures today · last 11 min ago</p>
+</div>
+<button style="width:64px;height:64px;flex:none;border-radius:999px;border:none;background:#5A6858;box-shadow:0 6px 16px rgba(38,35,32,.3);display:flex;align-items:center;justify-content:center" style-active="background:#4A5748"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg></button>
+</div>
+</div>
+<div style="flex:none;height:83px;border-top:1px solid #E3DED3;background:rgba(247,245,239,.96);display:flex;align-items:flex-start;padding-top:7px">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg><span style="font:500 10.5px/1 Inter,sans-serif">Collections</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#5A6858"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg><span style="font:600 10.5px/1 Inter,sans-serif">Map</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B;position:relative"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg><span style="font:500 10.5px/1 Inter,sans-serif">Outbox</span><span style="position:absolute;top:-3px;left:calc(50% + 8px);min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#D22B2B;color:#fff;font:700 11px/19px Inter,sans-serif;text-align:center">14</span></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1e">
+<div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Placing a feature</div>
+<p class="dv-onote">The reticle is tinted with the layer's own symbology, as the PWA does. Two commits, both one-handed: <em>My location</em> (the common case, and the accuracy is on the button so you judge before you tap) or <em>Crosshair</em>, which names the thing you're aiming rather than a vague "here". Offset opens the laser / bearing-distance path.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 700" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="700" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 76C60 48 120 104 190 80S320 22 420 66"></path><path d="M-10 154C60 126 120 182 190 158S320 100 420 144"></path><path d="M-10 236C60 208 120 264 190 240S320 182 420 226"></path><path d="M-10 330C60 302 120 358 190 334S320 276 420 320"></path><path d="M-10 430C60 402 120 458 190 434S320 376 420 420"></path><path d="M-10 532C60 504 120 560 190 536S320 478 420 522"></path><path d="M-10 636C60 608 120 664 190 640S320 582 420 626"></path></g><path d="M-10 470C70 494 130 460 210 502S340 566 420 534L420 700L-10 700Z" fill="#E7EADC"></path><path d="M-10 258C60 286 120 246 200 292S330 340 420 306" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 130 160 272 140 436S200 610 240 720" stroke="#FFFFFF" stroke-width="7" fill="none"></path></svg>
+<span style="position:absolute;left:170px;top:230px;width:15px;height:15px;border-radius:999px;background:#5A6858;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:266px;top:214px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:132px;top:352px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span>
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+<div style="position:relative;width:72px;height:72px">
+<div style="position:absolute;inset:0;border-radius:999px;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 0 2px rgba(0,0,0,.14)"></div>
+<div style="position:absolute;inset:9px;border-radius:999px;border:2.5px solid #5A6858"></div>
+<div style="position:absolute;left:50%;top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;border-radius:999px;background:#5A6858"></div>
+<div style="position:absolute;left:50%;top:0;width:1.5px;height:14px;margin-left:-.75px;background:rgba(255,255,255,.9)"></div>
+<div style="position:absolute;left:50%;bottom:0;width:1.5px;height:14px;margin-left:-.75px;background:rgba(255,255,255,.9)"></div>
+<div style="position:absolute;top:50%;left:0;height:1.5px;width:14px;margin-top:-.75px;background:rgba(255,255,255,.9)"></div>
+<div style="position:absolute;top:50%;right:0;height:1.5px;width:14px;margin-top:-.75px;background:rgba(255,255,255,.9)"></div>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;top:10px;display:flex;justify-content:center">
+<span style="display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:999px;border:1px solid rgba(30,122,75,.45);background:rgba(247,245,239,.97);color:#1E7A4B;font:600 13px/1 Inter,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.12)">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>
+GPS accuracy 2.4 m
+</span>
+</div>
+<div style="position:absolute;left:10px;right:10px;bottom:10px;border:1px solid #E3DED3;border-radius:12px;background:rgba(247,245,239,.98);box-shadow:0 -2px 14px rgba(38,35,32,.14);padding:12px">
+<div style="display:flex;align-items:center;gap:10px">
+<span style="width:26px;height:26px;flex:none;border-radius:6px;background:#5A6858;border:1px solid rgba(0,0,0,.12)"></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 14.5px/1.3 Inter,sans-serif">Egg mass observation</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 Inter,sans-serif;color:#78726B">Amphibian observations · point</p>
+</div>
+<button style="width:32px;height:32px;border-radius:999px;border:1px solid #E3DED3;background:#F0EDE4;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5F5952" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+</div>
+<div style="margin-top:11px;display:flex;gap:8px">
+<button style="flex:1.5;height:52px;border-radius:10px;border:none;background:#5A6858;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+<span style="font:600 15px/1 Inter,sans-serif">My location</span>
+<span style="font:500 11px/1 'Geist Mono',monospace;color:rgba(255,255,255,.78)">±2.4 m</span>
+</button>
+<button style="flex:1;height:52px;border-radius:10px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);color:#4C5B4A;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+<span style="font:600 15px/1 Inter,sans-serif">Crosshair</span>
+<span style="font:500 11px/1 Inter,sans-serif;color:#6B7568">place by hand</span>
+</button>
+<button style="width:52px;height:52px;border-radius:10px;border:1px solid #E3DED3;background:#F0EDE4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5F5952" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"></path><path d="M4 14v6h6"></path><path d="M14 4h6v6"></path></svg>
+<span style="font:600 9px/1 Inter,sans-serif;color:#5F5952">OFFSET</span>
+</button>
+</div>
+<p style="margin:9px 2px 0;font:400 11.5px/1.4 Inter,sans-serif;color:#78726B">Averaging 10 fixes… hold still, or tap to accept now.</p>
+</div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1f">
+<div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Form over the map</div>
+<p class="dv-onote">The form is a sheet at roughly three-quarters height, so the feature you just dropped stays visible — the docs' map mode, kept map-first. Header carries Cancel / Submit (one submit only, per the note in <code style="font-family:'Geist Mono',monospace;font-size:11px">form-runtime.tsx</code>), the geometry row is editable in place, and the barcode and camera affordances sit on the fields that need them.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden;position:relative">
+<div style="height:59px;flex:none;background:#EFEDE3"></div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 700" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="700" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 46C60 18 120 74 190 50S320 -8 420 36"></path><path d="M-10 124C60 96 120 152 190 128S320 70 420 114"></path><path d="M-10 206C60 178 120 234 190 210S320 152 420 196"></path></g><path d="M-10 128C60 156 120 116 200 162S330 210 420 176" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 60 160 130 140 210" stroke="#FFFFFF" stroke-width="7" fill="none"></path></svg>
+<span style="position:absolute;left:194px;top:104px;width:17px;height:17px;border-radius:999px;background:#5A6858;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)"></span>
+<div style="position:absolute;left:0;right:0;top:6px;display:flex;justify-content:center">
+<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;border:1px solid rgba(30,122,75,.45);background:rgba(247,245,239,.97);color:#1E7A4B;font:600 12px/1 Inter,sans-serif">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>GPS accuracy 2.4 m</span>
+</div>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:676px;background:#FBFAF6;border-top-left-radius:18px;border-top-right-radius:18px;box-shadow:0 -8px 28px rgba(38,35,32,.22);display:flex;flex-direction:column;overflow:hidden">
+<div style="flex:none;display:flex;justify-content:center;padding:8px 0 2px"><span style="width:40px;height:4px;border-radius:999px;background:#D6D0C4"></span></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:6px 14px 10px;border-bottom:1px solid #E3DED3">
+<button style="height:34px;padding:0 12px;border-radius:8px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 13.5px/1 Inter,sans-serif">Cancel</button>
+<div style="flex:1;min-width:0;text-align:center">
+<p style="margin:0;font:600 14.5px/1.25 Inter,sans-serif">Egg mass observation</p>
+<p style="margin:1px 0 0;font:400 11.5px/1.2 Inter,sans-serif;color:#78726B">Page 1 of 3</p>
+</div>
+<button style="height:34px;padding:0 14px;border-radius:8px;border:none;background:#5A6858;color:#fff;font:600 13.5px/1 Inter,sans-serif">Submit</button>
+</div>
+<div style="flex:none;height:3px;background:#E3DED3"><div style="width:33%;height:100%;background:#5A6858"></div></div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:14px 14px 40px">
+
+<div style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid #CFD6CD;border-radius:9px;background:rgba(90,104,88,.07);margin-bottom:16px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"></path><circle cx="12" cy="10" r="2.6"></circle></svg>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 12.5px/1.3 Inter,sans-serif;color:#3E4A3C">48.4127, −121.0836</p>
+<p style="margin:2px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#5F5952">Averaged 10 fixes · ±2.4 m · SXblue Platinum</p>
+</div>
+<button style="height:30px;padding:0 10px;border-radius:999px;border:1px solid #CFD6CD;background:#F7F5EF;color:#4C5B4A;font:600 11.5px/1 Inter,sans-serif">Update</button>
+</div>
+
+<div style="margin-bottom:15px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:6px">Site code <span style="color:#D22B2B">*</span></label>
+<div style="display:flex;gap:8px">
+<div style="flex:1;height:48px;display:flex;align-items:center;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4;font:500 16px/1 'Geist Mono',monospace">BC-14-R2</div>
+<button style="width:48px;height:48px;flex:none;border-radius:9px;border:1px solid #CFD6CD;background:rgba(90,104,88,.08);display:flex;align-items:center;justify-content:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5v14M7 5v14M11 5v14M15 5v10M19 5v14"></path></svg></button>
+</div>
+<p style="margin:5px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Scanned from the site tag.</p>
+</div>
+
+<div style="margin-bottom:15px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:6px">Species <span style="color:#D22B2B">*</span></label>
+<div style="display:flex;flex-direction:column;gap:7px">
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1.5px solid #5A6858;border-radius:9px;background:rgba(90,104,88,.09)">
+<span style="width:20px;height:20px;border-radius:999px;border:2px solid #5A6858;display:flex;align-items:center;justify-content:center"><span style="width:10px;height:10px;border-radius:999px;background:#5A6858"></span></span>
+<span style="font:500 15.5px/1 Inter,sans-serif">Northwestern salamander</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F7F5EF">
+<span style="width:20px;height:20px;border-radius:999px;border:2px solid #C4BEB4"></span>
+<span style="font:500 15.5px/1 Inter,sans-serif;color:#3E3A35">Pacific chorus frog</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;height:48px;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F7F5EF">
+<span style="width:20px;height:20px;border-radius:999px;border:2px solid #C4BEB4"></span>
+<span style="font:500 15.5px/1 Inter,sans-serif;color:#3E3A35">Long-toed salamander</span>
+</div>
+</div>
+</div>
+
+<div style="margin-bottom:15px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:6px">Egg masses counted</label>
+<div style="display:flex;align-items:center;gap:10px">
+<button style="width:56px;height:52px;border-radius:9px;border:1px solid #E3DED3;background:#F0EDE4;font:600 22px/1 Inter,sans-serif;color:#5F5952">−</button>
+<div style="flex:1;height:52px;display:flex;align-items:center;justify-content:center;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4;font:500 20px/1 'Geist Mono',monospace">23</div>
+<button style="width:56px;height:52px;border-radius:9px;border:1px solid #E3DED3;background:#F0EDE4;font:600 22px/1 Inter,sans-serif;color:#5F5952">+</button>
+</div>
+</div>
+
+<div>
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:6px">Photos</label>
+<div style="display:flex;gap:8px">
+<div style="width:72px;height:72px;border-radius:9px;background:#DDD8CB;border:1px solid #E3DED3;position:relative;overflow:hidden"><svg viewBox="0 0 72 72" style="position:absolute;inset:0;width:100%;height:100%"><rect width="72" height="72" fill="#DDD8CB"></rect><path d="M0 52 22 34l16 12 12-10 22 16v20H0z" fill="#C6C0B0"></path><circle cx="52" cy="18" r="7" fill="#CFC9B8"></circle></svg></div>
+<div style="width:72px;height:72px;border-radius:9px;background:#DDD8CB;border:1px solid #E3DED3;position:relative;overflow:hidden"><svg viewBox="0 0 72 72" style="position:absolute;inset:0;width:100%;height:100%"><rect width="72" height="72" fill="#D8D3C6"></rect><path d="M0 44 26 26l14 14 32-22v54H0z" fill="#C2BCAC"></path></svg><span style="position:absolute;right:3px;bottom:3px;padding:1px 5px;border-radius:4px;background:rgba(38,35,32,.7);color:#fff;font:600 9px/1.5 Inter,sans-serif">queued</span></div>
+<button style="width:72px;height:72px;border-radius:9px;border:1.5px dashed #C9C2B5;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L8 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-4z"></path><circle cx="12" cy="13" r="3.4"></circle></svg><span style="font:600 10px/1 Inter,sans-serif;color:#4C5B4A">Camera</span></button>
+</div>
+</div>
+
+</div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1g">
+<div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Form mode — survey</div>
+<p class="dv-onote">The same runtime with no map: the doc's form mode. Paged, one column, native controls, sticky footer. Repeating groups get a real card with a count so a long transect doesn't become a scroll of identical rows.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:2px 14px 10px">
+<button style="width:36px;height:36px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+<div style="flex:1;min-width:0;text-align:center">
+<p style="margin:0;font:600 15px/1.25 Inter,sans-serif">Vegetation plot</p>
+<p style="margin:1px 0 0;font:400 11.5px/1.2 Inter,sans-serif;color:#78726B">Page 2 of 4 · draft saved</p>
+</div>
+<button style="height:36px;padding:0 13px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;color:#5F5952;font:600 13px/1 Inter,sans-serif">Save</button>
+</div>
+<div style="flex:none;display:flex;gap:4px;padding:0 14px 12px">
+<span style="flex:1;height:4px;border-radius:999px;background:#5A6858"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:#5A6858"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:#E3DED3"></span>
+<span style="flex:1;height:4px;border-radius:999px;background:#E3DED3"></span>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 14px">
+<p style="margin:0 0 16px;font:700 20px/1.3 Inter,sans-serif;letter-spacing:-.2px">Canopy &amp; substrate</p>
+
+<div style="margin-bottom:17px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:7px">Canopy cover</label>
+<div style="display:flex;gap:6px">
+<span style="flex:1;height:46px;border-radius:9px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center;font:600 14px/1 Inter,sans-serif;color:#5F5952">0–25%</span>
+<span style="flex:1;height:46px;border-radius:9px;border:1.5px solid #5A6858;background:rgba(90,104,88,.1);display:flex;align-items:center;justify-content:center;font:600 14px/1 Inter,sans-serif;color:#3E4A3C">26–50%</span>
+<span style="flex:1;height:46px;border-radius:9px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center;font:600 14px/1 Inter,sans-serif;color:#5F5952">51–75%</span>
+<span style="flex:1;height:46px;border-radius:9px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center;font:600 14px/1 Inter,sans-serif;color:#5F5952">76%+</span>
+</div>
+</div>
+
+<div style="margin-bottom:17px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:7px">Dominant substrate</label>
+<div style="height:50px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4">
+<span style="font:500 16px/1 Inter,sans-serif">Cobble</span>
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#78726B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg>
+</div>
+<p style="margin:5px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">From the <em>Substrate</em> pick list · cached</p>
+</div>
+
+<div style="margin-bottom:17px">
+<label style="display:block;font:600 13px/1 Inter,sans-serif;margin-bottom:7px">Water temperature (°C)</label>
+<div style="height:50px;display:flex;align-items:center;padding:0 12px;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4;font:500 17px/1 'Geist Mono',monospace">9.4</div>
+</div>
+
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden;margin-bottom:17px">
+<div style="display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid #E3DED3">
+<p style="margin:0;flex:1;font:600 13.5px/1.2 Inter,sans-serif">Stem counts</p>
+<span style="padding:3px 8px;border-radius:999px;background:#F0EDE4;color:#5F5952;font:600 11.5px/1 Inter,sans-serif">3 entries</span>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #E3DED3">
+<span style="font:500 12px/1 'Geist Mono',monospace;color:#78726B">01</span>
+<span style="flex:1;font:500 14px/1.3 Inter,sans-serif">Red alder · 12 stems</span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #E3DED3">
+<span style="font:500 12px/1 'Geist Mono',monospace;color:#78726B">02</span>
+<span style="flex:1;font:500 14px/1.3 Inter,sans-serif">Salmonberry · 40 stems</span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #E3DED3">
+<span style="font:500 12px/1 'Geist Mono',monospace;color:#78726B">03</span>
+<span style="flex:1;font:500 14px/1.3 Inter,sans-serif">Devil's club · 6 stems</span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<button style="width:100%;height:44px;border:none;background:transparent;color:#4C5B4A;font:600 13.5px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:7px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add an entry</button>
+</div>
+
+<div style="display:flex;align-items:center;gap:10px;padding:11px 12px;border:1px solid rgba(223,129,16,.32);background:rgba(223,129,16,.09);border-radius:9px">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#B96A0B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v4M12 16h.01"></path></svg>
+<p style="margin:0;font:500 12px/1.45 Inter,sans-serif;color:#8A4F06;text-wrap:pretty">Captured against form v3. The collection is now on v4 — you'll review the changes before this one sends.</p>
+</div>
+</div>
+<div style="flex:none;padding:10px 14px;border-top:1px solid #E3DED3;background:#F7F5EF;display:flex;gap:9px;align-items:center">
+<button style="width:88px;height:50px;border-radius:10px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 15px/1 Inter,sans-serif">Back</button>
+<button style="flex:1;height:50px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 15px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:7px">Next<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+</div>
+<div style="flex:none;height:34px;background:#F7F5EF"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1h">
+<div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a>Feature details</div>
+<p class="dv-onote">Tapping a feature gives a sheet, not a popup (the runtime already made that call). It states plainly whether this record has reached the server, whose it is, and whether your own-edit window is still open — the <code style="font-family:'Geist Mono',monospace;font-size:11px">ownEditWindow</code> rule made visible instead of a greyed button.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden;position:relative">
+<div style="height:59px;flex:none;background:#EFEDE3"></div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden">
+<svg viewBox="0 0 402 700" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="700" fill="#EFEDE3"></rect><g fill="none" stroke="#DED8C8" stroke-width="1.2"><path d="M-10 60C60 32 120 88 190 64S320 6 420 50"></path><path d="M-10 140C60 112 120 168 190 144S320 86 420 130"></path><path d="M-10 226C60 198 120 254 190 230S320 172 420 216"></path><path d="M-10 320C60 292 120 348 190 324S320 266 420 310"></path></g><path d="M-10 190C60 218 120 178 200 224S330 272 420 238" stroke="#BCD3DC" stroke-width="9" fill="none"></path><path d="M70 -10C90 90 160 200 140 300" stroke="#FFFFFF" stroke-width="7" fill="none"></path></svg>
+<span style="position:absolute;left:184px;top:134px;width:19px;height:19px;border-radius:999px;background:#5A6858;border:3px solid #fff;box-shadow:0 0 0 6px rgba(90,104,88,.22),0 2px 6px rgba(0,0,0,.3)"></span>
+<span style="position:absolute;left:268px;top:196px;width:15px;height:15px;border-radius:999px;background:#B78A5B;border:2.5px solid #fff"></span>
+</div>
+<div style="position:absolute;left:0;right:0;bottom:0;height:512px;background:#FBFAF6;border-top-left-radius:18px;border-top-right-radius:18px;box-shadow:0 -8px 28px rgba(38,35,32,.22);display:flex;flex-direction:column;overflow:hidden">
+<div style="flex:none;display:flex;justify-content:center;padding:8px 0 4px"><span style="width:40px;height:4px;border-radius:999px;background:#D6D0C4"></span></div>
+<div style="flex:none;display:flex;align-items:flex-start;gap:11px;padding:6px 16px 13px;border-bottom:1px solid #E3DED3">
+<span style="width:26px;height:26px;flex:none;margin-top:2px;border-radius:6px;background:#5A6858;border:1px solid rgba(0,0,0,.12)"></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 17px/1.25 Inter,sans-serif">Egg mass observation</p>
+<p style="margin:3px 0 0;font:400 12.5px/1.3 Inter,sans-serif;color:#78726B">Amphibian observations · BC-14-R2</p>
+</div>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;border:1px solid rgba(223,129,16,.32);background:rgba(223,129,16,.1);color:#8A4F06;font:600 11.5px/1 Inter,sans-serif">
+<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8A4F06" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg>Queued</span>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:14px 16px">
+<div style="display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #EDE9DF"><span style="font:500 13px/1.4 Inter,sans-serif;color:#78726B">Species</span><span style="font:500 13.5px/1.4 Inter,sans-serif;text-align:right">Northwestern salamander</span></div>
+<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #EDE9DF"><span style="font:500 13px/1.4 Inter,sans-serif;color:#78726B">Egg masses</span><span style="font:500 13.5px/1.4 'Geist Mono',monospace">23</span></div>
+<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #EDE9DF"><span style="font:500 13px/1.4 Inter,sans-serif;color:#78726B">Canopy cover</span><span style="font:500 13.5px/1.4 Inter,sans-serif">26–50%</span></div>
+<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #EDE9DF"><span style="font:500 13px/1.4 Inter,sans-serif;color:#78726B">Position</span><span style="font:500 13px/1.4 'Geist Mono',monospace;text-align:right">48.4127, −121.0836<br><span style="color:#78726B">±2.4 m · averaged</span></span></div>
+<div style="display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #EDE9DF"><span style="font:500 13px/1.4 Inter,sans-serif;color:#78726B">Captured</span><span style="font:500 13.5px/1.4 Inter,sans-serif;text-align:right">Today 10:42 · by you</span></div>
+</div>
+<div style="margin-top:12px;display:flex;gap:8px">
+<div style="width:62px;height:62px;border-radius:9px;background:#DDD8CB;border:1px solid #E3DED3;overflow:hidden;position:relative"><svg viewBox="0 0 62 62" style="position:absolute;inset:0;width:100%;height:100%"><rect width="62" height="62" fill="#DDD8CB"></rect><path d="M0 44 20 28l14 10 10-8 18 14v18H0z" fill="#C6C0B0"></path></svg></div>
+<div style="width:62px;height:62px;border-radius:9px;background:#D8D3C6;border:1px solid #E3DED3;overflow:hidden;position:relative"><svg viewBox="0 0 62 62" style="position:absolute;inset:0;width:100%;height:100%"><rect width="62" height="62" fill="#D8D3C6"></rect><path d="M0 38 22 22l12 12 28-18v46H0z" fill="#C2BCAC"></path></svg></div>
+</div>
+<div style="margin-top:14px;padding:10px 12px;border:1px solid #E3DED3;border-radius:9px;background:#F0EDE4">
+<p style="margin:0;font:500 12px/1.5 Inter,sans-serif;color:#5F5952;text-wrap:pretty">You can edit your own records for 30 days after capture. <strong style="font-weight:600;color:#262320">29 days left.</strong></p>
+</div>
+</div>
+<div style="flex:none;padding:11px 16px;border-top:1px solid #E3DED3;background:#F7F5EF;display:flex;gap:9px">
+<button style="flex:1;height:50px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 15px/1 Inter,sans-serif">Edit</button>
+<button style="flex:1;height:50px;border-radius:10px;border:1px solid #E3DED3;background:#F0EDE4;color:#5F5952;font:600 15px/1 Inter,sans-serif">Duplicate</button>
+<button style="width:50px;height:50px;border-radius:10px;border:1px solid #E3DED3;background:#F0EDE4;display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D22B2B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"></path></svg></button>
+</div>
+<div style="flex:none;height:34px;background:#F7F5EF"></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1i">
+<div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a>Outbox</div>
+<p class="dv-onote">A tab, not a chip. Three states are visually distinct: waiting, sending, refused. A refusal shows the server's own sentence — the portal carries those strings deliberately, so the app repeats them rather than inventing "sync failed". Nothing here can be dismissed without a decision.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;padding:2px 20px 12px">
+<p style="margin:0;font:700 30px/36px Inter,sans-serif;letter-spacing:-.6px">Outbox</p>
+<p style="margin:4px 0 0;font:400 13px/1.4 Inter,sans-serif;color:#78726B">14 records and 2 photos are waiting on this device.</p>
+</div>
+<div style="flex:none;margin:0 20px 14px;display:flex;gap:9px">
+<button style="flex:1;height:48px;border-radius:10px;border:none;background:#5A6858;color:#fff;font:600 15px/1 Inter,sans-serif;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg>Send all</button>
+<button style="width:48px;height:48px;border-radius:10px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#5F5952" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4h4"></path><path d="M20 9v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8z"></path></svg></button>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 20px">
+
+<div style="margin-bottom:11px;border:1px solid rgba(210,43,43,.35);border-radius:10px;background:rgba(210,43,43,.06);padding:13px">
+<div style="display:flex;align-items:center;gap:9px">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#B22424" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"></path><path d="M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+<p style="margin:0;flex:1;font:600 14px/1.3 Inter,sans-serif;color:#9E1F1F">Refused by the server · 1</p>
+</div>
+<p style="margin:8px 0 0;font:500 13px/1.4 Inter,sans-serif">Egg mass observation · BC-11-R1 · yesterday 16:20</p>
+<p style="margin:5px 0 0;font:400 12.5px/1.5 Inter,sans-serif;color:#7A2222;text-wrap:pretty">“Species is not one of the allowed values for this layer.” (422)</p>
+<div style="margin-top:11px;display:flex;gap:8px">
+<button style="flex:1;height:38px;border-radius:8px;border:1px solid rgba(178,36,36,.4);background:rgba(210,43,43,.1);color:#9E1F1F;font:600 13px/1 Inter,sans-serif">Fix and resend</button>
+<button style="flex:1;height:38px;border-radius:8px;border:1px solid #E3DED3;background:#F7F5EF;color:#5F5952;font:600 13px/1 Inter,sans-serif">Discard</button>
+</div>
+</div>
+
+<div style="margin-bottom:11px;border:1px solid rgba(27,124,187,.32);border-radius:10px;background:rgba(27,124,187,.07);padding:13px">
+<div style="display:flex;align-items:center;gap:9px">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1B7CBB" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"></path><path d="M21 3v6h-6"></path></svg>
+<p style="margin:0;flex:1;font:600 14px/1.3 Inter,sans-serif;color:#155E8E">Sending · 2 of 14</p>
+</div>
+<div style="margin-top:10px;height:6px;border-radius:999px;background:#E3DED3;overflow:hidden"><div style="width:18%;height:100%;background:#1B7CBB"></div></div>
+<p style="margin:8px 0 0;font:400 12px/1.4 Inter,sans-serif;color:#155E8E">Photos upload separately, so a large photo never holds up its record.</p>
+</div>
+
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden">
+<div style="padding:10px 13px;border-bottom:1px solid #E3DED3;background:#F0EDE4">
+<p style="margin:0;font:600 12px/1 Inter,sans-serif;letter-spacing:.05em;text-transform:uppercase;color:#78726B">Waiting · 12</p>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid #E3DED3">
+<span style="width:9px;height:9px;flex:none;border-radius:999px;background:#DF8110"></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Egg mass observation · BC-14-R2</p>
+<p style="margin:2px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Today 10:42 · 2 photos · form v3</p>
+</div>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid #E3DED3">
+<span style="width:9px;height:9px;flex:none;border-radius:999px;background:#DF8110"></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Vegetation plot · BC-14-P4</p>
+<p style="margin:2px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Today 10:18 · needs review (v3 → v4)</p>
+</div>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid #E3DED3">
+<span style="width:9px;height:9px;flex:none;border-radius:999px;background:#DF8110"></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Culvert condition · CV-208</p>
+<p style="margin:2px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Today 09:55 · 1 photo</p>
+</div>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:12px 13px">
+<span style="width:9px;height:9px;flex:none;border-radius:999px;background:#DF8110"></span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:500 14px/1.3 Inter,sans-serif">Egg mass observation · BC-13-R2</p>
+<p style="margin:2px 0 0;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Today 09:31</p>
+</div>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+</div>
+<p style="margin:13px 2px 0;font:400 12px/1.55 Inter,sans-serif;color:#78726B;text-wrap:pretty">Sending runs on its own when signal returns, screen off included. You'll get one notification when the queue empties, and one per refusal.</p>
+</div>
+<div style="flex:none;height:83px;border-top:1px solid #E3DED3;background:rgba(247,245,239,.96);display:flex;align-items:flex-start;padding-top:7px">
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1"></rect></svg><span style="font:500 10.5px/1 Inter,sans-serif">Collections</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#8A837B"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8A837B" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg><span style="font:500 10.5px/1 Inter,sans-serif">Map</span></div>
+<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;color:#5A6858;position:relative"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5A6858" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13V3"></path><path d="m7 8 5 5 5-5"></path><path d="M3 17a4 4 0 0 0 4 4h10a4 4 0 0 0 4-4"></path></svg><span style="font:600 10.5px/1 Inter,sans-serif">Outbox</span><span style="position:absolute;top:-3px;left:calc(50% + 8px);min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:#D22B2B;color:#fff;font:700 11px/19px Inter,sans-serif;text-align:center">14</span></div>
+</div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1j">
+<div class="dv-olabel"><a class="dv-oid" href="#1j">1j</a>Camera</div>
+<p class="dv-onote">Native camera, which the PWA can't have: a live viewfinder that stamps position, bearing and accuracy into the frame and EXIF, keeps shooting without leaving the form, and writes straight to the attachment queue. Sleeve is the only chrome — gloves and sun mean big shutter, no gestures.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#1A1917;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#fff;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:0 14px 10px">
+<button style="height:36px;padding:0 12px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#fff;font:600 13.5px/1 Inter,sans-serif">Done</button>
+<div style="flex:1;text-align:center"><p style="margin:0;font:600 14px/1.2 Inter,sans-serif">Egg mass observation</p><p style="margin:2px 0 0;font:400 11.5px/1.2 Inter,sans-serif;color:rgba(255,255,255,.6)">Photos · 2 of 6</p></div>
+<button style="width:36px;height:36px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h6l-1 7 9-11h-6z"></path></svg></button>
+</div>
+<div style="flex:1;min-height:0;position:relative;overflow:hidden;background:#2B2A27">
+<svg viewBox="0 0 402 560" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%"><rect width="402" height="560" fill="#3A3B34"></rect><path d="M0 380C80 340 150 400 230 366S340 300 402 330V560H0Z" fill="#2E312A"></path><path d="M0 200C70 180 140 220 210 196S330 160 402 184V330C340 300 300 330 230 366S80 340 0 380Z" fill="#454737"></path><ellipse cx="200" cy="300" rx="120" ry="70" fill="#3D4A3E" opacity=".8"></ellipse><ellipse cx="186" cy="292" rx="44" ry="28" fill="#5A6858" opacity=".9"></ellipse><ellipse cx="212" cy="312" rx="26" ry="17" fill="#6D7A68" opacity=".8"></ellipse></svg>
+<div style="position:absolute;left:14px;top:12px;padding:7px 11px;border-radius:8px;background:rgba(26,25,23,.62);backdrop-filter:blur(6px)">
+<p style="margin:0;font:500 11.5px/1.5 'Geist Mono',monospace;color:#fff">48.4127, −121.0836<br>±2.4 m · bearing 214° · 10:44</p>
+</div>
+<div style="position:absolute;right:14px;top:12px;display:flex;flex-direction:column;gap:8px">
+<button style="width:44px;height:44px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(26,25,23,.62);display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5v14M7 5v14M11 5v14M15 5v10M19 5v14"></path></svg></button>
+<button style="width:44px;height:44px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(26,25,23,.62);display:flex;align-items:center;justify-content:center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"></path><path d="M4 14v6h6"></path><path d="M14 4h6v6"></path></svg></button>
+</div>
+<div style="position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;border:1.5px solid rgba(255,255,255,.8);border-radius:4px"></div>
+</div>
+<div style="flex:none;padding:16px 20px 10px;background:#1A1917">
+<div style="display:flex;align-items:center;gap:16px">
+<div style="width:54px;height:54px;border-radius:9px;overflow:hidden;border:1px solid rgba(255,255,255,.2);position:relative"><svg viewBox="0 0 54 54" style="position:absolute;inset:0;width:100%;height:100%"><rect width="54" height="54" fill="#4A4C3E"></rect><ellipse cx="27" cy="30" rx="18" ry="12" fill="#5A6858"></ellipse></svg><span style="position:absolute;left:0;right:0;bottom:0;text-align:center;background:rgba(0,0,0,.6);font:600 9px/14px Inter,sans-serif">2</span></div>
+<div style="flex:1;display:flex;justify-content:center">
+<button style="width:74px;height:74px;border-radius:999px;background:#fff;border:5px solid rgba(255,255,255,.35);box-shadow:0 3px 14px rgba(0,0,0,.4)"></button>
+</div>
+<button style="width:54px;height:54px;border-radius:999px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 22l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg></button>
+</div>
+<p style="margin:12px 0 0;text-align:center;font:400 11.5px/1.4 Inter,sans-serif;color:rgba(255,255,255,.58)">Saved full-resolution to the queue. Uploads at 2 MB when signal returns.</p>
+</div>
+<div style="flex:none;height:34px;background:#1A1917"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1k">
+<div class="dv-olabel"><a class="dv-oid" href="#1k">1k</a>Location &amp; instruments</div>
+<p class="dv-onote">Everything hardware, in one sheet, reached by tapping the GPS segment of the status strip — two taps from capture. Receiver, antenna height, averaging, offsets, laser and barcode live together because that's how a crew thinks about them, and nothing here is more than one level deep.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;display:flex;align-items:center;gap:10px;padding:2px 16px 12px">
+<div style="flex:1;min-width:0"><p style="margin:0;font:700 22px/1.2 Inter,sans-serif;letter-spacing:-.3px">Location &amp; instruments</p></div>
+<button style="width:36px;height:36px;border-radius:999px;border:1px solid #E3DED3;background:#F7F5EF;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#262320" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+</div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 16px">
+
+<div style="border:1px solid rgba(30,122,75,.35);border-radius:10px;background:rgba(30,122,75,.07);padding:13px;margin-bottom:14px">
+<div style="display:flex;align-items:center;gap:10px">
+<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#1E7A4B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><circle cx="12" cy="12" r="8"></circle><path d="M12 1v3M12 20v3M1 12h3M20 12h3"></path></svg>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 14.5px/1.3 Inter,sans-serif;color:#155E3A">SXblue Platinum</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 Inter,sans-serif;color:#256B47">Bluetooth · SBAS fix · 14 sats · ±2.4 m</p>
+</div>
+<span style="padding:4px 9px;border-radius:999px;background:rgba(30,122,75,.14);color:#155E3A;font:600 11.5px/1 Inter,sans-serif">In use</span>
+</div>
+<div style="margin-top:11px;display:flex;gap:14px;padding-top:11px;border-top:1px solid rgba(30,122,75,.2)">
+<div style="flex:1"><p style="margin:0;font:400 11px/1 Inter,sans-serif;color:#256B47">HDOP</p><p style="margin:3px 0 0;font:500 15px/1 'Geist Mono',monospace;color:#155E3A">0.9</p></div>
+<div style="flex:1"><p style="margin:0;font:400 11px/1 Inter,sans-serif;color:#256B47">Vertical</p><p style="margin:3px 0 0;font:500 15px/1 'Geist Mono',monospace;color:#155E3A">3.1 m</p></div>
+<div style="flex:1"><p style="margin:0;font:400 11px/1 Inter,sans-serif;color:#256B47">Battery</p><p style="margin:3px 0 0;font:500 15px/1 'Geist Mono',monospace;color:#155E3A">78%</p></div>
+</div>
+</div>
+
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden;margin-bottom:14px">
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="flex:1;font:500 14.5px/1.3 Inter,sans-serif">Antenna height</span>
+<span style="font:500 14.5px/1.3 'Geist Mono',monospace;color:#5F5952">1.80 m</span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif">Average before commit</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">10 fixes · reject over 5 m</span></span>
+<span style="width:50px;height:30px;border-radius:999px;background:#5A6858;position:relative;flex:none"><span style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:999px;background:#fff"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px">
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif">Track log</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Records your route with the screen off</span></span>
+<span style="width:50px;height:30px;border-radius:999px;background:#5A6858;position:relative;flex:none"><span style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:999px;background:#fff"></span></span>
+</div>
+</div>
+
+<p style="margin:0 2px 8px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">Instruments</p>
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden;margin-bottom:14px">
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="width:34px;height:34px;flex:none;border-radius:8px;background:rgba(183,138,91,.16);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8A6236" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4"></path><path d="M4 14v6h6"></path><path d="M14 4h6v6"></path></svg></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif">TruPulse 200X rangefinder</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Paired · distance, azimuth, inclination</span></span>
+<span style="width:9px;height:9px;border-radius:999px;background:#1E7A4B;flex:none"></span>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="width:34px;height:34px;flex:none;border-radius:8px;background:rgba(90,104,88,.12);display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4C5B4A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5v14M7 5v14M11 5v14M15 5v10M19 5v14"></path></svg></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif">Barcode &amp; QR scanning</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Camera · fills Site code, Tag ID</span></span>
+<span style="width:50px;height:30px;border-radius:999px;background:#5A6858;position:relative;flex:none"><span style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:999px;background:#fff"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px">
+<span style="width:34px;height:34px;flex:none;border-radius:8px;background:#F0EDE4;display:flex;align-items:center;justify-content:center"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#78726B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg></span>
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif;color:#4C5B4A">Pair another device</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Bluetooth NMEA, serial, or Lightning</span></span>
+</div>
+</div>
+
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F0EDE4;padding:13px">
+<p style="margin:0;font:600 13.5px/1.3 Inter,sans-serif">Last offset</p>
+<p style="margin:6px 0 0;font:500 12.5px/1.55 'Geist Mono',monospace;color:#5F5952">14.6 m @ 214° · −3° incl.<br>from 48.4127, −121.0836</p>
+<p style="margin:8px 0 0;font:400 11.5px/1.45 Inter,sans-serif;color:#78726B;text-wrap:pretty">Shot from the bank. Offsets are stored with the record so the raw fix and the derived position are both recoverable.</p>
+</div>
+</div>
+<div style="flex:none;height:34px"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1l">
+<div class="dv-olabel"><a class="dv-oid" href="#1l">1l</a>Account &amp; storage</div>
+<p class="dv-onote">Deliberately short. Storage first, because that's what ends a field day; then the two things a crew actually changes (units, sun mode); then sign-out, which refuses while unsynced work exists. No nested preference trees.</p>
+<x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402px,874px">
+<div style="height:874px;background:#FBFAF6;display:flex;flex-direction:column;font-family:Inter,sans-serif;color:#262320;overflow:hidden">
+<div style="height:59px;flex:none"></div>
+<div style="flex:none;padding:2px 20px 14px"><p style="margin:0;font:700 30px/36px Inter,sans-serif;letter-spacing:-.6px">Account</p></div>
+<div style="flex:1;min-height:0;overflow:hidden;padding:0 20px">
+
+<div style="display:flex;align-items:center;gap:13px;padding:14px;border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;margin-bottom:16px">
+<span style="width:46px;height:46px;flex:none;border-radius:999px;background:rgba(90,104,88,.14);display:flex;align-items:center;justify-content:center;font:600 16px/1 Inter,sans-serif;color:#4C5B4A">MR</span>
+<div style="flex:1;min-width:0">
+<p style="margin:0;font:600 15.5px/1.3 Inter,sans-serif">Maya Reyes</p>
+<p style="margin:2px 0 0;font:400 12px/1.3 'Geist Mono',monospace;color:#78726B">gis.parks.wa.gov</p>
+</div>
+<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;background:rgba(30,122,75,.1);color:#1E7A4B;font:600 11.5px/1 Inter,sans-serif">session ok</span>
+</div>
+
+<p style="margin:0 2px 8px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">Storage on this device</p>
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;padding:14px;margin-bottom:16px">
+<div style="display:flex;height:10px;border-radius:999px;overflow:hidden;background:#E3DED3">
+<span style="width:46%;background:#5A6858"></span>
+<span style="width:18%;background:#B78A5B"></span>
+<span style="width:7%;background:#DF8110"></span>
+</div>
+<div style="margin-top:11px;display:flex;flex-direction:column;gap:7px">
+<div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:2px;background:#5A6858"></span><span style="flex:1;font:400 12.5px/1.3 Inter,sans-serif">Offline maps</span><span style="font:500 12.5px/1.3 'Geist Mono',monospace;color:#5F5952">210 MB</span></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:2px;background:#B78A5B"></span><span style="flex:1;font:400 12.5px/1.3 Inter,sans-serif">Layers, forms, pick lists</span><span style="font:500 12.5px/1.3 'Geist Mono',monospace;color:#5F5952">82 MB</span></div>
+<div style="display:flex;align-items:center;gap:8px"><span style="width:9px;height:9px;border-radius:2px;background:#DF8110"></span><span style="flex:1;font:400 12.5px/1.3 Inter,sans-serif">Unsynced captures</span><span style="font:500 12.5px/1.3 'Geist Mono',monospace;color:#5F5952">31 MB</span></div>
+</div>
+<p style="margin:12px 0 0;padding-top:11px;border-top:1px solid #E3DED3;font:400 12px/1.5 Inter,sans-serif;color:#78726B;text-wrap:pretty">Storage is marked persistent, so the system won't evict your captures to reclaim space.</p>
+</div>
+
+<p style="margin:0 2px 8px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">Preferences</p>
+<div style="border:1px solid #E3DED3;border-radius:10px;background:#F7F5EF;overflow:hidden;margin-bottom:16px">
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif">Sun mode</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Maximum contrast, larger labels</span></span>
+<span style="width:50px;height:30px;border-radius:999px;background:#5A6858;position:relative;flex:none"><span style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:999px;background:#fff"></span></span>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="flex:1;font:500 14.5px/1.3 Inter,sans-serif">Units</span>
+<span style="font:500 14.5px/1.3 Inter,sans-serif;color:#5F5952">Metric</span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px;border-bottom:1px solid #E3DED3">
+<span style="flex:1;font:500 14.5px/1.3 Inter,sans-serif">Coordinate format</span>
+<span style="font:500 14.5px/1.3 Inter,sans-serif;color:#5F5952">Decimal degrees</span>
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#A39C93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:13px">
+<span style="flex:1;min-width:0"><span style="display:block;font:500 14.5px/1.3 Inter,sans-serif">Send only on Wi-Fi</span><span style="display:block;margin-top:2px;font:400 11.5px/1.3 Inter,sans-serif;color:#78726B">Photos wait; records always send</span></span>
+<span style="width:50px;height:30px;border-radius:999px;background:#DDD8CB;position:relative;flex:none"><span style="position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:999px;background:#fff"></span></span>
+</div>
+</div>
+
+<button style="width:100%;height:50px;border-radius:10px;border:1px solid rgba(210,43,43,.35);background:rgba(210,43,43,.07);color:#9E1F1F;font:600 15px/1 Inter,sans-serif">Sign out</button>
+<p style="margin:9px 2px 0;font:400 12px/1.5 Inter,sans-serif;color:#78726B;text-wrap:pretty">14 unsynced records will block sign-out until they send or you choose to keep them parked on this device.</p>
+</div>
+<div style="flex:none;height:34px"></div>
+</div>
+</x-import>
+</div>
+
+<div class="dv-opt" id="1m" style="width:440px">
+<div class="dv-olabel"><a class="dv-oid" href="#1m">1m</a>Android deltas</div>
+<p class="dv-onote">Same information architecture; platform conventions where they differ.</p>
+<div style="background:#FBFAF6;border:1px solid #E3DED3;border-radius:10px;padding:18px 20px">
+<ul style="margin:0;padding-left:18px;font:400 12.5px/1.75 Inter,sans-serif;color:#262320">
+<li><strong>Navigation:</strong> same three destinations as a Material bottom navigation bar; predictive back replaces the sheet's swipe-down-to-dismiss, and hardware back closes the form with the same "discard draft?" confirm.</li>
+<li><strong>Controls:</strong> Material switches, radio buttons and the M3 segmented button in place of the iOS forms; the capture FAB becomes an M3 extended FAB on the Map tab so it carries the word "Add".</li>
+<li><strong>Camera:</strong> CameraX with the same GPS/bearing stamp. Many rugged Android handsets have a programmable hardware key — bind it to shutter and to <em>My location</em>.</li>
+<li><strong>Instruments:</strong> Bluetooth NMEA plus USB serial (OTG) receivers, and Android's mock-location provider so an external receiver can feed the whole OS, not just this app. iOS has no equivalent; on iOS the receiver feeds the app only.</li>
+<li><strong>Background work:</strong> WorkManager for queue drains and area downloads; foreground-service notification while a track log runs, which Android requires and iOS does not.</li>
+<li><strong>Storage:</strong> scoped storage means exports land in a SAF-picked folder rather than a Files-app container.</li>
+</ul>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "variations on <a class="dv-oid" href="#1d">1d</a>" · "show the form as full-screen instead of a sheet" · "prototype the capture flow from <a class="dv-oid" href="#1d">1d</a> to <a class="dv-oid" href="#1f">1f</a>" · "re-skin to the Industry system".</p>
+</section>
+
+<section class="dv-turn" id="brief" style="background:#F7F5EF">
+<div class="dv-thd"><a class="dv-tid" href="#brief">BRIEF</a><span class="dv-tname">GratisGIS Field — native app, round 1</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:28px;max-width:1320px">
+
+<div style="flex:1 1 300px;min-width:280px;background:#FBFAF6;border:1px solid #E3DED3;border-radius:8px;padding:18px 20px">
+<p style="margin:0 0 10px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">What I read</p>
+<ul style="margin:0;padding-left:18px;font:400 12.5px/1.7 Inter,sans-serif;color:#262320">
+<li><code style="font-family:'Geist Mono',monospace;font-size:11.5px">docs/editing-and-collection.md</code> — the <code style="font-family:'Geist Mono',monospace;font-size:11.5px">data_collection</code> item, map vs form mode, work areas, schema-versioned queues, conflict policy.</li>
+<li><code style="font-family:'Geist Mono',monospace;font-size:11.5px">docs/data-collection-phase1.md</code> — what shipped: 21 question types, IndexedDB outbox, <code style="font-family:'Geist Mono',monospace;font-size:11.5px">clientId</code> idempotency.</li>
+<li><code style="font-family:'Geist Mono',monospace;font-size:11.5px">field/field-runtime.tsx</code> (6.3k lines) — the PWA's real chrome: Layers FAB top-left, search, nav cluster + locate top-right, GPS accuracy strip, add-FAB bottom-right, crosshair reticle, template picker, form modal, More menu.</li>
+<li><code style="font-family:'Geist Mono',monospace;font-size:11.5px">field/field-catalog.tsx</code>, <code style="font-family:'Geist Mono',monospace;font-size:11.5px">i18n/messages/en.ts</code> — deployment rows, cache dots, Sync <em>N</em> chips, and the real offline/sync sentences. Copy in these screens is lifted from those strings, not invented.</li>
+<li><code style="font-family:'Geist Mono',monospace;font-size:11.5px">docs/design-system.md</code> + <code style="font-family:'Geist Mono',monospace;font-size:11.5px">globals.css</code> — Contour: warm paper neutrals, deep sage accent, Inter / Geist Mono, Lucide.</li>
+</ul>
+</div>
+
+<div style="flex:1 1 300px;min-width:280px;background:#FBFAF6;border:1px solid #E3DED3;border-radius:8px;padding:18px 20px">
+<p style="margin:0 0 10px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">Assumptions I made</p>
+<ul style="margin:0;padding-left:18px;font:400 12.5px/1.7 Inter,sans-serif;color:#262320">
+<li><strong>Contour, not the attached Industry system.</strong> This is your shipped product with a mandated palette; a native app that looks unlike the portal breaks principle 2. Say the word and I'll re-skin.</li>
+<li><strong>Primary user is the surveyor</strong> — long offline days, dozens of records, bright sun, one hand on the phone. So: no hover-dependent affordances, every primary control in the bottom-right thumb arc, 44pt minimum, and the GPS state permanently legible.</li>
+<li><strong>Two taps to anything.</strong> There is no settings tree. Device hardware (GPS source, offsets, laser, barcode) lives in one sheet reachable from the capture screen, because that is where you discover you need it.</li>
+<li><strong>Native earns its keep</strong> in four places: background location (track log survives screen-off), native camera pipeline, Bluetooth/serial peripherals, and local notifications when a queue drains or fails.</li>
+<li>iOS shown. Android deltas are called out per screen where they differ.</li>
+</ul>
+</div>
+
+<div style="flex:1 1 300px;min-width:280px;background:#FBFAF6;border:1px solid #E3DED3;border-radius:8px;padding:18px 20px">
+<p style="margin:0 0 10px;font:600 11px/1 Inter,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#78726B">The system</p>
+<ul style="margin:0;padding-left:18px;font:400 12.5px/1.7 Inter,sans-serif;color:#262320">
+<li><strong>Three tabs, not a drawer:</strong> Collections · Map · Outbox. The outbox is a tab because unsynced work must never be something you have to go looking for; its badge is the only red in the app.</li>
+<li><strong>One status line.</strong> A single strip under every header carries connectivity + GPS accuracy + queue depth. It is the same strip everywhere, so it is never "buried in a menu".</li>
+<li><strong>Capture is map-first.</strong> Big sage FAB bottom-right, crosshair reticle tinted with the layer's own symbology, form rises as a sheet over the map so context is never lost.</li>
+<li><strong>Sun-legibility:</strong> ink on paper at 12.6:1, no grey-on-grey secondary text under 4.6:1, status conveyed by shape + label as well as hue.</li>
+</ul>
+</div>
+
+</div>
+<p class="dv-next" style="max-width:900px">Round 1 is the screen set. Next: variations on the five axes you picked (map layout, offline flow, form presentation, outbox model, navigation), then a tappable prototype of the capture flow.</p>
+</section>
+
+</x-dc>
+</body>
+</html>

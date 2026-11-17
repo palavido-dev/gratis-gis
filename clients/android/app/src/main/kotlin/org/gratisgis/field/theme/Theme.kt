@@ -9,7 +9,7 @@ import androidx.compose.runtime.Composable
 
 /**
  * Placeholder Material 3 theme. The real one is the Contour token set
- * from design_handoff_field_app/ and lands as :core:design; nothing
+ * from docs/design/field-app/ and lands as :core:design; nothing
  * here should be styled against these defaults on purpose.
  */
 @Composable
