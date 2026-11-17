@@ -553,8 +553,10 @@ async function replayRecord(
       r.op,
       echo,
     );
-    if (checked === 'echo') {
-      // Our own earlier write already landed; nothing to send.
+    if (checked.kind === 'echo') {
+      // Our own earlier write already landed; nothing to send. Its
+      // head is the base our later edits of this feature were made on.
+      if (checked.head) await rebaseFeatureHead(r, checked.head).catch(() => {});
       await uploadPendingBlobsForFeature(r, currentUserId);
       return;
     }
@@ -563,7 +565,9 @@ async function replayRecord(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patchBody),
     });
-    if (await isEchoConflict(res, echo)) {
+    const echoed = await echoConflict(res, echo);
+    if (echoed) {
+      if (echoed.head) await rebaseFeatureHead(r, echoed.head).catch(() => {});
       await uploadPendingBlobsForFeature(r, currentUserId);
       return;
     }
@@ -629,34 +633,39 @@ async function checkOnlyFeatureWrite(
   body: Record<string, unknown>,
   op: 'update' | 'delete',
   echo?: { op: 'update'; geometry: unknown; properties: Record<string, unknown> },
-): Promise<'ok' | 'echo'> {
+): Promise<{ kind: 'ok' } | { kind: 'echo'; head: string | null }> {
   const res = await replayFetch(url, {
     method,
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ ...body, checkOnly: true }),
   });
-  if (echo && (await isEchoConflict(res, echo))) return 'echo';
+  const echoed = echo ? await echoConflict(res, echo) : null;
+  if (echoed) return { kind: 'echo', head: echoed.head };
   await throwIfNotOk(res, 'feature', op);
-  return 'ok';
+  return { kind: 'ok' };
 }
 
 /**
- * Whether `res` is a 409 whose `current` feature already holds the
- * queued update: this device's own earlier write, whose response was
- * lost. Reads a clone so a real conflict can still be reported.
+ * When `res` is a 409 whose `current` feature already holds the queued
+ * update (this device's own earlier write, whose response was lost),
+ * the head that write left, or null when the body has none. Null when
+ * it is anything else. Reads a clone so a real conflict can still be
+ * reported.
  */
-async function isEchoConflict(
+export async function echoConflict(
   res: Response,
   edit: { op: 'update'; geometry: unknown; properties: Record<string, unknown> },
-): Promise<boolean> {
-  if (res.status !== 409) return false;
+): Promise<{ head: string | null } | null> {
+  if (res.status !== 409) return null;
   try {
     const body = (await res.clone().json()) as {
       current?: { geometry?: unknown; properties?: Record<string, unknown> } | null;
     };
-    return isOwnEditEcho(edit, body.current ?? null);
+    if (!isOwnEditEcho(edit, body.current ?? null)) return null;
+    const head = body.current?.properties?.['_observation_id'];
+    return { head: typeof head === 'string' && head ? head : null };
   } catch {
-    return false;
+    return null;
   }
 }
 
