@@ -5,6 +5,8 @@ import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { AdminGuard } from '../admin/admin.guard.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { AiAdminController } from './ai-admin.controller.js';
+import { AiConfigService } from './ai-config.service.js';
+import { isAiConfigLocked } from './ai-env.js';
 
 function user(overrides: Partial<AuthUser>): AuthUser {
   return {
@@ -57,5 +59,52 @@ describe('AI admin access', () => {
     expect(
       guard.canActivate(ctx(user({ orgRole: 'admin', authKind: 'jwt' }))),
     ).toBe(true);
+  });
+});
+
+describe('AI admin config lock', () => {
+  const keys = ['PORTAL_LOCK_ADMIN_TIER', 'PORTAL_LOCK_AI_CONFIG'] as const;
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of keys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of keys) {
+      const value = saved[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  it('refuses save and clear when public-testing locks AI config', async () => {
+    process.env.PORTAL_LOCK_ADMIN_TIER = 'true';
+    expect(isAiConfigLocked()).toBe(true);
+    const config = {
+      save: jest.fn(),
+      clear: jest.fn(),
+      getPublic: jest.fn(),
+    };
+    const controller = new AiAdminController(
+      config as unknown as AiConfigService,
+    );
+    // assertAiConfigWritable throws before save returns a Promise, so
+    // wrap in an async function for .rejects.
+    await expect(async () =>
+      controller.save(user({ orgRole: 'admin', authKind: 'jwt' }), {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        apiKey: 'sk-test',
+      }),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(async () =>
+      controller.clear(user({ orgRole: 'admin', authKind: 'jwt' })),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(config.save).not.toHaveBeenCalled();
+    expect(config.clear).not.toHaveBeenCalled();
   });
 });

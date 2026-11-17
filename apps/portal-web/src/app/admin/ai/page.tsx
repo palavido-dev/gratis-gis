@@ -15,6 +15,8 @@ const EMPTY: AiSettings = {
   model: null,
   baseUrl: null,
   apiKeyConfigured: false,
+  configLocked: false,
+  buildDisabled: false,
 };
 
 /**

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Put,
   UseGuards,
@@ -14,6 +15,7 @@ import { AdminGuard } from '../admin/admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { AiConfigService, type SaveAiConfigInput } from './ai-config.service.js';
+import { isAiConfigLocked } from './ai-env.js';
 import { AI_PROVIDER_IDS, type AiProviderId } from './providers.js';
 
 class SaveAiProviderDto {
@@ -47,6 +49,7 @@ export class AiAdminController {
 
   @Put()
   save(@CurrentUser() user: AuthUser, @Body() dto: SaveAiProviderDto) {
+    assertAiConfigWritable();
     const input: SaveAiConfigInput = {
       provider: dto.provider,
       model: dto.model,
@@ -58,6 +61,18 @@ export class AiAdminController {
 
   @Delete()
   clear(@CurrentUser() user: AuthUser) {
+    assertAiConfigWritable();
     return this.config.clear(user.orgId);
   }
+}
+
+function assertAiConfigWritable(): void {
+  if (!isAiConfigLocked()) return;
+  throw new ForbiddenException({
+    statusCode: 403,
+    code: 'ai_config_locked',
+    error: 'Forbidden',
+    message:
+      'AI provider settings are locked on this public-testing portal. Change PORTAL_AI_BOOTSTRAP_* in the host env instead.',
+  });
 }

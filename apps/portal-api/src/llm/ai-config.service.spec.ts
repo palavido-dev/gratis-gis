@@ -83,6 +83,8 @@ describe('AiConfigService', () => {
       model: 'gpt-4o-mini',
       baseUrl: null,
       apiKeyConfigured: true,
+      configLocked: false,
+      buildDisabled: false,
     });
     expect(JSON.stringify(saved)).not.toContain(SECRET);
 

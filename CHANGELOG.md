@@ -6,6 +6,18 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- AI caps and lock for public installs. Daily call limits per
+  organization and per user, plus a per-minute limit per user, apply
+  before every model call and answer 429 `ai_quota_exceeded` when
+  reached. With public-testing hardening on (`PORTAL_LOCK_ADMIN_TIER`),
+  Admin, AI settings cannot be changed or cleared and AI build is off
+  unless `PORTAL_LOCK_AI_CONFIG` or `PORTAL_AI_DISABLE_BUILD` says
+  otherwise. `PORTAL_AI_BOOTSTRAP_*` can re-apply a provider key from
+  the host environment on every API start, so a database reset does not
+  lose it. All of this is off unless configured.
+
 ### Fixed
 
 - Large imports no longer stall on a NAS. The NAS stack capped the

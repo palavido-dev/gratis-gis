@@ -13,6 +13,7 @@ import {
 } from '../items/credential-cipher.js';
 import { operatorOrgId } from '../backup/operator-org.js';
 import { isPrivateOrLoopbackHost } from '../common/net-guards.js';
+import { isAiBuildDisabled, isAiConfigLocked } from './ai-env.js';
 import {
   assertCompatibleBaseUrl,
   isAiProviderId,
@@ -35,6 +36,10 @@ export interface PublicAiConfig {
   model: string | null;
   baseUrl: string | null;
   apiKeyConfigured: boolean;
+  /** PUT/DELETE refuse when public-testing locks AI settings. */
+  configLocked: boolean;
+  /** POST /api/ai/build is refused on this deploy. */
+  buildDisabled: boolean;
 }
 
 export const EMPTY_AI_CONFIG: PublicAiConfig = {
@@ -44,6 +49,8 @@ export const EMPTY_AI_CONFIG: PublicAiConfig = {
   model: null,
   baseUrl: null,
   apiKeyConfigured: false,
+  configLocked: false,
+  buildDisabled: false,
 };
 
 export interface SaveAiConfigInput {
@@ -59,10 +66,14 @@ export class AiConfigService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getPublic(orgId: string): Promise<PublicAiConfig> {
+    const flags = {
+      configLocked: isAiConfigLocked(),
+      buildDisabled: isAiBuildDisabled(),
+    };
     const row = await this.prisma.orgAiProvider.findUnique({
       where: { orgId },
     });
-    if (!row) return EMPTY_AI_CONFIG;
+    if (!row) return { ...EMPTY_AI_CONFIG, ...flags };
     const provider = isAiProviderId(row.provider) ? row.provider : null;
     const apiKey = this.tryDecrypt(row.encryptedSecret, row.encryptedSecretIv, orgId);
     const baseUrl = row.baseUrl;
@@ -74,6 +85,7 @@ export class AiConfigService {
       model: row.model,
       baseUrl,
       apiKeyConfigured: Boolean(apiKey),
+      ...flags,
     };
   }
 

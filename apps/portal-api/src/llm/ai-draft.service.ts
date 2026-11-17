@@ -10,7 +10,9 @@ import {
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { AiConfigService } from './ai-config.service.js';
+import { isAiBuildDisabled, isAiConfigLocked } from './ai-env.js';
 import { AiProviderClient, ProviderCallError } from './ai-provider.client.js';
+import { AiQuotaService } from './ai-quota.service.js';
 import { parseModelDraft, UnusableDraftError, type AiDraft } from './draft-parse.js';
 import { extractItemContext, renderItemPrompt } from './item-context.js';
 
@@ -35,6 +37,7 @@ export class AiDraftService {
     private readonly items: ItemsService,
     private readonly config: AiConfigService,
     private readonly client: AiProviderClient,
+    private readonly quota: AiQuotaService,
   ) {}
 
   async draft(
@@ -56,6 +59,8 @@ export class AiDraftService {
 
     const config = await this.config.loadUsable(user.orgId);
     if (!config) throw aiNotConfigured();
+
+    await this.quota.consume(user);
 
     const prompt = renderItemPrompt(
       extractItemContext({
@@ -98,8 +103,18 @@ export class AiDraftService {
     }
   }
 
-  async status(user: AuthUser): Promise<{ configured: boolean }> {
+  async status(user: AuthUser): Promise<{
+    configured: boolean;
+    buildDisabled: boolean;
+    configLocked: boolean;
+    quota: Awaited<ReturnType<AiQuotaService['snapshot']>>;
+  }> {
     const config = await this.config.loadUsable(user.orgId);
-    return { configured: config !== null };
+    return {
+      configured: config !== null,
+      buildDisabled: isAiBuildDisabled(),
+      configLocked: isAiConfigLocked(),
+      quota: await this.quota.snapshot(user),
+    };
   }
 }

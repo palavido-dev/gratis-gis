@@ -18,6 +18,9 @@ export interface AiSettings {
   model: string | null;
   baseUrl: string | null;
   apiKeyConfigured: boolean;
+  /** Public-testing lock: UI save/clear refuse; change host env instead. */
+  configLocked?: boolean;
+  buildDisabled?: boolean;
 }
 
 const MODEL_HINTS: Record<AiProviderId, string> = {
@@ -65,8 +68,13 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
   );
 
   const hint = MODEL_HINTS[provider];
+  const locked = Boolean(settings.configLocked);
 
   async function save() {
+    if (locked) {
+      setError(t('adminAi.errConfigLocked'));
+      return;
+    }
     setSaving(true);
     setError(null);
     setNotice(null);
@@ -117,6 +125,10 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
   }
 
   async function clear() {
+    if (locked) {
+      setError(t('adminAi.errConfigLocked'));
+      return;
+    }
     setClearing(true);
     setError(null);
     setNotice(null);
@@ -161,12 +173,18 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
         {t('adminAi.intro')}
         {settings.apiKeyConfigured ? t('adminAi.introKeyStored') : ''}
       </p>
+      {locked ? (
+        <p className="mb-4 rounded-md border border-warn/30 bg-warn/5 px-3 py-2 text-xs text-ink-1">
+          {t('adminAi.configLockedNotice')}
+        </p>
+      ) : null}
 
       <label className="mb-3 block text-xs text-muted">
         {t('adminAi.labelProvider')}
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as AiProviderId)}
+          disabled={locked}
           className={`${inputClass} mt-1`}
         >
           {providers.map((row) => (
@@ -185,6 +203,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
           onChange={(e) => setModel(e.target.value)}
           placeholder={hint}
           maxLength={200}
+          disabled={locked}
           className={`${inputClass} mt-1`}
         />
       </label>
@@ -198,6 +217,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
             onChange={(e) => setBaseUrl(e.target.value)}
             placeholder="http://127.0.0.1:11434/v1"
             maxLength={2048}
+            disabled={locked}
             className={`${inputClass} mt-1`}
           />
           <span className="mt-1 block">{t('adminAi.baseUrlHint')}</span>
@@ -211,6 +231,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           autoComplete="off"
+          disabled={locked}
           placeholder={
             settings.apiKeyConfigured
               ? t('adminAi.placeholderUnchanged')
@@ -229,6 +250,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
           type="button"
           onClick={() => void save()}
           disabled={
+            locked ||
             saving ||
             clearing ||
             model.trim().length === 0 ||
@@ -271,7 +293,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
           <button
             type="button"
             onClick={() => setConfirmClear(true)}
-            disabled={!settings.saved || saving || clearing}
+            disabled={locked || !settings.saved || saving || clearing}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
           >
             <Trash2 className="h-3.5 w-3.5" />

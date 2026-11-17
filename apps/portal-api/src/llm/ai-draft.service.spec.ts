@@ -9,6 +9,7 @@ import type { ItemsService } from '../items/items.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import { AiConfigService } from './ai-config.service.js';
 import { AiProviderClient } from './ai-provider.client.js';
+import { AiQuotaService } from './ai-quota.service.js';
 import { AiDraftService } from './ai-draft.service.js';
 import { parseModelDraft } from './draft-parse.js';
 
@@ -165,12 +166,23 @@ describe('AiDraftService', () => {
     });
     const client = new AiProviderClient();
     client.fetchImpl = fetchImpl as unknown as typeof fetch;
+    const quota = {
+      consume: jest.fn(async () => undefined),
+      snapshot: jest.fn(async () => ({
+        orgDailyLimit: 0,
+        orgDailyUsed: 0,
+        userDailyLimit: 0,
+        userDailyUsed: 0,
+        userMinuteLimit: 12,
+      })),
+    };
     const service = new AiDraftService(
       items as unknown as ItemsService,
       new AiConfigService(prisma as unknown as PrismaService),
       client,
+      quota as unknown as AiQuotaService,
     );
-    return { service, fetchImpl, get, itemWrites, prisma };
+    return { service, fetchImpl, get, itemWrites, prisma, quota };
   }
 
   it('returns a draft and does not write the item or the provider row', async () => {

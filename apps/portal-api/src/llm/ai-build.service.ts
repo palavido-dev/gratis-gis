@@ -28,7 +28,9 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { ItemsService } from '../items/items.service.js';
 import { AiConfigService } from './ai-config.service.js';
+import { isAiBuildDisabled } from './ai-env.js';
 import { AiProviderClient, ProviderCallError } from './ai-provider.client.js';
+import { AiQuotaService } from './ai-quota.service.js';
 import { aiNotConfigured } from './ai-draft.service.js';
 import {
   parseBuildPlan,
@@ -60,6 +62,7 @@ export class AiBuildService {
     private readonly items: ItemsService,
     private readonly config: AiConfigService,
     private readonly client: AiProviderClient,
+    private readonly quota: AiQuotaService,
   ) {}
 
   async build(user: AuthUser, rawInstruction: string): Promise<BuildResult> {
@@ -74,9 +77,20 @@ export class AiBuildService {
         'Creating items requires the contributor or admin role.',
       );
     }
+    if (isAiBuildDisabled()) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'ai_build_disabled',
+        error: 'Forbidden',
+        message:
+          'AI build is disabled on this portal. Draft and ask-a-layer may still be available.',
+      });
+    }
 
     const stored = await this.config.loadUsable(user.orgId);
     if (!stored) throw aiNotConfigured();
+
+    await this.quota.consume(user);
 
     const catalog = await this.catalog(user);
     const prompt = renderBuildPrompt(catalog, instruction);
