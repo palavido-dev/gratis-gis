@@ -1,15 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Capture real UI screenshots for portal help docs.
+ * Capture the UI screenshots the help pages embed.
  *
- * Writes PNGs under apps/portal-web/public/help/ mirroring help slugs.
- * Default target is the public demo; override with E2E_* env vars.
+ * Every image is one entry in SHOTS below: the file it writes, the
+ * tester account it signs in as, and the steps that bring the screen
+ * up. Each entry runs on its own, so one broken step is reported and
+ * the rest still run. When the UI changes, fix the entry that broke
+ * and rerun only it with HELP_SHOT_ONLY.
  *
- *   E2E_BASE_URL=https://gratisgis.org \
- *   E2E_USER=tester-contributor E2E_PASSWORD='Contributor123!' \
  *   node e2e/scripts/capture-help-screenshots.mjs
+ *   HELP_SHOT_ONLY=analysis/ node e2e/scripts/capture-help-screenshots.mjs
  *
- * Optional: HELP_SHOT_WAVE=1|2|3|all (default all for implemented shots)
+ * Targets the public demo by default. The item ids below are the
+ * demo's sample content, which the nightly reset restores with the
+ * same ids. Against another install, set E2E_BASE_URL and the
+ * GG_SHOT_* ids, or the item shots fail with "not found".
+ *
+ * Accounts are the demo's published testers. Override with
+ * E2E_CONTRIBUTOR / E2E_CONTRIBUTOR_PASSWORD and E2E_ADMIN /
+ * E2E_ADMIN_PASSWORD.
  */
 import { chromium } from '@playwright/test';
 import fs from 'node:fs';
@@ -20,464 +29,291 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
 const OUT = path.join(ROOT, 'apps/portal-web/public/help');
 
-const BASE = process.env.E2E_BASE_URL ?? 'https://gratisgis.org';
-const USER = process.env.E2E_USER ?? 'tester-contributor';
-const PASSWORD = process.env.E2E_PASSWORD ?? 'Contributor123!';
-const WAVE = process.env.HELP_SHOT_WAVE ?? '1';
-
+const BASE = process.env.E2E_BASE_URL ?? 'https://demo.gratisgis.org';
+const ONLY = process.env.HELP_SHOT_ONLY ? new RegExp(process.env.HELP_SHOT_ONLY) : null;
 const VIEWPORT = { width: 1440, height: 900 };
 
-function ensureDir(filePath) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+const ACCOUNTS = {
+  contributor: {
+    user: process.env.E2E_CONTRIBUTOR ?? 'tester-contributor',
+    password: process.env.E2E_CONTRIBUTOR_PASSWORD ?? 'Contributor123!',
+  },
+  admin: {
+    user: process.env.E2E_ADMIN ?? 'tester-admin',
+    password: process.env.E2E_ADMIN_PASSWORD ?? 'Admin123!',
+  },
+};
+
+// Demo sample content.
+const ID = {
+  explorerMap: process.env.GG_SHOT_MAP ?? 'cae7177d-4bd9-49c3-b654-45632eafb6be',
+  facilities: process.env.GG_SHOT_POINTS ?? '0700bca4-cc41-46dd-a79f-22d566801156',
+  parks: process.env.GG_SHOT_POLYGONS ?? 'ee8f5610-e54d-4966-8c62-d95671798df2',
+  ownLayer: process.env.GG_SHOT_OWN_LAYER ?? 'f8359e30-cf93-402f-945a-3c0b35d62037',
+  viewerApp: process.env.GG_SHOT_VIEWER ?? '9e235fd1-930c-4dfb-876e-64ee089990e6',
+  customApp: process.env.GG_SHOT_CUSTOM_APP ?? '0575ebe7-3e52-40bc-aebb-688aa5379840',
+  form: process.env.GG_SHOT_FORM ?? '1607ca7f-0c3a-485f-abbf-e52dc0aa2320',
+};
+
+// ---------------------------------------------------------------- helpers
+
+async function go(page, url, settleMs = 2500) {
+  await page.goto(BASE + url, { waitUntil: 'domcontentloaded' });
+  await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+  await page.waitForTimeout(settleMs);
 }
 
-async function shot(page, rel, opts = {}) {
-  const dest = path.join(OUT, rel);
-  ensureDir(dest);
-  await page.screenshot({
-    path: dest,
-    fullPage: false,
-    animations: 'disabled',
-    ...opts,
-  });
-  const st = fs.statSync(dest);
-  console.log(`  wrote ${rel} (${Math.round(st.size / 1024)} KiB)`);
-  return dest;
-}
-
-async function signIn(page) {
-  await page.goto(BASE + '/items', { waitUntil: 'domcontentloaded' });
-  // Already signed in?
-  if (!page.url().includes('auth') && !page.url().includes('signin')) {
-    const userBtn = page.getByRole('button', { name: /tester/i }).first();
-    if (await userBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      console.log('already signed in');
-      return;
-    }
-  }
-  await page.waitForSelector('#username', { timeout: 45_000 });
-  await page.fill('#username', USER);
-  await page.fill('#password', PASSWORD);
-  await page.click('input[type="submit"], button[type="submit"]');
-  await page.waitForURL(/\/(items|maps|field)/, { timeout: 60_000 });
-  await page.waitForTimeout(1500);
-  console.log('signed in as', USER, '→', page.url());
-}
-
-async function dismissToasts(page) {
-  // Best-effort: close common dismissibles so they don't cover chrome.
-  for (const sel of [
-    'button[aria-label="Close"]',
-    'button[aria-label="Dismiss"]',
-    '[data-testid="toast-close"]',
-  ]) {
-    const loc = page.locator(sel).first();
-    if (await loc.isVisible({ timeout: 500 }).catch(() => false)) {
-      await loc.click().catch(() => {});
-    }
-  }
-}
-
-/** Prefer type from URL or card badge; fall back to text heuristics. */
-async function findItemHref(page, typeHint) {
-  await page.goto(BASE + '/items', { waitUntil: 'networkidle' }).catch(() =>
-    page.goto(BASE + '/items'),
-  );
-  await page.waitForTimeout(2000);
-  await dismissToasts(page);
-
-  // Try filter chips / type filter if present
-  const typeFilter = page.getByRole('button', {
-    name: new RegExp(typeHint, 'i'),
-  });
-  if (await typeFilter.first().isVisible({ timeout: 1500 }).catch(() => false)) {
-    await typeFilter.first().click().catch(() => {});
-    await page.waitForTimeout(1000);
-  }
-
-  const href = await page.evaluate((hint) => {
-    const links = [...document.querySelectorAll('a[href*="/items/"]')];
-    const hintLower = hint.toLowerCase();
-    for (const a of links) {
-      const href = a.getAttribute('href') || '';
-      if (!/\/items\/[a-z0-9-]+/i.test(href)) continue;
-      if (href.includes('/new') || href.includes('/edit')) continue;
-      const text = (a.textContent || '').toLowerCase();
-      const card = a.closest('[class*="card"], article, li, tr') || a.parentElement;
-      const around = ((card && card.textContent) || text).toLowerCase();
-      if (
-        around.includes(hintLower) ||
-        text.includes(hintLower) ||
-        // common demo titles
-        (hintLower === 'data layer' &&
-          /layer|points|roads|parcels|hydrants|buildings/.test(around)) ||
-        (hintLower === 'map' && /map|viewer|basemap/.test(around)) ||
-        (hintLower === 'form' && /form|survey|inspection/.test(around)) ||
-        (hintLower === 'web app' && /app|dashboard|experience/.test(around))
-      ) {
-        return href;
+/** Scroll so `locator` sits just below the top bar, in whatever container scrolls. */
+async function scrollToTop(locator, offset = 80) {
+  await locator.first().waitFor({ state: 'visible' });
+  await locator.first().evaluate((el, off) => {
+    el.scrollIntoView({ block: 'start' });
+    let node = el.parentElement;
+    while (node && node !== document.body) {
+      const s = getComputedStyle(node);
+      if (/(auto|scroll)/.test(s.overflowY) && node.scrollHeight > node.clientHeight) {
+        node.scrollBy(0, -off);
+        return;
       }
+      node = node.parentElement;
     }
-    // Fallback: first non-new item link
-    for (const a of links) {
-      const href = a.getAttribute('href') || '';
-      if (/\/items\/[a-z0-9-]+\/?$/i.test(href) || /\/items\/[a-z0-9-]+\?/i.test(href)) {
-        return href.split('?')[0];
-      }
-    }
-    return null;
-  }, typeHint);
-
-  return href;
+    window.scrollBy(0, -off);
+  }, offset);
+  await locator.page().waitForTimeout(500);
 }
 
-async function openNewItemWizard(page) {
-  await page.goto(BASE + '/items', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(1500);
-  const newBtn = page
-    .getByRole('button', { name: /\+?\s*new item/i })
-    .or(page.getByRole('link', { name: /\+?\s*new item/i }))
-    .first();
-  if (!(await newBtn.isVisible({ timeout: 8000 }).catch(() => false))) {
-    // Try floating / header affordance
-    const alt = page.locator('text=/new item/i').first();
-    await alt.click({ timeout: 8000 });
-  } else {
-    await newBtn.click();
-  }
-  await page.waitForTimeout(1500);
-  // Wait for wizard chrome
+async function hideFloating(page) {
+  // The feedback button sits over the bottom right of every page. The
+  // page's CSP refuses an injected <style>, so hide it in place.
   await page
-    .getByText(/pick what|new item|what are you creating/i)
-    .first()
-    .waitFor({ timeout: 15_000 })
+    .evaluate(() => {
+      for (const el of document.querySelectorAll('.fixed.bottom-4.right-4')) {
+        if (/feedback/i.test(el.textContent ?? '')) el.style.display = 'none';
+      }
+    })
     .catch(() => {});
 }
 
-async function wave1(page) {
-  console.log('=== wave 1: getting-started + share + analyze Buffer/Clip ===');
+/** One derived-layer recipe with `tool` as its only step. */
+function recipeShot(file, tool, source = ID.parks) {
+  return {
+    file,
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/new?type=derived_layer&source=${source}`);
+      if (tool !== 'Buffer') {
+        await page.getByRole('button', { name: 'Remove step 1' }).click();
+        await page.getByRole('button', { name: 'Add a step' }).first().click();
+        const dialog = page.getByRole('dialog');
+        await dialog.getByText(tool, { exact: true }).click();
+        await page.waitForTimeout(800);
+      }
+      await scrollToTop(page.getByRole('heading', { name: 'Recipe' }));
+    },
+  };
+}
 
-  // Items grid (orientation)
-  await page.goto(BASE + '/items', { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-  await dismissToasts(page);
-  await shot(page, 'getting-started/what-is-gratisgis-items-grid.png');
+// ---------------------------------------------------------------- shots
 
-  // New item wizard
-  await openNewItemWizard(page);
-  // Prefer Map card selected if clickable
-  const mapCard = page
-    .getByRole('button', { name: /^map$/i })
-    .or(page.locator('[data-type="map"], [data-item-type="map"]'))
-    .or(page.getByText(/^Map$/).first());
-  if (await mapCard.first().isVisible({ timeout: 3000 }).catch(() => false)) {
-    await mapCard.first().click().catch(() => {});
-    await page.waitForTimeout(400);
-  }
-  await shot(page, 'getting-started/creating-your-first-map-new-item.png');
-
-  // Also capture Derived layer card area for analysis docs
-  const derived = page.getByText(/derived layer/i).first();
-  if (await derived.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await derived.click().catch(() => {});
-    await page.waitForTimeout(400);
-    await shot(page, 'analysis/derived-layer-new-item.png');
-  }
-  // Close wizard via Escape
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(500);
-
-  // Data layer → Analyze → Buffer / Clip
-  const layerHref = await findItemHref(page, 'data layer');
-  console.log('  data layer href', layerHref);
-  if (layerHref) {
-    const url = layerHref.startsWith('http') ? layerHref : BASE + layerHref;
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2500);
-    await dismissToasts(page);
-    await shot(page, 'items/data-layer-detail.png');
-
-    // Access / Sharing tab
-    const access = page
-      .getByRole('tab', { name: /access|sharing/i })
-      .or(page.getByRole('link', { name: /access|sharing/i }))
-      .or(page.getByText(/^Access$/i));
-    if (await access.first().isVisible({ timeout: 4000 }).catch(() => false)) {
-      await access.first().click();
-      await page.waitForTimeout(1200);
-      await shot(page, 'getting-started/sharing-an-item-access.png');
-    }
-
-    // Analyze tab
-    const analyze = page
-      .getByRole('tab', { name: /analyze/i })
-      .or(page.getByRole('link', { name: /analyze/i }))
-      .or(page.getByText(/^Analyze$/i));
-    if (await analyze.first().isVisible({ timeout: 4000 }).catch(() => false)) {
-      await analyze.first().click();
+const SHOTS = [
+  // Getting started
+  {
+    file: 'getting-started/what-is-gratisgis-items-grid.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, '/items?scope=all', 3000);
+    },
+  },
+  {
+    file: 'getting-started/creating-your-first-map-new-item.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, '/items/new?type=map');
+      await page.getByPlaceholder(/My layer, report/).fill('Trail conditions map');
+      await page.getByPlaceholder(/What is this/).fill('Trails and parks for the weekend crew.');
+    },
+  },
+  {
+    file: 'getting-started/creating-your-first-map-builder.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+    },
+  },
+  {
+    file: 'getting-started/sharing-an-item-access.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.ownLayer}`);
+      await page.getByRole('tab', { name: 'Share' }).click();
       await page.waitForTimeout(1500);
-      await shot(page, 'analysis/analyze-tab.png');
+      await scrollToTop(page.getByText('Visibility', { exact: true }), 120);
+    },
+  },
+  {
+    file: 'getting-started/uploading-csv-import.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, '/items/new?type=data_layer');
+      await scrollToTop(page.getByRole('heading', { name: 'Layers & tables' }));
+    },
+  },
 
-      // Buffer guide
-      const bufferBtn = page.getByRole('button', { name: /buffer this layer/i });
-      if (await bufferBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await bufferBtn.click();
-        await page.waitForTimeout(1000);
-        await shot(page, 'analysis/buffer-analyze-guide.png');
-        await page.keyboard.press('Escape').catch(() => {});
-        // close guide if it has a back/cancel
-        const cancel = page.getByRole('button', { name: /cancel|back|close/i }).first();
-        if (await cancel.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await cancel.click().catch(() => {});
-        }
-        await page.waitForTimeout(500);
-      }
+  // Item pages
+  {
+    file: 'items/data-layer-detail.png',
+    as: 'contributor',
+    async run(page) {
+      // The preview map zooms to the layer once its extent loads.
+      await go(page, `/items/${ID.facilities}`, 10_000);
+    },
+  },
+  {
+    file: 'items/map-detail.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}`);
+    },
+  },
+  {
+    file: 'items/web-app-detail.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.viewerApp}`, 4000);
+    },
+  },
+  {
+    file: 'web-apps/custom-app-builder.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.customApp}`, 4000);
+    },
+  },
+  {
+    file: 'forms/form-designer-canvas.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.form}`, 4000);
+      await scrollToTop(page.getByRole('heading', { name: 'Form designer' }));
+    },
+  },
 
-      // Clip guide
-      const clipBtn = page.getByRole('button', { name: /clip this layer/i });
-      if (await clipBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await clipBtn.click();
-        await page.waitForTimeout(1000);
-        await shot(page, 'analysis/clip-analyze-guide.png');
-        await page.keyboard.press('Escape').catch(() => {});
-        const cancel = page.getByRole('button', { name: /cancel|back|close/i }).first();
-        if (await cancel.isVisible({ timeout: 1000 }).catch(() => false)) {
-          await cancel.click().catch(() => {});
-        }
-      }
-    }
+  // Map editing
+  {
+    file: 'map-editing/map-builder-overview.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+    },
+  },
+  {
+    file: 'map-editing/markup-panel.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+      await page.getByRole('button', { name: 'Markup' }).click();
+      await page.waitForTimeout(1500);
+    },
+  },
+  {
+    file: 'map-editing/comments-panel.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+      await page.getByRole('button', { name: 'Comments' }).click();
+      await page.waitForTimeout(1500);
+    },
+  },
+  {
+    file: 'map-editing/symbology/simple-symbology-panel.png',
+    // An admin can edit the map, so the style controls show.
+    as: 'admin',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+      await page.getByText('Trails', { exact: true }).first().click();
+      await page.waitForTimeout(1500);
+    },
+  },
 
-    // Map tab / overview of layer for CSV-adjacent
-    const overview = page.getByRole('tab', { name: /overview|map|data/i }).first();
-    if (await overview.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await overview.click().catch(() => {});
-      await page.waitForTimeout(800);
-    }
-  }
+  // Analysis: the wizard, then one recipe per tool.
+  {
+    file: 'analysis/derived-layer-new-item.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/new?type=derived_layer&source=${ID.parks}`);
+    },
+  },
+  recipeShot('analysis/buffer-analyze-guide.png', 'Buffer'),
+  recipeShot('analysis/simplify-analyze-guide.png', 'Simplify'),
+  recipeShot('analysis/densify-analyze-guide.png', 'Densify'),
+  recipeShot('analysis/convex-hull-analyze-guide.png', 'Convex hull'),
+  recipeShot('analysis/bbox-analyze-guide.png', 'Bounding box'),
+  recipeShot('analysis/centroid-analyze-guide.png', 'Centroid'),
+  recipeShot('analysis/vertices-analyze-guide.png', 'Vertices'),
+  recipeShot('analysis/dissolve-analyze-guide.png', 'Dissolve'),
+  recipeShot('analysis/calculate-analyze-guide.png', 'Calculate geometry'),
+  recipeShot('analysis/nearest-neighbor-analyze-guide.png', 'Nearest-neighbor distance', ID.facilities),
+  recipeShot('analysis/top-n-analyze-guide.png', 'Top N by attribute'),
+  recipeShot('analysis/random-sample-analyze-guide.png', 'Random sample'),
+  recipeShot('analysis/fishnet-analyze-guide.png', 'Fishnet'),
+  recipeShot('analysis/group-by-analyze-guide.png', 'Group by + aggregate'),
+  recipeShot('analysis/spatial-join-analyze-guide.png', 'Spatial join (from another layer)'),
+  recipeShot('analysis/spatial-filter-analyze-guide.png', 'Spatial filter (by another layer)'),
+  recipeShot('analysis/clip-analyze-guide.png', 'Clip by another layer'),
+  recipeShot('analysis/erase-analyze-guide.png', 'Erase by another layer'),
+  recipeShot('analysis/contour-analyze-guide.png', 'Contour from points', ID.facilities),
 
-  // Map → builder
-  const mapHref = await findItemHref(page, 'map');
-  console.log('  map href', mapHref);
-  if (mapHref) {
-    const url = mapHref.startsWith('http') ? mapHref : BASE + mapHref;
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
-    await shot(page, 'items/map-detail.png');
-    const openBuilder = page
-      .getByRole('button', { name: /open builder|edit map|builder/i })
-      .or(page.getByRole('link', { name: /open builder|edit map|builder/i }))
-      .first();
-    if (await openBuilder.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await openBuilder.click();
-      await page.waitForTimeout(4000);
-      await shot(page, 'getting-started/creating-your-first-map-builder.png');
-      // Add layer affordance if visible
-      const addLayer = page.getByRole('button', { name: /\+?\s*add layer/i }).first();
-      if (await addLayer.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await addLayer.click();
-        await page.waitForTimeout(1000);
-        await shot(page, 'getting-started/creating-your-first-map-add-layer.png');
-        await page.keyboard.press('Escape').catch(() => {});
-      }
-    }
-  }
+  // Admin
+  { file: 'admin/users.png', as: 'admin', run: (page) => go(page, '/admin/users', 3000) },
+  { file: 'admin/branding.png', as: 'admin', run: (page) => go(page, '/admin/branding', 3000) },
+  { file: 'admin/backup.png', as: 'admin', run: (page) => go(page, '/admin/backup', 3000) },
+  { file: 'admin/housekeeping.png', as: 'admin', run: (page) => go(page, '/admin/housekeeping', 4000) },
+];
 
-  // New data layer / CSV upload surface
-  await openNewItemWizard(page);
-  const dataLayerCard = page.getByText(/^Data layer$/i).first();
-  if (await dataLayerCard.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await dataLayerCard.click();
-    await page.waitForTimeout(400);
-    const create = page.getByRole('button', { name: /create|next|continue/i }).first();
-    if (await create.isVisible({ timeout: 2000 }).catch(() => false)) {
-      // Fill a temp title if needed
-      const title = page.getByLabel(/title/i).or(page.locator('input[name="title"]')).first();
-      if (await title.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await title.fill('Help screenshot scratch (delete)');
-      }
-      await create.click().catch(() => {});
-      await page.waitForTimeout(2500);
-      // Look for Import tab
-      const importTab = page
-        .getByRole('tab', { name: /import/i })
-        .or(page.getByRole('button', { name: /import/i }))
-        .or(page.getByText(/^Import$/i));
-      if (await importTab.first().isVisible({ timeout: 5000 }).catch(() => false)) {
-        await importTab.first().click().catch(() => {});
-        await page.waitForTimeout(800);
-      }
-      await shot(page, 'getting-started/uploading-csv-import.png');
-      // Don't leave scratch if we created one — navigate away; nightly reset cleans demo
-    }
-  }
-  await page.keyboard.press('Escape').catch(() => {});
-}
+// ---------------------------------------------------------------- runner
 
-async function wave2(page) {
-  console.log('=== wave 2: forms + more analyze shortcuts ===');
-
-  const formHref = await findItemHref(page, 'form');
-  console.log('  form href', formHref);
-  if (formHref) {
-    const url = formHref.startsWith('http') ? formHref : BASE + formHref;
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(2000);
-    await shot(page, 'items/form-detail.png');
-    const designer = page
-      .getByRole('button', { name: /open designer|designer|edit form/i })
-      .or(page.getByRole('link', { name: /open designer|designer|edit form/i }))
-      .first();
-    if (await designer.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await designer.click();
-      await page.waitForTimeout(3500);
-      await shot(page, 'forms/form-designer-canvas.png');
-    }
-  }
-
-  // Analyze shortcuts from a data layer
-  const layerHref = await findItemHref(page, 'data layer');
-  if (!layerHref) return;
-  const url = layerHref.startsWith('http') ? layerHref : BASE + layerHref;
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(2000);
-  const analyze = page.getByRole('tab', { name: /analyze/i }).first();
-  if (!(await analyze.isVisible({ timeout: 4000 }).catch(() => false))) return;
-  await analyze.click();
-  await page.waitForTimeout(1200);
-
-  const guides = [
-    ['buffer this layer', 'analysis/buffer-analyze-guide.png'],
-    ['clip this layer', 'analysis/clip-analyze-guide.png'],
-    ['erase', 'analysis/erase-analyze-guide.png'],
-    ['centroid', 'analysis/centroid-analyze-guide.png'],
-    ['dissolve', 'analysis/dissolve-analyze-guide.png'],
-    ['simplify', 'analysis/simplify-analyze-guide.png'],
-    ['convex hull', 'analysis/convex-hull-analyze-guide.png'],
-    ['densify', 'analysis/densify-analyze-guide.png'],
-    ['vertices', 'analysis/vertices-analyze-guide.png'],
-    ['bounding box', 'analysis/bbox-analyze-guide.png'],
-    ['bbox', 'analysis/bbox-analyze-guide.png'],
-    ['group by', 'analysis/group-by-analyze-guide.png'],
-    ['contour', 'analysis/contour-analyze-guide.png'],
-    ['fishnet', 'analysis/fishnet-analyze-guide.png'],
-    ['nearest', 'analysis/nearest-neighbor-analyze-guide.png'],
-    ['random sample', 'analysis/random-sample-analyze-guide.png'],
-    ['top n', 'analysis/top-n-analyze-guide.png'],
-    ['calculate', 'analysis/calculate-analyze-guide.png'],
-    ['filter', 'analysis/filter-analyze-guide.png'],
-    ['spatial filter', 'analysis/spatial-filter-analyze-guide.png'],
-    ['spatial join', 'analysis/spatial-join-analyze-guide.png'],
-  ];
-
-  for (const [label, rel] of guides) {
-    // Re-open analyze if we navigated into a guide
-    if (!(await page.getByRole('button', { name: new RegExp(label, 'i') }).first().isVisible({ timeout: 800 }).catch(() => false))) {
-      // Maybe need to go back
-      const back = page.getByRole('button', { name: /back|cancel|close/i }).first();
-      if (await back.isVisible({ timeout: 500 }).catch(() => false)) {
-        await back.click().catch(() => {});
-        await page.waitForTimeout(400);
-      }
-      if (!(await page.getByRole('tab', { name: /analyze/i }).first().isVisible({ timeout: 500 }).catch(() => false))) {
-        await page.goto(url + (url.includes('?') ? '&' : '?') + 'tab=analyze').catch(() => page.goto(url));
-        await page.waitForTimeout(1500);
-        const tab = page.getByRole('tab', { name: /analyze/i }).first();
-        if (await tab.isVisible({ timeout: 3000 }).catch(() => false)) await tab.click();
-        await page.waitForTimeout(800);
-      }
-    }
-    const btn = page.getByRole('button', { name: new RegExp(label, 'i') }).first();
-    if (!(await btn.isVisible({ timeout: 1500 }).catch(() => false))) {
-      console.log('  skip missing guide:', label);
-      continue;
-    }
-    await btn.click();
-    await page.waitForTimeout(900);
-    await shot(page, rel);
-    const back = page.getByRole('button', { name: /back|cancel|close/i }).first();
-    if (await back.isVisible({ timeout: 800 }).catch(() => false)) {
-      await back.click().catch(() => {});
-    } else {
-      await page.keyboard.press('Escape').catch(() => {});
-    }
-    await page.waitForTimeout(400);
-  }
-}
-
-async function wave3(page) {
-  console.log('=== wave 3: map editing + widgets + admin ===');
-
-  const mapHref = await findItemHref(page, 'map');
-  if (mapHref) {
-    const url = mapHref.startsWith('http') ? mapHref : BASE + mapHref;
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(1500);
-    const openBuilder = page
-      .getByRole('button', { name: /open builder|edit map|builder/i })
-      .or(page.getByRole('link', { name: /open builder|edit map|builder/i }))
-      .first();
-    if (await openBuilder.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await openBuilder.click();
-      await page.waitForTimeout(3500);
-      // Style / symbology
-      for (const name of [/style/i, /symbology/i, /labels/i, /popup/i, /filter/i]) {
-        const btn = page.getByRole('button', { name }).or(page.getByRole('tab', { name })).first();
-        if (await btn.isVisible({ timeout: 1200 }).catch(() => false)) {
-          await btn.click().catch(() => {});
-          await page.waitForTimeout(800);
-          const slug =
-            name.source.replace(/[^a-z]+/gi, '-').replace(/^-|-$/g, '') || 'panel';
-          await shot(page, `map-editing/${slug}-panel.png`);
-        }
-      }
-      // Markup / comments if in chrome
-      for (const name of [/markup/i, /comment/i, /draw/i]) {
-        const btn = page.getByRole('button', { name }).first();
-        if (await btn.isVisible({ timeout: 800 }).catch(() => false)) {
-          await btn.click().catch(() => {});
-          await page.waitForTimeout(700);
-          await shot(
-            page,
-            `map-editing/${name.source.replace(/[^a-z]+/gi, '')}-panel.png`,
-          );
-        }
-      }
-    }
-  }
-
-  // Admin (re-auth as admin if needed)
-  if (!USER.includes('admin')) {
-    console.log('  admin shots need tester-admin; skipping signed-in admin wave');
-    // Still try /admin — may redirect
-  }
-  await page.goto(BASE + '/admin', { waitUntil: 'domcontentloaded' }).catch(() => {});
-  await page.waitForTimeout(2000);
-  if (page.url().includes('/admin')) {
-    await shot(page, 'admin/organization-settings.png');
-  }
+async function signIn(browser, who) {
+  const { user, password } = ACCOUNTS[who];
+  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+  const page = await context.newPage();
+  page.setDefaultTimeout(30_000);
+  await page.goto(BASE + '/items', { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#username', { timeout: 45_000 });
+  await page.fill('#username', user);
+  await page.fill('#password', password);
+  await page.click('input[type="submit"], button[type="submit"]');
+  await page.waitForURL(/\/items/, { timeout: 60_000 });
+  console.log(`signed in as ${user}`);
+  return page;
 }
 
 async function main() {
-  fs.mkdirSync(OUT, { recursive: true });
-  console.log('BASE', BASE, 'USER', USER, 'WAVE', WAVE, 'OUT', OUT);
-
+  const shots = SHOTS.filter((s) => !ONLY || ONLY.test(s.file));
+  console.log(`BASE ${BASE}  shots ${shots.length}`);
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    viewport: VIEWPORT,
-    deviceScaleFactor: 1,
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(45_000);
-
+  const pages = {};
+  const failed = [];
   try {
-    await signIn(page);
-    if (WAVE === '1' || WAVE === 'all') await wave1(page);
-    if (WAVE === '2' || WAVE === 'all') await wave2(page);
-    if (WAVE === '3' || WAVE === 'all') await wave3(page);
+    for (const shot of shots) {
+      pages[shot.as] ??= await signIn(browser, shot.as);
+      const page = pages[shot.as];
+      try {
+        await shot.run(page);
+        await hideFloating(page);
+        const dest = path.join(OUT, shot.file);
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        await page.screenshot({ path: dest, animations: 'disabled' });
+        console.log(`  ok    ${shot.file} (${Math.round(fs.statSync(dest).size / 1024)} KiB)`);
+      } catch (err) {
+        failed.push(shot.file);
+        console.log(`  FAIL  ${shot.file}: ${String(err.message ?? err).split('\n')[0]}`);
+      }
+    }
   } finally {
     await browser.close();
   }
-  console.log('done');
+  console.log(failed.length ? `done, ${failed.length} failed` : 'done');
+  if (failed.length) process.exit(1);
 }
 
 main().catch((err) => {
