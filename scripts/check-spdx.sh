@@ -49,6 +49,9 @@
 #       extension filter already skips it; the path exemption is what
 #       keeps a wrapper script from becoming a failure if it is ever
 #       named like source.
+#   docs/design/**
+#       Design handoffs exported from a design tool: prototypes and the
+#       tool's own runtime, kept as a reference. Not shipped source.
 #   apps/portal-web/src/app/items/[id]/map/map-icons.ts
 #       Generated icon registry. scripts/gen-map-icons.cjs writes the
 #       SPDX line into the output, so the committed file is not
@@ -88,6 +91,7 @@ is_exempt() {
   [[ "$p" == 'clients/android/gradlew' || "$p" == 'clients/android/gradlew.bat' ]] && return 0
   [[ "$p" == clients/android/gradle/wrapper/* ]] && return 0
   [[ "$p" == apps/portal-web/public/maplibre/* ]] && return 0
+  [[ "$p" == docs/design/* ]] && return 0
   [[ "$p" == node_modules/* || "$p" == */node_modules/* ]] && return 0
   [[ "$p" == dist/* || "$p" == */dist/* ]] && return 0
   [[ "$p" == build/* || "$p" == */build/* ]] && return 0
