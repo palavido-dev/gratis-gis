@@ -734,6 +734,45 @@ describe('syncQueue: conflict guard (docs/sync-protocol.md)', () => {
     expect(calls()).toHaveLength(1);
   });
 
+  it('moves the later edit of the feature onto the head its own landed write left', async () => {
+    // The first edit's PATCH landed but its answer was lost, so the row
+    // stayed claimed and a second edit was queued behind it, not
+    // folded in. Its base is still the head the first edit replaced.
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    const [first] = await listQueue(DC, USER);
+    await updateQueueRecord({ ...first!, syncStatus: 'failed', mayHaveReachedServer: true });
+    await new Promise((r) => setTimeout(r, 5));
+    await enqueueEdit(
+      edit({
+        op: 'update',
+        geometry: null,
+        properties: { species: 'elm' },
+        baseObservationId: 'obs-base',
+      }),
+    );
+    expect(await listQueue(DC, USER)).toHaveLength(2);
+    fetchMock.mockResolvedValueOnce(
+      json(409, {
+        statusCode: 409,
+        code: 'feature-conflict',
+        current: {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [1, 2] },
+          properties: { species: 'oak', _observation_id: 'obs-mine' },
+        },
+      }),
+    );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    const rows = await listQueue(DC, USER);
+    expect(rows).toHaveLength(1);
+    // Without the rebase this row would replay against obs-base and
+    // park as a conflict with this device's own write.
+    expect(rows[0]!.baseObservationId).toBe('obs-mine');
+  });
+
   it('still parks a 409 whose current differs', async () => {
     await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
     fetchMock.mockResolvedValue(

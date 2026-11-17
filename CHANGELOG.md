@@ -20,6 +20,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Offline sync: when an edit's save had landed but its answer was lost,
+  later queued edits of the same feature were parked as conflicts with
+  that save. The web app and the Android app now move those edits onto
+  the version the earlier save left, as they already did when the
+  answer arrived.
+
 - Large imports no longer stall on a NAS. The NAS stack capped the
   import worker at 1.5 GB, and a 700 MB shapefile of detailed polygons
   needed about 2.5 GB on its second batch, so the worker was killed and

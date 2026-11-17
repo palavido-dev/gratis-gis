@@ -53,7 +53,8 @@ data class SyncError(val recordId: String, val op: String, val layerKey: String,
  *  - Only the signed-in account's rows for this portal are sent.
  *  - A 409 on an update whose `current` already holds the queued
  *    values is this device's own earlier write whose response was
- *    lost (`sync.isOwnEditEcho`): the row is done, not a conflict.
+ *    lost (`sync.isOwnEditEcho`): the row is done, not a conflict,
+ *    and its head rebases the later rows like a landed update.
  *  - After an update lands, the same account's later queued rows of
  *    that feature, and its cached copy, move to the head the PATCH
  *    wrote (`FeatureHeadRebase`, web `rebaseFeatureHead`).
@@ -238,8 +239,10 @@ class QueueDrain(
     } catch (e: PortalError.Conflict) {
       if (e.code == "feature-conflict" && r.op == "update" && isOwnEcho(geometry, properties, e.current)) {
         // The PATCH committed earlier and its response was lost (a
-        // timeout in poor coverage), so the head is our own write.
-        return Replay.Done()
+        // timeout in poor coverage), so the head is our own write. Pass
+        // it on, so this account's later edits of the feature move onto
+        // it instead of parking as conflicts against our own write.
+        return Replay.Done(FeatureHeadRebase.headFromResponse(e.current as? JsonObject))
       }
       if (e.code == "feature-conflict") {
         // Somebody else's edit landed between our read and this replay.
