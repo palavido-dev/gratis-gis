@@ -4,10 +4,10 @@ import { renderMarkdown } from './markdown';
 describe('renderMarkdown images and links', () => {
   it('renders a help figure as an image element', () => {
     const html = renderMarkdown(
-      '![New item wizard](/help/new-item.svg)\n',
+      '![New item wizard](/help/getting-started/creating-your-first-map-new-item.png)\n',
     );
     expect(html).toBe(
-      '<p><img src="/help/new-item.svg" alt="New item wizard"></p>',
+      '<p><img src="/help/getting-started/creating-your-first-map-new-item.png" alt="New item wizard"></p>',
     );
   });
 
@@ -20,10 +20,12 @@ describe('renderMarkdown images and links', () => {
 
   it('keeps bold inside a link and code beside an image', () => {
     const html = renderMarkdown(
-      'Use [`lat`](/help/uploading-csv) or ![pin](/help/csv-upload.svg).\n',
+      'Use [`lat`](/help/uploading-csv) or ![pin](/help/getting-started/uploading-csv-import.png).\n',
     );
     expect(html).toContain('<a href="/help/uploading-csv"><code>lat</code></a>');
-    expect(html).toContain('<img src="/help/csv-upload.svg" alt="pin">');
+    expect(html).toContain(
+      '<img src="/help/getting-started/uploading-csv-import.png" alt="pin">',
+    );
     expect(html).not.toContain('&lt;img');
   });
 

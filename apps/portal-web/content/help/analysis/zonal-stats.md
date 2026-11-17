@@ -2,7 +2,7 @@
 id: analysis-zonal-stats
 title: Zonal statistics
 summary: Summarize a raster inside polygon zones (mean, min, max, sum, count).
-category: analysis
+category: analysis/summarize
 order: 55
 complexity: intermediate
 tags:

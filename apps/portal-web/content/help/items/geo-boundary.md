@@ -2,7 +2,7 @@
 id: items-geo-boundary
 title: Geo boundary
 summary: A reusable polygon (or multipolygon) referenced by share geo limits, map viewports, and dashboard filters.
-category: items
+category: items/data
 order: 100
 complexity: intermediate
 tags:

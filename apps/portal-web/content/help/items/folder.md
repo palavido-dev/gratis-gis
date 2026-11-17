@@ -2,7 +2,7 @@
 id: items-folder
 title: Folder
 summary: An item that groups other items into a named collection. An item can live in more than one folder at once.
-category: items
+category: items/organize
 order: 150
 complexity: basic
 tags:

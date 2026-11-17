@@ -14,6 +14,7 @@ tags:
 related:
   - admin-organization-settings
 ---
+![Admin Backup settings](/help/admin/backup.png)
 
 GratisGIS keeps portal content in two places: **PostgreSQL** (items,
 features, the observation log, sharing, form submissions) and

@@ -2,7 +2,7 @@
 id: items-layer-package
 title: Layer package
 summary: An archive item that bundles a data layer's schema, styling, and (optionally) features into one downloadable file for sharing with other portals.
-category: items
+category: items/data
 order: 180
 complexity: advanced
 tags:

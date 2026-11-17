@@ -13,8 +13,10 @@ then centroid, then buffer.
 
 ## How to use this site
 
-Use the **sidebar** to browse by category, or the **search box** at the
-top of the sidebar to jump to a specific topic.
+The help landing page is the hub. Pick a **task** (new here, publish,
+collect, analyze, build apps, automate, admin) or browse by area in
+the sidebar. Use the **search box** at the top of the sidebar to jump
+to a specific topic.
 
 Every page has the same shape:
 
@@ -22,22 +24,24 @@ Every page has the same shape:
 - **Prerequisites** callout if there's something you need to know first.
 - **The thing itself**. Explained from a clean start, no assumed
  surrounding workflow.
+- **Screenshots** next to every UI control or multi-step process.
 - **See also** at the bottom for related topics.
 
-## What's here
+## How the catalog is grouped
 
-The catalog is organized into a handful of top-level areas:
-
-- **Getting started**. Orientation for new users.
-- **Items**. One page per item type (Map, Data layer, Form, etc.).
+- **Getting started**. Orientation, first map, sharing, uploads, and
+  Coming from ArcGIS.
+- **Items**. Maps & apps, data, field & forms, organize, advanced.
 - **Map editing**. Symbology, labels, filters, popups, markup,
   comments, and live presence.
-- **Web Apps**. The Custom Web App designer, widgets, themes.
-- **Forms**. The form designer and XLSForm import.
+- **Forms**. Form designer, question types, conditional logic, XLSForm.
+- **Web apps**. Custom app, templates, themes, and widgets.
 - **Print templates**. Page layout and parameters.
-- **Analysis**. Derived layers and each analysis step.
-- **Admin**. Housekeeping, geocoders, backups.
-- **Reference**. Item types, and the automation surface below.
+- **Analysis**. Derived-layer steps grouped by job: select & calculate,
+  proximity, overlay, geometry, summarize, generate.
+- **Admin**. Users, branding, backups, housekeeping.
+- **Reference**. Item types, expressions, API keys, Python, scripts,
+  HTTP API, MCP, citations.
 
 ## Automating the portal
 
@@ -56,13 +60,6 @@ same API and the same permissions.
   client into the same API (read tools, plus optional write tools).
 - [Cite a public item](/help/reference/cite-an-item): BibTeX, RIS, and
   Schema.org JSON-LD downloads.
-
-## Coming from ArcGIS Online?
-
-If you're moving from AGO or ArcGIS Pro, the **Coming from ArcGIS**
-guides in Getting started map familiar concepts to their GratisGIS
-equivalents (Feature Service → Data layer, Web Map → Map, Survey123
-→ Form, and so on).
 
 ## Opening rasters from QGIS
 

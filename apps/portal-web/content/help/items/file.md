@@ -2,7 +2,7 @@
 id: items-file
 title: File
 summary: An item that wraps an arbitrary uploaded file. Use for reference documents, archived deliverables, or anything that doesn't fit a more specific item type.
-category: items
+category: items/data
 order: 80
 complexity: basic
 tags:

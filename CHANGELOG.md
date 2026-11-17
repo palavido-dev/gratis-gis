@@ -38,6 +38,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   few minutes on a large layer. Cancel is hidden for that step, since
   it could no longer stop the import.
 
+### Documentation
+
+- Help: task-shaped landing hub, collapsed sidebar, and nested Analysis / Items / Coming-from-ArcGIS groups (URLs unchanged).
+- Help: real UI screenshots for getting-started, form designer, map editing (markup/comments/symbology), admin surfaces, web app detail, and analysis derived-layer recipes (Buffer, Clip, and the other guided steps).
+
 ## [1.6.1] - 2026-11-13
 
 Patch release: the sign-in page logo, a deploy step that keeps

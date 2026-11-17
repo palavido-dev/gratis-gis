@@ -13,6 +13,7 @@ related:
   - admin-roles
   - admin-branding
 ---
+![Admin section in the portal sidebar](/help/admin/users.png)
 
 There is no single organization settings page. Organization-wide
 settings are spread across the admin pages by topic, and some limits

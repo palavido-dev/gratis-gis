@@ -13,6 +13,7 @@ related:
   - admin-organization-settings
   - admin-roles
 ---
+![Admin Housekeeping settings](/help/admin/housekeeping.png)
 
 The **Housekeeping** page (Admin -> Housekeeping) lists items and
 accounts that look like they could be reviewed or retired, with bulk

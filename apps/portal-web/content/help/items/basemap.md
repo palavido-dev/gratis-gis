@@ -2,7 +2,7 @@
 id: items-basemap
 title: Basemap
 summary: An item that wraps a single base-layer reference (style URL, tile URL, or WMS). Maps pick one.
-category: items
+category: items/data
 order: 110
 complexity: basic
 tags:

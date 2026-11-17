@@ -2,7 +2,7 @@
 id: analysis-erase
 title: Erase
 summary: Keep only the parts of input features that fall outside an erase mask. The geometric inverse of clip.
-category: analysis
+category: analysis/overlay
 order: 81
 complexity: basic
 tags:
@@ -54,6 +54,8 @@ instant browser result. Not gated on the optional server-heavy
 analysis tier.
 
 ### From the new-item wizard
+![Derived layer recipe with an Erase by another layer step](/help/analysis/erase-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

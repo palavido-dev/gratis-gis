@@ -2,7 +2,7 @@
 id: coming-from-arcgis-survey123
 title: Survey123 to form
 summary: Bring a Survey123 survey over by exporting its XLSForm and importing into a GratisGIS form item.
-category: coming-from-arcgis
+category: getting-started/coming-from-arcgis
 order: 40
 complexity: intermediate
 tags:

@@ -14,6 +14,7 @@ related:
   - map-editing-presence
   - items-map
 ---
+![Map builder Markup dialog with Add markup](/help/map-editing/markup-panel.png)
 
 Markup is the fastest way to get team feedback on a map. Anyone who
 can view the map can draw on it, group sketches into named markup

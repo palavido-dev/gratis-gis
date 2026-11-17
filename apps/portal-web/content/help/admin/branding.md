@@ -12,6 +12,7 @@ tags:
 related:
   - admin-organization-settings
 ---
+![Admin Landing page / branding settings](/help/admin/branding.png)
 
 The **Branding** page (Admin -> Branding) sets your organization's
 name and the public landing page, which is what people see at the

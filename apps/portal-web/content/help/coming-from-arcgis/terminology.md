@@ -2,7 +2,7 @@
 id: coming-from-arcgis-terminology
 title: Terminology map
 summary: Word-for-word mapping between ArcGIS Online vocabulary and GratisGIS vocabulary.
-category: coming-from-arcgis
+category: getting-started/coming-from-arcgis
 order: 10
 complexity: basic
 tags:

@@ -2,7 +2,7 @@
 id: analysis-group-by
 title: Group by
 summary: Roll up rows by group keys with count/sum/avg/min/max/first aggregates; geometry is always ST_Union per group.
-category: analysis
+category: analysis/summarize
 order: 50
 complexity: intermediate
 tags:
@@ -55,6 +55,8 @@ One row per distinct group-key combination (or one row when
   under its `outputName`.
 
 ## How to use it on its own
+![Derived layer recipe with a Group by step](/help/analysis/group-by-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

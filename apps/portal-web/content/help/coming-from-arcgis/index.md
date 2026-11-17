@@ -2,7 +2,7 @@
 id: coming-from-arcgis-overview
 title: Coming from ArcGIS Online
 summary: Orientation for ArcGIS Online users. GratisGIS covers portal, sharing, field collection, and QGIS. It is not a full ArcGIS Online replacement.
-category: coming-from-arcgis
+category: getting-started/coming-from-arcgis
 order: 0
 complexity: basic
 tags:

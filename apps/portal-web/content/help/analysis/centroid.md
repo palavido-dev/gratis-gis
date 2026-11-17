@@ -2,7 +2,7 @@
 id: analysis-centroid
 title: Centroid
 summary: Replace each feature's geometry with a single point at its geometric center.
-category: analysis
+category: analysis/geometry
 order: 70
 complexity: basic
 tags:
@@ -52,6 +52,8 @@ on multi-layer items) plus `#data`. From a map layer kebab, choose
 **Centroids…** for the same path in a new tab.
 
 ### From the new-item wizard
+![Derived layer recipe with a Centroid step](/help/analysis/centroid-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

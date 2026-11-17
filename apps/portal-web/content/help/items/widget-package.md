@@ -2,7 +2,7 @@
 id: items-widget-package
 title: Widget package
 summary: An archive item that bundles a custom Web App widget for installation on this or another portal.
-category: items
+category: items/advanced
 order: 190
 complexity: advanced
 tags:

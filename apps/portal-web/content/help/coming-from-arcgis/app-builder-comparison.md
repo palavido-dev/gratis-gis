@@ -2,7 +2,7 @@
 id: coming-from-arcgis-app-builder
 title: App builders comparison
 summary: How Experience Builder, Web AppBuilder, and Operations Dashboard map onto GratisGIS web apps. Not a drop-in for any of them.
-category: coming-from-arcgis
+category: getting-started/coming-from-arcgis
 order: 50
 complexity: basic
 tags:

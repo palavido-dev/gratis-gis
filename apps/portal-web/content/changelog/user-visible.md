@@ -21,6 +21,12 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-17 - Help is easier to browse
+The help home page now leads with task cards (new here, publish, collect, analyze, build apps, automate, admin). The sidebar stays collapsed until you open a section, and Analysis / Items are grouped by job instead of one long flat list.
+
+## 2026-11-17 - Help pages show the real UI
+Getting started, form designer, map and data layer detail, and the analysis recipe steps (Buffer, Clip, and the other guided tools) now include screenshots of the live portal instead of wireframe drawings.
+
 ## [1.6.0] - 2026-11-13
 
 ## 2026-11-13 - A new look, and tighter sharing

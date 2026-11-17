@@ -6,7 +6,9 @@ import {
   buildNav,
   loadDocBySlug,
   loadAllDocs,
-  type HelpNavNode,
+  CATEGORY_ORDER,
+  categoryRank,
+  prettyCategoryLabel,
 } from '@/lib/help/content';
 import { HelpSearchBox } from './search-box';
 import { HelpSidebarNav } from './sidebar-nav';
@@ -202,81 +204,165 @@ function DocView({
   );
 }
 
+/** Task-shaped entry points for the help landing. One job each. */
+const LANDING_PATHS: Array<{
+  title: string;
+  blurb: string;
+  href: string;
+}> = [
+  {
+    title: 'New here',
+    blurb: 'What GratisGIS is, your first map, and how sharing works.',
+    href: '/help/getting-started/what-is-gratisgis',
+  },
+  {
+    title: 'Publish data & maps',
+    blurb: 'Upload a CSV or layer, style it, set the viewport, share it.',
+    href: '/help/getting-started/uploading-csv',
+  },
+  {
+    title: 'Collect in the field',
+    blurb: 'Forms, the form designer, and offline data collection.',
+    href: '/help/forms/form-designer',
+  },
+  {
+    title: 'Analyze',
+    blurb: 'Buffer, clip, dissolve, and the other derived-layer steps.',
+    href: '/help/analysis/buffer',
+  },
+  {
+    title: 'Build apps & print',
+    blurb: 'Custom web apps, widgets, themes, and print templates.',
+    href: '/help/web-apps/custom-app',
+  },
+  {
+    title: 'Automate',
+    blurb: 'API keys, the Python client, scripts, HTTP API, MCP.',
+    href: '/help/reference/api-keys',
+  },
+  {
+    title: 'Coming from ArcGIS',
+    blurb: 'Feature services, web maps, Survey123, and terminology.',
+    href: '/help/coming-from-arcgis',
+  },
+  {
+    title: 'Admin',
+    blurb: 'Users, branding, backups, housekeeping, sign-in.',
+    href: '/help/admin/organization-settings',
+  },
+];
+
 function Landing({
   all,
 }: {
   all: Awaited<ReturnType<typeof loadAllDocs>>;
 }) {
-  // Group docs by category for the landing page.  Two-deep is the
-  // common case ("Map editing" > "Symbology" > leaf).
-  const byTop = new Map<string, typeof all>();
+  // Group by full category path so Analysis > Proximity stays intact.
+  type Doc = (typeof all)[number];
+  const byCategory = new Map<string, Doc[]>();
   for (const d of all) {
-    const top = (d.frontmatter.category ?? '').split('/')[0] ?? '';
-    if (!byTop.has(top)) byTop.set(top, []);
-    byTop.get(top)!.push(d);
+    if (d.slug === '') continue;
+    const cat = d.frontmatter.category ?? '';
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat)!.push(d);
   }
+  const categories = Array.from(byCategory.entries()).sort(([a], [b]) => {
+    const ra = categoryRank(a);
+    const rb = categoryRank(b);
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+
+  // Collapse into top-level sections for the directory below the hub.
+  const topSections = new Map<
+    string,
+    Array<{ sub: string; docs: Doc[] }>
+  >();
+  for (const [cat, docs] of categories) {
+    const parts = cat.split('/').filter(Boolean);
+    const top = parts[0] ?? 'other';
+    const sub = parts.slice(1).join('/') || '';
+    if (!topSections.has(top)) topSections.set(top, []);
+    topSections.get(top)!.push({ sub, docs });
+  }
+  const orderedTops = Array.from(topSections.keys()).sort((a, b) => {
+    const ra = CATEGORY_ORDER[a] ?? 1000;
+    const rb = CATEGORY_ORDER[b] ?? 1000;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b);
+  });
+
   return (
     <article className="max-w-3xl">
       <h1 className="mb-2 text-2xl font-bold text-ink-0">Help</h1>
       <p className="mb-6 text-sm text-muted">
-        GratisGIS documentation.  Pick a topic from the sidebar or use the
-        search box to find what you need.  Each page covers one concept
-        end-to-end, no five-step workflows in your way when you just
-        want to know how Buffer works.
+        One concept per page. Start from a task below, browse the sidebar
+        by area, or search. Screenshots sit next to every UI step.
       </p>
-      {Array.from(byTop.entries())
-        .filter(([k]) => k)
-        .sort(([a], [b]) => {
-          // Mirror the sidebar's explicit category ranking so the
-          // landing page's section order matches what users see in
-          // the nav.  Keep this in sync with CATEGORY_ORDER in
-          // src/lib/help/content.ts.
-          const rank: Record<string, number> = {
-            'getting-started': 10,
-            'coming-from-arcgis': 15,
-            items: 20,
-            'map-editing': 30,
-            forms: 40,
-            'web-apps': 50,
-            'print-templates': 55,
-            analysis: 60,
-            admin: 70,
-            reference: 90,
-          };
-          const ra = rank[a] ?? 1000;
-          const rb = rank[b] ?? 1000;
-          if (ra !== rb) return ra - rb;
-          return a.localeCompare(b);
-        })
-        .map(([top, docs]) => (
-          <section key={top} className="mb-6">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">
-              {prettyCategory(top)}
-            </h2>
-            <ul className="space-y-1">
-              {docs.slice(0, 10).map((d) => (
-                <li key={d.slug}>
-                  <Link
-                    href={`/help/${d.slug}`}
-                    className="text-sm text-accent hover:underline"
-                  >
-                    {d.frontmatter.title}
-                  </Link>
-                  <span className="ml-2 text-xs text-muted">
-                    {d.frontmatter.summary}
-                  </span>
-                </li>
+
+      <section className="mb-10">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+          Start here
+        </h2>
+        <ul className="grid gap-3 sm:grid-cols-2">
+          {LANDING_PATHS.map((p) => (
+            <li key={p.href}>
+              <Link
+                href={p.href}
+                className="block h-full rounded-md border border-border bg-surface-1 px-3 py-3 transition-colors hover:border-accent hover:bg-accent/5"
+              >
+                <span className="block text-sm font-semibold text-ink-0">
+                  {p.title}
+                </span>
+                <span className="mt-1 block text-xs text-muted">{p.blurb}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+          Browse by area
+        </h2>
+        {orderedTops.map((top) => {
+          const groups = topSections.get(top) ?? [];
+          return (
+            <div key={top} className="mb-8">
+              <h3 className="mb-2 text-base font-semibold text-ink-0">
+                {prettyCategoryLabel(top)}
+              </h3>
+              {groups.map(({ sub, docs }) => (
+                <div key={`${top}/${sub}`} className="mb-4">
+                  {sub ? (
+                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">
+                      {sub
+                        .split('/')
+                        .map((s) => prettyCategoryLabel(s))
+                        .join(' / ')}
+                    </h4>
+                  ) : null}
+                  <ul className="space-y-1">
+                    {docs.map((d) => (
+                      <li key={d.slug}>
+                        <Link
+                          href={`/help/${d.slug}`}
+                          className="text-sm text-accent hover:underline"
+                        >
+                          {d.frontmatter.title}
+                        </Link>
+                        <span className="ml-2 text-xs text-muted">
+                          {d.frontmatter.summary}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
-          </section>
-        ))}
+            </div>
+          );
+        })}
+      </section>
     </article>
   );
-}
-
-function prettyCategory(seg: string): string {
-  return seg
-    .split('-')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
 }

@@ -2,7 +2,7 @@
 id: coming-from-arcgis-web-map
 title: Web map to map
 summary: What WebMap JSON import and export move, and what stays on ArcGIS Online until you stage hosted feature services as portal data layers.
-category: coming-from-arcgis
+category: getting-started/coming-from-arcgis
 order: 30
 complexity: intermediate
 tags:

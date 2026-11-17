@@ -2,7 +2,7 @@
 id: analysis-calculate
 title: Calculate
 summary: Add a computed column from field expressions, or add length / perimeter / area via Calculate geometry.
-category: analysis
+category: analysis/select-and-calculate
 order: 20
 complexity: basic
 tags:
@@ -98,6 +98,8 @@ measures run on PostGIS geography — Analyze does not invent
 `area_m2()` expression helpers.
 
 ### From the new-item wizard
+![Derived layer recipe with a Calculate geometry step](/help/analysis/calculate-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.

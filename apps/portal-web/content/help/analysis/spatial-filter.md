@@ -2,7 +2,7 @@
 id: analysis-spatial-filter
 title: Spatial filter
 summary: Keep input rows whose geometry matches a predicate against another data layer (or inline geometry). No attribute join.
-category: analysis
+category: analysis/select-and-calculate
 order: 31
 complexity: intermediate
 tags:
@@ -58,6 +58,8 @@ counts or attributes; spatial filter only drops non-matching rows.
   column, no cartesian explode.
 
 ## How to use it on its own
+![Derived layer recipe with a Spatial filter step](/help/analysis/spatial-filter-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a **Source**.

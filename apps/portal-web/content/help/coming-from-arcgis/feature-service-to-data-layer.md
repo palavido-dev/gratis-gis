@@ -2,7 +2,7 @@
 id: coming-from-arcgis-feature-service
 title: Feature service to data layer
 summary: Move an ArcGIS Online hosted feature service into a GratisGIS data layer. Schema, symbology, and features all come over.
-category: coming-from-arcgis
+category: getting-started/coming-from-arcgis
 order: 20
 complexity: intermediate
 tags:

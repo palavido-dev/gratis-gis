@@ -19,6 +19,8 @@ will feel familiar if you have used a cloud GIS portal before. The
 differences are who owns the hardware, what the license says, and
 that we are not a drop-in ArcGIS Online replacement.
 
+![Items grid after sign-in, with New item and content grouped by type](/help/getting-started/what-is-gratisgis-items-grid.png)
+
 ## What it does
 
 You upload data (Shapefile, GeoJSON, GeoPackage, KML), the portal

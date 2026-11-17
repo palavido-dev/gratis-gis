@@ -2,7 +2,7 @@
 id: items-data-collection
 title: Data collection
 summary: A field deployment that opens a map plus editable layers and forms on a phone or tablet, with offline download, sync, and QR / link share.
-category: items
+category: items/field-and-forms
 order: 35
 complexity: basic
 tags:

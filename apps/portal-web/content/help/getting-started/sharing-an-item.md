@@ -18,6 +18,8 @@ related:
 Every item in GratisGIS has a sharing tier. The tier decides who
 can find and open the item.
 
+![Item Share tab with Visibility set to Private, Organization, or Public](/help/getting-started/sharing-an-item-access.png)
+
 Sharing has two layers, and it helps to keep them apart. **Visibility**
 is the broad question of who can find the item at all. **Shares** are
 grants to a named person or group, each with its own permission level.

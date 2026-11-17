@@ -2,7 +2,7 @@
 id: analysis-fishnet
 title: Fishnet
 summary: Generate a regular square grid over a polygon source (filled cells or grid lines). The starting layer for many "binned-by-cell" workflows.
-category: analysis
+category: analysis/generate
 order: 90
 complexity: intermediate
 tags:
@@ -50,6 +50,8 @@ source. Source attributes are dropped. Schema:
 There is no `area_m2` or `bbox` property on this path.
 
 ## How to use it on its own
+![Derived layer recipe with a Fishnet step](/help/analysis/fishnet-analyze-guide.png)
+
 
 1. New-item wizard → **Derived layer**.
 2. Pick a polygon Source (city boundary, study area, etc.).
