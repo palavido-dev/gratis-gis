@@ -14,7 +14,7 @@ How the help catalog is shaped, and why.
    Overlay / Geometry).
 4. **URLs stay stable.** Regroup by changing the `category`
    frontmatter, not by moving files. Slugs come from the file path.
-5. **UI steps get screenshots.** See `SCREENSHOTS.md`.
+5. **UI steps get screenshots.** See `docs/help-screenshots.md` at the repo root.
 
 ## Category map
 
