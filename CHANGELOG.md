@@ -18,6 +18,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   the host environment on every API start, so a database reset does not
   lose it. All of this is off unless configured.
 
+### Changed
+
+- Map point icons regenerated from the installed lucide-react. 85
+  shapes had changed upstream (for example the rounded star), so map
+  symbols now match the same icons elsewhere in the app.
+
 ### Fixed
 
 - Large imports no longer stall on a NAS. The NAS stack capped the
