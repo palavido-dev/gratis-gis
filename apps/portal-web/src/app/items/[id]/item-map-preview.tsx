@@ -7,6 +7,7 @@ import * as maplibregl from 'maplibre-gl';
 import { ensureMapLibreWorker } from '@/lib/maplibre-runtime';
 import type { LayerGeometryType } from '@gratis-gis/shared-types';
 import { useT } from '@/lib/i18n/locale-context';
+import { previewExtent } from '@/lib/preview-extent';
 
 /**
  * Live, pannable preview of a v3 data_layer, as the hero of the item
@@ -62,25 +63,8 @@ interface Props {
   /** The item's updatedAt. When it changes (an import finished, rows
    *  were edited) the preview reloads its tiles. */
   version?: string | undefined;
-}
-
-function unionBbox(
-  layers: PreviewLayer[],
-): [number, number, number, number] | null {
-  let out: [number, number, number, number] | null = null;
-  for (const layer of layers) {
-    const b = layer.bbox;
-    if (!b || b.length !== 4 || b.some((n) => !Number.isFinite(n))) continue;
-    out = out
-      ? [
-          Math.min(out[0], b[0]),
-          Math.min(out[1], b[1]),
-          Math.max(out[2], b[2]),
-          Math.max(out[3], b[3]),
-        ]
-      : [b[0], b[1], b[2], b[3]];
-  }
-  return out;
+  /** The item's own extent, used when no layer carries one. */
+  itemBbox?: unknown;
 }
 
 function tileUrl(itemId: string, layerId: string, version: string): string {
@@ -90,7 +74,7 @@ function tileUrl(itemId: string, layerId: string, version: string): string {
   return version ? `${base}?v=${encodeURIComponent(version)}` : base;
 }
 
-export function ItemMapPreview({ itemId, layers, className, version = '' }: Props) {
+export function ItemMapPreview({ itemId, layers, className, version = '', itemBbox }: Props) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -101,7 +85,10 @@ export function ItemMapPreview({ itemId, layers, className, version = '' }: Prop
 
   // Attribute-only layers have no geometry and nothing to draw.
   const spatial = layers.filter((l) => Boolean(l.geometryType));
-  const bbox = unionBbox(spatial);
+  const bbox = previewExtent(
+    spatial.map((l) => l.bbox),
+    itemBbox,
+  );
 
   // What the map is actually built from, as a primitive. `layers`
   // arrives from a server component, so it is a fresh array on every

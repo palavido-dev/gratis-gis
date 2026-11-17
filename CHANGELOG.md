@@ -37,6 +37,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   instead of sitting at 100% while the rows are saved, which takes a
   few minutes on a large layer. Cancel is hidden for that step, since
   it could no longer stop the import.
+- A data layer's overview map opens on its data. Layers without their
+  own stored extent (every sample layer on the demo) opened on the
+  whole world with the data as a dot; the preview now falls back to
+  the item's extent.
 
 ### Documentation
 
