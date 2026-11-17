@@ -1,0 +1,2409 @@
+{
+  "items": [
+    {
+      "key": "storm-layer",
+      "seedKind": "sample:showcase-storm-layer",
+      "type": "data_layer",
+      "title": "Randolph County storm events",
+      "description": "Severe weather events recorded in Randolph County, West Virginia since 1996, with property damage and casualties. Source: NOAA National Centers for Environmental Information Storm Events Database, retrieved 2026-08-19. Includes both county-attributed and forecast-zone-attributed events; NOAA records a location for some events only, so the map shows fewer points than the totals count. Damage figures are NOAA's own estimates in the dollars of the year they occurred, not inflation-adjusted.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "layers": [
+          {
+            "id": "events",
+            "name": "events",
+            "label": "Storm events",
+            "fields": [
+              {
+                "name": "event_type",
+                "type": "string",
+                "label": "Event type",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "event_date",
+                "type": "string",
+                "label": "Date",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "year",
+                "type": "number",
+                "label": "Year",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "decade",
+                "type": "string",
+                "label": "Decade",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "month",
+                "type": "string",
+                "label": "Month",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "area",
+                "type": "string",
+                "label": "Area",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "area_kind",
+                "type": "string",
+                "label": "Area type",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "source",
+                "type": "string",
+                "label": "Reported by",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "damage_property_usd",
+                "type": "number",
+                "label": "Property damage (USD)",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "injuries",
+                "type": "number",
+                "label": "Injuries",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "deaths",
+                "type": "number",
+                "label": "Deaths",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "magnitude",
+                "type": "number",
+                "label": "Magnitude",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "narrative",
+                "type": "string",
+                "label": "Narrative",
+                "nullable": true,
+                "searchable": true
+              }
+            ],
+            "source": {
+              "note": "driver: GeoJSON",
+              "format": "geojson",
+              "fileName": "storms_clean.geojson",
+              "sizeBytes": 245866,
+              "sourceSrs": "EPSG:4326"
+            },
+            "geometryType": "point",
+            "editingEnabled": false,
+            "attachmentsEnabled": false
+          }
+        ],
+        "version": 3,
+        "storageType": "postgis"
+      },
+      "features": {
+        "events": "storm-events.geojson.gz"
+      }
+    },
+    {
+      "key": "storm-map",
+      "seedKind": "sample:showcase-storm-map",
+      "type": "map",
+      "title": "Randolph County storm events",
+      "description": "Thirty years of severe weather, coloured by recorded property damage. 432 of the 625 events cost nothing at all; a handful cost millions, and those are the ones worth finding on a map.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "zoom": 9.2,
+        "pitch": 0,
+        "center": [
+          -79.85,
+          38.93
+        ],
+        "layers": [
+          {
+            "id": "counties",
+            "popup": {
+              "mode": "all",
+              "fields": [],
+              "enabled": false,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#a8a29e",
+                "width": 0.9,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#a8a29e",
+                "radius": 7,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#fdfcf9",
+                "strokeWidth": 1.3,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#a8a29e",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0,
+                "strokeColor": "#a8a29e",
+                "strokeWidth": 0.9,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "County boundaries",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 12,
+              "color": "#111827",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": false
+            },
+            "source": {
+              "url": "https://atlas.wvgs.wvnet.edu/arcgis/rest/services/Boundaries/Boundaries_Political/MapServer",
+              "kind": "arcgis-rest",
+              "layerId": 4,
+              "serviceType": "MapServer"
+            },
+            "opacity": 0.7,
+            "visible": true,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": false,
+              "editingEnabled": false,
+              "hoverHighlight": false
+            },
+            "legendGeometry": "polygon"
+          },
+          {
+            "id": "events",
+            "popup": {
+              "mode": "fields",
+              "fields": [
+                "event_type",
+                "event_date",
+                "area",
+                "damage_property_usd",
+                "injuries",
+                "deaths",
+                "narrative"
+              ],
+              "enabled": true,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#c9944a",
+                "width": 1,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#c9944a",
+                "radius": 6,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#fdfcf9",
+                "strokeWidth": 1.3,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#c9944a",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0,
+                "strokeColor": "#c9944a",
+                "strokeWidth": 1,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Storm events",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 12,
+              "color": "#111827",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": true
+            },
+            "source": {
+              "kind": "data-layer",
+              "itemId": "{{storm-layer}}",
+              "layerKey": "events"
+            },
+            "opacity": 1,
+            "visible": true,
+            "renderer": {
+              "kind": "class-breaks",
+              "field": "damage_property_usd",
+              "stops": [
+                1,
+                10000,
+                100000,
+                1000000
+              ],
+              "colors": [
+                "#a8a29e",
+                "#7d9471",
+                "#c9944a",
+                "#9c6b2f",
+                "#a8503f"
+              ]
+            },
+            "interactions": {
+              "selectable": true,
+              "editingEnabled": false,
+              "hoverHighlight": true
+            },
+            "legendGeometry": "point"
+          }
+        ],
+        "search": {
+          "enabled": true,
+          "geocoding": true
+        },
+        "basemap": null,
+        "bearing": 0,
+        "version": 1
+      },
+      "features": {}
+    },
+    {
+      "key": "storm-app",
+      "seedKind": "sample:showcase-storm-app",
+      "type": "web_app",
+      "title": "Randolph County Storm Events Dashboard",
+      "description": "Thirty years of severe weather in Randolph County, West Virginia: what happened, when, and what it cost. Built from the storm events data layer with indicator and chart widgets; it is an ordinary web app and can be edited like any other.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "config": {
+          "custom": {
+            "mapId": "{{storm-map}}",
+            "pages": [
+              {
+                "id": "home",
+                "title": "Storm Events",
+                "widgets": [
+                  {
+                    "id": "w_i011",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Recorded events since 1996",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s0",
+                      "aggregate": "count",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 40
+                    }
+                  },
+                  {
+                    "id": "w_i012",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Property damage",
+                      "format": {
+                        "prefix": "$",
+                        "compact": true,
+                        "decimals": 1,
+                        "grouping": true
+                      },
+                      "sourceId": "s0",
+                      "aggregate": "sum",
+                      "valueField": "damage_property_usd",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 49,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 40
+                    }
+                  },
+                  {
+                    "id": "w_i013",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Injuries",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s0",
+                      "aggregate": "sum",
+                      "valueField": "injuries",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 97,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 40
+                    }
+                  },
+                  {
+                    "id": "w_i014",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Deaths",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s0",
+                      "aggregate": "sum",
+                      "valueField": "deaths",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 145,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 40
+                    }
+                  },
+                  {
+                    "id": "w_c015",
+                    "kind": "chart",
+                    "config": {
+                      "kind": "chart",
+                      "title": "Events by type",
+                      "groupBy": "event_type",
+                      "sourceId": "s0",
+                      "aggregate": "count",
+                      "chartType": "bar",
+                      "xAxisLabel": "Event type",
+                      "yAxisLabel": "Events recorded",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 81,
+                      "row": 141,
+                      "colSpan": 112,
+                      "rowSpan": 70
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_c016",
+                    "kind": "chart",
+                    "config": {
+                      "kind": "chart",
+                      "title": "Events by decade",
+                      "groupBy": "decade",
+                      "sourceId": "s0",
+                      "aggregate": "count",
+                      "chartType": "bar-horizontal",
+                      "xAxisLabel": "Decade",
+                      "yAxisLabel": "Events recorded",
+                      "description": "The 1990s covers 1996 onward only.",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 81,
+                      "row": 41,
+                      "colSpan": 56,
+                      "rowSpan": 100
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_c017",
+                    "kind": "chart",
+                    "config": {
+                      "kind": "chart",
+                      "title": "When in the year they happen",
+                      "groupBy": "month",
+                      "sourceId": "s0",
+                      "aggregate": "count",
+                      "chartType": "pie",
+                      "description": "Share of all recorded events by month.",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 137,
+                      "row": 41,
+                      "colSpan": 56,
+                      "rowSpan": 100
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_c018",
+                    "kind": "chart",
+                    "config": {
+                      "kind": "chart",
+                      "title": "Property damage by event type",
+                      "groupBy": "event_type",
+                      "sourceId": "s0",
+                      "aggregate": "sum",
+                      "chartType": "bar",
+                      "valueField": "damage_property_usd",
+                      "xAxisLabel": "Event type",
+                      "yAxisLabel": "Damage (USD)",
+                      "description": "NOAA estimates, in the dollars of the year each event happened.",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 81,
+                      "row": 211,
+                      "colSpan": 112,
+                      "rowSpan": 70
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_m010",
+                    "kind": "map",
+                    "config": {
+                      "kind": "map",
+                      "mapId": "{{storm-map}}",
+                      "showNavigation": true
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 41,
+                      "colSpan": 80,
+                      "rowSpan": 240
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_t019",
+                    "kind": "text",
+                    "config": {
+                      "kind": "text",
+                      "preset": "body",
+                      "markdown": "**Randolph County storm events.** Source: NOAA National Centers for Environmental Information, retrieved 19 August 2026. NOAA records a location for 178 of these 625 events; the rest are attributed to the county or to a forecast zone, so **the map shows fewer points than the counts above**. Damage is NOAA's own estimate in the dollars of the year it happened, not adjusted for inflation."
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 281,
+                      "colSpan": 192,
+                      "rowSpan": 26
+                    }
+                  }
+                ]
+              }
+            ],
+            "header": {
+              "title": "Randolph County Storm Events",
+              "subtitle": "Thirty years of severe weather and what it cost. Source: NOAA National Centers for Environmental Information, 19 August 2026."
+            },
+            "sources": [
+              {
+                "id": "s0",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "events",
+                  "dataLayerId": "{{storm-layer}}"
+                },
+                "followMapWidgetId": "w_m010"
+              }
+            ],
+            "targets": [],
+            "version": 5,
+            "blueprint": "dashboard",
+            "themePresetId": "slate",
+            "refreshSeconds": 60
+          },
+          "template": "custom"
+        },
+        "version": 1,
+        "template": "custom"
+      },
+      "features": {}
+    },
+    {
+      "key": "wells",
+      "seedKind": "sample:showcase-wells",
+      "type": "data_layer",
+      "title": "Marcellus wells (deviated), West Virginia",
+      "description": "2,536 permitted Marcellus wells with a deviated or horizontal bore, the shape gas development takes in this part of the state. Shown alongside the water quality network so a reader can judge for themselves whether the two line up. Source: WV Geological and Economic Survey, 2020-02-06, redistributed by WVU GIS Technical Center.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "layers": [
+          {
+            "id": "wells",
+            "name": "wells",
+            "label": "Wells",
+            "fields": [
+              {
+                "name": "api_number",
+                "type": "string",
+                "label": "API number",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "county",
+                "type": "string",
+                "label": "County",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "operator",
+                "type": "string",
+                "label": "Operator at completion",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "status",
+                "type": "string",
+                "label": "Status",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "well_type",
+                "type": "string",
+                "label": "Well type",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "permit_year",
+                "type": "number",
+                "label": "Permit year",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "spud_year",
+                "type": "number",
+                "label": "Year drilled",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "target_formation",
+                "type": "string",
+                "label": "Target formation",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "depth_ft",
+                "type": "number",
+                "label": "Total depth (ft)",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "elevation_ft",
+                "type": "number",
+                "label": "Surface elevation (ft)",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "initial_gas_mcfd",
+                "type": "number",
+                "label": "Initial gas (Mcf/day)",
+                "nullable": true,
+                "searchable": false
+              }
+            ],
+            "source": {
+              "note": "driver: GeoJSON",
+              "format": "geojson",
+              "fileName": "wells_clean.geojson",
+              "sizeBytes": 1035848,
+              "sourceSrs": "EPSG:4326"
+            },
+            "geometryType": "point",
+            "editingEnabled": false,
+            "attachmentsEnabled": false
+          }
+        ],
+        "version": 3,
+        "storageType": "postgis"
+      },
+      "features": {
+        "wells": "wells.geojson.gz"
+      }
+    },
+    {
+      "key": "wq-layer",
+      "seedKind": "sample:showcase-wq-layer",
+      "type": "data_layer",
+      "title": "West Virginia water quality, 1995 to 2019",
+      "description": "Twenty-five years of water quality monitoring across West Virginia's north-central gas counties: 1,175 sites and 285,788 individual measurements, each carrying the published drinking water limit for what it measured. Health-based limits and aesthetic ones are kept apart, because an iron reading that stains laundry and an arsenic reading that does not are not the same finding. Source: West Virginia GIS Technical Center / West Virginia University, EPA water quality project (data.wvgis.wvu.edu/pub/project/epa_wq), file WQandWell_Data_042020.gdb dated 2020-04-09. Compiled by Maneesh Sharma and colleagues from WVDEP, USGS and partner monitoring programmes.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "layers": [
+          {
+            "id": "sites",
+            "name": "sites",
+            "label": "Monitoring sites",
+            "fields": [
+              {
+                "name": "location_name",
+                "type": "string",
+                "label": "Monitoring site",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "county",
+                "type": "string",
+                "label": "County",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "organization",
+                "type": "string",
+                "label": "Monitoring organization",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "location_type",
+                "type": "string",
+                "label": "Site type",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "media",
+                "type": "string",
+                "label": "Water body type",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "first_year",
+                "type": "number",
+                "label": "First sampled",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "last_year",
+                "type": "number",
+                "label": "Last sampled",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "years_since_sampled",
+                "type": "number",
+                "label": "Years since last sample",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "sample_months",
+                "type": "number",
+                "label": "Months sampled",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "measurements",
+                "type": "number",
+                "label": "Measurements taken",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "worst_standard",
+                "type": "string",
+                "label": "Standard exceeded",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "primary_exceeded",
+                "type": "number",
+                "label": "Health limits exceeded",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "secondary_exceeded",
+                "type": "number",
+                "label": "Aesthetic limits exceeded",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "primary_list",
+                "type": "string",
+                "label": "Which health limits",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "secondary_list",
+                "type": "string",
+                "label": "Which aesthetic limits",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "exceeded_list",
+                "type": "string",
+                "label": "Standards exceeded",
+                "nullable": true,
+                "searchable": true
+              }
+            ],
+            "source": {
+              "note": "driver: GeoJSON",
+              "format": "geojson",
+              "fileName": "sites2.geojson",
+              "sizeBytes": 722472,
+              "sourceSrs": "EPSG:4326"
+            },
+            "geometryType": "point",
+            "editingEnabled": false,
+            "attachmentsEnabled": false
+          },
+          {
+            "id": "measurements",
+            "name": "measurements",
+            "label": "Measurements",
+            "fields": [
+              {
+                "name": "location_name",
+                "type": "string",
+                "label": "Monitoring site",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "county",
+                "type": "string",
+                "label": "County",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "parameter",
+                "type": "string",
+                "label": "What was measured",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "parameter_key",
+                "type": "string",
+                "label": "Source column",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "value",
+                "type": "number",
+                "label": "Measured value",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "unit",
+                "type": "string",
+                "label": "Unit",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "limit_kind",
+                "type": "string",
+                "label": "Kind of limit",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "limit_value",
+                "type": "number",
+                "label": "Limit",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "limit_low",
+                "type": "number",
+                "label": "Lower limit",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "over_limit",
+                "type": "string",
+                "label": "Over the limit",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "year",
+                "type": "number",
+                "label": "Year",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "month",
+                "type": "number",
+                "label": "Month",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "sample_date",
+                "type": "string",
+                "label": "Sampled",
+                "nullable": true,
+                "searchable": false
+              }
+            ],
+            "source": {
+              "note": "driver: GeoJSON",
+              "format": "geojson",
+              "fileName": "measgeo_005.geojson",
+              "sizeBytes": 13744652,
+              "sourceSrs": "EPSG:4326"
+            },
+            "geometryType": "point",
+            "editingEnabled": false,
+            "attachmentsEnabled": false
+          }
+        ],
+        "version": 3,
+        "storageType": "postgis"
+      },
+      "features": {
+        "sites": "wq-sites.geojson.gz",
+        "measurements": "wq-measurements.geojson.gz"
+      }
+    },
+    {
+      "key": "wq-map",
+      "seedKind": "sample:showcase-wq-map",
+      "type": "map",
+      "title": "West Virginia water quality network",
+      "description": "Monitoring sites coloured by the worst drinking water standard they have ever breached, over Marcellus wells for context. Health based limits are kept visually distinct from aesthetic ones: iron that stains a sink and arsenic that does not are not the same finding. Individual measurements are present but switched off, because 285,788 readings stacked on 1,175 locations is a smear until you are zoomed in.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "zoom": 7.6,
+        "pitch": 0,
+        "center": [
+          -80.4,
+          39.56
+        ],
+        "layers": [
+          {
+            "id": "watersheds",
+            "popup": {
+              "mode": "all",
+              "fields": [],
+              "enabled": false,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#7f9bb0",
+                "width": 1,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#7f9bb0",
+                "radius": 4,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#ffffff",
+                "strokeWidth": 1,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#7f9bb0",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0.12,
+                "strokeColor": "#7f9bb0",
+                "strokeWidth": 1,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Watersheds (HUC8)",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 11,
+              "color": "#6b7280",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": false
+            },
+            "source": {
+              "url": "https://appservices.wvgis.wvu.edu/arcgis/rest/services/EPA/WaterQuality_MarcellusArea_WV/MapServer",
+              "kind": "arcgis-rest",
+              "layerId": 5,
+              "serviceType": "MapServer"
+            },
+            "opacity": 0.55,
+            "visible": true,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": false,
+              "editingEnabled": false,
+              "hoverHighlight": false
+            },
+            "legendGeometry": "polygon"
+          },
+          {
+            "id": "counties",
+            "popup": {
+              "mode": "all",
+              "fields": [],
+              "enabled": false,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#a8a29e",
+                "width": 0.8,
+                "dashStyle": "dash"
+              },
+              "point": {
+                "color": "#a8a29e",
+                "radius": 4,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#ffffff",
+                "strokeWidth": 1,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#a8a29e",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0,
+                "strokeColor": "#a8a29e",
+                "strokeWidth": 0.8,
+                "strokeDashStyle": "dash"
+              }
+            },
+            "title": "County boundaries",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 11,
+              "color": "#6b7280",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": false
+            },
+            "source": {
+              "url": "https://atlas.wvgs.wvnet.edu/arcgis/rest/services/Boundaries/Boundaries_Political/MapServer",
+              "kind": "arcgis-rest",
+              "layerId": 4,
+              "serviceType": "MapServer"
+            },
+            "opacity": 0.7,
+            "visible": true,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": false,
+              "editingEnabled": false,
+              "hoverHighlight": false
+            },
+            "legendGeometry": "polygon"
+          },
+          {
+            "id": "state",
+            "popup": {
+              "mode": "all",
+              "fields": [],
+              "enabled": false,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#78716c",
+                "width": 1.6,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#78716c",
+                "radius": 4,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#ffffff",
+                "strokeWidth": 1,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#78716c",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0,
+                "strokeColor": "#78716c",
+                "strokeWidth": 1.6,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "West Virginia",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 11,
+              "color": "#6b7280",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": false
+            },
+            "source": {
+              "url": "https://atlas.wvgs.wvnet.edu/arcgis/rest/services/Boundaries/Boundaries_Political/MapServer",
+              "kind": "arcgis-rest",
+              "layerId": 6,
+              "serviceType": "MapServer"
+            },
+            "opacity": 0.8,
+            "visible": true,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": false,
+              "editingEnabled": false,
+              "hoverHighlight": false
+            },
+            "legendGeometry": "polygon"
+          },
+          {
+            "id": "streams",
+            "popup": {
+              "mode": "all",
+              "fields": [],
+              "enabled": false,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": 12,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#6b93b5",
+                "width": 0.9,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#6b93b5",
+                "radius": 4,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#ffffff",
+                "strokeWidth": 1,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#6b93b5",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0,
+                "strokeColor": "#6b93b5",
+                "strokeWidth": 0.9,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Streams and rivers",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 11,
+              "color": "#6b7280",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": false
+            },
+            "source": {
+              "url": "https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer",
+              "kind": "arcgis-rest",
+              "layerId": 4,
+              "serviceType": "MapServer"
+            },
+            "opacity": 0.75,
+            "visible": true,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": false,
+              "editingEnabled": false,
+              "hoverHighlight": false
+            },
+            "legendGeometry": "line"
+          },
+          {
+            "id": "wells",
+            "popup": {
+              "mode": "fields",
+              "fields": [
+                "api_number",
+                "operator",
+                "county",
+                "spud_year",
+                "target_formation",
+                "depth_ft"
+              ],
+              "enabled": true,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#5c6670",
+                "width": 2,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#5c6670",
+                "radius": 3,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#e8e4dc",
+                "strokeWidth": 0.4,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#5c6670",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0.25,
+                "strokeColor": "#5c6670",
+                "strokeWidth": 1.5,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Marcellus wells",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 12,
+              "color": "#111827",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": true
+            },
+            "source": {
+              "kind": "data-layer",
+              "itemId": "{{wells}}",
+              "layerKey": "wells"
+            },
+            "opacity": 0.55,
+            "visible": true,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": true,
+              "editingEnabled": false,
+              "hoverHighlight": true
+            },
+            "legendGeometry": "point"
+          },
+          {
+            "id": "measurements",
+            "popup": {
+              "mode": "fields",
+              "fields": [
+                "location_name",
+                "parameter",
+                "value",
+                "unit",
+                "limit_value",
+                "over_limit",
+                "sample_date"
+              ],
+              "enabled": true,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": 11,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#5c6670",
+                "width": 2,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#5c6670",
+                "radius": 2,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#ffffff",
+                "strokeWidth": 0,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#5c6670",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0.25,
+                "strokeColor": "#5c6670",
+                "strokeWidth": 1.5,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Individual measurements",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 12,
+              "color": "#111827",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": true
+            },
+            "source": {
+              "kind": "data-layer",
+              "itemId": "{{wq-layer}}",
+              "layerKey": "measurements"
+            },
+            "opacity": 0.35,
+            "visible": false,
+            "renderer": {
+              "kind": "simple"
+            },
+            "interactions": {
+              "selectable": true,
+              "editingEnabled": false,
+              "hoverHighlight": true
+            },
+            "legendGeometry": "point"
+          },
+          {
+            "id": "sites",
+            "popup": {
+              "mode": "fields",
+              "fields": [
+                "location_name",
+                "county",
+                "organization",
+                "worst_standard",
+                "primary_list",
+                "secondary_list",
+                "first_year",
+                "last_year",
+                "sample_months",
+                "measurements"
+              ],
+              "enabled": true,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#7d9471",
+                "width": 2,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "color": "#7d9471",
+                "radius": 7,
+                "symbol": "circle",
+                "iconName": "",
+                "iconSize": 1,
+                "iconTint": true,
+                "strokeColor": "#fdfcf9",
+                "strokeWidth": 1.4,
+                "backgroundFill": "#ffffff",
+                "backgroundShape": "none",
+                "backgroundStrokeColor": "#111827",
+                "backgroundStrokeWidth": 1.5
+              },
+              "polygon": {
+                "fillColor": "#7d9471",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0.25,
+                "strokeColor": "#7d9471",
+                "strokeWidth": 1.5,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Monitoring sites",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 12,
+              "color": "#111827",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": true
+            },
+            "source": {
+              "kind": "data-layer",
+              "itemId": "{{wq-layer}}",
+              "layerKey": "sites"
+            },
+            "opacity": 1,
+            "visible": true,
+            "renderer": {
+              "kind": "unique-values",
+              "field": "worst_standard",
+              "categories": [
+                {
+                  "color": "#a8503f",
+                  "value": "Health limit exceeded"
+                },
+                {
+                  "color": "#c9944a",
+                  "value": "Aesthetic limit exceeded"
+                },
+                {
+                  "color": "#7d9471",
+                  "value": "Within all limits"
+                }
+              ]
+            },
+            "interactions": {
+              "selectable": true,
+              "editingEnabled": false,
+              "hoverHighlight": true
+            },
+            "legendGeometry": "point"
+          }
+        ],
+        "search": {
+          "enabled": true,
+          "geocoding": true
+        },
+        "basemap": null,
+        "bearing": 0,
+        "version": 1
+      },
+      "features": {}
+    },
+    {
+      "key": "wq-app",
+      "seedKind": "sample:showcase-wq-app",
+      "type": "web_app",
+      "title": "Twenty-five years of West Virginia water quality",
+      "description": "1,175 monitoring sites and 285,788 measurements from the gas counties of north-central West Virginia, 1995 to 2019, each reading compared to its published drinking water limit. The counters and charts follow the map: pan or zoom and every number re-answers for what is on screen. Source: WVU GIS Technical Center / EPA water quality project.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "config": {
+          "custom": {
+            "mapId": "{{wq-map}}",
+            "pages": [
+              {
+                "id": "home",
+                "title": "Water quality",
+                "widgets": [
+                  {
+                    "id": "w_i1",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Monitoring sites in view",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s_sites",
+                      "aggregate": "count",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 38
+                    }
+                  },
+                  {
+                    "id": "w_i2",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Measurements taken there",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s_meas",
+                      "aggregate": "count",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 49,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 38
+                    }
+                  },
+                  {
+                    "id": "w_i3",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Sites over a HEALTH limit",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s_health",
+                      "aggregate": "count",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 97,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 38
+                    }
+                  },
+                  {
+                    "id": "w_i4",
+                    "kind": "indicator",
+                    "config": {
+                      "kind": "indicator",
+                      "label": "Sites not sampled since 2015",
+                      "format": {
+                        "grouping": true
+                      },
+                      "sourceId": "s_quiet",
+                      "aggregate": "count",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 145,
+                      "row": 1,
+                      "colSpan": 48,
+                      "rowSpan": 38
+                    }
+                  },
+                  {
+                    "id": "w_map",
+                    "kind": "map",
+                    "config": {
+                      "kind": "map",
+                      "mapId": "{{wq-map}}",
+                      "showLegend": true,
+                      "showLayerList": true
+                    },
+                    "layout": {
+                      "col": 32,
+                      "row": 39,
+                      "colSpan": 87,
+                      "rowSpan": 150
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_exceed",
+                    "kind": "chart",
+                    "config": {
+                      "kind": "chart",
+                      "title": "Sites over the limit, by what was measured",
+                      "groupBy": "parameter",
+                      "sourceId": "s_over",
+                      "aggregate": "countDistinct",
+                      "chartType": "bar-horizontal",
+                      "valueField": "location_name",
+                      "xAxisLabel": "Measured",
+                      "yAxisLabel": "Sites over the limit",
+                      "description": "Distinct SITES, not readings: one creek sampled monthly for a decade is one site. Ochre is an aesthetic standard (taste, odour, staining); red is a health-based one. Click a bar to show those sites on the map. Iron, aluminium and manganese are the signature of acid mine drainage. Barium and radium would indicate gas brine, and are near zero.",
+                      "targetIndex": 0,
+                      "categoryColors": {
+                        "pH": "#c9944a",
+                        "Iron": "#c9944a",
+                        "Barium": "#a8503f",
+                        "Arsenic": "#a8503f",
+                        "Mercury": "#a8503f",
+                        "Nitrate": "#a8503f",
+                        "Sulfate": "#c9944a",
+                        "Aluminum": "#c9944a",
+                        "Chloride": "#c9944a",
+                        "Fluoride": "#a8503f",
+                        "Selenium": "#a8503f",
+                        "Manganese": "#c9944a",
+                        "Radium 226": "#a8503f",
+                        "Radium 228": "#a8503f",
+                        "Gross uranium": "#a8503f",
+                        "Alpha particle": "#a8503f",
+                        "Total dissolved solids": "#c9944a"
+                      },
+                      "selectionTarget": {
+                        "op": "contains",
+                        "field": "exceeded_list",
+                        "sourceId": "s_sites"
+                      }
+                    },
+                    "layout": {
+                      "col": 121,
+                      "row": 39,
+                      "colSpan": 72,
+                      "rowSpan": 150
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_years",
+                    "kind": "chart",
+                    "config": {
+                      "kind": "chart",
+                      "title": "Has anyone been looking? (statewide)",
+                      "groupBy": "year",
+                      "sourceId": "s_meas_all",
+                      "aggregate": "countDistinct",
+                      "chartType": "line",
+                      "valueField": "location_name",
+                      "xAxisLabel": "Year",
+                      "yAxisLabel": "Sites sampled",
+                      "description": "Distinct sites sampled each year, across the whole study area. This one does not follow the map: the story is the twenty-five year arc, and at most zoom levels the yearly counts are too thin to show it. Monitoring peaked at 325 sites in 2010 and had fallen to 53 by 2018.",
+                      "targetIndex": 0,
+                      "categoryColors": {}
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 191,
+                      "colSpan": 96,
+                      "rowSpan": 116
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_iron",
+                    "kind": "chart",
+                    "config": {
+                      "bin": {
+                        "mode": "edges",
+                        "edges": [
+                          0.05,
+                          0.1,
+                          0.3,
+                          1,
+                          3,
+                          10,
+                          30
+                        ],
+                        "field": "value"
+                      },
+                      "kind": "chart",
+                      "title": "How much iron, actually",
+                      "sourceId": "s_iron",
+                      "aggregate": "count",
+                      "chartType": "bar",
+                      "xAxisLabel": "Iron (mg/L)",
+                      "yAxisLabel": "Readings",
+                      "description": "Every iron reading, by concentration. The limit is a secondary standard: staining and taste, not health. Ranges widen because the values span four orders of magnitude.",
+                      "targetIndex": 0,
+                      "categoryColors": {
+                        "1 to 3": "#c9944a",
+                        "3 to 10": "#c9944a",
+                        "0.3 to 1": "#c9944a",
+                        "10 to 30": "#c9944a",
+                        "30 and up": "#c9944a",
+                        "0.1 to 0.3": "#7d9471",
+                        "under 0.05": "#7d9471",
+                        "0.05 to 0.1": "#7d9471"
+                      },
+                      "referenceLines": [
+                        {
+                          "axis": "category",
+                          "label": "limit 0.3 mg/L",
+                          "value": 0.3,
+                          "goodWhen": "below"
+                        }
+                      ]
+                    },
+                    "layout": {
+                      "col": 97,
+                      "row": 191,
+                      "colSpan": 96,
+                      "rowSpan": 116
+                    },
+                    "allowMaximize": true
+                  },
+                  {
+                    "id": "w_legend",
+                    "kind": "legend",
+                    "config": {
+                      "kind": "legend",
+                      "mapWidgetId": "w_map"
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 39,
+                      "colSpan": 30,
+                      "rowSpan": 150
+                    }
+                  },
+                  {
+                    "id": "w_ugsrfqel",
+                    "kind": "filter",
+                    "config": {
+                      "kind": "filter",
+                      "field": "organization",
+                      "targetIndex": 0
+                    },
+                    "layout": {
+                      "col": 35,
+                      "row": 49,
+                      "colSpan": 30,
+                      "rowSpan": 20
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "about",
+                "title": "About the data",
+                "widgets": [
+                  {
+                    "id": "w_about",
+                    "kind": "text",
+                    "config": {
+                      "kind": "text",
+                      "preset": "body",
+                      "markdown": "### What this shows\n\nEvery water quality measurement taken at 1,175 sites across West\nVirginia's north-central gas counties between 1995 and 2019, compared\nto the published drinking water limit for what was measured.\n\n### The finding\n\nIn counties chosen for study **because** of Marcellus gas development,\nthe water quality problem the data actually shows is **iron,\naluminium, manganese and acidity**. That is the signature of acid mine\ndrainage from a century of coal, not of gas brine. Iron is over its\nlimit at 862 of the 982 sites where it was measured; aluminium at 692\nof 865; manganese at 613 of 792.\n\nThe parameters that would indicate produced water from gas operations\nare almost never over their limits: barium at 1 site of 239, chloride\nat 54 of 832, radium-226 and radium-228 at none at all.\n\n### Two things that must travel with that\n\n**The gas indicators were measured far less.** Barium was tested at\n239 sites against iron's 982; radium at 30; gross uranium at 30. You\ncannot conclude much from 30 sites, and a green zero should not be\nread as an all-clear.\n\n**These are mostly streams.** Surface water dilutes. The groundwater\nthat people actually drink from private wells is a small slice of this\ndataset.\n\n### Health limits versus aesthetic ones\n\nA primary standard is health based. A secondary standard is about\ntaste, odour and staining. Iron, manganese, aluminium, sulfate,\nchloride, total dissolved solids and pH are **secondary**: 1,003 sites\nexceed one, and that mostly means discoloured water and stained\nfixtures. Only **3 sites** have ever exceeded a health-based limit.\nThe two are never added together here.\n\n### Has anyone been looking\n\nMonitoring peaked at 325 sites in 2010 and had fallen to 53 by 2018.\n**861 of the 1,175 sites have not been sampled since 2015.** For many\npeople the most useful thing this map can tell them is that nobody has\nmeasured anything near them in a decade.\n\n### Source\n\nWest Virginia GIS Technical Center / West Virginia University, EPA\nwater quality project, file `WQandWell_Data_042020.gdb` dated\n2020-04-09, compiled from WVDEP, USGS and partner monitoring\nprogrammes. Marcellus wells from the WV Geological and Economic\nSurvey, 2020-02-06. Redistributed as-is with attribution; no license\nasserted by the publishers.\n\nContaminant limits are the ones published in the source's own\nparameter table. Where a standard is a range (pH 6.5 to 8.5,\naluminium 0.05 to 0.2 mg/L) the operative bound is used.\n"
+                    },
+                    "layout": {
+                      "col": 1,
+                      "row": 1,
+                      "colSpan": 192,
+                      "rowSpan": 300
+                    }
+                  }
+                ]
+              }
+            ],
+            "header": {
+              "title": "Twenty-five years of West Virginia water quality",
+              "subtitle": "1,175 sites, 285,788 measurements, 1995 to 2019. Health-based limits are counted separately from aesthetic ones."
+            },
+            "sources": [
+              {
+                "id": "s_sites",
+                "label": "Monitoring sites",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "sites",
+                  "dataLayerId": "{{wq-layer}}"
+                },
+                "followMapWidgetId": "w_map"
+              },
+              {
+                "id": "s_meas",
+                "via": {
+                  "myField": "location_name",
+                  "sourceId": "s_sites",
+                  "parentField": "location_name"
+                },
+                "label": "Measurements at those sites",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "measurements",
+                  "dataLayerId": "{{wq-layer}}"
+                },
+                "followMapWidgetId": "w_map"
+              },
+              {
+                "id": "s_health",
+                "label": "Sites over a health limit",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "sites",
+                  "dataLayerId": "{{wq-layer}}"
+                },
+                "where": {
+                  "clauses": [
+                    {
+                      "op": ">",
+                      "field": "primary_exceeded",
+                      "value": "0"
+                    }
+                  ],
+                  "combinator": "all"
+                },
+                "followMapWidgetId": "w_map"
+              },
+              {
+                "id": "s_quiet",
+                "label": "Sites not sampled since 2015",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "sites",
+                  "dataLayerId": "{{wq-layer}}"
+                },
+                "where": {
+                  "clauses": [
+                    {
+                      "op": "<",
+                      "field": "last_year",
+                      "value": "2015"
+                    }
+                  ],
+                  "combinator": "all"
+                },
+                "followMapWidgetId": "w_map"
+              },
+              {
+                "id": "s_over",
+                "via": {
+                  "myField": "location_name",
+                  "sourceId": "s_sites",
+                  "parentField": "location_name"
+                },
+                "label": "Readings over their limit",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "measurements",
+                  "dataLayerId": "{{wq-layer}}"
+                },
+                "where": {
+                  "clauses": [
+                    {
+                      "op": "==",
+                      "field": "over_limit",
+                      "value": "Yes"
+                    }
+                  ],
+                  "combinator": "all"
+                }
+              },
+              {
+                "id": "s_iron",
+                "via": {
+                  "myField": "location_name",
+                  "sourceId": "s_sites",
+                  "parentField": "location_name"
+                },
+                "label": "Iron readings",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "measurements",
+                  "dataLayerId": "{{wq-layer}}"
+                },
+                "where": {
+                  "clauses": [
+                    {
+                      "op": "==",
+                      "field": "parameter",
+                      "value": "Iron"
+                    }
+                  ],
+                  "combinator": "all"
+                }
+              },
+              {
+                "id": "s_meas_all",
+                "label": "All measurements (statewide)",
+                "layer": {
+                  "editable": false,
+                  "layerKey": "measurements",
+                  "dataLayerId": "{{wq-layer}}"
+                }
+              }
+            ],
+            "targets": [
+              {
+                "editable": false,
+                "layerKey": "sites",
+                "dataLayerId": "{{wq-layer}}"
+              },
+              {
+                "editable": false,
+                "layerKey": "measurements",
+                "dataLayerId": "{{wq-layer}}"
+              },
+              {
+                "editable": false,
+                "layerKey": "sites",
+                "dataLayerId": "{{wq-layer}}"
+              },
+              {
+                "editable": false,
+                "layerKey": "sites",
+                "dataLayerId": "{{wq-layer}}"
+              },
+              {
+                "editable": false,
+                "layerKey": "measurements",
+                "dataLayerId": "{{wq-layer}}"
+              },
+              {
+                "editable": false,
+                "layerKey": "measurements",
+                "dataLayerId": "{{wq-layer}}"
+              },
+              {
+                "editable": false,
+                "layerKey": "measurements",
+                "dataLayerId": "{{wq-layer}}"
+              }
+            ],
+            "version": 5,
+            "blueprint": "dashboard",
+            "themePresetId": "default",
+            "refreshSeconds": 0
+          },
+          "template": "custom"
+        },
+        "version": 1,
+        "template": "custom"
+      },
+      "features": {}
+    },
+    {
+      "key": "buildings",
+      "seedKind": "sample:showcase-buildings",
+      "type": "data_layer",
+      "title": "Elkins buildings with lidar heights",
+      "description": "Every mapped building in and around Elkins, West Virginia, carrying a height measured from 2018 lidar. The lidar is not building-classified, so heights are not read from the file: they are the 90th percentile of a max-return surface minus a ground surface, sampled inside each footprint. The percentile rather than the maximum because footprints in a small town abut tree canopy and one overhanging limb should not decide how tall a building is. Treat the numbers as good relative heights rather than survey measurements. Footprints too small to cover a raster cell keep a nominal 4 m and are marked 'assumed' so they can be told apart. Built to demonstrate 3D extrusion on open data. Building footprints: \u00a9 OpenStreetMap contributors, ODbL. Heights derived from public-domain 2018 lidar.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "layers": [
+          {
+            "id": "buildings",
+            "name": "buildings",
+            "label": "Buildings",
+            "fields": [
+              {
+                "name": "osm_id",
+                "type": "string",
+                "label": "OpenStreetMap ID",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "name",
+                "type": "string",
+                "label": "Name",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "building",
+                "type": "string",
+                "label": "Building type",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "address",
+                "type": "string",
+                "label": "Address",
+                "nullable": true,
+                "searchable": true
+              },
+              {
+                "name": "height_m",
+                "type": "number",
+                "label": "Height (m)",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "height_source",
+                "type": "string",
+                "label": "Height source",
+                "nullable": true,
+                "searchable": false
+              },
+              {
+                "name": "lidar_cells",
+                "type": "number",
+                "label": "Lidar cells sampled",
+                "nullable": true,
+                "searchable": false
+              }
+            ],
+            "source": {
+              "note": "driver: GeoJSON",
+              "format": "geojson",
+              "fileName": "elkins_buildings.geojson",
+              "sizeBytes": 1830097,
+              "sourceSrs": "EPSG:4326"
+            },
+            "geometryType": "polygon",
+            "editingEnabled": false,
+            "attachmentsEnabled": false
+          }
+        ],
+        "version": 3,
+        "storageType": "postgis"
+      },
+      "features": {
+        "buildings": "buildings.geojson.gz"
+      }
+    },
+    {
+      "key": "elkins-map",
+      "seedKind": "sample:showcase-elkins-map",
+      "type": "map",
+      "title": "Elkins in 3D (map)",
+      "description": "Every mapped building in Elkins, West Virginia, standing at a height measured from 2018 lidar rather than guessed. Tilt and rotate to read the town's shape: the courthouse block and the Davis and Elkins campus rise out of a two-storey downtown. Colour repeats the height so the map still reads looking straight down. Built entirely from open data and the portal's own tools. The lidar hillshade raster is not included in this sample (about 56 MB).",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "zoom": 15.6,
+        "pitch": 55,
+        "center": [
+          -79.8474,
+          38.9243
+        ],
+        "layers": [
+          {
+            "id": "buildings",
+            "popup": {
+              "mode": "fields",
+              "fields": [
+                "name",
+                "address",
+                "building",
+                "height_m",
+                "height_source"
+              ],
+              "enabled": true,
+              "bodyTemplate": "",
+              "titleTemplate": ""
+            },
+            "scale": {
+              "maxZoom": null,
+              "minZoom": null,
+              "labelsMaxZoom": null,
+              "labelsMinZoom": null,
+              "scaleWithZoom": true
+            },
+            "style": {
+              "line": {
+                "cap": "round",
+                "join": "round",
+                "color": "#8d8471",
+                "width": 2,
+                "dashStyle": "solid"
+              },
+              "point": {
+                "size": 6,
+                "color": "#8d8471",
+                "shape": "circle",
+                "opacity": 1,
+                "strokeColor": "#ffffff",
+                "strokeWidth": 1
+              },
+              "polygon": {
+                "extrusion": {
+                  "base": 0,
+                  "enabled": true,
+                  "heightField": "height_m",
+                  "heightMultiplier": 1
+                },
+                "fillColor": "#8d8471",
+                "strokeCap": "round",
+                "strokeJoin": "round",
+                "fillOpacity": 0.92,
+                "strokeColor": "#4a4437",
+                "strokeWidth": 0.4,
+                "strokeDashStyle": "solid"
+              }
+            },
+            "title": "Buildings by height",
+            "access": {
+              "policy": "inherit",
+              "entries": []
+            },
+            "filter": null,
+            "labels": {
+              "size": 12,
+              "color": "#111827",
+              "anchor": "top",
+              "enabled": false,
+              "offsetX": 0,
+              "offsetY": 1.1,
+              "template": "",
+              "haloColor": "#ffffff",
+              "haloWidth": 1.5,
+              "placement": "auto"
+            },
+            "search": {
+              "fields": [],
+              "enabled": true
+            },
+            "source": {
+              "kind": "data-layer",
+              "itemId": "{{buildings}}",
+              "layerKey": "buildings"
+            },
+            "opacity": 1,
+            "visible": true,
+            "renderer": {
+              "kind": "class-breaks",
+              "field": "height_m",
+              "stops": [
+                5,
+                8,
+                12,
+                18
+              ],
+              "colors": [
+                "#6b705c",
+                "#8d8471",
+                "#b09a7d",
+                "#cbb08a",
+                "#e8d6b3"
+              ]
+            },
+            "interactions": {
+              "selectable": true,
+              "editingEnabled": false,
+              "hoverHighlight": true
+            }
+          }
+        ],
+        "search": {
+          "enabled": true,
+          "geocoding": true
+        },
+        "basemap": null,
+        "bearing": -28,
+        "version": 1
+      },
+      "features": {}
+    },
+    {
+      "key": "elkins-app",
+      "seedKind": "sample:showcase-elkins-app",
+      "type": "web_app",
+      "title": "Elkins in 3D",
+      "description": "Every mapped building in Elkins, West Virginia, standing at a height measured from 2018 lidar rather than guessed. Tilt and rotate to read the town's shape. Colour repeats the height so the map still reads looking straight down. Click any building for its height and where that height came from.",
+      "tags": [
+        "sample",
+        "showcase"
+      ],
+      "access": "public",
+      "data": {
+        "config": {
+          "viewer": {
+            "mapId": "{{elkins-map}}",
+            "tools": [
+              "select",
+              "query",
+              "attribute-table",
+              "legend",
+              "print"
+            ],
+            "targets": [
+              {
+                "layerKey": "buildings",
+                "dataLayerId": "{{buildings}}"
+              }
+            ],
+            "version": 1
+          },
+          "template": "viewer"
+        },
+        "version": 1,
+        "template": "viewer"
+      },
+      "features": {}
+    }
+  ]
+}

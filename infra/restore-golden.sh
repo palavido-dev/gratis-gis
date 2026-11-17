@@ -28,7 +28,8 @@
 # `PORTAL_PUBLIC_TESTING` is truthy. Without that gate, a stray cron
 # trigger on a normal-use deploy would silently destroy real data.
 #
-# Brief downtime: ~30 - 60 seconds. The script stops app services,
+# Downtime: about 20 minutes on the demo (the observation GIN index
+# rebuild alone is 15 to 20). The script stops app services,
 # wipes the live DBs and the live MinIO volume, restores from the
 # snapshot, and restarts services. Caddy stays up the entire time,
 # so users see a brief 502 (which Caddy returns as its own polite
@@ -322,6 +323,13 @@ for svc in "${RUNNING_SERVICES[@]}"; do
   done
   [[ -n "$exempt" ]] || APP_SERVICES+=("$svc")
 done
+# An empty list would make `dc stop` (and the EXIT trap's `dc start`)
+# act on every service, including postgres, caddy and anything an
+# operator stopped on purpose.
+if [[ ${#APP_SERVICES[@]} -eq 0 ]]; then
+  echo "No app services are running; nothing to reset. Start the stack first." >&2
+  exit 1
+fi
 
 # Start only the named services that actually exist here, so the
 # ordered startup below is subject to the same rule as the sweep.
@@ -374,6 +382,13 @@ bring_app_back_up() {
   exit "$rc"
 }
 trap bring_app_back_up EXIT
+
+# The helper image for the volume steps is pulled now, while nothing
+# is stopped. The nightly image prune removes it (no container uses
+# it), and a failed pull after the databases were replaced left the
+# demo half restored.
+docker image inspect alpine:3.20 >/dev/null 2>&1 || docker pull -q alpine:3.20 >/dev/null \
+  || { echo "FATAL: could not pull alpine:3.20; nothing was stopped." >&2; exit 1; }
 
 echo "=== Stopping app services ==="
 echo "    ${APP_SERVICES[*]}"
@@ -506,7 +521,7 @@ echo "=== Restarting app services ==="
 # Give minio + postgres a couple of seconds to settle before app
 # services start hitting them.
 sleep 3
-start_if_present keycloak pg_tileserv
+start_if_present keycloak
 sleep 5  # Keycloak boot is slower than postgres / minio.
 start_if_present portal-web portal-worker pointcloud-worker portal-api
 
@@ -515,7 +530,7 @@ start_if_present portal-web portal-worker pointcloud-worker portal-api
 # the portal, and nothing above depends on them. Computed as a set
 # difference so a service added to compose later comes back up without
 # anyone editing this line.
-STARTED=(keycloak pg_tileserv portal-web portal-worker pointcloud-worker portal-api)
+STARTED=(keycloak portal-web portal-worker pointcloud-worker portal-api)
 REMAINING=()
 for svc in "${APP_SERVICES[@]}"; do
   done_already=
@@ -561,15 +576,18 @@ echo "=== Reconciling Keycloak realm (native clients + offline_access) ==="
 
 # Wait up to 60s for Keycloak's admin endpoint to be responsive
 # after the restart above.
+# kcadm reads the password from KC_CLI_PASSWORD. `-e KC_CLI_PASSWORD`
+# with no value copies it from this shell, so the master-realm password
+# never appears on a command line that `ps` shows.
 kc_wait() {
   local i
+  export KC_CLI_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"
   for i in $(seq 1 30); do
-    if docker exec "$KEYCLOAK_CONTAINER" \
+    if docker exec -e KC_CLI_PASSWORD "$KEYCLOAK_CONTAINER" \
         /opt/keycloak/bin/kcadm.sh config credentials \
           --server http://localhost:8080 \
           --realm master \
-          --user "$KEYCLOAK_ADMIN" \
-          --password "$KEYCLOAK_ADMIN_PASSWORD" >/dev/null 2>&1; then
+          --user "$KEYCLOAK_ADMIN" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -643,6 +661,35 @@ json.dump(client, sys.stdout)
     rm -f /tmp/gg-field-app-update.json
   fi
 
+  # --- qgis-plugin: loopback redirect needs a port separator ---
+  # (see deploy.sh for why; portal-api cannot do it itself)
+  GG_QGIS_CID="$(kc_client_id qgis-plugin)"
+  if [[ -n "$GG_QGIS_CID" ]]; then
+    if KC get "clients/$GG_QGIS_CID" -r gratis-gis --fields redirectUris 2>/dev/null \
+        | python3 -c '
+import json, sys
+open_loopback = {"http://127.0.0.1*", "https://127.0.0.1*", "http://localhost*", "https://localhost*"}
+cur = json.load(sys.stdin).get("redirectUris") or []
+nxt = [u for u in cur if u not in open_loopback]
+for u in ("gratisgis-qgis://auth-callback", "http://127.0.0.1:*"):
+    if u not in nxt:
+        nxt.append(u)
+if nxt == cur:
+    sys.exit(3)
+json.dump({"redirectUris": nxt}, sys.stdout)
+' > /tmp/gg-qgis-update.json; then
+      docker cp /tmp/gg-qgis-update.json "$KEYCLOAK_CONTAINER:/tmp/gg-qgis-update.json"
+      if KC update "clients/$GG_QGIS_CID" -r gratis-gis -f /tmp/gg-qgis-update.json; then
+        echo "qgis-plugin redirect list reconciled."
+      else
+        echo "WARN: qgis-plugin client update failed; check kcadm output above." >&2
+      fi
+    else
+      echo "qgis-plugin redirect list already tight (or could not be read)."
+    fi
+    rm -f /tmp/gg-qgis-update.json
+  fi
+
   # --- realm: offline session idle timeout (30 days, pinned) ---
   if KC update realms/gratis-gis -s offlineSessionIdleTimeout=2592000; then
     echo "offlineSessionIdleTimeout pinned to 30 days."
@@ -650,18 +697,81 @@ json.dump(client, sys.stdout)
     echo "WARN: realm offlineSessionIdleTimeout update failed." >&2
   fi
 
+  # --- user profile: declare org and org_role ---
+  # Keycloak 26 drops user attributes the user-profile schema does not
+  # declare, and the realm import does not carry that schema. Without
+  # this, an invited user loses org / org_role and every sign-in 401s
+  # with "JWT is missing required org claim". The NAS bootstrap does
+  # the same on every start. Idempotent.
+  GG_PROFILE="$(KC get users/profile -r gratis-gis 2>/dev/null || true)"
+  GG_PROFILE_RC=0
+  GG_PATCHED="$(printf '%s' "$GG_PROFILE" \
+    | python3 "$INFRA_DIR/keycloak/patch-user-profile-via-docker.py" --filter 2>/dev/null)" \
+    || GG_PROFILE_RC=$?
+  if [[ -z "$GG_PROFILE" ]]; then
+    echo "WARN: could not read the user-profile schema." >&2
+  elif [[ "$GG_PROFILE_RC" -eq 3 ]]; then
+    echo "User-profile schema already declares org and org_role."
+  elif [[ "$GG_PROFILE_RC" -eq 0 ]] \
+      && printf '%s' "$GG_PATCHED" | docker exec -i "$KEYCLOAK_CONTAINER" \
+        /opt/keycloak/bin/kcadm.sh update users/profile -r gratis-gis -f - >/dev/null; then
+    echo "User-profile schema now declares org and org_role."
+  else
+    echo "WARN: could not update the user-profile schema." >&2
+  fi
+  # The import may already have dropped them from the first admin.
+  GG_ADMIN_ROW="$(KC get users -r gratis-gis -q username=admin -q exact=true \
+      --fields id,attributes 2>/dev/null \
+    | python3 -c 'import sys,json
+rows = json.load(sys.stdin)
+if rows:
+    attrs = rows[0].get("attributes") or {}
+    print(rows[0]["id"], "has-org" if attrs.get("org") else "no-org")' 2>/dev/null || true)"
+  if [[ "$GG_ADMIN_ROW" == *" no-org" ]]; then
+    if KC update "users/${GG_ADMIN_ROW%% *}" -r gratis-gis \
+        -s "attributes.org=[\"${DEFAULT_ORG_SLUG:-gratis-gis}\"]" \
+        -s 'attributes.org_role=["admin"]' >/dev/null 2>&1; then
+      echo "Restored org and org_role on the admin user."
+    else
+      echo "WARN: could not restore org and org_role on the admin user." >&2
+    fi
+  fi
+
+  # --- offline_access on the realm's default role ---
+  # The realm template names `viewer` as the default role, and viewer
+  # does not carry offline_access, so a user created after the import
+  # (an admin invite, or anyone on a fresh install) could not sign in
+  # to the field app or QGIS: "Offline tokens not allowed for the user
+  # or client". Adding offline_access to the default role covers every
+  # user who holds it, including future ones. Idempotent.
+  GG_DEFAULT_ROLE="$(KC get realms/gratis-gis --fields defaultRole 2>/dev/null \
+    | python3 -c 'import sys,json; print((json.load(sys.stdin).get("defaultRole") or {}).get("name",""))' \
+      2>/dev/null || true)"
+  if [[ -n "$GG_DEFAULT_ROLE" ]] \
+      && KC add-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --rolename offline_access >/dev/null 2>&1; then
+    echo "Default role $GG_DEFAULT_ROLE includes offline_access."
+  else
+    echo "WARN: could not add offline_access to the default role${GG_DEFAULT_ROLE:+ $GG_DEFAULT_ROLE}." >&2
+  fi
+
   # --- offline_access for every restored realm user ---
   echo "Granting offline_access to every realm user..."
-  KC get users -r gratis-gis --fields username --offset 0 --limit 200 \
-      2>/dev/null \
-    | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
-    | while read -r username; do
-        if [[ -z "$username" ]]; then continue; fi
-        KC add-roles -r gratis-gis --uusername "$username" \
-            --rolename offline_access >/dev/null 2>&1 \
-          && echo "  + $username" \
-          || echo "  = $username (already had role)"
-      done
+  GG_KC_OFFSET=0
+  while :; do
+    GG_KC_PAGE="$(KC get users -r gratis-gis --fields username \
+        --offset "$GG_KC_OFFSET" --limit 100 2>/dev/null \
+      | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
+        2>/dev/null || true)"
+    [[ -n "$GG_KC_PAGE" ]] || break
+    while read -r username; do
+      if [[ -z "$username" ]]; then continue; fi
+      KC add-roles -r gratis-gis --uusername "$username" \
+          --rolename offline_access >/dev/null 2>&1 \
+        && echo "  + $username" \
+        || echo "  = $username (already had role)"
+    done <<< "$GG_KC_PAGE"
+    GG_KC_OFFSET=$((GG_KC_OFFSET + 100))
+  done
 
   # --- portal-api-admin: portal-admin identity for snapshot tooling ---
   # Mirrors the same block in deploy.sh (see the rationale there).
@@ -774,22 +884,27 @@ if [[ -n "$FEEDBACK_CARRY" && -s "$FEEDBACK_CARRY" ]]; then
 
   if [[ -z "$FB_READY" ]]; then
     echo "WARN: feedback table never appeared; carried rows left at $FEEDBACK_CARRY on the host." >&2
-  # TRUNCATE first so rows baked into golden do not collide with the
-  # carried set on the primary key. The carried set is authoritative:
-  # it was read from the live table, so it is a superset of golden's.
+  # The carried set is authoritative: it was read from the live table,
+  # so it is a superset of golden's. It replaces golden's rows.
   #
   # user_id / handled_by_id reference the `user` table, which the
   # restore just replaced. A reporter whose account no longer exists
   # in golden would break the FK, so those columns are nulled for any
   # id that did not survive. The report is what matters; attribution
-  # is a nicety, and the schema already models it as optional for
-  # exactly this reason.
+  # is a nicety, and the schema already models it as optional.
+  #
+  # Staging table, repaired before the insert, all in one transaction
+  # (-1). Before, TRUNCATE committed on its own and the COPY then
+  # failed on the FK (it is checked before the repair could run), so
+  # one orphan row wiped every stored report.
   elif docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$GG_FB_PG" \
-       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 \
+       psql -U gratisgis -d "$POSTGRES_DB_APP" -v ON_ERROR_STOP=1 -1 \
+       -c "CREATE TEMP TABLE gg_feedback_carry (LIKE feedback INCLUDING DEFAULTS) ON COMMIT DROP" \
+       -c "\\copy gg_feedback_carry FROM STDIN" \
+       -c "UPDATE gg_feedback_carry SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
+       -c "UPDATE gg_feedback_carry SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
        -c "TRUNCATE feedback" \
-       -c "\\copy feedback FROM STDIN" \
-       -c "UPDATE feedback SET user_id = NULL WHERE user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM \"user\")" \
-       -c "UPDATE feedback SET handled_by_id = NULL WHERE handled_by_id IS NOT NULL AND handled_by_id NOT IN (SELECT id FROM \"user\")" \
+       -c "INSERT INTO feedback SELECT * FROM gg_feedback_carry" \
        < "$FEEDBACK_CARRY"; then
     echo "Feedback restored ($(wc -l < "$FEEDBACK_CARRY") row(s))."
     rm -f "$FEEDBACK_CARRY"

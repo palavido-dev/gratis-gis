@@ -41,6 +41,7 @@ import type {
 } from '@gratis-gis/shared-types';
 import {
   splitByPrefetchPolicy,
+  isServerStampedField,
   stampSubmissionMetadata,
 } from '@gratis-gis/shared-types';
 import {
@@ -53,13 +54,16 @@ import type { CustomBasemap } from '@/lib/custom-basemap';
 import { MapCanvas, type MapCanvasHandle } from '../map/map-canvas';
 import {
   searchLayers,
+  searchV3Layers,
   type SearchResult as MapSearchResult,
 } from '../map/search-sources';
 import { FormRuntime } from '@/components/form-runtime';
 import { PwaInstallButton } from '@/components/pwa-install-button';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
+  countUnsyncedEdits,
   enqueueEdit,
+  getCachedFeature,
   getDeployment,
   hashLayerSchema,
   listFeaturesForLayer,
@@ -73,6 +77,9 @@ import {
   type CachedFeature,
   type QueueRecord,
 } from '@/lib/offline-store';
+import { loadFeatureForEdit } from '@/lib/field-edit-source';
+import { placedAtGpsFix } from '@/lib/gps-placement';
+import { buildOfflineRecoveryZip } from '@/lib/offline-export';
 import { formatBytes } from '@/lib/format-bytes';
 import { formatOfflineMessage } from '@/lib/offline-message';
 import { holdReload } from '@/lib/sw-update-guard';
@@ -134,13 +141,14 @@ import {
 } from './use-offline-basemap';
 import { OfflineBasemapRow } from './offline-basemap-row';
 import { createGpsMarker, type GpsMarkerHandle } from './gps-map-marker';
-import { stampGpsMetadata } from './gps-metadata-stamp';
+import { classifyGpsField, stampGpsMetadata } from './gps-metadata-stamp';
 import { FieldAttachments } from './field-attachments';
+import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
-import { formatDate, useFormat } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
+import { RelativeTime } from '@/components/relative-time';
 import type { Translator } from '@/lib/i18n';
 
 /**
@@ -573,6 +581,9 @@ export function FieldRuntime({
 
   const canvasRef = useRef<MapCanvasHandle | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // Bumped on each popup Edit so a slow record read cannot open a
+  // form after a newer Edit tap.
+  const editLoadTokenRef = useRef(0);
   // GPS state (Phase A). Hook owns the watch lifecycle and follow-mode
   // toggle; marker handle paints the dot + accuracy ring on the map and
   // is created on first map-ready. The two are intentionally
@@ -878,14 +889,16 @@ export function FieldRuntime({
           next = { ...next, visible: false };
         }
         if (offlineActive && next.source?.kind === 'data-layer') {
-          const key = `${next.source.itemId}:${next.source.layerKey ?? ''}`;
-          // Try with an empty layerKey first (legacy v1/v2), then
-          // with the layerKey when present.
+          // The cache is keyed by the resolved sublayer, which a legacy
+          // map source without a layerKey only names through
+          // resolveEditableLayer. Fall back to the raw key for
+          // single-table layers that are not editable here.
+          const resolved = resolveEditableLayer(editableLayers, next.source);
           const fc =
-            offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`] ??
-            (next.source.layerKey
-              ? offlineFeatures[`${next.source.itemId}:${next.source.layerKey}`]
-              : undefined);
+            (resolved
+              ? offlineFeatures[`${next.source.itemId}:${resolved.layerKey}`]
+              : undefined) ??
+            offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`];
           if (fc) {
             next = {
               ...next,
@@ -896,12 +909,18 @@ export function FieldRuntime({
           // It'll fail to fetch offline, but MapCanvas tolerates
           // that (empty source) and the user sees an empty layer
           // rather than a broken canvas.
-          void key;
         }
         return next;
       }),
     };
-  }, [mapData, hiddenLayerIds, isOnline, offlineFeatures, basemapOverrideId]);
+  }, [
+    mapData,
+    hiddenLayerIds,
+    isOnline,
+    offlineFeatures,
+    basemapOverrideId,
+    editableLayers,
+  ]);
 
   // Effective pickLists. When offline, pick from IndexedDB instead of
   // the prop so newly-added pick lists from the download cache work.
@@ -1098,10 +1117,31 @@ export function FieldRuntime({
     [dataCollectionId, currentUserId, mapData.layers],
   );
 
-  // Auto-sync when isOnline flips from false -> true. Captured via a
-  // ref so we don't fire on the initial mount when isOnline starts
-  // true and there's nothing queued (the queue read is cheap but
-  // pointless).
+  async function saveUnsyncedCopy(): Promise<void> {
+    const records = await listQueue(dataCollectionId, currentUserId);
+    const blobs = await listPendingBlobs(dataCollectionId, currentUserId);
+    const { filename, bytes } = await buildOfflineRecoveryZip({
+      dataCollectionId,
+      deploymentTitle: title,
+      userId: currentUserId,
+      exportedAt: new Date().toISOString(),
+      records,
+      blobs,
+    });
+    const copy = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(copy).set(bytes);
+    const file = new Blob([copy], { type: 'application/zip' });
+    const url = URL.createObjectURL(file);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    // Revoking in the same tick can cancel the download on mobile
+    // Safari, and this menu is mostly used on phones. Free it later.
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  // Auto-sync when isOnline flips from false -> true.
   const wasOnlineRef = useRef(isOnline);
   useEffect(() => {
     if (!wasOnlineRef.current && isOnline) {
@@ -1109,6 +1149,25 @@ export function FieldRuntime({
     }
     wasOnlineRef.current = isOnline;
   }, [isOnline, runSync]);
+
+  // And once when the runtime opens with signal and edits are already
+  // waiting: queued in an earlier session, then the PWA was closed or
+  // evicted. The flip above never fires for a boot that is already
+  // online, and on iOS and Firefox there is no Background Sync to
+  // cover it. Gated on a cheap count so an empty queue does not
+  // trigger a sync and a refresh of every layer.
+  const bootSyncDoneRef = useRef(false);
+  useEffect(() => {
+    if (bootSyncDoneRef.current || !isOnline || !currentUserId) return;
+    bootSyncDoneRef.current = true;
+    void countUnsyncedEdits(currentUserId)
+      .then((n) => {
+        if (n > 0 && mountedRef.current) void runSync('auto');
+      })
+      .catch(() => {
+        /* no IndexedDB: nothing could have been queued */
+      });
+  }, [isOnline, currentUserId, runSync]);
 
   // Slice 6 (persistence floor; see docs/field-offline-areas.md):
   // surface whether the browser will keep our IndexedDB across
@@ -1442,9 +1501,10 @@ export function FieldRuntime({
   // Templates: one row per (editable layer, symbology class) pair.
   // Computed once unless the source data changes; stable React keys
   // come from `template.id`.
+  // No templates for an anonymous viewer; see canWriteLayer.
   const templates = useMemo<FieldTemplate[]>(
-    () => buildTemplates(editableLayers, mapData),
-    [editableLayers, mapData],
+    () => (currentUserId ? buildTemplates(editableLayers, mapData) : []),
+    [editableLayers, mapData, currentUserId],
   );
 
   // Selection is unused at this slice but MapCanvas requires the
@@ -1668,6 +1728,7 @@ export function FieldRuntime({
           '-fill',
           '-poly-line',
           '-line',
+          '-icon-bg',
           '-icon-halo',
           '-circle',
           '-label',
@@ -1754,10 +1815,7 @@ export function FieldRuntime({
           // narrowing across `ml.source!.x` is too pessimistic
           // inside arrow callbacks.
           const src = ml.source;
-          const dl = editableLayers.find(
-            (e) =>
-              e.dataLayerId === src.itemId && e.layerKey === src.layerKey,
-          );
+          const dl = resolveEditableLayer(editableLayers, src);
           if (dl) editable = dl;
         }
         hits.push({
@@ -2029,7 +2087,7 @@ export function FieldRuntime({
         <Link
           href={backHref}
           className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
-          aria-label="Back"
+          aria-label={t('fieldRuntime.backAria')}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -2075,6 +2133,9 @@ export function FieldRuntime({
             collection chrome out of the way of the canvas. */}
         <FieldMoreMenu
           mapTitle={mapTitle}
+          onSaveCopy={() => {
+            void saveUnsyncedCopy();
+          }}
           isOnline={isOnline}
           cachedAt={cachedDeployment?.cachedAt ?? null}
           persistentState={persistentState}
@@ -2211,7 +2272,7 @@ export function FieldRuntime({
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
           className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
-          aria-label="Toggle layers"
+          aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
         >
           <Layers className="h-5 w-5 text-ink-1" />
@@ -2288,6 +2349,7 @@ export function FieldRuntime({
                   mapRef={mapRef}
                   canvasRef={canvasRef}
                   layers={mapData.layers ?? []}
+                  isOnline={isOnline}
                   autoFocus
                   onClose={() => setSearchExpanded(false)}
                 />
@@ -2297,7 +2359,7 @@ export function FieldRuntime({
             <button
               type="button"
               onClick={() => setSearchExpanded(true)}
-              aria-label="Search address"
+              aria-label={t('fieldRuntime.searchAddressAria')}
               className="absolute left-15 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
             >
               <Search className="h-5 w-5 text-ink-1" />
@@ -2411,12 +2473,14 @@ export function FieldRuntime({
             style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
           >
             <p className="text-xs font-medium text-ink-0">
-              Nothing to collect in this deployment
+              {t('fieldRuntime.nothingToCollectTitle')}
             </p>
             <p className="mt-0.5 text-2xs text-muted">
-              {editableLayers.length > 0
-                ? 'Its layers are set to view-only. Turn on "Editable in field deployments" for a layer on the map, and make sure editing is enabled on the data layer itself.'
-                : 'Its map has no layers you can add to.'}
+              {!currentUserId
+                ? t('fieldRuntime.nothingToCollectSignIn')
+                : editableLayers.length > 0
+                  ? t('fieldRuntime.nothingToCollectViewOnly')
+                  : t('fieldRuntime.nothingToCollectNoLayers')}
             </p>
           </div>
         ) : null}
@@ -2520,7 +2584,7 @@ export function FieldRuntime({
       <footer className="flex shrink-0 items-center gap-2 border-t border-border bg-surface-1 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {editableLayers.length === 0 ? (
           <p className="flex-1 text-center text-xs text-muted">
-            No editable layers in this map.
+            {t('fieldRuntime.noEditableLayersInMap')}
           </p>
         ) : activeTemplate ? (
           (() => {
@@ -2551,12 +2615,15 @@ export function FieldRuntime({
                           Finish. Falls back to the template's
                           sublabel for point templates. */}
                       {isMultiVertex
-                        ? `${pendingVertices.length} vertex${
-                            pendingVertices.length === 1 ? '' : 'es'
-                          }${
+                        ? `${t('fieldRuntime.vertexCountLabel', {
+                            count: pendingVertices.length,
+                          })}${
                             canFinish
-                              ? ' — tap Finish'
-                              : ` — need ${minVerts - pendingVertices.length} more`
+                              ? t('fieldRuntime.vertexTapFinishSuffix')
+                              : t('fieldRuntime.vertexNeedMoreSuffix', {
+                                  remaining:
+                                    minVerts - pendingVertices.length,
+                                })
                           }`
                         : activeTemplate.sublabel}
                     </p>
@@ -2565,7 +2632,7 @@ export function FieldRuntime({
                     type="button"
                     onClick={() => setActiveTemplate(null)}
                     className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
-                    aria-label="Cancel"
+                    aria-label={t('fieldRuntime.cancelCollectAria')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -2582,11 +2649,11 @@ export function FieldRuntime({
                       type="button"
                       onClick={undoLastVertex}
                       disabled={pendingVertices.length === 0}
-                      title="Remove the last vertex"
+                      title={t('fieldRuntime.undoVertexTitle')}
                       className="inline-flex h-11 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                     >
                       <ArrowLeft className="h-4 w-4" />
-                      Undo
+                      {t('fieldRuntime.undoVertex')}
                     </button>
                     <button
                       type="button"
@@ -2594,13 +2661,15 @@ export function FieldRuntime({
                       disabled={!canFinish}
                       title={
                         canFinish
-                          ? 'Open the form for this feature'
-                          : `Need at least ${minVerts} vertices`
+                          ? t('fieldRuntime.finishVerticesTitle')
+                          : t('fieldRuntime.finishNeedVertices', {
+                              count: minVerts,
+                            })
                       }
                       className="inline-flex h-11 shrink-0 items-center gap-1 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90 disabled:opacity-50"
                     >
                       <Check className="h-4 w-4" />
-                      Finish
+                      {t('fieldRuntime.finishVertices')}
                     </button>
                   </>
                 ) : null}
@@ -2616,17 +2685,21 @@ export function FieldRuntime({
                   <button
                     type="button"
                     onClick={commitAtGps}
-                    title={`Drop the ${
-                      isMultiVertex ? 'vertex' : 'feature'
-                    } at your current location (~${
-                      gps.position.accuracyM < 1
-                        ? '<1'
-                        : Math.round(gps.position.accuracyM)
-                    } m accuracy)`}
+                    title={t('fieldRuntime.dropAtGpsTitle', {
+                      kind: isMultiVertex
+                        ? t('fieldRuntime.dropKindVertex')
+                        : t('fieldRuntime.dropKindFeature'),
+                      accuracy:
+                        gps.position.accuracyM < 1
+                          ? '<1'
+                          : Math.round(gps.position.accuracyM),
+                    })}
                     className="inline-flex h-11 shrink-0 items-center gap-2 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90"
                   >
                     <LocateFixed className="h-4 w-4" />
-                    {isMultiVertex ? 'Vertex at GPS' : 'Add at GPS'}
+                    {isMultiVertex
+                      ? t('fieldRuntime.vertexAtGps')
+                      : t('fieldRuntime.addAtGps')}
                   </button>
                 ) : null}
                 <button
@@ -2639,7 +2712,9 @@ export function FieldRuntime({
                   }`}
                 >
                   <MapPin className="h-4 w-4" />
-                  {isMultiVertex ? 'Vertex at center' : 'Add at center'}
+                  {isMultiVertex
+                    ? t('fieldRuntime.vertexAtCenter')
+                    : t('fieldRuntime.addAtCenter')}
                 </button>
               </>
             );
@@ -2712,14 +2787,35 @@ export function FieldRuntime({
             // Switch the FormModal to edit mode for the hit's
             // editable layer. The same shape the legacy tap-to-edit
             // flow used; the sheet just makes the path explicit.
-            if (!hit.editable || !hit.globalId) return;
-            setFeatureSheet(null);
-            setFormModal({
-              layer: hit.editable,
-              mode: 'edit',
-              featureId: hit.globalId,
-              properties: hit.properties,
-              geometry: hit.geometry,
+            if (!canWriteLayer(hit.editable, currentUserId) || !hit.globalId) {
+              return;
+            }
+            const layer = hit.editable;
+            const featureId = hit.globalId;
+            // Read the record before opening the form. The tap gives
+            // tile values, which can be stale, miss trimmed fields and
+            // never carry `_observation_id`, so the server could not
+            // spot a conflicting edit and the stale values won.
+            const token = ++editLoadTokenRef.current;
+            void loadFeatureForEdit({
+              dataCollectionId,
+              dataLayerId: layer.dataLayerId,
+              layerKey: layer.layerKey,
+              globalId: featureId,
+              isOnline,
+              tile: { properties: hit.properties, geometry: hit.geometry },
+            }).then((loaded) => {
+              // The collector tapped something else while this read
+              // was in flight; that newer tap owns the screen.
+              if (token !== editLoadTokenRef.current) return;
+              setFeatureSheet(null);
+              setFormModal({
+                layer,
+                mode: 'edit',
+                featureId,
+                properties: loaded.properties,
+                geometry: loaded.geometry ?? hit.geometry,
+              });
             });
           }}
           onCopy={(hit) => {
@@ -2732,11 +2828,31 @@ export function FieldRuntime({
             // through to GPS / map center via the same fallback
             // the FAB uses. For non-point geometries, fall back
             // to no geometry; the FormModal already handles that.
-            if (!hit.editable) return;
+            if (!canWriteLayer(hit.editable, currentUserId)) return;
             const presetAttributes: Record<string, string> = {};
             for (const [k, v] of Object.entries(hit.properties)) {
               if (v === null || v === undefined) continue;
+              // Submission and GPS columns describe the original's
+              // visit, not this one. Copied, they also blocked the
+              // stamps, which only fill blanks.
+              if (isServerStampedField(k) || classifyGpsField(k)) continue;
               presetAttributes[k] = typeof v === 'string' ? v : String(v);
+            }
+            // A line or polygon copy needs a shape of its own. Opening
+            // the form with no geometry saved a row that could never
+            // be tapped again, so go through vertex collection with
+            // the copied attributes instead.
+            if (hit.editable.geometryType !== 'point') {
+              setFeatureSheet(null);
+              setActiveTemplate({
+                id: `copy:${hit.editable.dataLayerId}:${hit.editable.layerKey}`,
+                layer: hit.editable,
+                label: hit.editable.layerLabel,
+                sublabel: hit.editable.dataLayerTitle,
+                color: '#888888',
+                presetAttributes,
+              });
+              return;
             }
             const map = mapRef.current;
             const gpsPos = gps.position;
@@ -2769,6 +2885,11 @@ export function FieldRuntime({
 
       {bottomSheet === 'form' && formModal ? (
         <FormModal
+          // One form per record. "Open" and "Add related" swap the
+          // modal in place; without a key the child record kept the
+          // parent's answers and saved them. Update Point keeps the
+          // same record and so the same key (no remount).
+          key={`${formModal.mode}:${formModal.layer.dataLayerId}:${formModal.layer.layerKey}:${formModal.featureId}`}
           dataCollectionId={dataCollectionId}
           modal={formModal}
           pickLists={effectivePickLists}
@@ -2831,8 +2952,14 @@ export function FieldRuntime({
           }}
           onSubmitted={() => {
             const submittedLayer = formModal.layer;
+            const submittedId = formModal.featureId;
             clearPendingMarker();
-            setFormModal(null);
+            // Close only the form that was submitted. A slow save can
+            // finish after the collector has moved on to another form,
+            // and that one must stay open.
+            setFormModal((cur) =>
+              cur && cur.featureId === submittedId ? null : cur,
+            );
             // Refresh the MapLayer(s) backed by the data_layer that
             // just received a write so the new / updated feature
             // appears immediately. setData(url) on the existing
@@ -2901,6 +3028,45 @@ export function FieldRuntime({
  * gesture and ride along with terra-draw integration in a follow-up
  * slice (#196).
  */
+/**
+ * The EditableLayer a map's data-layer source draws. A legacy map
+ * source with no layerKey is resolved by page.tsx to the data layer's
+ * first spatial sublayer, so it matches the first spatial entry for
+ * that item. Matching on layerKey alone left such a layer with no
+ * Edit, hidden from the layer panel, and drawn empty offline.
+ */
+function resolveEditableLayer(
+  editableLayers: readonly EditableLayer[],
+  src: { itemId: string; layerKey?: string | undefined },
+): EditableLayer | undefined {
+  if (src.layerKey) {
+    return editableLayers.find(
+      (e) => e.dataLayerId === src.itemId && e.layerKey === src.layerKey,
+    );
+  }
+  return editableLayers.find(
+    (e) => e.dataLayerId === src.itemId && e.geometryType !== null,
+  );
+}
+
+/**
+ * Whether this viewer may write to `layer` from the field app: add,
+ * edit, copy, or add a related row.
+ *
+ * A layer with `addable: false` is kept in editableLayers only so the
+ * layer panel can list it; the data layer or the map marks it as
+ * reference only, and the API does not refuse the write on its own.
+ * An anonymous viewer of a public deployment has no account to save
+ * as, so a capture would fail online or queue under an empty owner
+ * that no signed-in account can ever send.
+ */
+function canWriteLayer(
+  layer: EditableLayer | null | undefined,
+  currentUserId: string,
+): layer is EditableLayer {
+  return !!layer && layer.addable !== false && currentUserId !== '';
+}
+
 function isPointGeometry(t: LayerGeometryType): boolean {
   return t === 'point';
 }
@@ -3377,17 +3543,19 @@ function LayerVisibilityPanel({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Layer visibility"
+      aria-label={panelT('fieldRuntime.layersPanelAria')}
       className="fixed inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-surface-1 shadow-overlay pb-[env(safe-area-inset-bottom)]"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2.5">
-        <h3 className="text-base font-semibold text-ink-0">Layers</h3>
+        <h3 className="text-base font-semibold text-ink-0">
+          {panelT('fieldRuntime.layersHeading')}
+        </h3>
         <button
           type="button"
           onClick={onClose}
           className="inline-flex h-10 w-10 items-center justify-center rounded text-ink-1 hover:bg-surface-2"
-          aria-label="Close"
+          aria-label={panelT('fieldRuntime.closeAria')}
         >
           <X className="h-5 w-5" />
         </button>
@@ -3420,11 +3588,7 @@ function LayerVisibilityPanel({
             let geometryType: LayerGeometryType = null;
             if (l.source?.kind === 'data-layer') {
               const src = l.source;
-              const dl = editableLayers.find(
-                (e) =>
-                  e.dataLayerId === src.itemId &&
-                  e.layerKey === src.layerKey,
-              );
+              const dl = resolveEditableLayer(editableLayers, src);
               geometryType = dl?.geometryType ?? null;
             } else if (!isGroup) {
               // Non-data-layer overlays (arcgis-rest, geojson-url):
@@ -3463,7 +3627,7 @@ function LayerVisibilityPanel({
           if (finalSet.length === 0) {
             return (
               <li className="p-3 text-center text-sm text-muted">
-                No layers in this map.
+                {panelT('fieldRuntime.noLayersInMap')}
               </li>
             );
           }
@@ -3528,10 +3692,16 @@ function LayerVisibilityPanel({
           >
             <Layers className="h-4 w-4 shrink-0 text-muted" />
             <span className="min-w-0 flex-1 truncate">
-              Basemap: {activeBasemap?.label ?? 'default'}
+              {panelT('fieldRuntime.basemapLabel', {
+                name:
+                  activeBasemap?.label ??
+                  panelT('fieldRuntime.basemapDefault'),
+              })}
             </span>
             <span className="shrink-0 text-xs uppercase tracking-wide text-muted">
-              {basemapPickerOpen ? 'Hide' : 'Change'}
+              {basemapPickerOpen
+                ? panelT('fieldRuntime.basemapHide')
+                : panelT('fieldRuntime.basemapChange')}
             </span>
           </button>
           {basemapPickerOpen ? (
@@ -3595,12 +3765,12 @@ function LayerVisibilityPanel({
             collector should be steered toward. */}
         {offlineBasemap.areas.some((a) => a.current) ? null : (<>
         <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-          Map detail to cache
+          {panelT('fieldOffline.mapDetailToCache')}
         </p>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Least detail
+              {panelT('fieldOffline.leastDetail')}
             </span>
             <select
               value={tileZoomMin}
@@ -3616,7 +3786,7 @@ function LayerVisibilityPanel({
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-2xs uppercase tracking-wide text-muted">
-              Most detail
+              {panelT('fieldOffline.mostDetail')}
             </span>
             <select
               value={tileZoomMax}
@@ -3647,7 +3817,7 @@ function LayerVisibilityPanel({
         ) : blockedTileSources.length > 0 ? (
           <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 p-2">
             <p className="text-2xs font-medium text-warn">
-              The basemap will not be available offline
+              {panelT('fieldOffline.basemapUnavailableOffline')}
             </p>
             {/* One line per distinct provider, not per template: a
                 style can pull several URLs off one host and three
@@ -3660,14 +3830,15 @@ function LayerVisibilityPanel({
               ),
             )}
             <p className="mt-1 text-2xs text-muted">
-              Your data, forms and any self-hosted layers still download
-              normally.
+              {panelT('fieldOffline.basemapUnavailableTail')}
             </p>
           </div>
         ) : (
           <p className="mt-1.5 text-2xs text-muted">
-            ~{fmt.number(estimatedTileCount)} tiles at the
-            current viewport. Cap is 200,000.
+            {panelT('fieldOffline.tilesEstimate', {
+              count: fmt.number(estimatedTileCount),
+              cap: fmt.number(200_000),
+            })}
           </p>
         )}
       </div>
@@ -3683,12 +3854,19 @@ function LayerVisibilityPanel({
           ) : (
             <CloudDownload className="h-4 w-4" />
           )}
-          {cachedDeployment ? 'Refresh offline cache' : 'Download for offline'}
+          {cachedDeployment
+            ? panelT('fieldOffline.refreshOfflineCache')
+            : panelT('fieldOffline.downloadForOffline')}
         </button>
+        <p className="mt-1.5 text-2xs text-ink-1">
+          {panelT('fieldOffline.deviceOnlyWarning')}
+        </p>
         {cachedDeployment ? (
           <p className="mt-1 text-2xs text-muted">
-            Cached {formatRelativeTime(cachedDeployment.cachedAt)} ·{' '}
-            {formatBytes(cachedDeployment.estimatedSize)}
+            {panelT('fieldOffline.cachedSummary', {
+              when: fmt.relativeTime(cachedDeployment.cachedAt),
+              size: formatBytes(cachedDeployment.estimatedSize),
+            })}
           </p>
         ) : null}
         {/* A download that skipped a layer, a pick list or part of the
@@ -3724,7 +3902,7 @@ function LayerVisibilityPanel({
         <div className="border-b border-border px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <span className="text-2xs font-medium uppercase tracking-wide text-muted">
-              Storage
+              {panelT('fieldRuntime.storage')}
             </span>
             {persistentState === 'best-effort' ? (
               <button
@@ -3732,15 +3910,21 @@ function LayerVisibilityPanel({
                 onClick={onRequestPersist}
                 className="text-2xs text-accent hover:underline"
               >
-                Make persistent
+                {panelT('fieldOffline.makePersistent')}
               </button>
             ) : persistentState === 'persistent' ? (
-              <span className="text-2xs text-success">Persistent</span>
+              <span className="text-2xs text-success">
+                {panelT('fieldRuntime.storagePersistent')}
+              </span>
             ) : null}
           </div>
           <div className="mt-1 flex items-center justify-between gap-2 text-2xs text-ink-1">
             <span>{formatBytes(storage.usage)}</span>
-            <span className="text-muted">of {formatBytes(storage.quota)}</span>
+            <span className="text-muted">
+              {panelT('fieldOffline.storageOf', {
+                quota: formatBytes(storage.quota),
+              })}
+            </span>
           </div>
           <div
             role="progressbar"
@@ -3764,7 +3948,7 @@ function LayerVisibilityPanel({
           </div>
           {storage.usagePercent >= 0.95 ? (
             <p className="mt-1 text-2xs text-danger">
-              Storage nearly full. Free up space before downloading more areas.
+              {panelT('fieldOffline.storageNearlyFull')}
             </p>
           ) : null}
           {/* Slice 10: tile-cache breakdown surfaced inside the
@@ -3776,15 +3960,17 @@ function LayerVisibilityPanel({
           {tileCache && tileCache.count > 0 ? (
             <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-2xs text-muted">
               <span>
-                Map tiles: {fmt.number(tileCache.count)} (
-                {formatBytes(tileCache.bytes)})
+                {panelT('fieldOffline.mapTilesBreakdown', {
+                  count: fmt.number(tileCache.count),
+                  size: formatBytes(tileCache.bytes),
+                })}
               </span>
               <button
                 type="button"
                 onClick={onClearTiles}
                 className="text-2xs text-accent hover:underline"
               >
-                Clear tiles
+                {panelT('fieldOffline.clearTiles')}
               </button>
             </div>
           ) : null}
@@ -4072,11 +4258,20 @@ function FormModal({
   // whole form on the first keystroke would be a real cost on a
   // low-end handset.
   const dirtyRef = useRef(false);
+  // True while handleSubmit is saving; see requestCancel.
+  const submittingRef = useRef(false);
+  // The same flag as state, so the header Submit (the only submit
+  // control here, since the runtime's own button is hidden) can show
+  // it is busy and refuse a second tap while the save is in flight.
+  const [submitting, setSubmitting] = useState(false);
   const markDirty = useCallback(() => {
     dirtyRef.current = true;
   }, []);
 
   const requestCancel = useCallback(() => {
+    // While a save is in flight, Cancel cannot stop it: the request
+    // still lands. Ignore it rather than pretend the entry was dropped.
+    if (submittingRef.current) return;
     if (!dirtyRef.current) {
       onClose();
       return;
@@ -4170,6 +4365,18 @@ function FormModal({
   }, [modal]);
 
   async function handleSubmit(response: FormResponse) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
+      await submitResponse(response);
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  async function submitResponse(response: FormResponse) {
     setError(null);
     // GPS fix metadata stamping (#225 item 3). For add-mode features
     // only -- on edit, the existing fix was the one that mattered.
@@ -4217,8 +4424,9 @@ function FormModal({
       modal.mode === 'add'
         ? { ...modal.presetAttributes, ...response }
         : response;
+    // Only when the point was put at the fix; see placedAtGpsFix.
     const gpsStamped: FormResponse =
-      modal.mode === 'add' && gpsPosition
+      modal.mode === 'add' && placedAtGpsFix(activeGeometry, gpsPosition)
         ? stampGpsMetadata(modal.layer.fields, responseWithPresets, gpsPosition)
         : responseWithPresets;
     // Submission bookkeeping, on adds only (an edit keeps the row's
@@ -4254,30 +4462,48 @@ function FormModal({
     // (Slice 5 doesn't act on it yet, but capturing it now means an
     // upgraded portal can reconcile without a queue migration).
     const schemaHash = await hashLayerSchema(modal.layer.fields);
+    // The server observation this edit was made against. Sent as
+    // `baseObservationId` so a stale edit gets a 409 instead of
+    // overwriting someone else's newer one (docs/sync-protocol.md).
+    const baseObservationId =
+      modal.mode === 'edit' &&
+      typeof modal.properties._observation_id === 'string' &&
+      modal.properties._observation_id !== ''
+        ? modal.properties._observation_id
+        : undefined;
 
     // Local apply path (used by both offline mode and online mode's
     // network-failure fallback). Enqueues the operation, writes the
     // feature into IndexedDB so it's visible on the map immediately,
     // and bumps the runtime's refresh counter via the callback.
-    const applyLocally = async (): Promise<void> => {
+    const applyLocally = async (opts: { afterSend?: boolean } = {}): Promise<void> => {
       // enqueueEdit, not a raw put. The queue can hold an earlier
       // unsynced edit for this same feature, and folding the two
       // inside one transaction is what keeps an offline capture that
       // the user then corrects from being replaced by an update
       // against a globalId the server has never seen. A raw put here
       // is the original data-loss bug.
+      // An edit never changes geometry (the form has no geometry
+      // control in edit mode), and the geometry it holds came from the
+      // tapped map feature: tile geometry, clipped to the tile and
+      // simplified for the zoom. Queuing it made the drain PATCH that
+      // fragment over the real shape. Attribute-only edits queue no
+      // geometry, as the online PATCH already sends none.
+      const isEdit = modal.mode !== 'add';
       const enqueued = await enqueueEdit({
         dataCollectionId,
-        op: modal.mode === 'add' ? 'insert' : 'update',
+        op: isEdit ? 'update' : 'insert',
         dataLayerId: modal.layer.dataLayerId,
         layerKey: modal.layer.layerKey,
         globalId: featureId,
-        geometry: activeGeometry,
+        geometry: isEdit ? null : activeGeometry,
         properties,
         schemaHash,
         // Who captured it, so only this account's session ever sends
         // it. The server stamps submitted_by from the caller.
         ownerUserId: currentUserId,
+        ...(baseObservationId ? { baseObservationId } : {}),
+        ...(opts.afterSend ? { mayHaveReachedServer: true } : {}),
       });
       // The fold keeps the original capture time, so the cached
       // feature's timestamps must come from the surviving row rather
@@ -4292,6 +4518,17 @@ function FormModal({
       // updates it overwrites the prior cached copy under the same
       // composite key. The properties carry _global_id so the popup
       // and the existing feature-id resolution paths keep working.
+      // Same rule for the device copy: keep the geometry already cached
+      // for an edited feature and use the form's geometry only when the
+      // device has none (a feature edited online after a failed send).
+      const prior = isEdit
+        ? await getCachedFeature(
+            dataCollectionId,
+            modal.layer.dataLayerId,
+            modal.layer.layerKey,
+            featureId,
+          )
+        : null;
       const cachedFeature: CachedFeature = {
         dataCollectionId,
         dataLayerId: modal.layer.dataLayerId,
@@ -4300,10 +4537,13 @@ function FormModal({
         feature: {
           type: 'Feature',
           id: featureId,
-          geometry: activeGeometry as GeoJSON.Geometry,
+          geometry: (prior?.feature.geometry ?? activeGeometry) as GeoJSON.Geometry,
           properties: {
             ...properties,
             _global_id: featureId,
+            // Keep the server token the edit was made against, so a
+            // second edit before sync still carries the right base.
+            ...(baseObservationId ? { _observation_id: baseObservationId } : {}),
             _created_by: currentUserId,
             _edited_by: currentUserId,
             _created_at: queuedAt,
@@ -4318,6 +4558,20 @@ function FormModal({
 
     try {
       if (isOnline) {
+        // Photos and signatures still pending ({ dataUrl }) go to
+        // storage first, so the row keeps attachment descriptors, not
+        // base64 (the form's own inputs upload when they can; this
+        // catches what they could not). A failure here keeps the record
+        // and queues it; the sync drain uploads them later.
+        try {
+          await uploadPendingAttachmentsInResponse(
+            properties as Record<string, unknown>,
+          );
+        } catch {
+          await applyLocally();
+          onSubmitted();
+          return;
+        }
         // Online path. Try the live API first. On non-2xx (validation
         // error, schema mismatch, anything 4xx) we propagate to the
         // user so they can fix and retry; this is NOT a queue case.
@@ -4354,8 +4608,9 @@ function FormModal({
           } catch {
             // Likely network failure during a transient blip. Stash
             // it in the queue so it doesn't get lost; auto-sync will
-            // retry as soon as the radio comes back.
-            await applyLocally();
+            // retry as soon as the radio comes back. The POST may have
+            // landed with only the answer lost.
+            await applyLocally({ afterSend: true });
             onSubmitted();
             return;
           }
@@ -4372,11 +4627,14 @@ function FormModal({
               {
                 method: 'PATCH',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ properties }),
+                body: JSON.stringify({
+                  properties,
+                  ...(baseObservationId ? { baseObservationId } : {}),
+                }),
               },
             );
           } catch {
-            await applyLocally();
+            await applyLocally({ afterSend: true });
             onSubmitted();
             return;
           }
@@ -4477,7 +4735,9 @@ function FormModal({
           <button
             type="submit"
             form={`field-form-${modal.layer.layerKey}`}
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3"
+            disabled={submitting}
+            aria-busy={submitting}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3 disabled:opacity-50"
           >
             {t('fieldCollect.submit')}
           </button>
@@ -4494,7 +4754,7 @@ function FormModal({
           <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-0 px-3 py-2">
             <div className="min-w-0 flex-1">
               <p className="text-2xs font-medium uppercase tracking-wide text-muted">
-                Location
+                {t('fieldRuntime.location')}
               </p>
               <p className="truncate font-mono text-sm tabular-nums text-ink-0">
                 {(() => {
@@ -4506,9 +4766,12 @@ function FormModal({
                     typeof activeGeometry.coordinates[1] === 'number'
                       ? (activeGeometry.coordinates as [number, number])
                       : null;
-                  if (!coords) return 'Not set';
+                  if (!coords) return t('fieldRuntime.notSet');
                   const [lon, lat] = coords;
-                  return `${lat.toFixed(6)}°N  ${lon.toFixed(6)}°W`;
+                  // Hemisphere from the sign, on the absolute value; a
+                  // fixed N and W printed Berlin as west and California
+                  // as a double negative.
+                  return `${Math.abs(lat).toFixed(6)}°${lat < 0 ? 'S' : 'N'}  ${Math.abs(lon).toFixed(6)}°${lon < 0 ? 'W' : 'E'}`;
                 })()}
               </p>
             </div>
@@ -4526,17 +4789,18 @@ function FormModal({
               }}
               title={
                 gpsPosition
-                  ? `Re-snap to current GPS (~${
-                      gpsPosition.accuracyM < 1
-                        ? '<1'
-                        : Math.round(gpsPosition.accuracyM)
-                    } m)`
-                  : 'Enable location to use GPS'
+                  ? t('fieldGps.resnapTitle', {
+                      accuracy:
+                        gpsPosition.accuracyM < 1
+                          ? '<1'
+                          : Math.round(gpsPosition.accuracyM),
+                    })
+                  : t('fieldGps.enableLocation')
               }
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90 disabled:opacity-50"
             >
               <LocateFixed className="h-4 w-4" />
-              Update Point
+              {t('fieldRuntime.updatePoint')}
             </button>
           </div>
         ) : null}
@@ -4545,7 +4809,11 @@ function FormModal({
             form={form}
             initial={initial}
             onSubmit={handleSubmit}
-            submitLabel={modal.mode === 'add' ? 'Save feature' : 'Save changes'}
+            submitLabel={
+              modal.mode === 'add'
+                ? t('fieldRuntime.saveFeature')
+                : t('fieldRuntime.saveChanges')
+            }
             formId={`field-form-${modal.layer.layerKey}`}
             // #249.14: header already has a Submit button. The
             // FormRuntime's bottom Submit was reading as a duplicate
@@ -4596,15 +4864,20 @@ function FormModal({
           (modal.layer.childLayers ?? []).length > 0 ? (
             <div className="mt-5 border-t border-border pt-4">
               <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-1">
-                Related records
+                {t('fieldRuntime.relatedRecordsHeading')}
               </p>
               <div className="space-y-4">
                 {(modal.layer.childLayers ?? []).map((c) => {
-                  const childEditable = editableLayers.find(
+                  const childFound = editableLayers.find(
                     (e) =>
                       e.dataLayerId === modal.layer.dataLayerId &&
                       e.layerKey === c.layerKey,
                   );
+                  // A child marked not editable stays listed, with its
+                  // Add and Open buttons off; see canWriteLayer.
+                  const childEditable = canWriteLayer(childFound, currentUserId)
+                    ? childFound
+                    : undefined;
                   const state = relatedRowsByChild[c.layerKey];
                   const count = state?.rows.length ?? 0;
                   return (
@@ -4641,13 +4914,15 @@ function FormModal({
                           }}
                           title={
                             childEditable
-                              ? `Add a new ${c.layerLabel} record under this feature`
-                              : 'This child layer is not editable in this deployment'
+                              ? t('fieldRuntime.relatedAddTitle', {
+                                  layer: c.layerLabel,
+                                })
+                              : t('fieldRuntime.relatedNotEditable')
                           }
                           className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                         >
                           <Plus className="h-4 w-4" />
-                          Add
+                          {t('fieldRuntime.relatedAdd')}
                         </button>
                       </div>
                       {/* #247 / #249.21: existing-row list. Bumped to
@@ -4656,13 +4931,16 @@ function FormModal({
                       {state && !state.loading ? (
                         state.error ? (
                           <p className="text-sm text-danger">
-                            Couldn&apos;t load existing {c.layerLabel}
-                            {' '}records ({state.error}). Tap Add to
-                            create a new one.
+                            {t('fieldRuntime.relatedLoadError', {
+                              layer: c.layerLabel,
+                              error: state.error,
+                            })}
                           </p>
                         ) : state.rows.length === 0 ? (
                           <p className="text-sm text-muted">
-                            No {c.layerLabel.toLowerCase()} records yet.
+                            {t('fieldRuntime.relatedEmpty', {
+                              layer: c.layerLabel.toLowerCase(),
+                            })}
                           </p>
                         ) : (
                           <ul className="space-y-1.5">
@@ -4692,7 +4970,7 @@ function FormModal({
                                         row.id.slice(0, 8)}
                                       {pending ? (
                                         <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
-                                          unsynced
+                                          {t('fieldRuntime.relatedUnsynced')}
                                         </span>
                                       ) : null}
                                     </p>
@@ -4706,14 +4984,16 @@ function FormModal({
                                     }}
                                     title={
                                       pending
-                                        ? 'This record is waiting to sync. It will be openable once it reaches the server.'
+                                        ? t('fieldRuntime.relatedWaitingSync')
                                         : childEditable
-                                          ? `Open this ${c.layerLabel} record`
-                                          : 'This child layer is not editable in this deployment'
+                                          ? t('fieldRuntime.relatedOpenTitle', {
+                                              layer: c.layerLabel,
+                                            })
+                                          : t('fieldRuntime.relatedNotEditable')
                                     }
                                     className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                                   >
-                                    Open
+                                    {t('fieldRuntime.relatedOpen')}
                                   </button>
                                 </li>
                               );
@@ -4759,6 +5039,7 @@ function FieldLocateButton({
   accuracyM: number | null;
   onTap: () => void;
 }) {
+  const t = useT();
   const tone =
     gpsStatus === 'denied' || gpsStatus === 'unavailable'
       ? 'bg-surface-1 border-border text-muted'
@@ -4769,24 +5050,25 @@ function FieldLocateButton({
           : 'bg-surface-1 border-border text-ink-1';
   const label =
     gpsStatus === 'idle'
-      ? 'Show my location'
+      ? t('fieldGps.showMyLocation')
       : gpsStatus === 'requesting'
-        ? 'Acquiring location'
+        ? t('fieldGps.acquiringLocation')
         : gpsStatus === 'denied'
-          ? 'Location permission denied'
+          ? t('fieldGps.permissionDenied')
           : gpsStatus === 'unavailable'
-            ? 'Location unavailable'
+            ? t('fieldGps.locationUnavailable')
             : follow
-              ? 'Following location (tap to stop)'
+              ? t('fieldGps.following')
               : hasPosition
-                ? `Center on my location (~${
-                    accuracyM === null
-                      ? 'unknown'
-                      : accuracyM < 1
-                        ? '<1'
-                        : Math.round(accuracyM)
-                  } m)`
-                : 'Show my location';
+                ? t('fieldGps.centerOnLocation', {
+                    accuracy:
+                      accuracyM === null
+                        ? t('fieldGps.accuracyUnknown')
+                        : accuracyM < 1
+                          ? '<1'
+                          : Math.round(accuracyM),
+                  })
+                : t('fieldGps.showMyLocation');
   return (
     <button
       type="button"
@@ -4908,6 +5190,9 @@ function FieldFeaturePopupSheet({
   // list mode (the hook's first guard short-circuits on a null
   // parentId).
   const detailHit = concrete.mode === 'detail' ? concrete.hit : null;
+  const hitWritable =
+    concrete.mode === 'detail' &&
+    canWriteLayer(concrete.hit.editable, currentUserId);
   const parentEditable =
     detailHit && detailHit.editable && detailHit.globalId
       ? detailHit.editable
@@ -4954,7 +5239,7 @@ function FieldFeaturePopupSheet({
                   expanded: concrete.expanded,
                 });
               }}
-              aria-label="Back to list"
+              aria-label={t('fieldRuntime.sheetBackToListAria')}
               className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -4965,8 +5250,9 @@ function FieldFeaturePopupSheet({
           <div className="min-w-0 flex-1 text-center">
             {concrete.mode === 'list' ? (
               <h2 className="truncate text-base font-semibold text-ink-0">
-                {concrete.hits.length} item
-                {concrete.hits.length === 1 ? '' : 's'}
+                {t('fieldRuntime.sheetItemCount', {
+                  count: concrete.hits.length,
+                })}
               </h2>
             ) : (
               <>
@@ -4988,7 +5274,11 @@ function FieldFeaturePopupSheet({
                 expanded: !concrete.expanded,
               } as typeof concrete);
             }}
-            aria-label={expanded ? 'Collapse sheet' : 'Expand sheet'}
+            aria-label={
+              expanded
+                ? t('fieldRuntime.sheetCollapseAria')
+                : t('fieldRuntime.sheetExpandAria')
+            }
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
           >
             <ChevronUp
@@ -5000,7 +5290,7 @@ function FieldFeaturePopupSheet({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t('fieldRuntime.closeAria')}
             className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 active:bg-surface-3"
           >
             <X className="h-5 w-5" />
@@ -5013,33 +5303,31 @@ function FieldFeaturePopupSheet({
           <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-0 px-3 py-2">
             <button
               type="button"
-              disabled={
-                !concrete.hit.editable || !concrete.hit.globalId
-              }
+              disabled={!hitWritable || !concrete.hit.globalId}
               onClick={() => onEdit(concrete.hit)}
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
-                concrete.hit.editable
-                  ? 'Edit this feature'
-                  : 'You do not have edit access to this layer'
+                hitWritable
+                  ? t('fieldRuntime.sheetEditTitle')
+                  : t('fieldRuntime.relatedNoEditAccess')
               }
             >
               <Crosshair className="h-4 w-4" />
-              Edit
+              {t('fieldRuntime.sheetEdit')}
             </button>
             <button
               type="button"
-              disabled={!concrete.hit.editable}
+              disabled={!hitWritable}
               onClick={() => onCopy(concrete.hit)}
               className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
               title={
-                concrete.hit.editable
-                  ? 'Create a new feature with these attributes'
-                  : 'You do not have edit access to this layer'
+                hitWritable
+                  ? t('fieldRuntime.sheetCopyTitle')
+                  : t('fieldRuntime.relatedNoEditAccess')
               }
             >
               <Plus className="h-4 w-4" />
-              Copy
+              {t('fieldRuntime.sheetCopy')}
             </button>
           </div>
         ) : null}
@@ -5070,7 +5358,7 @@ function FieldFeaturePopupSheet({
                       <p className="truncate text-base font-medium text-ink-0">
                         {pickRelatedRowTitle(hit.properties) ??
                           hit.globalId?.slice(0, 8) ??
-                          '(unnamed)'}
+                          t('fieldRuntime.sheetUnnamed')}
                       </p>
                     </div>
                     <ChevronUp
@@ -5091,7 +5379,11 @@ function FieldFeaturePopupSheet({
                     </dt>
                     <dd className="mt-0.5 wrap-break-word text-sm text-ink-0">
                       {v === null || v === undefined || v === ''
-                        ? <span className="text-muted">(empty)</span>
+                        ? (
+                            <span className="text-muted">
+                              {t('fieldRuntime.sheetEmptyValue')}
+                            </span>
+                          )
                         : typeof v === 'object'
                           ? JSON.stringify(v)
                           : String(v)}
@@ -5100,7 +5392,7 @@ function FieldFeaturePopupSheet({
                 ))}
                 {Object.keys(concrete.hit.properties).length === 0 ? (
                   <div className="px-3 py-4 text-sm text-muted">
-                    No attributes on this feature.
+                    {t('fieldRuntime.sheetNoAttributes')}
                   </div>
                 ) : null}
               </dl>
@@ -5141,9 +5433,16 @@ function FieldFeaturePopupSheet({
               (parentEditable.childLayers?.length ?? 0) > 0 ? (
                 <div className="border-t border-border bg-surface-0/50">
                   {(parentEditable.childLayers ?? []).map((c) => {
-                    const child = editableLayers.find(
-                      (e) => e.layerKey === c.layerKey,
+                    // Sublayer keys are unique only inside one data
+                    // layer, so match the parent's data layer too.
+                    const found = editableLayers.find(
+                      (e) =>
+                        e.dataLayerId === parentEditable.dataLayerId &&
+                        e.layerKey === c.layerKey,
                     );
+                    const child = canWriteLayer(found, currentUserId)
+                      ? found
+                      : undefined;
                     const rowsState = relatedRowsByChild[c.layerKey];
                     return (
                       <section
@@ -5156,21 +5455,28 @@ function FieldFeaturePopupSheet({
                           </h3>
                           {rowsState && !rowsState.loading ? (
                             <span className="text-2xs text-muted">
-                              {rowsState.rows.length} row
-                              {rowsState.rows.length === 1 ? '' : 's'}
+                              {t('fieldRuntime.relatedRowCount', {
+                                count: rowsState.rows.length,
+                              })}
                             </span>
                           ) : null}
                         </div>
                         {!rowsState || rowsState.loading ? (
-                          <p className="text-sm text-muted">Loading...</p>
+                          <p className="text-sm text-muted">
+                            {t('fieldRuntime.loadingEllipsis')}
+                          </p>
                         ) : rowsState.error ? (
                           <p className="text-sm text-danger">
-                            Couldn&apos;t load {c.layerLabel} records
-                            ({rowsState.error}).
+                            {t('fieldRuntime.relatedLoadErrorShort', {
+                              layer: c.layerLabel,
+                              error: rowsState.error,
+                            })}
                           </p>
                         ) : rowsState.rows.length === 0 ? (
                           <p className="text-sm text-muted">
-                            No {c.layerLabel.toLowerCase()} records yet.
+                            {t('fieldRuntime.relatedEmpty', {
+                              layer: c.layerLabel.toLowerCase(),
+                            })}
                           </p>
                         ) : (
                           <ul className="space-y-1.5">
@@ -5193,7 +5499,7 @@ function FieldFeaturePopupSheet({
                                         row.id.slice(0, 8)}
                                       {pending ? (
                                         <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
-                                          unsynced
+                                          {t('fieldRuntime.relatedUnsynced')}
                                         </span>
                                       ) : null}
                                     </p>
@@ -5207,14 +5513,16 @@ function FieldFeaturePopupSheet({
                                     }}
                                     title={
                                       pending
-                                        ? 'This record is waiting to sync. It will be openable once it reaches the server.'
+                                        ? t('fieldRuntime.relatedWaitingSync')
                                         : !child
-                                          ? 'You do not have edit access to this layer'
-                                          : `Open this ${c.layerLabel} record`
+                                          ? t('fieldRuntime.relatedNoEditAccess')
+                                          : t('fieldRuntime.relatedOpenTitle', {
+                                              layer: c.layerLabel,
+                                            })
                                     }
                                     className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-3 text-sm text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                                   >
-                                    Open
+                                    {t('fieldRuntime.relatedOpen')}
                                   </button>
                                 </li>
                               );
@@ -5323,6 +5631,7 @@ function FieldNavCluster({
 }: {
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
 }) {
+  const t = useT();
   const [bearing, setBearing] = useState(0);
   const [pitch, setPitch] = useState(0);
 
@@ -5349,7 +5658,7 @@ function FieldNavCluster({
       <button
         type="button"
         onClick={() => mapRef.current?.zoomIn()}
-        aria-label="Zoom in"
+        aria-label={t('fieldRuntime.zoomInAria')}
         className="inline-flex h-11 w-11 items-center justify-center hover:bg-surface-2"
       >
         <Plus className="h-5 w-5 text-ink-1" />
@@ -5357,7 +5666,7 @@ function FieldNavCluster({
       <button
         type="button"
         onClick={() => mapRef.current?.zoomOut()}
-        aria-label="Zoom out"
+        aria-label={t('fieldRuntime.zoomOutAria')}
         className="inline-flex h-11 w-11 items-center justify-center border-t border-border hover:bg-surface-2"
       >
         <Minus className="h-5 w-5 text-ink-1" />
@@ -5372,7 +5681,7 @@ function FieldNavCluster({
           // north up, flat" mental model.
           mapRef.current?.easeTo({ bearing: 0, pitch: 0, duration: 300 });
         }}
-        aria-label="Reset bearing"
+        aria-label={t('fieldRuntime.resetBearingAria')}
         className="inline-flex h-11 w-11 items-center justify-center border-t border-border hover:bg-surface-2"
       >
         <Compass
@@ -5416,6 +5725,7 @@ function FieldMoreMenu({
   gpsAccuracyM,
   onDownload,
   onRemoveCache,
+  onSaveCopy,
 }: {
   mapTitle: string;
   isOnline: boolean;
@@ -5434,6 +5744,7 @@ function FieldMoreMenu({
   gpsAccuracyM: number | null;
   onDownload: () => void;
   onRemoveCache: () => void;
+  onSaveCopy: () => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -5525,7 +5836,7 @@ function FieldMoreMenu({
                   {t('fieldRuntime.lastCached')}
                 </span>
                 <span className="text-ink-1">
-                  {formatRelativeTime(cachedAt)}
+                  <RelativeTime value={cachedAt} />
                 </span>
               </li>
             ) : null}
@@ -5553,7 +5864,7 @@ function FieldMoreMenu({
                 and we shouldn't pretend to know anything. */}
             {gpsStatus !== 'idle' ? (
               <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
-                <span className="text-muted">GPS</span>
+                <span className="text-muted">{t('fieldGps.label')}</span>
                 <span
                   className={
                     gpsStatus === 'denied' || gpsStatus === 'unavailable'
@@ -5571,20 +5882,21 @@ function FieldMoreMenu({
                   }
                 >
                   {gpsStatus === 'denied'
-                    ? 'Permission denied'
+                    ? t('fieldGps.statusDenied')
                     : gpsStatus === 'unavailable'
-                      ? 'Unavailable'
+                      ? t('fieldGps.statusUnavailable')
                       : gpsStatus === 'requesting'
-                        ? 'Acquiring...'
+                        ? t('fieldGps.statusAcquiring')
                         : gpsStatus === 'error'
-                          ? 'Error'
+                          ? t('fieldGps.statusError')
                           : gpsAccuracyM === null
-                            ? 'Watching'
-                            : `${
-                                gpsAccuracyM < 1
-                                  ? '<1'
-                                  : Math.round(gpsAccuracyM)
-                              } m`}
+                            ? t('fieldGps.statusWatching')
+                            : t('fieldGps.statusMeters', {
+                                meters:
+                                  gpsAccuracyM < 1
+                                    ? '<1'
+                                    : Math.round(gpsAccuracyM),
+                              })}
                 </span>
               </li>
             ) : null}
@@ -5600,8 +5912,7 @@ function FieldMoreMenu({
                 refresh runs straight through. */}
             {confirmingRefresh && hasCache && queueCount > 0 ? (
               <p className="px-2 pt-1 text-2xs text-warn">
-                {queueCount} edit{queueCount === 1 ? '' : 's'} not yet
-                synced. Refresh anyway?
+                {t('fieldOffline.refreshUnsyncedWarn', { count: queueCount })}
               </p>
             ) : null}
             <button
@@ -5640,11 +5951,25 @@ function FieldMoreMenu({
               )}
               <span>
                 {confirmingRefresh && hasCache && queueCount > 0
-                  ? 'Confirm refresh'
+                  ? t('fieldOffline.confirmRefresh')
                   : hasCache
-                    ? 'Refresh offline cache'
-                    : 'Download for offline'}
+                    ? t('fieldOffline.refreshOfflineCache')
+                    : t('fieldOffline.downloadForOffline')}
               </span>
+            </button>
+            <p className="px-2 pt-1 text-2xs text-ink-1">
+              {t('fieldOffline.deviceOnlyWarning')}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSaveCopy();
+              }}
+              disabled={queueCount === 0}
+              className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-50"
+            >
+              <span>{t('fieldOffline.saveUnsyncedCopy')}</span>
             </button>
             {/* Remove from device. Only meaningful when something is
                 cached, and we want a hard confirm step because the
@@ -5692,8 +6017,8 @@ function FieldMoreMenu({
                   />
                   <span>
                     {confirmingRemove
-                      ? 'Confirm remove from device'
-                      : 'Remove from device'}
+                      ? t('fieldRuntime.confirmRemoveFromDevice')
+                      : t('fieldRuntime.removeFromDevice')}
                   </span>
                 </button>
               </>
@@ -5734,14 +6059,15 @@ function QueueBadge({
   isOnline: boolean;
   onSync: () => void;
 }) {
+  const t = useT();
   if (!isOnline) {
     return (
       <span
         className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs font-medium text-muted"
-        title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Reconnect to send.`}
+        title={t('fieldOffline.waitingOfflineTitle', { count })}
       >
         <CloudOff className="h-3 w-3" />
-        {count} queued
+        {t('fieldOffline.queuedCount', { count })}
       </span>
     );
   }
@@ -5751,14 +6077,16 @@ function QueueBadge({
       disabled={syncing}
       onClick={onSync}
       className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
-      title={`${count} ${count === 1 ? 'edit' : 'edits'} waiting to sync. Click to send now.`}
+      title={t('fieldOffline.waitingOnlineTitle', { count })}
     >
       {syncing ? (
         <Loader2 className="h-3 w-3 animate-spin" />
       ) : (
         <CloudDownload className="h-3 w-3 rotate-180" />
       )}
-      {syncing ? 'Syncing...' : `Sync ${count}`}
+      {syncing
+        ? t('fieldOffline.syncing')
+        : t('fieldOffline.syncCount', { count })}
     </button>
   );
 }
@@ -5801,10 +6129,10 @@ function DownloadProgressModal({
           )}
           <DialogTitle className="text-sm font-semibold text-ink-0">
             {progress.phase === 'failed'
-              ? 'Download failed'
+              ? t('fieldOffline.downloadFailedTitle')
               : finished
-                ? 'Ready for offline'
-                : 'Downloading for offline'}
+                ? t('fieldOffline.readyForOfflineTitle')
+                : t('fieldOffline.downloadingForOfflineTitle')}
           </DialogTitle>
         </div>
         <DialogDescription className="mt-2 text-xs text-muted">
@@ -5816,25 +6144,33 @@ function DownloadProgressModal({
             detail. */}
         <dl className="mt-3 grid grid-cols-4 gap-2 text-2xs">
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Layers</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadLayers')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.layerCount}
             </dd>
           </div>
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Features</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadFeatures')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.featuresFetched}
             </dd>
           </div>
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Forms</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadForms')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.formsFetched}
             </dd>
           </div>
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
-            <dt className="text-muted">Pick lists</dt>
+            <dt className="text-muted">
+              {t('fieldRuntime.downloadPickLists')}
+            </dt>
             <dd className="text-sm font-semibold text-ink-0">
               {progress.pickListsFetched}
             </dd>
@@ -5842,7 +6178,9 @@ function DownloadProgressModal({
         </dl>
         {progress.estimatedSize > 0 ? (
           <p className="mt-2 text-2xs text-muted">
-            ~{formatBytes(progress.estimatedSize)} cached
+            {t('fieldOffline.cachedSizeApprox', {
+              size: formatBytes(progress.estimatedSize),
+            })}
           </p>
         ) : null}
         {progress.error ? (
@@ -5861,7 +6199,9 @@ function DownloadProgressModal({
             onClick={finished ? onClose : onCancel}
             className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
           >
-            {finished ? 'Close' : 'Cancel'}
+            {finished
+              ? t('fieldRuntime.closeAria')
+              : t('fieldCollect.cancel')}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -5884,9 +6224,12 @@ function FieldAddressSearch({
   mapRef,
   canvasRef,
   layers,
+  isOnline = true,
   autoFocus,
   onClose,
 }: {
+  /** Online, v3 layers are searched on the server; see below. */
+  isOnline?: boolean;
   mapRef: React.MutableRefObject<maplibregl.Map | null>;
   // #249.12: passing the canvas handle lets a feature pick reuse the
   // same fly-and-highlight animation the desktop SearchBar fires, so a
@@ -5905,6 +6248,7 @@ function FieldAddressSearch({
   autoFocus?: boolean;
   onClose?: () => void;
 }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   // #249.12: place results (Nominatim) and feature results (layer
   // attributes) are tracked separately so the dropdown can render a
@@ -5919,7 +6263,16 @@ function FieldAddressSearch({
       bbox: [number, number, number, number] | null;
     }>
   >([]);
-  const [featureResults, setFeatureResults] = useState<MapSearchResult[]>([]);
+  const [localFeatureResults, setLocalFeatureResults] = useState<
+    MapSearchResult[]
+  >([]);
+  const [serverFeatureResults, setServerFeatureResults] = useState<
+    MapSearchResult[]
+  >([]);
+  const featureResults = useMemo(
+    () => [...localFeatureResults, ...serverFeatureResults],
+    [localFeatureResults, serverFeatureResults],
+  );
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -5952,18 +6305,16 @@ function FieldAddressSearch({
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  // #249.12: layer-attribute search runs synchronously off the map's
-  // current source data on every keystroke. Cheap (one pass through
-  // up to MAX_ATTRIBUTE_HITS_PER_LAYER features per layer), no
-  // network. Snapshot featuresByLayer from MapLibre via
-  // querySourceFeatures: for the GeoJSON sources field-runtime uses
-  // (URL-backed online, geojson-inline offline) this returns every
-  // feature in the source. Re-runs whenever the query, layer list,
-  // or layer ids change.
+  // #249.12: layer-attribute search over the map's loaded source
+  // data, on every keystroke. This covers GeoJSON sources: the inline
+  // copies used offline and legacy single-table layers. Online, v3
+  // data layers are vector tiles, which querySourceFeatures cannot
+  // read without a source layer and which never hold every feature
+  // anyway; the effect after this one searches those on the server.
   useEffect(() => {
     const q = query.trim();
     if (q.length < 1 || !layers || layers.length === 0) {
-      setFeatureResults([]);
+      setLocalFeatureResults([]);
       return;
     }
     const map = mapRef.current;
@@ -5987,8 +6338,36 @@ function FieldAddressSearch({
         }
       }
     }
-    setFeatureResults(searchLayers(q, layers, featuresByLayer));
+    setLocalFeatureResults(searchLayers(q, layers, featuresByLayer));
   }, [query, layers, mapRef]);
+
+  // Online: search v3 data layers on the server, as the desktop search
+  // bar does, debounced so a large layer is not queried per keystroke.
+  // Offline the inline copies above already cover them.
+  useEffect(() => {
+    const q = query.trim();
+    const v3Layers = (layers ?? []).filter(
+      (l) => l.source.kind === 'data-layer' && l.search?.enabled,
+    );
+    if (!isOnline || q.length < 2 || v3Layers.length === 0) {
+      setServerFeatureResults([]);
+      return;
+    }
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      searchV3Layers(q, v3Layers, controller.signal)
+        .then((rows) => {
+          if (!controller.signal.aborted) setServerFeatureResults(rows);
+        })
+        .catch(() => {
+          /* aborted or offline mid-request; places still show */
+        });
+    }, 300);
+    return () => {
+      controller.abort();
+      clearTimeout(handle);
+    };
+  }, [query, layers, isOnline]);
 
   // Debounced geocode. Match the desktop SearchBar's 250 ms delay
   // and 3-character minimum so we don't hammer Nominatim.
@@ -6116,9 +6495,9 @@ function FieldAddressSearch({
           onFocus={() => {
             if (query.trim().length >= 3) setOpen(true);
           }}
-          placeholder="Search address..."
+          placeholder={t('fieldRuntime.searchAddressPlaceholder')}
           className="h-9 w-full rounded-md border border-border bg-surface-0 pl-8 pr-8 text-sm text-ink-0 placeholder:text-muted focus:border-accent focus:outline-hidden"
-          aria-label="Search address"
+          aria-label={t('fieldRuntime.searchAddressAria')}
         />
         {query || onClose ? (
           <button
@@ -6130,11 +6509,16 @@ function FieldAddressSearch({
               // re-expand starts clean.
               setQuery('');
               setPlaceResults([]);
-              setFeatureResults([]);
+              setLocalFeatureResults([]);
+              setServerFeatureResults([]);
               setOpen(false);
               onClose?.();
             }}
-            aria-label={onClose ? 'Close search' : 'Clear search'}
+            aria-label={
+              onClose
+                ? t('fieldRuntime.closeSearchAria')
+                : t('fieldRuntime.clearSearchAria')
+            }
             className="absolute right-2 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded text-muted hover:bg-surface-2"
           >
             <X className="h-3 w-3" />
@@ -6187,7 +6571,7 @@ function FieldAddressSearch({
           featureResults.length > 0 ? (
             <li>
               <div className="border-b border-border bg-surface-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-muted">
-                Places
+                {t('fieldRuntime.searchPlaces')}
               </div>
             </li>
           ) : null}
@@ -6206,7 +6590,9 @@ function FieldAddressSearch({
             </li>
           ))}
           {loading && placeResults.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-muted">Searching...</li>
+            <li className="px-3 py-2 text-xs text-muted">
+              {t('fieldRuntime.searching')}
+            </li>
           ) : null}
         </ul>
       ) : null}
@@ -6269,27 +6655,6 @@ function groupFeatureResultsByLayer(
     out[i]!.results.push(r);
   }
   return out;
-}
-
-/**
- * Render an ISO timestamp as a relative-friendly string ("2 hours
- * ago", "yesterday", "3 days ago"). Used in the cached-deployment
- * line so the user knows how stale their offline data is at a
- * glance. Falls through to a date string past 30 days.
- */
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return iso;
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60_000);
-  if (min < 1) return 'just now';
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  if (day === 1) return 'yesterday';
-  if (day < 30) return `${day}d ago`;
-  return formatDate(iso, DEFAULT_LOCALE);
 }
 
 /**

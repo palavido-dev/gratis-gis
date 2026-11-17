@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { extractDependencies } from './dependency-extractor.js';
+import {
+  extractDependencies,
+  REFERENCER_TYPES,
+} from './dependency-extractor.js';
 
 describe('extractDependencies for derived_layer', () => {
   it('emits the source data layer as a hard forward edge', () => {
@@ -447,6 +450,32 @@ describe('extractDependencies for custom web_app', () => {
     ]);
   });
 
+  it('emits basemap-gallery basemapIds', () => {
+    const result = extractDependencies(
+      buildCustom({
+        version: 3,
+        targets: [],
+        pages: [
+          {
+            id: 'home',
+            title: 'Home',
+            widgets: [
+              {
+                id: 'bg',
+                kind: 'basemap-gallery',
+                config: {
+                  kind: 'basemap-gallery',
+                  basemapIds: ['33333333-3333-3333-3333-333333333333'],
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(result.itemIds).toEqual(['33333333-3333-3333-3333-333333333333']);
+  });
+
   it('skips legacy image widgets with only bare url', () => {
     // Legacy widgets pre-AssetRef have `url` but no `asset`. The
     // extractor can't recover an itemId from a URL synchronously,
@@ -476,5 +505,23 @@ describe('extractDependencies for custom web_app', () => {
       }),
     );
     expect(result).toEqual({ itemIds: [], urls: [] });
+  });
+});
+
+describe('map geocoder and geocoder referencers', () => {
+  it('emits a map geocoderId', () => {
+    const result = extractDependencies({
+      type: 'map' as const,
+      data: {
+        layers: [],
+        geocoderId: '44444444-4444-4444-4444-444444444444',
+      },
+    } as never);
+    expect(result.itemIds).toEqual(['44444444-4444-4444-4444-444444444444']);
+  });
+
+  it('scans geocoding_service items as referencers', () => {
+    // Without this the reverse edge to the source layer never shows.
+    expect(REFERENCER_TYPES).toContain('geocoding_service');
   });
 });

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BEHAVIOUR_ENGINE_VERSION,
   BUILTINS,
   BUILTIN_ENGINE_VERSION,
   ENGINE_VERSION,
@@ -64,10 +65,35 @@ describe('engine version tables', () => {
       ...Object.values(EXPRESSION_OP_ENGINE_VERSION),
       ...Object.values(BUILTIN_ENGINE_VERSION),
       ...Object.values(FORM_SCHEMA_ENGINE_VERSION),
+      ...Object.values(BEHAVIOUR_ENGINE_VERSION),
     ];
     expect(Math.max(...all)).toBeLessThanOrEqual(ENGINE_VERSION);
     expect(Number.isInteger(ENGINE_VERSION)).toBe(true);
     expect(ENGINE_VERSION).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('behaviour changes', () => {
+  it('a required signature needs the engine that enforces it', () => {
+    // A v1 evaluator treats signature as uncapturable and passes an
+    // empty required signature that the server refuses.
+    expect(requiredEngineVersion(form([q({ id: 's', type: 'signature', required: true })]))).toBe(2);
+    expect(
+      requiredEngineVersion(
+        form([
+          q({
+            id: 's',
+            type: 'signature',
+            required: { op: 'eq', left: { ref: 'a' }, right: { value: 1 } },
+          }),
+        ]),
+      ),
+    ).toBe(2);
+  });
+
+  it('an optional signature does not force an app update', () => {
+    expect(requiredEngineVersion(form([q({ id: 's', type: 'signature' })]))).toBe(1);
+    expect(requiredEngineVersion(form([q({ id: 's', type: 'signature', required: false })]))).toBe(1);
   });
 });
 

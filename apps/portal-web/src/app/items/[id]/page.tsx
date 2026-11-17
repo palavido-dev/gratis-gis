@@ -205,6 +205,7 @@ export default async function ItemDetailPage(props: Props) {
     capabilities: CapabilityKey[];
     fullName?: string | null;
     username?: string | null;
+    trashRetentionDays?: number;
   };
   try {
     [item, me] = await Promise.all([
@@ -223,6 +224,7 @@ export default async function ItemDetailPage(props: Props) {
         capabilities: CapabilityKey[];
         fullName?: string | null;
         username?: string | null;
+        trashRetentionDays?: number;
       }>('/api/users/me'),
     ]);
   } catch (err) {
@@ -231,7 +233,13 @@ export default async function ItemDetailPage(props: Props) {
     if (err instanceof Error && err.message.includes('404')) notFound();
     throw err;
   }
-  const canManage = me.id === item.ownerId || me.orgRole === 'admin';
+  // Owner, or an admin of the item's own org. The org check matters on
+  // public items, which signed-in users of every org can read: an
+  // admin of another org has no management rights here, and the
+  // server's own owner-or-admin check includes the org too.
+  const canManage =
+    me.id === item.ownerId ||
+    (me.orgRole === 'admin' && me.orgId === item.orgId);
   // #296 + #32: client-side approximation of the download tier
   // (owner/admin, public access, or same-org access). Kept only as
   // the FALLBACK for the real permissions fetch in the parallel
@@ -277,8 +285,7 @@ export default async function ItemDetailPage(props: Props) {
     geoBoundaries,
     groups,
     themeItems,
-    canDownload,
-    mapItemCanEdit,
+    itemPermissions,
     layerPermissions,
   ] = await Promise.all([
     // Web map basemap library. full=1: the list default strips
@@ -363,21 +370,18 @@ export default async function ItemDetailPage(props: Props) {
     // user's group memberships). Owners and org admins skip the
     // round-trip; a failed fetch falls back to the approximation so
     // the page still renders.
-    !canManage && (item.type === 'file' || item.type === 'data_layer')
-      ? apiFetch<{ canDownload: boolean }>(`/api/items/${item.id}/permissions`)
-          .then((p) => p.canDownload)
-          .catch(() => viewerCanDownload)
-      : Promise.resolve(true),
-    // Map-builder editing: the map item's REAL edit permission. `canManage` is
-    // owner-or-admin, so the map builder silently hid its write
-    // affordances from anyone holding an explicit edit share, which
-    // no share tier could ever satisfy. Owners and admins skip the
-    // round-trip because the answer cannot be no.
-    isMap && !canManage
-      ? apiFetch<{ canEdit: boolean }>(`/api/items/${item.id}/permissions`)
-          .then((p) => p.canEdit)
-          .catch(() => false)
-      : Promise.resolve(canManage),
+    // The item's REAL edit permission comes from the same call.
+    // `canManage` is owner-or-admin, so gating editors on it hid every
+    // write affordance from anyone holding an explicit edit share,
+    // which no share tier could ever satisfy, while the server accepts
+    // their PATCH. Owners and admins skip the round-trip because
+    // neither answer can be no. null on failure: no edit controls, and
+    // the download gate falls back to the approximation.
+    !canManage
+      ? apiFetch<{ canEdit: boolean; canDownload: boolean }>(
+          `/api/items/${item.id}/permissions`,
+        ).catch(() => null)
+      : Promise.resolve(null),
     // Map-builder editing: and the per-LAYER answer, which is a different question:
     // this permission is about the map item, while every edit target
     // is a separate data_layer item with its own sharing. One batch
@@ -391,6 +395,17 @@ export default async function ItemDetailPage(props: Props) {
         ).catch(() => null)
       : Promise.resolve({} as Record<string, { canEdit: boolean }>),
   ]);
+
+  const canDownload =
+    canManage || (item.type !== 'file' && item.type !== 'data_layer')
+      ? true
+      : (itemPermissions?.canDownload ?? viewerCanDownload);
+  // Edit shares count here; share, reassign and delete stay on
+  // canManage. Editors whose server routes need admin on the item
+  // (tile layer, point cloud, geocoding, stored credentials) also stay
+  // on canManage so they do not offer controls that would be refused.
+  const itemCanEdit = canManage || itemPermissions?.canEdit === true;
+  const mapItemCanEdit = itemCanEdit;
 
   // Ids of the data_layers this viewer may actually write to. Passed
   // to the map builder so an edit control appears only where an edit
@@ -527,7 +542,7 @@ export default async function ItemDetailPage(props: Props) {
           data={item.data as DataLayerData | null}
           userNames={userNamesForProvenance}
         />
-        <VersionHistoryPanel itemId={item.id} canEdit={canManage} />
+        <VersionHistoryPanel itemId={item.id} canEdit={itemCanEdit} />
       </>
     ) : null;
   const dataLayerDataPanels =
@@ -539,7 +554,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <V3DataSection
             itemId={item.id}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
             canDownload={canDownload}
           />
         </section>
@@ -561,7 +576,7 @@ export default async function ItemDetailPage(props: Props) {
                       ...((item.data ?? {}) as Partial<DataLayerData>),
                     } as DataLayerData)
               }
-              canEdit={canManage}
+              canEdit={itemCanEdit}
             />
           </section>
         </>
@@ -575,10 +590,14 @@ export default async function ItemDetailPage(props: Props) {
     <>
       <DataLayerSchema data={item.data as DataLayerData | null} />
       <section className="mb-6">
-        <V3StructureSection itemId={item.id} canEdit={canManage} />
+        <V3StructureSection itemId={item.id} canEdit={itemCanEdit} />
       </section>
     </>
   ) : null;
+
+  // Locale before accessBody / header chrome so Sharing / Back /
+  // Responses / Open builder can use catalogs (#162).
+  const locale = await getServerLocale();
 
   // Dependencies and sharing share a tab: "what else points at this"
   // and "who can see this" are the same question from two sides, and
@@ -595,8 +614,16 @@ export default async function ItemDetailPage(props: Props) {
         <section id="sharing" className="mb-8">
           <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted">
             <Users className="h-4 w-4" />
-            Sharing
+            {t('itemDetail.sharingHeading', undefined, locale)}
           </h2>
+          {(item as { publicBoundaryWarning?: string }).publicBoundaryWarning ? (
+            <p
+              role="alert"
+              className="mb-4 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink-1"
+            >
+              {t('itemDetail.publicBoundaryWarning', undefined, locale)}
+            </p>
+          ) : null}
           {/* #91: forms have a paired data_layer where every
               submission lands; the form's own ACL controls who can
               SUBMIT, the layer's ACL controls who can VIEW
@@ -657,7 +684,6 @@ export default async function ItemDetailPage(props: Props) {
   );
 
   // Tabs after Overview, which ItemTabs supplies from its children.
-  const locale = await getServerLocale();
   const sideTabs: ItemTabSpec[] = [
     ...(v3Data
       ? [
@@ -714,7 +740,7 @@ export default async function ItemDetailPage(props: Props) {
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
       >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Back to items
+        {t('itemDetail.backToItems', undefined, locale)}
       </Link>
       {/* Compact header: single row with badge, title, chips, and
           actions. Description / owner / updated / tags collapse into
@@ -752,6 +778,7 @@ export default async function ItemDetailPage(props: Props) {
               access={item.access}
               license={item.license}
               geometryTypes={v3Layers?.map((l) => l.geometryType)}
+              locale={locale}
             />
           </div>
         </div>
@@ -769,20 +796,20 @@ export default async function ItemDetailPage(props: Props) {
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-accent px-3 text-xs font-medium text-white shadow-card hover:bg-accent/90"
-              title="Open the form to submit a response"
+              title={t('itemDetail.openFormTitle', undefined, locale)}
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              Open
+              {t('itemDetail.openForm', undefined, locale)}
             </a>
             <a
               href={`/items/${item.id}/responses`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
-              title="Browse submitted responses on a map and through the form view"
+              title={t('itemDetail.responsesTitle', undefined, locale)}
             >
               <ClipboardList className="h-3.5 w-3.5" />
-              Responses
+              {t('itemDetail.responses', undefined, locale)}
             </a>
           </div>
         ) : null}
@@ -806,8 +833,16 @@ export default async function ItemDetailPage(props: Props) {
         {canManage ? (
           <div className="flex shrink-0 items-center gap-2">
             <Link
+              href={`/items/${item.id}#sharing`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-accent px-2.5 text-xs font-medium text-accent-foreground shadow-card hover:opacity-90 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+              title={t('itemDetail.shareActionHint', undefined, locale)}
+            >
+              <Users className="h-3.5 w-3.5" />
+              {t('itemDetail.shareAction', undefined, locale)}
+            </Link>
+            <Link
               href={`/items/${item.id}/edit`}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-2.5 text-xs font-medium text-ink-1 shadow-card hover:bg-surface-2 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
             >
               <Pencil className="h-3.5 w-3.5" />
               Edit
@@ -850,6 +885,7 @@ export default async function ItemDetailPage(props: Props) {
               itemId={item.id}
               itemTitle={item.title}
               itemType={item.type}
+              retentionDays={me.trashRetentionDays ?? 30}
             />
           </div>
         ) : null}
@@ -894,6 +930,7 @@ export default async function ItemDetailPage(props: Props) {
       {item.type === 'map' && isBuilderView ? (
         <MapEditor
           itemId={item.id}
+          updatedAt={item.updatedAt}
           itemTitle={item.title}
           initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
           canEdit={mapItemCanEdit}
@@ -973,7 +1010,11 @@ export default async function ItemDetailPage(props: Props) {
               which is what keeps it honest under row scoping. */}
           {v3Layers ? (
             <section className="mb-4 space-y-3">
-              <ItemMapPreview itemId={item.id} layers={v3Layers} />
+              <ItemMapPreview
+                itemId={item.id}
+                layers={v3Layers}
+                version={String(item.updatedAt)}
+              />
               <ItemStatsStrip
                 itemId={item.id}
                 layers={v3Layers.map((l) => ({
@@ -1012,7 +1053,8 @@ export default async function ItemDetailPage(props: Props) {
                 <ServiceEditor
                   itemId={item.id}
                   initial={sd}
-                  canEdit={canManage}
+                  updatedAt={item.updatedAt}
+                  canEdit={itemCanEdit}
                 />
               );
             }
@@ -1023,7 +1065,8 @@ export default async function ItemDetailPage(props: Props) {
                   ...DEFAULT_ARCGIS_SERVICE,
                   ...((item.data ?? {}) as Partial<ArcgisServiceData>),
                 }}
-                canEdit={canManage}
+                canEdit={itemCanEdit}
+                canAdmin={canManage}
               />
             );
           })()}
@@ -1040,18 +1083,20 @@ export default async function ItemDetailPage(props: Props) {
           <ToolDetail
             itemId={item.id}
             initial={(item.data ?? null) as ToolItemData | null}
-            canEdit={canManage}
+            updatedAt={item.updatedAt}
+            canEdit={itemCanEdit}
           />
         </section>)
       ) : item.type === 'pick_list' ? (
         <section className="mb-6">
           <PickListEditor
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={{
               ...DEFAULT_PICK_LIST,
               ...((item.data ?? {}) as Partial<PickListData>),
             }}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : item.type === 'geo_boundary' ? (
@@ -1061,7 +1106,7 @@ export default async function ItemDetailPage(props: Props) {
             ...DEFAULT_GEO_BOUNDARY,
             ...((item.data ?? {}) as Partial<GeoBoundaryData>),
           }}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
         />
       ) : item.type === 'folder' ? (
         <section className="mb-6">
@@ -1074,7 +1119,7 @@ export default async function ItemDetailPage(props: Props) {
             updatedAt={item.updatedAt}
             initialChildren={folderChildren as Parameters<typeof FolderDetail>[0]['initialChildren']}
             breadcrumb={folderBreadcrumb}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
             canCreate={hasCapability(me, 'can_publish_items')}
             folderShares={item.shares}
             folderAccess={item.access}
@@ -1084,11 +1129,12 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <EditorDetail
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={{
               ...DEFAULT_EDITOR,
               ...((readEditorData(item) ?? {}) as Partial<EditorData>),
             }}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : isViewerItem(item) ? (
@@ -1099,22 +1145,24 @@ export default async function ItemDetailPage(props: Props) {
               admin gate every other detail editor uses. */}
           <ViewerDetail
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={{
               ...DEFAULT_VIEWER,
               ...((readViewerData(item) ?? {}) as Partial<ViewerData>),
             }}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : isCustomAppItem(item) && isBuilderView ? (
         <CustomAppDetail
           itemId={item.id}
+          updatedAt={item.updatedAt}
           itemTitle={item.title}
           initial={{
             ...DEFAULT_CUSTOM_APP,
             ...((readCustomAppData(item) ?? {}) as Partial<CustomAppData>),
           }}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
           themeItems={themeItems}
         />
       ) : isCustomAppItem(item) && !isBuilderView ? (
@@ -1129,30 +1177,30 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
           <div className="min-w-[min(100%,14rem)] flex-1">
             <p className="text-sm font-medium text-ink-0">
-              {canManage
+              {itemCanEdit
                 ? t('appCard.editTitle', undefined, locale)
                 : t('appCard.viewTitle', undefined, locale)}
             </p>
             <p className="mt-0.5 text-xs text-muted">
-              {canManage
+              {itemCanEdit
                 ? t('appCard.editBody', undefined, locale)
                 : t('appCard.viewBody', undefined, locale)}
             </p>
           </div>
           <Link
             href={
-              canManage
+              itemCanEdit
                 ? `/items/${item.id}?view=configure`
                 : getItemHref(item)
             }
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
           >
-            {canManage ? (
+            {itemCanEdit ? (
               <Pencil className="h-4 w-4" />
             ) : (
               <ExternalLink className="h-4 w-4" />
             )}
-            {canManage
+            {itemCanEdit
               ? t('appCard.editAction', undefined, locale)
               : t('appCard.viewAction', undefined, locale)}
           </Link>
@@ -1161,7 +1209,7 @@ export default async function ItemDetailPage(props: Props) {
         <section className="mb-6">
           <DataCollectionDetail
             itemId={item.id}
-            canEdit={canManage}
+            canEdit={itemCanEdit}
             initial={
               // The wizard always writes a complete DataCollectionData,
               // but tolerate partial shapes the same way the other
@@ -1205,12 +1253,13 @@ export default async function ItemDetailPage(props: Props) {
           })()}
           <FormDesigner
             itemId={item.id}
+            updatedAt={item.updatedAt}
             initial={
               item.data && typeof item.data === 'object' && 'questions' in (item.data as object)
                 ? ((item.data as unknown) as FormSchema)
                 : null
             }
-            canEdit={canManage}
+            canEdit={itemCanEdit}
           />
         </section>
       ) : item.type === 'wms_service' || item.type === 'wfs_service' ? (
@@ -1228,7 +1277,8 @@ export default async function ItemDetailPage(props: Props) {
                 <ServiceEditor
                   itemId={item.id}
                   initial={sd}
-                  canEdit={canManage}
+                  updatedAt={item.updatedAt}
+                  canEdit={itemCanEdit}
                 />
               );
             }
@@ -1239,7 +1289,7 @@ export default async function ItemDetailPage(props: Props) {
                 initial={
                   (item.data ?? {}) as WmsServiceData | WfsServiceData
                 }
-                canEdit={canManage}
+                canEdit={itemCanEdit}
               />
             );
           })()}
@@ -1262,7 +1312,8 @@ export default async function ItemDetailPage(props: Props) {
               <ServiceEditor
                 itemId={item.id}
                 initial={sd}
-                canEdit={canManage}
+                updatedAt={item.updatedAt}
+                canEdit={itemCanEdit}
               />
             );
           })()}
@@ -1371,7 +1422,10 @@ export default async function ItemDetailPage(props: Props) {
                 ? item.data
                 : { version: 1, source: '' }) as ScriptData
             }
-            canEdit={canManage}
+            updatedAt={item.updatedAt}
+            ownerId={item.ownerId}
+            canEdit={itemCanEdit}
+            canSchedule={me.id === item.ownerId}
           />
         </section>
       ) : item.type === 'geocoding_service' ? (
@@ -1388,6 +1442,7 @@ export default async function ItemDetailPage(props: Props) {
                 : { version: 1, sourceLayerId: '', searchFields: [] }) as import('@gratis-gis/shared-types').GeocodingServiceData
             }
             canEdit={canManage}
+            canRebuildIndexes={me.orgRole === 'admin'}
           />
         </section>
       ) : item.type === 'basemap' ? (
@@ -1407,7 +1462,8 @@ export default async function ItemDetailPage(props: Props) {
                 ? item.data
                 : { version: 1, kind: 'tile-url' }) as BasemapData
             }
-            canEdit={canManage}
+            canEdit={itemCanEdit}
+            canProbe={me.orgRole === 'admin' && me.orgId === item.orgId}
           />
         </section>
       ) : item.type === 'app_template' ? (
@@ -1423,6 +1479,7 @@ export default async function ItemDetailPage(props: Props) {
       ) : item.type === 'theme' ? (
         <AppThemeDetail
           itemId={item.id}
+          updatedAt={item.updatedAt}
           initialBlueprint={
             (item.data && typeof item.data === 'object'
               ? item.data
@@ -1433,18 +1490,26 @@ export default async function ItemDetailPage(props: Props) {
             }
           }
           seedKind={(item as { seedKind?: string | null }).seedKind ?? null}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
         />
       ) : item.type === 'print_template' && isBuilderView ? (
         <PrintTemplateDetail
           itemId={item.id}
+          updatedAt={item.updatedAt}
           initialBlueprint={
-            (item.data && typeof item.data === 'object'
-              ? item.data
-              : DEFAULT_PRINT_TEMPLATE) as PrintTemplateData
+            // Spread over the defaults like the other editors do. A
+            // blueprint written through the API without paper,
+            // elements or parameters would otherwise crash the
+            // designer on render.
+            {
+              ...DEFAULT_PRINT_TEMPLATE,
+              ...(item.data && typeof item.data === 'object'
+                ? (item.data as Partial<PrintTemplateData>)
+                : {}),
+            } as PrintTemplateData
           }
           seedKind={(item as { seedKind?: string | null }).seedKind ?? null}
-          canEdit={canManage}
+          canEdit={itemCanEdit}
         />
       ) : item.type === 'print_template' && !isBuilderView ? (
         // Metadata-first landing for print templates -- same shape as
@@ -1455,18 +1520,19 @@ export default async function ItemDetailPage(props: Props) {
         // chrome).
         (<section className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
           <div className="min-w-[min(100%,14rem)] flex-1">
-            <p className="text-sm font-medium text-ink-0">Print template designer</p>
+            <p className="text-sm font-medium text-ink-0">
+              {t('itemDetail.printTemplateDesignerTitle', undefined, locale)}
+            </p>
             <p className="mt-0.5 text-xs text-muted">
-              Open the full-screen builder to edit the paper layout,
-              element positions, and declared parameters.
+              {t('itemDetail.printTemplateDesignerBody', undefined, locale)}
             </p>
           </div>
-          {canManage ? (
+          {itemCanEdit ? (
             <Link
               href={`/items/${item.id}?view=configure`}
               className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90"
             >
-              Open builder
+              {t('itemDetail.openBuilder', undefined, locale)}
             </Link>
           ) : null}
         </section>)

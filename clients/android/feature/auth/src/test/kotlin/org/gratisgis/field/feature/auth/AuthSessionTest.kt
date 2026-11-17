@@ -204,4 +204,64 @@ class AuthSessionTest {
     assertTrue(session.isSignedIn)
     assertNotNull(store.load())
   }
+
+  @Test
+  fun aTokenTheServerRejectedIsRefreshedEvenWhenLocallyFresh() = runTest {
+    val store = InMemoryTokenStore()
+    val now = 1_000_000L
+    val rejected = jwt(sub = "old")
+    store.save(TokenSet(rejected, "r1", null, expiresAtMs = now + 3_600_000, scope = null))
+    var discoveries = 0
+    var exchanges = 0
+    val engine = MockEngine { req ->
+      when {
+        req.url.toString().endsWith("/.well-known/openid-configuration") -> {
+          discoveries += 1
+          respond(discovery, HttpStatusCode.OK, jsonHeaders)
+        }
+        req.url.toString().endsWith("/token") -> {
+          exchanges += 1
+          respond(tokenJson(jwt(sub = "new")), HttpStatusCode.OK, jsonHeaders)
+        }
+        else -> fail("unexpected ${req.url}") as Nothing
+      }
+    }
+    val session = AuthSession(store, engine = engine, clock = { now })
+    // What the HTTP client calls after a 401.
+    val token = session.refreshAccessToken()
+    assertNotNull(token)
+    assertTrue(token != rejected)
+    assertEquals(1, exchanges)
+    // The discovery document is read once per issuer.
+    session.refreshAccessToken()
+    assertEquals(2, exchanges)
+    assertEquals(1, discoveries)
+  }
+
+  @Test
+  fun aRateLimitedRefreshKeepsTheOfflineSession() = runTest {
+    val store = InMemoryTokenStore()
+    store.save(TokenSet(jwt(), "r1", null, expiresAtMs = 0, scope = null))
+    val engine = MockEngine { req ->
+      if (req.url.toString().endsWith("/.well-known/openid-configuration")) {
+        respond(discovery, HttpStatusCode.OK, jsonHeaders)
+      } else {
+        respond("slow down", HttpStatusCode.TooManyRequests)
+      }
+    }
+    val session = AuthSession(store, engine = engine, clock = { 5_000_000L })
+    assertNull(session.accessToken())
+    assertTrue(session.isSignedIn)
+    assertNotNull(store.load())
+  }
+
+  @Test
+  fun anUnreachableDiscoveryKeepsTheSession() = runTest {
+    val store = InMemoryTokenStore()
+    store.save(TokenSet(jwt(), "r1", null, expiresAtMs = 0, scope = null))
+    val engine = MockEngine { respond("<html>bad gateway</html>", HttpStatusCode.BadGateway) }
+    val session = AuthSession(store, engine = engine, clock = { 5_000_000L })
+    assertNull(session.refreshAccessToken())
+    assertTrue(session.isSignedIn)
+  }
 }

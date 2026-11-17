@@ -68,3 +68,18 @@ export function streamingOptionsForPointCount(
     pickable: true,
   };
 }
+
+/**
+ * Muted viewer copy when size-aware tiers kick in. Returns null on
+ * the snappy default path so the UI stays quiet for ordinary clouds.
+ * Mitigation tone only — never claim Potree / Tile3D / SSE LOD.
+ */
+export function streamingTierNotice(
+  tier: PointCloudStreamingTier,
+): string | null {
+  if (tier === 'default') return null;
+  if (tier === 'huge') {
+    return 'Large cloud (over 20M points): lower in-view point budget and delayed rebuilds while you pan. Point picking starts off. A density tradeoff, not full Potree-style LOD.';
+  }
+  return 'Very large cloud (over 100M points): stricter in-view budget, longer debounce, fewer concurrent fetches, picking off. Local mitigations only — not Tile3D or SSE LOD yet.';
+}

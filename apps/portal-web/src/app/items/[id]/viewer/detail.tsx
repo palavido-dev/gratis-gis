@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -17,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
+import { useT } from '@/lib/i18n/locale-context';
 import Link from 'next/link';
 import type {
   DataLayerData,
@@ -32,9 +34,12 @@ import { AddTargetDialog } from '../editor/add-target-dialog';
 import { AddFromMapDialog } from '../editor/add-from-map-dialog';
 import { PickMapDialog } from '../editor/pick-map-dialog';
 import { ConvertToCustomButton } from '../convert-to-custom';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initial: ViewerData;
   canEdit: boolean;
 }
@@ -59,26 +64,26 @@ interface Props {
  *      reading shouldn't be blocked by an editing toggle on the
  *      data_layer.
  *
- *   3. Tool palette: subset of the read-side toolbar
- *      (select / query / measure / attribute-table / legend / print).
- *      Authors trim to a narrower app if the workflow doesn't need
- *      all six. Print is the new tool for #259; everything else is
- *      already implemented in the runtime.
+ *   3. Tool palette: the read-side tools the runtime can switch off
+ *      (select / measure / print). See ALL_TOOLS for why the others
+ *      are not offered.
  *
  * Persistence: PATCH /api/portal/items/<id> with `{ data: viewer }`.
  * Same shape and dirty/save flow as MapEditor and EditorDetail.
  */
-export function ViewerDetail({ itemId, initial, canEdit }: Props) {
-  // Working copy. Seed `tools` from the default palette when the
-  // persisted item is older than the tools field landing (matches
-  // EditorDetail's pattern).
-  const [viewer, setViewer] = useState<ViewerData>(() => ({
-    ...initial,
-    tools:
-      initial.tools && initial.tools.length > 0
-        ? initial.tools
-        : DEFAULT_VIEWER_TOOLS,
-  }));
+export function ViewerDetail({ itemId, initial, canEdit, updatedAt }: Props) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
+  const t = useT();
+  // What the server holds now. Seeded from the page load and moved
+  // forward on every successful save, so Discard returns to the last
+  // save rather than to the page-load state. Restoring `initial` after
+  // a save left the builder showing older data that the next save
+  // then wrote back over the newer save.
+  const [lastSaved, setLastSaved] = useState<ViewerData>(() =>
+    seedViewer(initial),
+  );
+  // Working copy.
+  const [viewer, setViewer] = useState<ViewerData>(() => seedViewer(initial));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -308,15 +313,16 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
         template: 'viewer',
         config: { template: 'viewer', viewer },
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
-      if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
         return;
       }
+      if (!res.ok) {
+        setError(await parseApiError(res, 'Save failed'));
+        return;
+      }
+      setLastSaved(viewer);
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -326,13 +332,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
   }
 
   function cancel() {
-    setViewer({
-      ...initial,
-      tools:
-        initial.tools && initial.tools.length > 0
-          ? initial.tools
-          : DEFAULT_VIEWER_TOOLS,
-    });
+    setViewer(lastSaved);
     setDirty(false);
     setError(null);
   }
@@ -352,20 +352,20 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
     <div className="flex items-center gap-2">
       {canEdit && dirty ? (
         <span className="rounded-full bg-warn/15 px-2 py-0.5 text-2xs font-medium text-warn">
-          Unsaved changes
+          {t('viewerDetail.unsavedChanges')}
         </span>
       ) : canEdit && saved ? (
-        <span className="text-2xs text-success">Saved</span>
+        <span className="text-2xs text-success">{t('viewerDetail.saved')}</span>
       ) : null}
       <a
         href={`/items/${itemId}/viewer/run`}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
-        title="Open this viewer in a new tab"
+        title={t('viewerDetail.openViewerTitle')}
       >
         <Play className="h-3.5 w-3.5" />
-        Open viewer
+        {t('viewerDetail.openViewer')}
       </a>
       {canEdit ? (
         <>
@@ -381,7 +381,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             disabled={!dirty || saving}
             className="rounded-md border border-border bg-surface-1 px-3 py-1.5 text-sm hover:bg-surface-2 disabled:opacity-50"
           >
-            Discard
+            {t('viewerDetail.discard')}
           </button>
           <button
             type="button"
@@ -390,7 +390,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            Save
+            {t('common.save')}
           </button>
         </>
       ) : null}
@@ -408,10 +408,10 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             type="button"
             onClick={() => setAddingFromMap(true)}
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
-            title="Bulk-import layers from a map"
+            title={t('viewerDetail.addFromMapTitle')}
           >
             <MapIcon className="h-3.5 w-3.5" />
-            Add from map
+            {t('viewerDetail.addFromMap')}
           </button>
           <button
             type="button"
@@ -419,7 +419,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
             className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-2 py-1 text-xs font-medium hover:bg-surface-2"
           >
             <Plus className="h-3.5 w-3.5" />
-            Add layer
+            {t('viewerDetail.addLayer')}
           </button>
         </div>
       ) : null}
@@ -493,8 +493,8 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
                 type="button"
                 onClick={() => pickMap(null)}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger"
-                aria-label="Clear reference map"
-                title="Clear reference map"
+                aria-label={t('viewerDetail.clearReferenceMapAria')}
+                title={t('viewerDetail.clearReferenceMapAria')}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -560,14 +560,14 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
       <BuilderShell
         storageKey="builder-shell:viewer"
         backHref="/items"
-        title="Viewer configuration"
+        title={t('viewerDetail.configurationTitle')}
         icon={<Eye className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
         toolbarRight={toolbarRight}
         leftPanel={layersPanel}
-        leftPanelTitle="Layers"
+        leftPanelTitle={t('mapLayerPanel.title')}
         leftRailIcon={<Layers className="h-4 w-4" />}
         rightPanel={settingsPanel}
-        rightPanelTitle="Settings"
+        rightPanelTitle={t('common.settings')}
         rightRailIcon={<Settings className="h-4 w-4" />}
       >
         {/* Center pane: error banner + "what is this builder" note.
@@ -588,7 +588,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
           <div className="mx-auto max-w-2xl rounded-lg border border-dashed border-border bg-surface-1 p-8 text-center">
             <Eye className="mx-auto h-8 w-8 text-purple-300" />
             <h2 className="mt-2 text-sm font-semibold text-ink-0">
-              Viewer configuration
+              {t('viewerDetail.configurationTitle')}
             </h2>
             <p className="mt-1 text-xs text-muted">
               Add layers in the left panel, pick a reference map and
@@ -602,7 +602,7 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
               className="mt-4 inline-flex items-center gap-1 rounded-md border border-border bg-surface-0 px-3 py-1.5 text-sm font-medium hover:bg-surface-2"
             >
               <Play className="h-3.5 w-3.5" />
-              Open viewer in a new tab
+              {t('viewerDetail.openViewerNewTab')}
             </a>
           </div>
         </div>
@@ -638,10 +638,23 @@ export function ViewerDetail({ itemId, initial, canEdit }: Props) {
 }
 
 /**
+ * Seed `tools` from the default palette only when the persisted item
+ * predates the tools field. An empty list is a real choice (no tools),
+ * which the runtime honours, so it is kept as is.
+ */
+function seedViewer(v: ViewerData): ViewerData {
+  return { ...v, tools: v.tools ?? DEFAULT_VIEWER_TOOLS };
+}
+
+/**
  * `query` is not offered. Nothing in the runtime reads it, so the
  * checkbox promised a filter control that has never existed. It stays
  * in ViewerTool for viewers that already have it saved; when the
  * control ships, add the row back here and to DEFAULT_VIEWER_TOOLS.
+ *
+ * `attribute-table` and `legend` are not offered for the same reason:
+ * the runtime shows both as always-on chrome (viewer/run/page.tsx), so
+ * unticking them changed nothing. Saved values are kept untouched.
  */
 const ALL_TOOLS: Array<{ key: ViewerTool; label: string; hint: string }> = [
   { key: 'select', label: 'Select', hint: 'Pick features to inspect.' },
@@ -650,12 +663,6 @@ const ALL_TOOLS: Array<{ key: ViewerTool; label: string; hint: string }> = [
     label: 'Measure',
     hint: 'Distance and area readouts on the canvas.',
   },
-  {
-    key: 'attribute-table',
-    label: 'Attribute table',
-    hint: 'Browse layer rows in a sortable table.',
-  },
-  { key: 'legend', label: 'Legend', hint: 'Symbology key for the visible layers.' },
   {
     key: 'print',
     label: 'Print',
@@ -678,6 +685,7 @@ interface TargetRowProps {
  * the target is broken (item deleted, layer key renamed, etc.).
  */
 function TargetRow({ target, resolved, resolving, canEdit, onRemove }: TargetRowProps) {
+  const t = useT();
   const layer = resolved?.layer ?? null;
   const item = resolved?.item ?? null;
   const broken = resolved !== null && layer === null;
@@ -724,8 +732,8 @@ function TargetRow({ target, resolved, resolving, canEdit, onRemove }: TargetRow
           type="button"
           onClick={onRemove}
           className="rounded-md p-1 text-muted hover:bg-surface-2 hover:text-danger"
-          aria-label="Remove layer"
-          title="Remove layer"
+          aria-label={t('viewerDetail.removeLayerAria')}
+          title={t('viewerDetail.removeLayerAria')}
         >
           <Trash2 className="h-4 w-4" />
         </button>

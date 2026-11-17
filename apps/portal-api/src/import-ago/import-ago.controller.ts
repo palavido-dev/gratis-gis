@@ -20,6 +20,7 @@ import {
 import { randomBytes } from 'node:crypto';
 
 import { AdminGuard } from '../admin/admin.guard.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
@@ -103,7 +104,11 @@ class AgoOauthStartDto {
  *      client_id.
  *   3. The dry-run / run endpoints.
  *
- * Every endpoint is gated by AdminGuard.
+ * Every endpoint is gated by AdminGuard. Connections have no
+ * organization column and `orgHost` is unique across the install, so
+ * creating, editing and deleting them is limited to admins of the
+ * operator organization (OperatorOrgGuard). Any org admin can still
+ * list them and start OAuth and an import with one.
  */
 @ApiBearerAuth()
 @ApiTags('admin', 'import-ago')
@@ -132,6 +137,7 @@ export class ImportAgoController {
   }
 
   @Post('connections')
+  @UseGuards(OperatorOrgGuard)
   async createConnection(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateConnectionDto,
@@ -144,6 +150,7 @@ export class ImportAgoController {
   }
 
   @Patch('connections/:id')
+  @UseGuards(OperatorOrgGuard)
   async updateConnection(
     @Param('id') id: string,
     @Body() dto: UpdateConnectionDto,
@@ -155,6 +162,7 @@ export class ImportAgoController {
   }
 
   @Delete('connections/:id')
+  @UseGuards(OperatorOrgGuard)
   async deleteConnection(@Param('id') id: string): Promise<{ ok: true }> {
     await this.connections.delete(id);
     return { ok: true };

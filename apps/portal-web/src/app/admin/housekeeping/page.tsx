@@ -182,6 +182,10 @@ export default async function AdminHousekeepingPage() {
 
 // ---- Streaming sections ----------------------------------------
 
+function isForbidden(err: unknown): boolean {
+  return (err as { status?: number } | null)?.status === 403;
+}
+
 async function ScheduleSection() {
   const locale = await getServerLocale();
   try {
@@ -193,6 +197,11 @@ async function ScheduleSection() {
       <HousekeepingScheduleCard initialConfig={config} initialRuns={runs} />
     );
   } catch (err) {
+    // The schedule is install-wide: the API keeps its runs, save and
+    // run to the operator organization. Other org admins get a 403,
+    // which is not a load failure, so the card is left out (as the
+    // storage panel is) instead of showing a red error.
+    if (isForbidden(err)) return null;
     return (
       <SectionError
         label={t('adminHousekeeping.sectionSchedule', undefined, locale)}
@@ -265,6 +274,8 @@ async function OrphanedUploadsSection() {
     );
     return <OrphanedUploadsCard initial={report} />;
   } catch (err) {
+    // Operator organization only, like the schedule above.
+    if (isForbidden(err)) return null;
     return (
       <SectionError
         label={t('adminHousekeeping.sectionOrphanedUploads', undefined, locale)}
@@ -302,9 +313,11 @@ async function BundleSection() {
       apiFetch<HousekeepingBundle['expiringUsers']>(
         '/api/admin/housekeeping/expiring-users',
       ),
+      // Install-wide, so the API limits it to the operator
+      // organization. Other org admins get the rest of the page.
       apiFetch<HousekeepingBundle['storage']>(
         '/api/admin/housekeeping/storage',
-      ),
+      ).catch(() => null),
       apiFetch<HousekeepingBundle['largestDataLayers']>(
         '/api/admin/housekeeping/largest-data-layers',
       ),

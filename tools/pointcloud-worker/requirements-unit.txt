@@ -1,0 +1,5 @@
+# Dependencies imported by tools/pointcloud-worker/test_runner_units.py.
+# The worker image installs numpy from conda-forge without a PyPI pin.
+# This file pins the version the unit job actually runs, so a bare
+# Ubuntu runner does not skip the zonal-stats assertions.
+numpy==2.2.6

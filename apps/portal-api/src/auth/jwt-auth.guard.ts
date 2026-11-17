@@ -12,6 +12,12 @@ import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
 import { isReadOnlySafeMethod, looksLikeApiKey } from './api-key-token.js';
 import { ApiKeyService } from './api-key.service.js';
+import { looksLikePrintReadCredential } from './print-read-credential.js';
+import { PrintReadCredentialService } from './print-read-credential.service.js';
+import {
+  PRINT_READABLE_KEY,
+  type PrintReadableRule,
+} from './print-readable.decorator.js';
 
 /**
  * JWT auth guard with proper @Public() semantics.
@@ -39,6 +45,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(
     private readonly reflector: Reflector,
     private readonly apiKeys: ApiKeyService,
+    private readonly printRead: PrintReadCredentialService,
   ) {
     super();
   }
@@ -57,10 +64,28 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // routes too, matching what a Bearer JWT does there.
     const bearer = readBearer(ctx);
     if (bearer !== null && looksLikeApiKey(bearer)) {
-      const user = await this.apiKeys.resolve(bearer);
+      let user: Awaited<ReturnType<ApiKeyService['resolve']>>;
+      try {
+        user = await this.apiKeys.resolve(bearer);
+      } catch (err) {
+        // On a public route a bad key reads as anonymous, the same as
+        // an expired or invalid JWT does there. A 401 here refused
+        // data the caller could fetch with no header at all.
+        if (isPublic && err instanceof UnauthorizedException) {
+          ctx.switchToHttp().getRequest<{ user?: unknown }>().user = null;
+          return true;
+        }
+        throw err;
+      }
       if (user.apiKeyReadOnly === true) {
         const req = ctx.switchToHttp().getRequest<{ method?: string }>();
         if (!isReadOnlySafeMethod(req.method ?? 'GET')) {
+          // A public write is open to anonymous callers, so a read-only
+          // key may make it, as nobody.
+          if (isPublic) {
+            ctx.switchToHttp().getRequest<{ user?: unknown }>().user = null;
+            return true;
+          }
           throw new ForbiddenException(
             'This API key is read-only. Create a key without the read-only option to make changes.',
           );
@@ -68,6 +93,33 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
       const req = ctx.switchToHttp().getRequest<{ user?: unknown }>();
       req.user = user;
+      return true;
+    }
+
+    // The server-side print's per-job credential. Unlike a JWT or a
+    // key it has no fallback on any route: it works on a
+    // @PrintReadable() read for an item it names, or it is refused.
+    if (bearer !== null && looksLikePrintReadCredential(bearer)) {
+      const req = ctx.switchToHttp().getRequest<{
+        method?: string;
+        path?: string;
+        params?: Record<string, unknown>;
+        query?: Record<string, unknown>;
+        user?: unknown;
+      }>();
+      const rule = this.reflector.getAllAndOverride<
+        PrintReadableRule | undefined
+      >(PRINT_READABLE_KEY, [ctx.getHandler(), ctx.getClass()]);
+      const routeAllowed =
+        rule !== undefined &&
+        (rule.path === undefined || rule.path.test(req.path ?? ''));
+      req.user = await this.printRead.resolve(bearer, {
+        routeAllowed,
+        allowedMethod: rule?.method ?? 'GET',
+        method: req.method ?? 'GET',
+        itemId: rule ? req.params?.[rule.idParam] : undefined,
+        clip: req.query?.clip,
+      });
       return true;
     }
 

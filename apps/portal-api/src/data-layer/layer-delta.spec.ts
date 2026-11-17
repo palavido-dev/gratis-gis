@@ -2,6 +2,8 @@
 import { BadRequestException } from '@nestjs/common';
 
 import {
+  parseDeltaAfterParam,
+  parseDeltaBboxParam,
   parseDeltaLimit,
   parseSinceParam,
   syncVersionSource,
@@ -44,4 +46,39 @@ describe('syncVersionSource', () => {
       details: { syncVersion: 7 },
     });
   });
+});
+
+describe('parseDeltaAfterParam', () => {
+  it('treats missing or empty as no cursor', () => {
+    expect(parseDeltaAfterParam(undefined)).toBeUndefined();
+    expect(parseDeltaAfterParam('')).toBeUndefined();
+  });
+
+  it('accepts an observation uuid and lowercases it', () => {
+    expect(parseDeltaAfterParam('0190A0B0-0000-7000-8000-00000000000A')).toBe(
+      '0190a0b0-0000-7000-8000-00000000000a',
+    );
+  });
+
+  it.each(['1', 'abc', "x' OR 1=1"])('refuses %s', (raw) => {
+    expect(() => parseDeltaAfterParam(raw)).toThrow(BadRequestException);
+  });
+});
+
+describe('parseDeltaBboxParam', () => {
+  it('means the whole layer when absent', () => {
+    expect(parseDeltaBboxParam(undefined)).toBeUndefined();
+    expect(parseDeltaBboxParam('')).toBeUndefined();
+  });
+
+  it('reads west,south,east,north', () => {
+    expect(parseDeltaBboxParam('-117.2,33.9,-116.9,34.1')).toEqual([-117.2, 33.9, -116.9, 34.1]);
+  });
+
+  it.each(['1,2,3', '1,2,3,4,5', '1,,3,4', 'a,b,c,d', '5,0,1,1', '0,5,1,1', 'Infinity,0,1,1'])(
+    'refuses %s',
+    (raw) => {
+      expect(() => parseDeltaBboxParam(raw)).toThrow(BadRequestException);
+    },
+  );
 });

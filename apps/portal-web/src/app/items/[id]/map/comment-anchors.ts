@@ -9,6 +9,10 @@ import {
   type CommentParentKind,
   type DrawingSet,
 } from '@gratis-gis/shared-types';
+import {
+  commentFeatureIdForKey,
+  stableFeatureId,
+} from '@/lib/comment-feature-id';
 
 export type CommentAnchor = {
   parentKind: Exclude<CommentParentKind, 'map'>;
@@ -100,19 +104,24 @@ export function resolveCommentPin(args: {
   if (!decoded) return null;
   const fc = args.featuresByLayer[decoded.mapLayerId];
   if (!fc) return null;
-  const feature = fc.features.find((f) => {
-    const id = f.id ?? f.properties?.['_global_id'] ?? f.properties?.['id'];
-    return id !== undefined && String(id) === decoded.featureId;
-  });
+  const feature = fc.features.find(
+    (f) => stableFeatureId(f) === decoded.featureId,
+  );
   return feature
     ? centroidOfGeometry(feature.geometry as GeoJSON.Geometry)
     : null;
 }
 
-/** Single selected feature from the shared selection map, if any. */
+/**
+ * Single selected feature from the shared selection map, if any.
+ * `featuresByLayer` turns a position key into the feature's own id
+ * (see commentFeatureIdForKey); a feature with no id of its own gets
+ * no feature anchor.
+ */
 export function singleSelectionAnchor(
   selection: Record<string, Set<number | string>>,
   layers: Array<{ id: string; title: string }>,
+  featuresByLayer: Record<string, GeoJSON.FeatureCollection | null | undefined>,
 ): CommentAnchor | null {
   const picks: Array<{ layerId: string; featureId: string | number }> = [];
   for (const [layerId, ids] of Object.entries(selection)) {
@@ -121,12 +130,15 @@ export function singleSelectionAnchor(
   }
   if (picks.length !== 1) return null;
   const pick = picks[0]!;
+  const featureId = commentFeatureIdForKey(
+    pick.featureId,
+    featuresByLayer[pick.layerId]?.features,
+  );
+  if (featureId === null) return null;
   const layer = layers.find((l) => l.id === pick.layerId);
   return {
     parentKind: 'feature',
-    parentId: `${pick.layerId}:${String(pick.featureId)}`,
-    label: layer
-      ? `${layer.title} · ${String(pick.featureId)}`
-      : String(pick.featureId),
+    parentId: `${pick.layerId}:${featureId}`,
+    label: layer ? `${layer.title} · ${featureId}` : featureId,
   };
 }

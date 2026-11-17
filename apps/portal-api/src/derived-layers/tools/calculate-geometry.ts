@@ -205,7 +205,7 @@ export const calculateGeometryGenerator: ToolGenerator<CalculateGeometryParams> 
           ${inputAlias}.global_id,
           ${inputAlias}.geom,
           ${inputAlias}.properties || jsonb_build_object(
-            ${fieldPh},
+            ${fieldPh}::text,
             (${measurementSql}) / ${factorPh}::double precision
           ) AS properties
         FROM ${inputAlias}

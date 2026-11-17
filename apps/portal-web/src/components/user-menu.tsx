@@ -63,18 +63,24 @@ export async function clearUserCaches(): Promise<void> {
  *
  *   1. Clear the service worker's per-user runtime caches so cached
  *      org data doesn't outlive the session on a shared machine.
- *   2. NextAuth's client signOut() with redirect:false, so the
+ *   2. POST /api/auth/federated-logout while the session cookie
+ *      still exists. The route keeps the id token in a short-lived
+ *      httpOnly cookie so step 4 can send it as `id_token_hint`.
+ *      Without the hint Keycloak shows a logout confirmation page,
+ *      and a user who walks away from it leaves the SSO session
+ *      alive for the next person on the device.
+ *   3. NextAuth's client signOut() with redirect:false, so the
  *      session cookies are cleared by NextAuth's own runtime
  *      (matching the exact name + attributes it used at sign-in).
  *      Clearing them from a sibling route was too fragile:
  *      name/attribute drift between the set and the clear left the
  *      session token in place.
- *   3. Navigate to /api/auth/federated-logout, which redirects
+ *   4. Navigate to /api/auth/federated-logout, which redirects
  *      through Keycloak's end-session endpoint so the IDP-side SSO
  *      session dies too.
  *
  * Callers must NOT link straight to /api/auth/federated-logout:
- * that route no longer clears the NextAuth cookie itself, so a bare
+ * that route does not clear the NextAuth cookie itself, so a bare
  * link leaves the local session alive.
  *
  * #249.17: when signing out from inside the field PWA (/field or
@@ -110,6 +116,16 @@ export async function federatedSignOut(): Promise<void> {
     await clearOfflineIdentity();
   } catch {
     // Same reasoning as above.
+  }
+  try {
+    // Step 2 above: must run before signOut clears the cookie that
+    // holds the id token.
+    await fetch('/api/auth/federated-logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+    });
+  } catch {
+    // Without the hint Keycloak asks for confirmation; still sign out.
   }
   try {
     // redirect: false so we control the navigation; signOut posts

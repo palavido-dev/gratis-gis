@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createHash, randomBytes } from 'node:crypto';
+import { isIP, isIPv4 } from 'node:net';
 
 /**
  * Rate limiting needs to recognise "this address again". It does not
@@ -38,6 +39,25 @@ export function resetIpSaltForTests(): void {
   cachedSalt = null;
 }
 
+/**
+ * The address the limiter counts by. One IPv6 subscriber holds a
+ * whole /64 and can use a new address per request, so v6 addresses
+ * are cut to that prefix. IPv4 (and v4-mapped v6) stays whole.
+ */
+export function rateKey(ip: string): string {
+  const raw = ip.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  if (!isIP(raw)) return raw;
+  if (isIPv4(raw)) return raw;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(raw);
+  if (mapped) return mapped[1]!;
+  // Expand "::" so the first four groups are the /64.
+  const [head = '', tail = ''] = raw.split('::');
+  const h = head ? head.split(':') : [];
+  const t = raw.includes('::') ? (tail ? tail.split(':') : []) : [];
+  const groups = raw.includes('::') ? [...h, ...Array(8 - h.length - t.length).fill('0'), ...t] : h;
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
 export function hashIp(ip: string): string {
-  return createHash('sha256').update(`${salt()}:${ip}`).digest('hex');
+  return createHash('sha256').update(`${salt()}:${rateKey(ip)}`).digest('hex');
 }

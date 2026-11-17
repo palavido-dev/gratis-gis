@@ -103,6 +103,8 @@ data class ItemSummary(
  * One observation from `GET .../layers/{key}/delta?since=N`
  * (R1-layer-delta-sync / #328). `entity` is the stable feature id
  * (`_global_id`); `kind` is create|update|delete|derive|observe.
+ * `createdBy` / `createdAt` describe the entity's create observation
+ * (absent from older servers). docs/sync-protocol.md.
  */
 @Serializable
 data class LayerDeltaChange(
@@ -112,14 +114,20 @@ data class LayerDeltaChange(
   val syncVersion: Long,
   val txTime: String? = null,
   val authorSub: String? = null,
+  val createdBy: String? = null,
+  val createdAt: String? = null,
   val geometry: kotlinx.serialization.json.JsonElement? = null,
   val properties: JsonObject? = null,
 )
 
+/** `nextSince` / `nextAfter` are present when `truncated`: the next
+ *  request sends them back as `since` and `after`. */
 @Serializable
 data class LayerDeltaResponse(
   val syncVersion: Long,
   val since: Long,
   val changes: List<LayerDeltaChange> = emptyList(),
   val truncated: Boolean = false,
+  val nextSince: Long? = null,
+  val nextAfter: String? = null,
 )

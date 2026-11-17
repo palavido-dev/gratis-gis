@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { parseIntEnv } from '../common/env.js';
 import type { DataLayerLayerShape } from './tables.service.js';
 import { readV3Layers } from './read-v3-layers.js';
 
@@ -79,7 +80,8 @@ import { readV3Layers } from './read-v3-layers.js';
  *   Every statement here runs through `this.prisma.$executeRawUnsafe`
  *   / `$queryRaw` on the base PrismaService client: one autocommit
  *   statement per call, never inside prisma.$transaction. Callers
- *   (the housekeeping build action) must keep it that way; index
+ *   (the worker, which runs the queued housekeeping builds; see
+ *   search-index-jobs.service.ts) must keep it that way; index
  *   DDL inside a long transaction would pin locks for the whole
  *   transaction lifetime, and it would break the CONCURRENTLY
  *   escalation path outright (CIC cannot run in a transaction).
@@ -119,6 +121,32 @@ export interface SearchIndexBuildResult extends SearchIndexReconcileResult {
    *  anywhere in the portal (deleted item / removed layer). */
   orphansDropped: string[];
   durationMs: number;
+}
+
+/**
+ * Statement timeout for one index build. The app role's 30 s default
+ * cancels a build on a layer of about a million rows, and the file
+ * header quotes 30 to 60 s per field there. Ten minutes by default;
+ * 0 means no limit.
+ */
+const INDEX_BUILD_TIMEOUT_MS = parseIntEnv(
+  'SEARCH_INDEX_BUILD_TIMEOUT_MS',
+  10 * 60 * 1000,
+);
+
+/**
+ * Caps on how many searchable fields get an index (06-5). Each index
+ * build holds a lock that stalls feature writes, so an org marking
+ * dozens of fields searchable could stall writes install-wide for a
+ * long time. Fields past a cap are reported as skipped, with the cap
+ * as the reason, and keep working through the slower unindexed scan.
+ */
+export const MAX_INDEXED_FIELDS_PER_LAYER = 8;
+export const MAX_INDEXED_FIELDS_PER_ORG = 100;
+
+/** Shared countdown for the per-org cap across one build pass. */
+interface FieldBudget {
+  remaining: number;
 }
 
 @Injectable()
@@ -217,6 +245,7 @@ export class DataLayerSearchIndexService {
   async reconcileItem(
     itemId: string,
     layers: DataLayerLayerShape[],
+    budget: FieldBudget = { remaining: MAX_INDEXED_FIELDS_PER_ORG },
   ): Promise<SearchIndexReconcileResult> {
     const out: SearchIndexReconcileResult = {
       created: [],
@@ -227,7 +256,7 @@ export class DataLayerSearchIndexService {
     };
     for (const layer of layers) {
       const scope = `data_layer:${itemId}:${layer.id}`;
-      await this.reconcileScope(scope, layer, out);
+      await this.reconcileScope(scope, layer, out, budget);
     }
     return out;
   }
@@ -236,10 +265,28 @@ export class DataLayerSearchIndexService {
     scope: string,
     layer: DataLayerLayerShape,
     out: SearchIndexReconcileResult,
+    budget: FieldBudget,
   ): Promise<void> {
     const desired = new Map<string, { field: string; sql: string }>();
+    let layerCount = 0;
     for (const f of layer.fields ?? []) {
       if (f.searchable !== true) continue;
+      if (layerCount >= MAX_INDEXED_FIELDS_PER_LAYER) {
+        out.skippedFields.push({
+          scope,
+          field: f.name,
+          reason: `over the limit of ${MAX_INDEXED_FIELDS_PER_LAYER} indexed search fields per layer`,
+        });
+        continue;
+      }
+      if (budget.remaining <= 0) {
+        out.skippedFields.push({
+          scope,
+          field: f.name,
+          reason: `over the limit of ${MAX_INDEXED_FIELDS_PER_ORG} indexed search fields per organization`,
+        });
+        continue;
+      }
       const reason = DataLayerSearchIndexService.unsafeFieldReason(f.name);
       if (reason !== null) {
         // One unindexable arm makes the whole OR unindexable for
@@ -251,6 +298,8 @@ export class DataLayerSearchIndexService {
         out.skippedFields.push({ scope, field: f.name, reason });
         continue;
       }
+      layerCount += 1;
+      budget.remaining -= 1;
       const name = DataLayerSearchIndexService.indexName(scope, f.name);
       desired.set(name, {
         field: f.name,
@@ -338,7 +387,35 @@ export class DataLayerSearchIndexService {
         out.kept.push(name);
         continue;
       }
-      await this.prisma.$executeRawUnsafe(d.sql);
+      try {
+        // SET LOCAL needs its own transaction; it ends with it. The
+        // transaction's own timeout must outlast the statement's.
+        await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRawUnsafe(
+              `SET LOCAL statement_timeout = ${INDEX_BUILD_TIMEOUT_MS}`,
+            );
+            await tx.$executeRawUnsafe(d.sql);
+          },
+          {
+            maxWait: 10_000,
+            timeout:
+              INDEX_BUILD_TIMEOUT_MS > 0
+                ? INDEX_BUILD_TIMEOUT_MS + 10_000
+                : 24 * 60 * 60 * 1000,
+          },
+        );
+      } catch (err) {
+        // One slow or failed build must not abort the whole pass and
+        // leave every later layer without its indexes. Report it with
+        // the other skipped fields and carry on.
+        const reason = `index build failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        this.log.warn(`search-index: ${name} for ${scope}: ${reason}`);
+        out.skippedFields.push({ scope, field: d.field, reason });
+        continue;
+      }
       out.created.push(name);
       this.log.log(
         `search-index: built ${name} on (attrs->>'${d.field}') for ${scope}`,
@@ -376,15 +453,31 @@ export class DataLayerSearchIndexService {
     const items = await this.prisma.item.findMany({
       where: { orgId, type: 'data_layer', deletedAt: null },
       select: { id: true, data: true },
+      // Stable order, so the per-org cap keeps the same fields indexed
+      // from one pass to the next.
+      orderBy: { createdAt: 'asc' },
     });
     out.scannedItems = items.length;
+    const budget: FieldBudget = { remaining: MAX_INDEXED_FIELDS_PER_ORG };
     for (const item of items) {
       const layers = readV3Layers(item.data);
       if (layers === null || layers.length === 0) continue;
       out.indexedLayers += layers.filter((l) =>
         (l.fields ?? []).some((f) => f.searchable === true),
       ).length;
-      const r = await this.reconcileItem(item.id, layers);
+      let r: SearchIndexReconcileResult;
+      try {
+        r = await this.reconcileItem(item.id, layers, budget);
+      } catch (err) {
+        // Keep going: one item's failure must not leave every later
+        // item in the org unreconciled.
+        const reason = `reconcile failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`;
+        this.log.warn(`search-index: item ${item.id}: ${reason}`);
+        out.skippedFields.push({ scope: `data_layer:${item.id}`, field: '', reason });
+        continue;
+      }
       out.created.push(...r.created);
       out.kept.push(...r.kept);
       out.dropped.push(...r.dropped);

@@ -10,6 +10,7 @@ tags:
   - item-type
 related:
   - items-data-layer
+  - items-data-collection
   - creating-your-first-map
   - adding-a-layer
   - symbology-simple

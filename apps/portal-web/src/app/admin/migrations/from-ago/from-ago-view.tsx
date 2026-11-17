@@ -21,6 +21,8 @@ import {
   STATE_STORAGE_KEY,
   TOKEN_CHANNEL_NAME,
 } from './oauth-storage-keys';
+import { apiErrorMessage, parseApiError } from '@/lib/api-error';
+import { shouldRetryPoll } from '@/lib/poll-retry';
 
 interface AgoConnection {
   id: string;
@@ -156,6 +158,15 @@ export function FromAgoView() {
   // current job id without a stale-closure problem.
   const [jobProgress, setJobProgress] = useState<JobProgress | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
+  // Leaving the page stops the poll: the loop exits when the active
+  // job id no longer matches, and nothing else clears it on unmount.
+  // The job itself keeps running on the server.
+  useEffect(
+    () => () => {
+      activeJobIdRef.current = null;
+    },
+    [],
+  );
   // Ref for the import-results section so we can scroll it into
   // view the moment the job completes (the import-results
   // section sits below the preview, which can be a long table).
@@ -203,7 +214,7 @@ export function FromAgoView() {
           '/api/portal/admin/import-ago/connections',
         );
         if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status} ${await resp.text()}`);
+          throw new Error(await apiErrorMessage(resp));
         }
         const list = (await resp.json()) as AgoConnection[];
         setConns(list);
@@ -239,6 +250,14 @@ export function FromAgoView() {
       receivedAt?: number;
     } | null) {
       if (!data || data.type !== 'gratisgis:ago-oauth-token') return;
+      // BroadcastChannel delivers to every tab with the importer
+      // open. Only the tab that started this sign-in holds its state
+      // token, and holds it only while the sign-in is pending (accept
+      // and cancel both clear it). Without this check a second tab
+      // adopted another tab's token and paired it with its own
+      // portal URL, sending portal X's token to portal Y.
+      const expectedState = window.sessionStorage.getItem(STATE_STORAGE_KEY);
+      if (!expectedState || data.state !== expectedState) return;
       if (!data.token) {
         setError('OAuth popup returned no token.');
         setBusy(null);
@@ -252,6 +271,7 @@ export function FromAgoView() {
         window.sessionStorage.getItem(SHARING_BASE_STORAGE_KEY) ?? '';
       const displayName =
         window.sessionStorage.getItem(ORG_URL_STORAGE_KEY) ?? '';
+      window.sessionStorage.removeItem(STATE_STORAGE_KEY);
       const expiresIn = Number(data.expiresIn) || 3600;
       const receivedAt = Number(data.receivedAt) || Date.now();
       setSession({
@@ -318,7 +338,7 @@ export function FromAgoView() {
       });
       if (!resp.ok) {
         throw new Error(
-          `OAuth start failed: HTTP ${resp.status} ${await resp.text()}`,
+          await parseApiError(resp, 'OAuth start failed'),
         );
       }
       const data = (await resp.json()) as {
@@ -386,6 +406,11 @@ export function FromAgoView() {
     if (busy !== 'auth') return;
     setBusy(null);
     setError(null);
+    // Forget the abandoned sign-in, so a token that arrives for it
+    // later (or for another tab) is not adopted here.
+    window.sessionStorage.removeItem(STATE_STORAGE_KEY);
+    window.sessionStorage.removeItem(SHARING_BASE_STORAGE_KEY);
+    window.sessionStorage.removeItem(ORG_URL_STORAGE_KEY);
     // Best-effort: close the popup if we still hold a reference
     // the browser will honour. Under strict COOP this no-ops.
     try {
@@ -423,7 +448,7 @@ export function FromAgoView() {
       });
       if (!resp.ok) {
         throw new Error(
-          `Preview failed: HTTP ${resp.status} ${await resp.text()}`,
+          await parseApiError(resp, 'Preview failed'),
         );
       }
       setPreview((await resp.json()) as DryRunReport);
@@ -472,7 +497,7 @@ export function FromAgoView() {
       );
       if (!startResp.ok) {
         throw new Error(
-          `Import failed: HTTP ${startResp.status} ${await startResp.text()}`,
+          await parseApiError(startResp, 'Import failed'),
         );
       }
       const { id: jobId } = (await startResp.json()) as { id: string };
@@ -480,6 +505,7 @@ export function FromAgoView() {
       // Poll every second until we land on a terminal state. The
       // server-side runner writes done + currentItem on every item
       // boundary so the progress bar updates smoothly.
+      let pollFailures = 0;
       // eslint-disable-next-line no-constant-condition
       while (true) {
         await sleep(POLL_INTERVAL_MS);
@@ -488,14 +514,24 @@ export function FromAgoView() {
           // polling this one rather than racing the UI state.
           return;
         }
-        const statusResp = await fetch(
-          `/api/portal/admin/import-ago/run/${encodeURIComponent(jobId)}`,
-        );
+        let statusResp: Response;
+        try {
+          statusResp = await fetch(
+            `/api/portal/admin/import-ago/run/${encodeURIComponent(jobId)}`,
+          );
+        } catch (err) {
+          pollFailures += 1;
+          if (shouldRetryPoll(null, pollFailures)) continue;
+          throw err;
+        }
         if (!statusResp.ok) {
+          pollFailures += 1;
+          if (shouldRetryPoll(statusResp.status, pollFailures)) continue;
           throw new Error(
-            `Job polling failed: HTTP ${statusResp.status} ${await statusResp.text()}`,
+            await parseApiError(statusResp, 'Job polling failed'),
           );
         }
+        pollFailures = 0;
         const job = (await statusResp.json()) as AgoImportJob;
         setJobProgress({
           done: job.done,
@@ -549,10 +585,15 @@ export function FromAgoView() {
     const jobId = activeJobIdRef.current;
     if (!jobId) return;
     try {
-      await fetch(
+      const res = await fetch(
         `/api/portal/admin/import-ago/run/${encodeURIComponent(jobId)}/cancel`,
         { method: 'POST' },
       );
+      // A refused cancel used to be ignored, so the page kept polling
+      // as though the import were stopping.
+      if (!res.ok) {
+        setError(`Cancel failed: ${await parseApiError(res, `HTTP ${res.status}`)}`);
+      }
     } catch (e) {
       setError(`Cancel failed: ${(e as Error).message}`);
     }
@@ -709,7 +750,7 @@ export function FromAgoView() {
                   key={i}
                   className={`flex items-start gap-2 rounded border px-3 py-2 text-xs ${
                     w.severity === 'warn'
-                      ? 'border-warning/30 bg-warning/5 text-warning'
+                      ? 'border-warn/30 bg-warn/5 text-warn'
                       : 'border-border bg-surface-0 text-ink-1'
                   }`}
                 >
@@ -966,7 +1007,7 @@ export function FromAgoView() {
                         <span className="text-danger">failed</span>
                       )}
                       {row.status === 'skipped' && (
-                        <span className="text-warning">skipped</span>
+                        <span className="text-warn">skipped</span>
                       )}
                     </td>
                     <td className="px-2 py-1.5 font-mono text-muted">
@@ -1176,7 +1217,7 @@ function Counter({
 }) {
   const toneClasses: Record<typeof tone, string> = {
     ok: 'border-success/30 bg-success/5 text-success',
-    warn: 'border-warning/30 bg-warning/5 text-warning',
+    warn: 'border-warn/30 bg-warn/5 text-warn',
     error: 'border-danger/30 bg-danger/5 text-danger',
     neutral: 'border-border bg-surface-0 text-ink-0',
   };

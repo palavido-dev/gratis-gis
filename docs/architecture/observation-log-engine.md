@@ -436,6 +436,39 @@ and the other replica lags by the notification only.
   the same answer the query never runs; a compute that has already
   started, or that another caller coalesced onto, runs to completion
   and is stored, because the work is sunk and the next pan wants it.
+- **Tile disk tier** (optional, `TILE_CACHE_DIR`,
+  `apps/portal-api/src/engine/tile-disk-cache.ts`). MVT buffers only,
+  and never a relate (`via`) tile: its parent key set comes from the
+  memory cache with the aggregate TTL, so after a write nobody heard
+  it can be older than the parent version a file would be named by.
+  Tiles under 1 KiB are not written either; they are cheap to
+  recompute and a crawler would fill the cap with them. A memory miss
+  reads the disk before it takes a compute slot; a compute writes
+  both tiers, the disk in the background. A file is named by a hash
+  of the memory key plus the data version of the tile's scope. The
+  version comes from Postgres (`scopeDataVersion`: row count, the sum
+  of a hash of every row id, and the count of rows not yet in effect,
+  under a 3 s statement timeout), memoized per scope until the next
+  write or the memory TTL; a failed probe is memoized as "no disk" for
+  the TTL, and when four probes are already running a miss computes
+  instead of waiting. So invalidation needs no walk of the directory:
+  a write changes the version, the old file is never looked up again,
+  and LRU eviction reclaims it. This also covers writes made while the
+  process was down and deletes that fire no NOTIFY, which a generation
+  counter kept by the process could not. An in-app restore also clears
+  memory and the directory on the replica that ran it. A salt of
+  `TILE_BYTES_REVISION`, `GG_VERSION` and `GIT_SHA` keeps an upgrade
+  from serving tiles an older encoder wrote; an image with neither
+  build stamp keeps the tier off. Files are written to a temp name and
+  renamed, and carry a SHA-256 digest of the key (never the key text,
+  which holds request-derived filters and user ids) and a CRC-32; a
+  file that fails validation is deleted and recomputed. Eviction is
+  LRU by mtime (touched at most once a minute per file) under
+  `TILE_CACHE_DISK_MAX_BYTES`, counted in 4 KiB blocks, and
+  `TILE_CACHE_DISK_MAX_FILES`. A sweep reconciles 8 of 256 shard
+  directories every 30 s (a full pass in 16 minutes), which also picks
+  up files another replica sharing the volume wrote; until it does,
+  two replicas can together exceed the cap by up to about 2x.
 - **Relate parent keys.** `compileViaFilter` resolves the parent's
   matching key set as its own query and hands the child
   `= ANY($keys)`. That key set is cached under the PARENT scope

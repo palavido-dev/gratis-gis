@@ -3,6 +3,7 @@ import { Building2, Globe2, Lock, Scale } from 'lucide-react';
 import type { ItemAccess, ItemType, LayerGeometryType } from '@gratis-gis/shared-types';
 import { getItemTypeLabel } from '@gratis-gis/shared-types';
 import { t } from '@/lib/i18n';
+import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 
 /**
  * Soft pill styling per type. Not `getItemTypeAccent`, which returns
@@ -73,6 +74,7 @@ const GEOMETRY_LABEL_KEY: Record<string, string> = {
 
 export function geometryLabel(
   geometryTypes: Array<LayerGeometryType | null | undefined>,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): string | null {
   const present = new Set(
     geometryTypes.filter((g): g is LayerGeometryType => Boolean(g)),
@@ -81,12 +83,12 @@ export function geometryLabel(
   // thing (a related table), not a missing value, so it gets a label
   // rather than being skipped.
   if (present.size === 0) {
-    return geometryTypes.length > 0 ? t('itemDetail.geometryNone') : null;
+    return geometryTypes.length > 0 ? t('itemDetail.geometryNone', undefined, locale) : null;
   }
-  if (present.size > 1) return t('itemDetail.statMixed');
+  if (present.size > 1) return t('itemDetail.statMixed', undefined, locale);
   const only = [...present][0] as string;
   const key = GEOMETRY_LABEL_KEY[only];
-  return key ? t(key) : only;
+  return key ? t(key, undefined, locale) : only;
 }
 
 interface Props {
@@ -99,6 +101,9 @@ interface Props {
    *  thing and callers pass the latter. */
   geometryTypes?: Array<LayerGeometryType | null | undefined> | undefined;
   className?: string | undefined;
+  /** The viewer's locale. A server component has no locale context,
+   *  so without it every pill was English. */
+  locale?: SupportedLocale | undefined;
 }
 
 export function ItemPills({
@@ -107,10 +112,11 @@ export function ItemPills({
   license,
   geometryTypes,
   className,
+  locale = DEFAULT_LOCALE,
 }: Props) {
   const meta = ACCESS_META[access];
   const AccessIcon = meta.icon;
-  const geometry = geometryTypes ? geometryLabel(geometryTypes) : null;
+  const geometry = geometryTypes ? geometryLabel(geometryTypes, locale) : null;
   const trimmedLicense = license?.trim();
 
   return (
@@ -123,11 +129,11 @@ export function ItemPills({
         {getItemTypeLabel(type)}
       </span>
       <span
-        title={t(meta.titleKey)}
+        title={t(meta.titleKey, undefined, locale)}
         className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-2xs font-medium ${meta.className}`}
       >
         <AccessIcon className="h-3 w-3" />
-        {t(meta.labelKey)}
+        {t(meta.labelKey, undefined, locale)}
       </span>
       {geometry ? (
         <span className="inline-flex shrink-0 items-center rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-2xs text-muted">
@@ -136,7 +142,7 @@ export function ItemPills({
       ) : null}
       {trimmedLicense ? (
         <span
-          title={t('itemDetail.licenseTitle', { license: trimmedLicense })}
+          title={t('itemDetail.licenseTitle', { license: trimmedLicense }, locale)}
           className="inline-flex min-w-0 shrink items-center gap-1 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-2xs text-muted"
         >
           <Scale className="h-3 w-3 shrink-0" />

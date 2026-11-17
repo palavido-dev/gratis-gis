@@ -8,6 +8,7 @@ import { ChevronRight, Folder as FolderIcon, FolderOpen } from 'lucide-react';
 import { FolderRowMenu } from './folder-row-menu';
 import { useAlert } from '@/components/dialog-provider';
 import { toast } from '@/lib/toast';
+import { updateFolderChildren } from '@/lib/folder-update';
 import { useT } from '@/lib/i18n/locale-context';
 
 /** MIME-style key used to identify an item-card drag payload (#43).
@@ -146,19 +147,30 @@ export function FolderRail({ folders, activeFolderId }: Props) {
       // parent's childItemIds via a follow-up PATCH. The folder
       // hierarchy lives on the parent's data.childItemIds; the new
       // folder isn't claimed by anyone until the parent updates.
+      // The parent is read fresh and only its member list changes,
+      // so a smart folder keeps its saved query and a colleague's
+      // recent additions are not written over. A refused update is
+      // reported: the new folder exists but sits at the top level.
       if (parent !== 'root') {
         const created = (await res.json()) as { id?: string };
-        const parentNode = folderById.get(parent);
-        if (created.id && parentNode) {
-          await fetch(`/api/portal/items/${parent}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              data: {
-                childItemIds: [...parentNode.childItemIds, created.id],
-              },
-            }),
-          });
+        const newId = created.id;
+        if (newId) {
+          try {
+            await updateFolderChildren(parent, (existing) =>
+              existing.includes(newId) ? null : [...existing, newId],
+            );
+          } catch (err) {
+            setCreatingUnder(null);
+            router.refresh();
+            await alert({
+              tone: 'warn',
+              title: 'Could not add the folder to its parent',
+              message: `The folder was created at the top level. ${
+                err instanceof Error ? err.message : ''
+              }`.trim(),
+            });
+            return;
+          }
         }
       }
       setCreatingUnder(null);
@@ -202,84 +214,22 @@ export function FolderRail({ folders, activeFolderId }: Props) {
   async function dropItemIntoFolder(itemId: string, folderId: string) {
     if (!itemId || !folderId || itemId === folderId) return;
     try {
-      // Add to the destination folder.
-      const destRes = await fetch(`/api/portal/items/${folderId}`);
-      if (!destRes.ok) {
-        throw new Error(`Could not load folder (${destRes.status}).`);
-      }
-      const dest = (await destRes.json()) as {
-        data?: { childItemIds?: unknown };
-      };
-      const destExisting = Array.isArray(dest.data?.childItemIds)
-        ? (dest.data!.childItemIds as unknown[]).filter(
-            (x): x is string => typeof x === 'string',
-          )
-        : [];
-      // Build the move-source patch in parallel only when we're in
-      // a "drag from inside folder A" context. activeFolderId
-      // matches the folder the items grid is currently filtered to;
-      // if it's set and != the drop target, the item leaves it.
+      // Add to the destination first and touch the source only once
+      // that worked. Running both at once lost the item when the
+      // destination refused it (read-only folder, or a cycle).
+      await updateFolderChildren(folderId, (existing) =>
+        existing.includes(itemId) ? null : [...existing, itemId],
+      );
+      // When the grid is filtered to folder A and the drop target is
+      // another folder, the item leaves A (a move).
       const moveSourceId =
         activeFolderId && activeFolderId !== folderId ? activeFolderId : null;
-
-      // Skip the dest patch when the item already lives there
-      // (idempotent re-drop). Still process the move-source removal
-      // since the user clearly intended the relocation.
-      const tasks: Array<Promise<Response>> = [];
-      if (!destExisting.includes(itemId)) {
-        const next = {
-          ...(dest.data ?? {}),
-          childItemIds: [...destExisting, itemId],
-        };
-        tasks.push(
-          fetch(`/api/portal/items/${folderId}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ data: next }),
-          }),
-        );
-      }
       if (moveSourceId) {
-        // Fetch + patch the source folder to splice the item out.
-        // Sequential within this branch because we need the source's
-        // current childItemIds before we can rewrite them; the
-        // outer Promise.all parallelises destination add with
-        // source remove.
-        tasks.push(
-          (async () => {
-            const srcRes = await fetch(
-              `/api/portal/items/${moveSourceId}`,
-            );
-            if (!srcRes.ok) return srcRes;
-            const src = (await srcRes.json()) as {
-              data?: { childItemIds?: unknown };
-            };
-            const before = Array.isArray(src.data?.childItemIds)
-              ? (src.data!.childItemIds as unknown[]).filter(
-                  (x): x is string => typeof x === 'string',
-                )
-              : [];
-            const after = before.filter((x) => x !== itemId);
-            if (after.length === before.length) {
-              // Item wasn't in the source; nothing to remove.
-              return new Response(null, { status: 200 });
-            }
-            return fetch(`/api/portal/items/${moveSourceId}`, {
-              method: 'PATCH',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                data: { ...(src.data ?? {}), childItemIds: after },
-              }),
-            });
-          })(),
+        await updateFolderChildren(moveSourceId, (existing) =>
+          existing.includes(itemId)
+            ? existing.filter((x) => x !== itemId)
+            : null,
         );
-      }
-      const results = await Promise.all(tasks);
-      for (const r of results) {
-        if (!r.ok) {
-          const body = await r.text().catch(() => '');
-          throw new Error(body || `Drop rejected (${r.status}).`);
-        }
       }
       router.refresh();
     } catch (err) {
@@ -438,6 +388,8 @@ function FolderNode({
           // Only respond to item-card drags. Other drag payloads
           // (text, files) leave the dropEffect at the browser
           // default so the user gets a 'no-drop' cursor.
+          // A folder the user cannot edit would refuse the drop.
+          if (!folder.canEdit) return;
           const types = e.dataTransfer.types;
           if (
             (types.includes && types.includes(ITEM_DRAG_MIME)) ||
@@ -452,6 +404,7 @@ function FolderNode({
           if (isDropTarget) onDragOver(null);
         }}
         onDrop={(e) => {
+          if (!folder.canEdit) return;
           const itemId = e.dataTransfer.getData(ITEM_DRAG_MIME);
           if (!itemId) return;
           e.preventDefault();
@@ -483,17 +436,18 @@ function FolderNode({
           className="flex flex-1 items-center gap-1.5 truncate"
           title={folder.title}
           onContextMenu={(e) => {
-            // Forward right-click to the row menu. The menu component
-            // catches the event on its kebab button too; we replicate
-            // here so a click anywhere on the row works.
+            // Forward right-click to the row menu's kebab. Found by a
+            // data attribute because its aria-label is translated, and
+            // the event must bubble or React's root listener never
+            // sees it and the kebab's handler does not run.
             const btn = e.currentTarget.parentElement?.querySelector(
-              `button[aria-label^="Actions for"]`,
+              'button[data-folder-menu-trigger]',
             ) as HTMLButtonElement | null;
             if (btn) {
               e.preventDefault();
               btn.dispatchEvent(
                 new MouseEvent('contextmenu', {
-                  bubbles: false,
+                  bubbles: true,
                   clientX: e.clientX,
                   clientY: e.clientY,
                 }),

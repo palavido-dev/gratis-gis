@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
 
 /**
  * Comments panel (#155 Phase 1 + 2).
@@ -23,8 +22,11 @@ import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
  *     can resolve any thread.
  *   - Resolved threads hide by default behind a "show resolved"
  *     toggle so the conversation stays auditable.
+ *   - @username in a create/reply emails the org member when they
+ *     can view the map (R2-comments-mentions). Unknown handles stay
+ *     literal text.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Check,
   ChevronDown,
@@ -37,6 +39,8 @@ import {
   X,
 } from 'lucide-react';
 import type { CommentAnchor } from './comment-anchors';
+import { portalJson as api } from '@/lib/portal-json';
+import { fetchCommentPage, prependOlderThreads } from '@/lib/comment-pages';
 
 interface CommentDTO {
   id: string;
@@ -105,6 +109,7 @@ export function CommentsPanel({
   onSelectThread,
 }: Props) {
   const t = useT();
+  const fmt = useFormat();
   const [threads, setThreads] = useState<ThreadDTO[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,20 +117,44 @@ export function CommentsPanel({
   const [draftBody, setDraftBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
+  // The list API returns the newest 200 threads. This holds the
+  // cursor for the page before them, or null when all are loaded.
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const fresh = await api<ThreadDTO[]>(`/api/portal/items/${itemId}/comments`);
-      setThreads(fresh);
-      onThreadsChange?.(fresh);
+      const page = await fetchCommentPage<ThreadDTO>(itemId);
+      setThreads(page.threads);
+      setOlderCursor(page.nextCursor);
+      onThreadsChange?.(page.threads);
     } catch (e) {
       setError(message(e, t('mapComments.somethingWrong')));
     } finally {
       setLoading(false);
     }
   }, [itemId, t, onThreadsChange]);
+
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor) return;
+    setLoadingOlder(true);
+    setError(null);
+    try {
+      const page = await fetchCommentPage<ThreadDTO>(itemId, olderCursor);
+      setOlderCursor(page.nextCursor);
+      setThreads((curr) => {
+        const next = prependOlderThreads(curr, page.threads);
+        onThreadsChange?.(next);
+        return next;
+      });
+    } catch (e) {
+      setError(message(e, t('mapComments.somethingWrong')));
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [itemId, olderCursor, t, onThreadsChange]);
 
   useEffect(() => {
     if (open) refresh();
@@ -135,6 +164,28 @@ export function CommentsPanel({
     if (showResolved) return threads;
     return threads.filter((th) => !th.resolved);
   }, [threads, showResolved]);
+
+  // A deep link or pin click names a thread; make sure it is listed
+  // and in view. A resolved thread was filtered out unless "show
+  // resolved" happened to be on, and the list did not scroll, so the
+  // mention email link could open the panel with the thread nowhere.
+  const focusedThreadResolved = threads.some(
+    (th) => th.id === focusThreadId && th.resolved,
+  );
+  useEffect(() => {
+    if (focusedThreadResolved) setShowResolved(true);
+  }, [focusedThreadResolved]);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  useEffect(() => {
+    if (!open || !focusThreadId) return;
+    const items = listRef.current?.children ?? [];
+    for (const el of Array.from(items)) {
+      if ((el as HTMLElement).dataset['threadId'] === focusThreadId) {
+        el.scrollIntoView({ block: 'nearest' });
+        break;
+      }
+    }
+  }, [open, focusThreadId, visibleThreads]);
 
   const startThread = useCallback(async () => {
     if (!currentUser) return;
@@ -265,7 +316,7 @@ export function CommentsPanel({
     <div
       role="dialog"
       aria-label={t('mapComments.panelAria')}
-      className="absolute right-3 top-16 z-30 flex max-h-[70vh] w-96 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:w-auto"
+      className="absolute right-14 top-3 z-30 flex max-h-[70vh] w-96 flex-col rounded-md border border-border bg-surface-1 shadow-card max-md:left-3 max-md:right-3 max-md:top-16 max-md:w-auto"
     >
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
@@ -302,6 +353,19 @@ export function CommentsPanel({
       </div>
 
       <div className="overflow-y-auto px-2 py-2">
+        {olderCursor ? (
+          <button
+            type="button"
+            onClick={() => void loadOlder()}
+            disabled={loadingOlder}
+            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded border border-border px-2 py-1 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-60"
+          >
+            {loadingOlder ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted" />
+            ) : null}
+            {t('mapComments.loadOlder')}
+          </button>
+        ) : null}
         {visibleThreads.length === 0 ? (
           <p className="px-2 py-3 text-xs text-muted">
             {threads.length === 0
@@ -309,10 +373,11 @@ export function CommentsPanel({
               : t('mapComments.emptyResolved')}
           </p>
         ) : (
-          <ul className="space-y-3">
+          <ul ref={listRef} className="space-y-3">
             {visibleThreads.map((thread) => (
               <li
                 key={thread.id}
+                data-thread-id={thread.id}
                 className={`rounded border px-2 py-2 ${
                   focusThreadId === thread.id
                     ? 'border-accent/50 bg-accent/5'
@@ -338,7 +403,7 @@ export function CommentsPanel({
                       </span>
                     ) : null}
                     {t('mapComments.threadOpened', {
-                      when: formatRelative(thread.createdAt),
+                      when: fmt.relativeTime(thread.createdAt),
                     })}
                     {thread.resolved
                       ? t('mapComments.resolvedSuffix')
@@ -372,7 +437,7 @@ export function CommentsPanel({
                         <p className="text-2xs font-medium text-ink-1">
                           {c.authorDisplay}
                           <span className="ml-1 font-normal text-muted">
-                            {formatRelative(c.createdAt)}
+                            {fmt.relativeTime(c.createdAt)}
                             {c.editedAt
                               ? t('mapComments.editedSuffix')
                               : ''}
@@ -392,7 +457,7 @@ export function CommentsPanel({
                         ) : null}
                       </div>
                       <p className="mt-0.5 whitespace-pre-wrap text-sm text-ink-1">
-                        {c.body}
+                        {renderCommentBody(c.body)}
                       </p>
                     </li>
                   ))}
@@ -418,7 +483,7 @@ export function CommentsPanel({
                         busy ||
                         (replyDrafts[thread.id] ?? '').trim().length === 0
                       }
-                      className="rounded border border-border bg-accent px-2 py-1 text-xs text-accent-on hover:opacity-90 disabled:opacity-50"
+                      className="rounded border border-border bg-accent px-2 py-1 text-xs text-accent-foreground hover:opacity-90 disabled:opacity-50"
                     >
                       <Send className="h-3 w-3" />
                     </button>
@@ -496,12 +561,13 @@ export function CommentsPanel({
                 type="button"
                 onClick={startThread}
                 disabled={busy || draftBody.trim().length === 0}
-                className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-on hover:opacity-90 disabled:opacity-50"
+                className="flex items-center gap-1 rounded border border-border bg-accent px-2 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90 disabled:opacity-50"
               >
                 <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
                 {t('mapComments.post')}
               </button>
             </div>
+            <p className="text-2xs text-muted">{t('mapComments.mentionHint')}</p>
           </div>
         ) : (
           <p className="text-xs text-muted">
@@ -523,34 +589,28 @@ function message(e: unknown, fallback: string): string {
   return fallback;
 }
 
-async function api<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    ...((init.headers as Record<string, string>) ?? {}),
-  };
-  if (init.body && !headers['content-type'] && !headers['Content-Type']) {
-    headers['content-type'] = 'application/json';
+/** Highlight `@username` tokens; unknown handles stay plain text. */
+function renderCommentBody(body: string): ReactNode {
+  const re = /(^|[^A-Za-z0-9._-])(@[A-Za-z0-9._-]{1,64})\b/g;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(body)) !== null) {
+    const full = m[0];
+    const prefix = m[1] ?? '';
+    const handle = m[2] ?? '';
+    const start = m.index;
+    if (start > last) parts.push(body.slice(last, start));
+    if (prefix) parts.push(prefix);
+    parts.push(
+      <span key={`m-${key++}`} className="font-medium text-accent">
+        {handle}
+      </span>,
+    );
+    last = start + full.length;
   }
-  const res = await fetch(url, { ...init, headers });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${res.status}: ${body || res.statusText}`);
-  }
-  const text = await res.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+  if (last < body.length) parts.push(body.slice(last));
+  return parts.length > 0 ? parts : body;
 }
 
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return iso;
-  const diff = Date.now() - then;
-  if (diff < 0) return 'just now';
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} d ago`;
-  return formatDate(iso, DEFAULT_LOCALE);
-}

@@ -109,16 +109,14 @@ export function getDuckDb(): Promise<AsyncDuckDB> {
   return dbPromise;
 }
 
-/** Files already registered with the instance this session, keyed
- *  by virtual filename; lets a re-opened panel skip the re-fetch
- *  AND the re-register. */
-const registeredFiles = new Set<string>();
-
 /**
- * Register a Parquet buffer under a stable virtual filename and
- * expose it as a view. Idempotent per session: the buffer is only
- * registered once, the view is CREATE OR REPLACE'd every call
- * (cheap, and it heals a view dropped by user SQL).
+ * Register a Parquet buffer under a virtual filename and expose it as
+ * a view. The bytes are fetched on every call. A per-session cache
+ * keyed by layer kept the first download for the whole tab, so after
+ * an edit or an import Analyze kept answering from the old rows.
+ * Callers pass a name unique to this open and release it with
+ * releaseParquetFile when done, so the layer's copy does not stay in
+ * WASM memory either.
  *
  * The view name is derived from the layer's table name, which the
  * schema validator restricts to [a-z0-9_]; we still quote it and
@@ -131,16 +129,23 @@ export async function registerParquetView(args: {
   bytes: () => Promise<Uint8Array>;
 }): Promise<AsyncDuckDBConnection> {
   const db = await getDuckDb();
-  if (!registeredFiles.has(args.fileName)) {
-    await db.registerFileBuffer(args.fileName, await args.bytes());
-    registeredFiles.add(args.fileName);
-  }
+  await db.registerFileBuffer(args.fileName, await args.bytes());
   const conn = await db.connect();
   const view = sanitizeIdent(args.viewName);
   await conn.query(
     `CREATE OR REPLACE VIEW "${view}" AS SELECT * FROM read_parquet('${args.fileName.replace(/'/g, "''")}')`,
   );
   return conn;
+}
+
+/** Drop a file registered by registerParquetView. Best effort. */
+export async function releaseParquetFile(fileName: string): Promise<void> {
+  try {
+    const db = await getDuckDb();
+    await db.dropFile(fileName);
+  } catch {
+    // The file may never have been registered (download failed).
+  }
 }
 
 function sanitizeIdent(name: string): string {

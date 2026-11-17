@@ -6,6 +6,7 @@ import { ItemsModule } from '../items/items.module.js';
 import { IngestModule } from '../ingest/ingest.module.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
 import { DataLayerTablesModule } from '../data-layer/tables.module.js';
+import { ResourceQuotaModule } from '../admin/resource-quota.module.js';
 
 import { ImportJobsService } from './import-jobs.service.js';
 import { ImportJobsWorker } from './import-jobs.worker.js';
@@ -33,6 +34,10 @@ import { ImportJobsWorker } from './import-jobs.worker.js';
     IngestModule,
     DataLayerFeaturesModule,
     DataLayerTablesModule,
+    // ImportJobsService takes ResourceQuotaService as @Optional(). Without
+    // this import it resolved to undefined here, so the worker never
+    // released an import's byte hold when the import finished.
+    ResourceQuotaModule,
   ],
   providers: [ImportJobsService, ImportJobsWorker],
   exports: [ImportJobsService],

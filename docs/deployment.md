@@ -11,8 +11,8 @@ is the tested path, not aspiration.
   organization and enough for the heavier analysis tiers; 2 cores and
   4 GB can boot the stack for evaluation but leave little headroom.
   20 GB or more of free disk.
-- Docker Engine with the compose v2 plugin, plus git, curl, and
-  openssl. The installer checks and tells you what is missing; it does
+- Docker Engine with the compose v2 plugin, plus git, curl, openssl,
+  and python3. The installer checks and tells you what is missing; it does
   not install Docker for you.
 - Three DNS A records pointing at the server: the portal hostname, an
   auth hostname, and a storage hostname (for example `gis.example.org`,
@@ -43,12 +43,24 @@ cd /opt/gratis-gis
 `setup.sh` asks for your domain, the Let's Encrypt email, and an
 organization name, derives the auth and storage hostnames (overridable),
 generates every secret, and writes `infra/.env.prod` (mode 600). It
-prints the initial credentials once: the portal sign-in
+also writes `CHROMIUM_TOKEN` and `SCRIPT_EXECUTOR_TOKEN`. Compose
+reads both even when you do not print maps and do not enable user
+scripts. It prints the initial credentials once: the portal sign-in
 (`admin` plus a generated password that Keycloak forces you to change
 on first login) and the Keycloak admin console password. Save them.
 
 Non-interactive use: `./infra/setup.sh --domain gis.example.org
---acme-email you@example.org --yes`.
+--acme-email you@example.org --yes`. `./infra/setup.sh` is
+`./infra/bootstrap.sh`. Both write `CHROMIUM_TOKEN` and
+`SCRIPT_EXECUTOR_TOKEN`. Compose will not start without them, even
+if you never print a map and never enable user scripts.
+
+## TrueNAS and a home NAS
+
+Paste [`infra/docker-compose.nas.yml`](../infra/docker-compose.nas.yml)
+into TrueNAS or Dockge. The stack generates its own passwords and
+serves HTTP on port 8080. Steps are in [truenas.md](./truenas.md).
+Do not paste `infra/docker-compose.prod.yml` into those UIs.
 
 `deploy.sh` builds the images, starts the stack, runs database
 migrations, and reconciles the Keycloak realm. First build takes a
@@ -66,6 +78,10 @@ which analysis capability tiers the hardware honestly supports
 (browser-tier analysis always works because it runs on the visitor's
 machine; heavier server tiers get a recommendation based on cores,
 memory, and GPU presence). Exit code 0 means no failures.
+
+For ongoing monitoring, portal-api can serve Prometheus metrics to a
+scraper on the docker network when `METRICS_TOKEN` is set. See
+[operations/metrics.md](operations/metrics.md).
 
 ## Sizing the point-cloud scratch disk
 
@@ -97,10 +113,9 @@ Rules of thumb:
 
 ## What runs
 
-Docker Compose starts: the portal API (two replicas) and web UI, a
+Docker Compose starts: the portal API (two replicas in the production compose file, one in the NAS compose file) and web UI, a
 background worker, PostgreSQL with PostGIS, Keycloak 26 (identity),
-MinIO (object storage), pg_tileserv (vector tiles straight from
-PostGIS), Caddy (reverse proxy with automatic HTTPS), a one-shot
+MinIO (object storage), Caddy (reverse proxy with automatic HTTPS), a one-shot
 migration container, and two Chromium instances used for print
 rendering. Internal services are only reachable on the compose network;
 Caddy is the only thing listening on 80/443.
@@ -121,20 +136,96 @@ before upgrading; the full procedure, including rollback, is in
 ## Backups
 
 Portal admins can create and download backup archives from the Backup
-page in the portal's admin area (database plus uploaded files). For
-host-level backups, snapshot the Docker volumes for PostgreSQL and
-MinIO while the stack is stopped, plus your `infra/.env.prod`. Keep
+page in the portal's admin area (the portal database plus uploaded
+files). For host-level backups, snapshot the Docker volumes for
+PostgreSQL and MinIO while the stack is stopped, plus your
+`infra/.env.prod` (on a NAS install, the `boot` volume). Keep
 `.env.prod` safe either way: `CREDENTIAL_ENCRYPTION_KEY` cannot be
 regenerated without losing encrypted credentials.
 
+A backup archive restores only on the install that created it. The
+archive does not contain the encryption key, the Keycloak realm, or
+the database password. Those live in that install's env file. Restoring
+the archive on a freshly generated install cannot decrypt stored
+credentials and will not match that install's sign-in configuration.
+Use Restore on the same portal, or on a copy of the machine that still
+has the original env file and volumes.
+
 The restore point you can promise is the newest archive you have
-copied off the host. Take one before an upgrade, restore it once
-onto a spare machine (a second directory and a second set of DNS
-names, below), and write down the time between that archive and
-the moment you took it. That interval is the recovery point.
+copied off the host. Take one before an upgrade, and write down the
+time between that archive and the moment you took it. That interval
+is the recovery point.
 `/health` answers 503 when Postgres does not respond, so a load
 balancer can take the portal out of rotation. It does not probe
 Keycloak or MinIO; `./infra/doctor.sh` does.
+
+On an install whose admin login is shared, such as a public demo,
+set `GRATIS_DISABLE_BACKUP_UI=1` in `infra/.env.prod` (or the NAS
+env box). The API then refuses to run, download, delete or restore
+backups, change the backup settings, or turn maintenance on or off,
+and the portal hides those controls. Scheduled backups keep running.
+Remove the setting and restart portal-api to get the controls back.
+
+Downloading an archive in the browser stores it wherever that
+browser saves files. That is not an off-site copy until the file,
+and `infra/.env.prod` or the NAS `boot` volume, are on another disk.
+
+### Before an in-portal restore
+
+- Stop the background workers first: `portal-worker`, `script-runner`
+  and `pointcloud-worker`. They do not read the maintenance flag, so
+  they keep writing rows and objects while the restore replaces them.
+  Start them again after the restore succeeds.
+- The archive must come from the same database schema the portal runs
+  now. Restore refuses an archive made before or after a release that
+  added migrations, because `pg_restore` cannot convert one schema into
+  another. Restore an older archive on the release that made it, then
+  upgrade. Take a fresh backup right after every upgrade.
+- Restore refuses to start while a backup is running. Backups and
+  scheduled jobs pause while maintenance is on.
+
+## When a restore fails
+
+The in-portal restore turns maintenance mode on and leaves it on if
+`pg_restore` or the object-store copy fails. That is intentional: a
+half-applied database must not serve users. Do not clear the flag
+until the portal tables are present and you have signed in.
+
+1. Snapshot the PostgreSQL volume before you try again, even if it
+   looks broken. It is the only copy of a half-applied restore.
+2. If you took a volume snapshot before the restore, stop the API
+   and restore that snapshot. Leave the Keycloak volume alone unless
+   you also have a Keycloak dump from the same time.
+3. If you do not have a snapshot, restore a known-good portal dump
+   with `pg_restore` while the API is stopped, then copy objects
+   back. The archive layout is `manifest.json`,
+   `postgres/<db>.dump`, and `minio/`.
+4. `./infra/restore-maintenance.sh status` checks that `user`,
+   `item`, `organization`, `system_setting`, `observation`, and
+   `_prisma_migrations` exist, and that no migration is unfinished.
+   Those checks do not prove the restore is consistent or safe to
+   serve. Compare the data with a backup before you continue.
+   `./infra/restore-maintenance.sh clear --i-verified-the-database`
+   refuses otherwise. It does not delete volumes. API replicas
+   re-read the flag within a few seconds.
+   An in-portal restore also writes `.restore-in-progress` in the
+   portal-api backups volume (`/app/backups`) before `pg_restore`
+   starts, and removes it only when the restore succeeds. If the API
+   stopped or the restore failed, maintenance stays on while that file
+   exists. Once you have verified the database, remove it with
+   `docker compose exec portal-api rm -f /app/backups/.restore-in-progress`.
+5. A forgotten portal password is not fixed by deleting volumes.
+   Reset the user with `./infra/reset-portal-password.sh <username>`.
+   That talks to Keycloak inside the container. It does not open the
+   master realm on the proxy, and it does not touch the database.
+
+## Forgotten admin password
+
+`./infra/reset-portal-password.sh <username>` sets a new password for
+an existing Keycloak user and prints it once. It does not delete
+volumes. On a host with more than one Keycloak container, set
+`GG_KEYCLOAK_CONTAINER` to the GratisGIS one. The home NAS steps are
+in [truenas.md](./truenas.md).
 
 ## A second organization
 
@@ -142,7 +233,8 @@ Each customer runs their own stack. Do not point a second
 organization at the first stack's database. On a new machine:
 
 ```bash
-GRATIS_DIR=/opt/gratis-gis-customer ./infra/install.sh
+curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh \
+  | GRATIS_DIR=/opt/gratis-gis-customer bash
 ```
 
 Give that install its own domain, its own `infra/.env.prod`, and
@@ -159,5 +251,18 @@ tags on its own.
   has an address column and no coordinates geocodes the first 200
   rows against that same local Nominatim only. It does not use the
   public fallback.
+- Tile disk cache: set `TILE_CACHE_DIR=/var/cache/gg-tiles` in
+  `infra/.env.prod` to keep vector tiles on the `tile-cache` volume as
+  well as in memory, so a restart or a deploy does not start every map
+  cold. `TILE_CACHE_DISK_MAX_BYTES` (1 GiB) and
+  `TILE_CACHE_DISK_MAX_FILES` (100,000) cap it. Both API replicas
+  share the volume; each tracks only its own writes between sweeps,
+  so together they can hold up to about twice the cap for up to 16
+  minutes. Relate tiles and tiles under 1 KiB are not written. An
+  in-app restore clears it. Each file is named by the layer's
+  data version, read from Postgres, so an edit, including one made
+  while the API was down, is never answered with an old tile. Only
+  tiles go to disk; dashboard aggregates stay in memory. Off when
+  unset. The NAS stack turns it on by default.
 - The maintenance and golden-snapshot scripts in `infra/` exist for the
   public demo's nightly reset and are not part of a normal deployment.

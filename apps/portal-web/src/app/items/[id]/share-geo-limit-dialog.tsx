@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { isShareClipGeometry } from '@gratis-gis/shared-types';
 import {
   AlertTriangle,
   Check,
@@ -18,6 +19,7 @@ import {
   DialogFooter,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Per-share "Restrict to area" editor.
@@ -58,6 +60,10 @@ interface Props {
   initialGeoBoundaryId: string | null;
   /** Pulled by the sharing panel from /api/items?type=geo_boundary. */
   boundaries: BoundaryOption[];
+  /** False while the panel is still fetching `boundaries`. Until then
+   *  an empty list says nothing about whether the share's current
+   *  boundary exists. */
+  boundariesLoaded?: boolean;
   saving: boolean;
   onSave: (next: ShareGeoLimitSave) => Promise<void> | void;
   onClose: () => void;
@@ -70,10 +76,12 @@ export function ShareGeoLimitDialog({
   initialGeoLimit,
   initialGeoBoundaryId,
   boundaries,
+  boundariesLoaded = true,
   saving,
   onSave,
   onClose,
 }: Props) {
+  const t = useT();
   // Default mode: 'boundary' if the share already references one,
   // else 'geojson' (covers both fresh shares and shares with an
   // inline polygon, because paste is the more familiar entry point).
@@ -92,17 +100,13 @@ export function ShareGeoLimitDialog({
   );
   const [error, setError] = useState<string | null>(null);
 
-  // If the parent passes a fresh list and the current pick isn't in it
-  // (boundary deleted, etc.), reset to the empty selection so the
-  // Save button correctly disables until the admin picks something.
-  useEffect(() => {
-    if (
-      boundaryId &&
-      !boundaries.some((b) => b.id === boundaryId)
-    ) {
-      setBoundaryId('');
-    }
-  }, [boundaries, boundaryId]);
+  // A current boundary that is not in the list is kept, not cleared.
+  // Clearing it on first open (the list arrives after the dialog does)
+  // showed an existing restriction as if none were set. It is shown as
+  // an unavailable option instead, and Save stays disabled for it
+  // through `validated` below until the admin picks another.
+  const boundaryUnlisted =
+    boundaryId !== '' && !boundaries.some((b) => b.id === boundaryId);
 
   const hasExisting =
     (initialGeoLimit !== null && initialGeoLimit !== undefined) ||
@@ -123,16 +127,17 @@ export function ShareGeoLimitDialog({
       if (!boundaryId) return null;
       const picked = boundaries.find((b) => b.id === boundaryId);
       if (!picked) {
+        if (!boundariesLoaded) return null;
         return {
           ok: false,
-          error: 'Selected boundary is not in your visible library.',
+          error: t('sharing.geoLimit.boundaryMissing'),
         };
       }
       return {
         ok: true,
         kind: 'boundary',
         boundaryId,
-        summary: `Boundary: ${picked.title}`,
+        summary: t('sharing.geoLimit.summaryBoundary', { title: picked.title }),
       };
     }
     if (mode === 'geojson') {
@@ -140,11 +145,10 @@ export function ShareGeoLimitDialog({
       try {
         const parsed = JSON.parse(text) as unknown;
         const geom = toGeometry(parsed);
-        if (!geom) {
+        if (!geom || !isShareClipGeometry(geom)) {
           return {
             ok: false,
-            error:
-              'Expected a GeoJSON Polygon, MultiPolygon, Feature, or FeatureCollection containing one.',
+            error: t('sharing.geoLimit.expectedGeojson'),
           };
         }
         return {
@@ -154,23 +158,31 @@ export function ShareGeoLimitDialog({
           summary: describeGeometry(geom),
         };
       } catch (err) {
-        return { ok: false, error: `Invalid JSON: ${(err as Error).message}` };
+        return {
+          ok: false,
+          error: t('sharing.geoLimit.invalidJson', {
+            detail: (err as Error).message,
+          }),
+        };
       }
     }
-    // bbox mode
-    const parts = [minLng, minLat, maxLng, maxLat].map(Number);
+    // bbox mode. A blank field is "not entered yet", not 0: Number('')
+    // is 0, which turned a half-filled box into a clip to (0,0).
+    const fields = [minLng, minLat, maxLng, maxLat];
+    if (fields.some((f) => f.trim() === '')) return null;
+    const parts = fields.map(Number);
     if (parts.some((n) => Number.isNaN(n))) return null;
     const [w, s, e, n] = parts as [number, number, number, number];
     if (w >= e || s >= n) {
       return {
         ok: false,
-        error: 'min must be less than max on both axes.',
+        error: t('sharing.geoLimit.minLessThanMax'),
       };
     }
     if (w < -180 || e > 180 || s < -90 || n > 90) {
       return {
         ok: false,
-        error: 'Coordinates must be valid WGS84 (lon ±180, lat ±90).',
+        error: t('sharing.geoLimit.invalidWgs84'),
       };
     }
     const polygon = {
@@ -189,14 +201,17 @@ export function ShareGeoLimitDialog({
       ok: true,
       kind: 'inline',
       geometry: polygon,
-      summary: `Rectangle · ${(e - w).toFixed(3)}° × ${(n - s).toFixed(3)}°`,
+      summary: t('sharing.geoLimit.summaryRectangle', {
+        width: (e - w).toFixed(3),
+        height: (n - s).toFixed(3),
+      }),
     };
-  }, [mode, text, minLng, minLat, maxLng, maxLat, boundaryId, boundaries]);
+  }, [mode, text, minLng, minLat, maxLng, maxLat, boundaryId, boundaries, t]);
 
   async function save() {
     setError(null);
     if (!validated) {
-      setError('Pick a boundary, paste a polygon, or enter a bounding box.');
+      setError(t('sharing.geoLimit.needInput'));
       return;
     }
     if (!validated.ok) {
@@ -225,13 +240,12 @@ export function ShareGeoLimitDialog({
       <DialogContent hideCloseButton size="lg">
         <div className="flex items-center gap-2 px-5 pt-5">
           <MapPin className="h-5 w-5 text-accent" aria-hidden="true" />
-          <DialogTitle>Restrict to area</DialogTitle>
+          <DialogTitle>{t('sharing.geoLimit.title')}</DialogTitle>
         </div>
         <DialogDescription className="px-5 pt-1">
-          Limit what{' '}
-          <span className="font-medium text-ink-1">{principalLabel}</span>{' '}
-          can see on this item to features within a polygon. Items whose
-          bbox doesn&apos;t intersect are also hidden. Admins are exempt.
+          {t('sharing.geoLimit.description', {
+            principal: principalLabel,
+          })}
         </DialogDescription>
 
         <div className="space-y-3 px-5 pt-3">
@@ -247,7 +261,7 @@ export function ShareGeoLimitDialog({
             }`}
           >
             <Shapes className="h-3 w-3" />
-            Boundary
+            {t('sharing.geoLimit.modeBoundary')}
           </button>
           <button
             type="button"
@@ -258,7 +272,7 @@ export function ShareGeoLimitDialog({
                 : 'text-muted hover:text-ink-1'
             }`}
           >
-            GeoJSON
+            {t('sharing.geoLimit.modeGeojson')}
           </button>
           <button
             type="button"
@@ -269,7 +283,7 @@ export function ShareGeoLimitDialog({
                 : 'text-muted hover:text-ink-1'
             }`}
           >
-            Bounding box
+            {t('sharing.geoLimit.modeBbox')}
           </button>
         </div>
 
@@ -277,19 +291,26 @@ export function ShareGeoLimitDialog({
           <div>
             <label className="block text-xs">
               <span className="mb-1 block uppercase tracking-wide text-muted">
-                Boundary
+                {t('sharing.geoLimit.boundaryLabel')}
               </span>
               <select
                 value={boundaryId}
                 onChange={(e) => setBoundaryId(e.target.value)}
-                disabled={boundaries.length === 0}
+                disabled={boundaries.length === 0 && !boundaryUnlisted}
                 className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
               >
                 <option value="">
                   {boundaries.length === 0
-                    ? 'No boundaries you can see'
-                    : 'Pick a boundary...'}
+                    ? t('sharing.geoLimit.noBoundaries')
+                    : t('sharing.geoLimit.pickBoundary')}
                 </option>
+                {boundaryUnlisted ? (
+                  <option value={boundaryId}>
+                    {boundariesLoaded
+                      ? t('sharing.geoLimit.boundaryMissing')
+                      : '...'}
+                  </option>
+                ) : null}
                 {boundaries.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.title}
@@ -298,24 +319,20 @@ export function ShareGeoLimitDialog({
               </select>
             </label>
             <p className="mt-1 text-2xs text-muted">
-              The share stores a reference to the boundary item. Edits
-              to the boundary&apos;s geometry flow through to every
-              share that points at it without re-saving.
+              {t('sharing.geoLimit.boundaryHint')}
             </p>
             {boundaries.length === 0 ? (
               <p className="mt-2 rounded-md border border-dashed border-border bg-surface-0 px-2 py-1.5 text-2xs text-muted">
-                Need to draw one?{' '}
+                {t('sharing.geoLimit.createBoundaryLead')}{' '}
                 <a
                   href="/items/new"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-accent hover:underline"
                 >
-                  Create a Boundary item
+                  {t('sharing.geoLimit.createBoundaryLink')}
                 </a>
-                . Its editor has a Draw tab that lets you trace a
-                polygon directly on a map. Save it and it&apos;ll show
-                up here.
+                {t('sharing.geoLimit.createBoundaryTail')}
               </p>
             ) : null}
           </div>
@@ -323,7 +340,7 @@ export function ShareGeoLimitDialog({
           <div>
             <label className="block text-xs">
               <span className="mb-1 block uppercase tracking-wide text-muted">
-                Paste GeoJSON
+                {t('sharing.geoLimit.pasteGeojson')}
               </span>
               <textarea
                 value={text}
@@ -334,16 +351,31 @@ export function ShareGeoLimitDialog({
               />
             </label>
             <p className="mt-1 text-2xs text-muted">
-              Accepts a Polygon, MultiPolygon, Feature, or FeatureCollection.
-              EPSG:4326 coordinates (lng, lat).
+              {t('sharing.geoLimit.geojsonHint')}
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <BBoxField label="Min lng (west)" value={minLng} onChange={setMinLng} />
-            <BBoxField label="Min lat (south)" value={minLat} onChange={setMinLat} />
-            <BBoxField label="Max lng (east)" value={maxLng} onChange={setMaxLng} />
-            <BBoxField label="Max lat (north)" value={maxLat} onChange={setMaxLat} />
+            <BBoxField
+              label={t('sharing.geoLimit.minLng')}
+              value={minLng}
+              onChange={setMinLng}
+            />
+            <BBoxField
+              label={t('sharing.geoLimit.minLat')}
+              value={minLat}
+              onChange={setMinLat}
+            />
+            <BBoxField
+              label={t('sharing.geoLimit.maxLng')}
+              value={maxLng}
+              onChange={setMaxLng}
+            />
+            <BBoxField
+              label={t('sharing.geoLimit.maxLat')}
+              value={maxLat}
+              onChange={setMaxLat}
+            />
           </div>
         )}
 
@@ -375,7 +407,7 @@ export function ShareGeoLimitDialog({
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-danger hover:bg-danger/5 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Clear restriction
+              {t('sharing.geoLimit.clearRestriction')}
             </button>
           ) : (
             <span />
@@ -387,7 +419,7 @@ export function ShareGeoLimitDialog({
               disabled={saving}
               className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
             <button
               type="button"
@@ -400,7 +432,7 @@ export function ShareGeoLimitDialog({
               ) : (
                 <Save className="h-3.5 w-3.5" />
               )}
-              Save
+              {t('common.save')}
             </button>
           </div>
         </DialogFooter>
@@ -438,10 +470,10 @@ function BBoxField({
  * Unwrap a GeoJSON value into a bare geometry. Accepts:
  *   - Polygon / MultiPolygon geometry directly
  *   - Feature with such a geometry
- *   - FeatureCollection with one or more polygon features (unioned
- *     into a MultiPolygon at the call site: today we just pull the
- *     first feature's geometry if there's exactly one, otherwise
- *     reject with a clear message)
+ *   - FeatureCollection with one or more polygon features: one
+ *     feature gives its geometry, several give a GeometryCollection
+ *     of them
+ * The result is then shape-checked with isShareClipGeometry.
  */
 function toGeometry(v: unknown): unknown | null {
   if (!v || typeof v !== 'object') return null;

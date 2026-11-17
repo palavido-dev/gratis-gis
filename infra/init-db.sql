@@ -1,3 +1,4 @@
+-- SPDX-License-Identifier: AGPL-3.0-or-later
 -- Runs once, on first postgres container boot.
 -- Enables extensions we rely on across the platform.
 

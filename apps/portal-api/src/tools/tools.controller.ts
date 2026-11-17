@@ -6,8 +6,9 @@ import {
   Param,
   Post,
 } from '@nestjs/common';
-import { IsObject, IsOptional, IsUUID } from 'class-validator';
+import { IsObject, IsOptional } from 'class-validator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -44,6 +45,10 @@ class ToolRunDto {
  *
  * Authenticated callers still get the full surface: full ACL
  * gating, all output sinks, layer reads scoped to their session.
+ *
+ * Rate limit is tighter than the global 300/min default (matches
+ * anonymous drawings writes): public Overpass-backed tools are an
+ * easy egress burn if left at the global ceiling.
  */
 @ApiTags('tools')
 @ApiBearerAuth()
@@ -52,6 +57,7 @@ export class ToolsController {
   constructor(private readonly runner: RecipeRunnerService) {}
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post(':id/run')
   @HttpCode(200)
   async run(

@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.gratisgis.field.FieldApplication
+import org.gratisgis.field.core.database.AccountScope
 import org.gratisgis.field.core.database.LayerEntity
 import org.gratisgis.field.core.database.OfflinePackageEntity
 import org.gratisgis.field.core.database.QueueEntity
@@ -94,15 +95,20 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
   fun refresh() {
     viewModelScope.launch {
       val id = _state.value.collection.id
+      val scope = app.accountScope()
       val stored = app.db.collections().get(id)
+      // The cached copy and the work on it are shown only to the account
+      // they belong to on this portal. Another account's copy reads as
+      // not downloaded; downloading replaces it.
+      val own = scope != null && stored != null && scope.ownsCollection(stored)
       _state.update {
         it.copy(
-          layers = app.db.layers().forCollection(id),
-          featureCount = app.db.features().countForCollection(id),
-          packages = app.db.offlinePackages().forCollection(id),
-          downloadedAt = stored?.downloadedAt,
-          queue = app.db.queue().forCollection(id),
-          drafts = app.db.drafts().forCollection(id),
+          layers = if (own) app.db.layers().forCollection(id) else emptyList(),
+          featureCount = if (own) app.db.features().countForCollection(id) else 0,
+          packages = if (own) app.db.offlinePackages().forCollection(id) else emptyList(),
+          downloadedAt = if (own) stored?.downloadedAt else null,
+          queue = if (scope == null) emptyList() else app.db.queue().forCollection(id).filter(scope::ownsQueueRow),
+          drafts = if (scope == null) emptyList() else app.db.drafts().forCollection(id).filter(scope::ownsDraft),
         )
       }
     }
@@ -110,11 +116,12 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
 
   fun download() {
     val portal = app.portal ?: return fail("Not connected")
+    val scope = app.accountScope() ?: return fail("Signed out")
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null, progress = null) }
       try {
         val downloader = OfflineDownloader(portal, app.db, app.engine.await(), app.packageDir)
-        downloader.download(_state.value.collection) { p -> _state.update { it.copy(progress = p) } }
+        downloader.download(_state.value.collection, scope) { p -> _state.update { it.copy(progress = p) } }
       } catch (t: Throwable) {
         fail(t.message ?: t.toString())
       } finally {
@@ -139,7 +146,8 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
         val layer = s.layers.firstOrNull { it.addable && it.geometryType?.contains("Point") == true }
           ?: s.layers.firstOrNull { it.addable }
           ?: return@launch fail("No addable layer; download the collection first")
-        val userId = app.auth.tokens.value?.subject ?: return@launch fail("Signed out")
+        val scope = app.accountScope() ?: return@launch fail("Signed out")
+        val userId = scope.userId
         // Centre of the first declared offline area, so the record lands
         // where the crew works and not in the Gulf of Guinea.
         val bbox = (s.collection.data?.get("offlineAreas") as? kotlinx.serialization.json.JsonArray)
@@ -199,6 +207,7 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
             properties = stamped,
             schemaHash = layer.schemaHash,
             ownerUserId = userId,
+            portal = scope.portal,
           ),
         )
         val note = when (result) {
@@ -229,7 +238,8 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
       try {
         val s = _state.value
         val layer = s.layers.firstOrNull { it.addable } ?: return@launch fail("No addable layer; download first")
-        val userId = app.auth.tokens.value?.subject ?: return@launch fail("Signed out")
+        val scope = app.accountScope() ?: return@launch fail("Signed out")
+        val userId = scope.userId
         val cached = app.db.features().firstForLayer(s.collection.id, layer.dataLayerId, layer.layerKey)
           ?: return@launch fail("No cached features on ${layer.label}")
         val feature = json.parseToJsonElement(cached.featureJson).jsonObject
@@ -259,6 +269,7 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
             properties = properties,
             schemaHash = layer.schemaHash,
             ownerUserId = userId,
+            portal = scope.portal,
             baseObservationId = base,
           ),
         )
@@ -281,8 +292,8 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null) }
       try {
-        val userId = app.auth.tokens.value?.subject ?: return@launch fail("Signed out")
-        val result = QueueDrain(app.db, app.engine.await(), portal).drain(_state.value.collection.id, userId, manual = true)
+        val scope = app.accountScope() ?: return@launch fail("Signed out")
+        val result = QueueDrain(app.db, app.engine.await(), portal).drain(_state.value.collection.id, scope, manual = true)
         _state.update { it.copy(lastSync = result) }
       } catch (t: Throwable) {
         fail(t.message ?: t.toString())
@@ -295,10 +306,21 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
 
   fun discardRejected(row: QueueEntity) {
     viewModelScope.launch {
-      app.db.queue().delete(row.collectionId, row.id)
+      // Re-read and re-check: only the signed-in account may throw away
+      // its own parked edit, and only one that is still parked.
+      val current = app.db.queue().get(row.collectionId, row.id)
+      when {
+        current == null -> Unit
+        ownedNow(current) == null -> fail("This edit belongs to another account")
+        current.syncStatus == "rejected" -> app.db.queue().delete(row.collectionId, row.id)
+      }
       refresh()
     }
   }
+
+  /** The current scope when it owns `row`, else null. */
+  private fun ownedNow(row: QueueEntity): AccountScope? =
+    app.accountScope()?.takeIf { it.ownsQueueRow(row) }
 
   /**
    * Probe the live head (or fall back to parked `conflictCurrentJson`),
@@ -310,6 +332,9 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
     if (row.syncStatus != "rejected" || row.conflictCurrentJson == null) {
       return fail("Only rejected conflict rows can be re-applied")
     }
+    // A re-apply sends with the signed-in account's token, so it must
+    // be that account's edit.
+    if (ownedNow(row) == null) return fail("This edit belongs to another account")
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null, reapplyConfirm = null) }
       try {
@@ -346,6 +371,11 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
     val portal = app.portal ?: return fail("Not connected")
     val pending = pendingReapply ?: return
     val (row, plan) = pending
+    if (ownedNow(row) == null) {
+      pendingReapply = null
+      _state.update { it.copy(reapplyConfirm = null) }
+      return fail("This edit belongs to another account")
+    }
     viewModelScope.launch {
       _state.update { it.copy(busy = true, error = null, reapplyConfirm = null) }
       try {
@@ -414,6 +444,7 @@ class CollectionViewModel(application: Application, collection: ItemSummary) : A
           app.db.queue().upsert(
             row.copy(
               syncStatus = "rejected",
+              mayHaveReachedServer = true,
               failureJson = reason.toString(),
               conflictCurrentJson = (e.current ?: JsonNull).toString(),
               retryCount = (row.retryCount ?: 0) + 1,

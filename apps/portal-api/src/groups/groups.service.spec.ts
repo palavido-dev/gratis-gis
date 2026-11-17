@@ -113,6 +113,14 @@ describe('GroupsService org-scoped reads', () => {
       ).resolves.toEqual(group);
     });
 
+    it('shows a private group to a member', async () => {
+      const group = makeGroup({ id: 'group-p', orgId: 'org-a', access: 'private' });
+      const { svc } = makeService(group);
+      await expect(
+        svc.get(makeUser({ id: 'u-1', orgRole: 'contributor', groupIds: ['group-p'] }), group.id),
+      ).resolves.toEqual(group);
+    });
+
     it('hides a private group from a non-admin who is not the owner', async () => {
       const group = makeGroup({ orgId: 'org-a', access: 'private' });
       const { svc } = makeService(group);
@@ -192,5 +200,89 @@ describe('GroupsService org-scoped reads', () => {
       );
       expect(prisma.groupMember.findMany).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('GroupsService.purge', () => {
+  it('removes item shares that name the group with the group', async () => {
+    const group = {
+      id: 'g-1',
+      orgId: 'org-a',
+      title: 't',
+      description: '',
+      access: 'private' as const,
+      ownerId: 'admin-a',
+      thumbnailUrl: null,
+      createdAt: new Date(),
+      deletedAt: new Date(),
+    };
+    const shareDelete = jest.fn(async () => ({ count: 2 }));
+    const groupDelete = jest.fn(async () => ({ count: 1 }));
+    const tx = { itemShare: { deleteMany: shareDelete }, group: { deleteMany: groupDelete } };
+    const prisma = {
+      group: { findUnique: jest.fn(async () => group) },
+      $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
+    };
+    const svc = new GroupsService(
+      prisma as unknown as ConstructorParameters<typeof GroupsService>[0],
+      { invalidate: jest.fn() } as unknown as ConstructorParameters<typeof GroupsService>[1],
+    );
+    await svc.purge(
+      {
+        id: 'admin-a',
+        orgId: 'org-a',
+        orgRole: 'admin',
+        groupIds: [],
+      } as unknown as AuthUser,
+      'g-1',
+    );
+    expect(shareDelete).toHaveBeenCalledWith({
+      where: { principalType: 'group', principalId: { in: ['g-1'] } },
+    });
+    expect(groupDelete).toHaveBeenCalledWith({ where: { id: { in: ['g-1'] } } });
+  });
+});
+
+describe('GroupsService membership changes', () => {
+  function svcWith(group: ReturnType<typeof makeGroup>, membership: unknown, deleted = 1) {
+    const prisma = {
+      group: {
+        findUnique: jest.fn(async () => group),
+        create: jest.fn(async (args: { data: Record<string, unknown> }) => args.data),
+      },
+      groupMember: {
+        findUnique: jest.fn(async () => membership),
+        deleteMany: jest.fn(async () => ({ count: deleted })),
+      },
+    };
+    const svc = new GroupsService(
+      prisma as unknown as ConstructorParameters<typeof GroupsService>[0],
+      { invalidate: jest.fn() } as unknown as ConstructorParameters<typeof GroupsService>[1],
+    );
+    return { svc, prisma };
+  }
+
+  it('lets the owner remove a member without a membership row of their own', async () => {
+    const group = makeGroup({ orgId: 'org-a', ownerId: 'owner-a' });
+    const { svc, prisma } = svcWith(group, null);
+    const owner = makeUser({ id: 'owner-a', orgRole: 'user' as AuthUser['orgRole'] });
+    await svc.removeMember(owner, group.id, 'someone');
+    expect(prisma.groupMember.deleteMany).toHaveBeenCalledWith({
+      where: { groupId: group.id, userId: 'someone' },
+    });
+  });
+
+  it('answers NotFound, not a 500, when the user is not a member', async () => {
+    const group = makeGroup({ orgId: 'org-a' });
+    const { svc } = svcWith(group, null, 0);
+    await expect(svc.removeMember(makeUser(), group.id, 'nobody')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it('keeps the thumbnail sent on create', async () => {
+    const { svc, prisma } = svcWith(makeGroup(), null);
+    await svc.create(makeUser({ orgId: 'org-a' }), { title: 'T', thumbnailUrl: '/api/storage/x.png' });
+    expect(prisma.group.create.mock.calls[0]?.[0].data.thumbnailUrl).toBe('/api/storage/x.png');
   });
 });

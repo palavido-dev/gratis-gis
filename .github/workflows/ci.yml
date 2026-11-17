@@ -11,8 +11,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to a pull request cancels the older run. A push to
+# main gets a group per commit instead: publish-images.yml needs this
+# workflow to pass on the exact release commit, and a shared group let
+# the next merge cancel that run, so the release tag failed its gate.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -51,12 +55,13 @@ jobs:
         # from the `packageManager` field in root package.json
         # (pnpm@9.12.0). Specifying both triggers ERR_PNPM_BAD_PM_VERSION
         # and the runner dies before a single step can run.
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # Keep in lockstep with .nvmrc (22.x LTS). The production
+          # Keep in lockstep with .nvmrc (24) and engines.node in the
+          # root package.json (>=24.9.0). The production
           # container images pin their own Node (see the app
           # Dockerfiles); this only has to match the developer
           # toolchain.
@@ -105,6 +110,220 @@ jobs:
       - name: Build
         run: pnpm build
 
+  spdx:
+    name: SPDX license headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Header check only. It does not need Postgres, pnpm, or Node.
+    # `pnpm check:spdx` is the same script without the fixture
+    # self-test; CI runs the self-test so a checker that stops
+    # noticing a missing header fails here.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check SPDX headers
+        run: bash scripts/check-spdx.sh --self-test
+
+  doc-versions:
+    name: Documented version matches package.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # README.md, CONTRIBUTING.md and CITATION.cff must name the version
+    # in package.json. The script has no dependencies, so the runner's
+    # own Node is enough. CI runs the fixture self-test first.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check documented versions
+        run: node scripts/check-doc-versions.mjs --self-test
+
+  dependabot-automerge-gate:
+    name: Dependabot auto-merge gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The auto-merge workflow does not check out the pull request, so
+    # this job is what actually runs the gate functions. It extracts
+    # them from the workflow file and feeds fixture JSON. It does not
+    # call the merge API.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Gate logic
+        run: bash scripts/dependabot-automerge-gate.test.sh
+
+  pointcloud-units:
+    name: Point-cloud worker unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # boto3 and psycopg2 are stubbed by the test file. numpy is not:
+    # compute_zonal_stats_arrays imports it, and that test runs before
+    # the lease assertions. PDAL and GDAL are not required here.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install unit-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv
+          python3 -m venv /tmp/pc-units
+          /tmp/pc-units/bin/pip install -r tools/pointcloud-worker/requirements-unit.txt
+
+      - name: runner unit tests
+        run: /tmp/pc-units/bin/python tools/pointcloud-worker/test_runner_units.py
+
+  observation-guards:
+    name: Append idempotency and analysis lease
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: gratisgis
+          POSTGRES_PASSWORD: reviewonly
+          POSTGRES_DB: gratisgis
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U gratisgis -d gratisgis"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install a Postgres client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Guard SQL
+        env:
+          PGHOST: localhost
+          PGUSER: gratisgis
+          PGDATABASE: gratisgis
+          PGPASSWORD: reviewonly
+        run: |
+          bash infra/observation-append-guard.pg.test.sh
+          bash infra/analysis-lease-guard.pg.test.sh
+
+  recovery-scripts:
+    name: Backup and password recovery scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Bash, Python and Node only. The scripts are exercised with a fake
+    # docker on PATH. Nothing here contacts a registry or a volume.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Recovery helpers
+        run: |
+          python3 -m unittest infra/test_nas_init.py
+          bash infra/script-net-firewall.test.sh
+          python3 -m unittest infra/test_prod_config.py
+          bash scripts/backup-help.test.sh
+          bash scripts/reset-portal-password.test.sh
+          bash scripts/restore-maintenance.test.sh
+          bash scripts/script-net-firewall.test.sh
+
+      # These had no caller in any workflow, so they could not fail.
+      - name: Infra script tests
+        run: |
+          bash infra/recovery/recovery.test.sh
+          sh infra/postgres/check-major.spec.sh
+          bash scripts/check-prisma-drift.test.sh
+          python3 -m unittest infra/test_dev_compose_bind.py
+          node infra/origin-preflight.test.mjs
+          node infra/field-bundle/read-recovery.test.mjs
+          bash infra/publish-gate.test.sh
+          bash infra/lib-deploy.test.sh
+
+  recovery-integration:
+    name: Keycloak reset and maintenance gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Schema gate on Postgres
+        run: |
+          docker run -d --name gg-pg-ci \
+            -e POSTGRES_PASSWORD=reviewonly \
+            -e POSTGRES_USER=gratisgis \
+            -e POSTGRES_DB=gratisgis \
+            postgis/postgis:17-3.5
+          # The image runs its init scripts on a temporary server that
+          # listens on the socket only, then restarts. pg_isready on the
+          # socket can catch that temporary server, and a test command
+          # then dies with it (exit 137). Wait for the init to finish and
+          # for the real server on TCP.
+          for _ in $(seq 1 60); do
+            if docker logs gg-pg-ci 2>&1 | grep -q 'PostgreSQL init process complete' \
+              && docker exec gg-pg-ci pg_isready -h 127.0.0.1 -U gratisgis; then
+              break
+            fi
+            sleep 2
+          done
+          docker exec gg-pg-ci pg_isready -h 127.0.0.1 -U gratisgis
+          PG_DOCKER=gg-pg-ci bash infra/restore-maintenance.pg.test.sh
+          docker rm -f gg-pg-ci
+
+      - name: Isolated Keycloak password reset
+        run: bash infra/reset-portal-password.kc.test.sh
+
+  # Playwright on every pull request. prod-smoke only runs against the
+  # demo once a day, so nothing exercised a browser before merge. This
+  # runs portal-web under `next dev` with the UX fixture on, no API
+  # behind it, and the journeys in e2e/tests/ux-journeys.spec.ts.
+  ux-journeys:
+    name: Playwright UX journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build portal-web's workspace dependencies
+        run: pnpm --filter "@gratis-gis/portal-web^..." run build
+
+      - name: Install Playwright chromium
+        run: pnpm -C e2e exec playwright install --with-deps chromium
+
+      - name: Start portal-web with the UX fixture
+        env:
+          GRATIS_UX_FIXTURE: "1"
+          NEXTAUTH_URL: http://localhost:3000
+          NEXTAUTH_SECRET: ci-only-not-a-secret
+        run: |
+          (cd apps/portal-web && nohup pnpm dev > "$RUNNER_TEMP/next-dev.log" 2>&1 &)
+          for _ in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 60 http://localhost:3000/dev/ux-fixture; then
+              exit 0
+            fi
+            sleep 2
+          done
+          tail -n 80 "$RUNNER_TEMP/next-dev.log"
+          exit 1
+
+      - name: Run the journeys
+        run: pnpm -C e2e exec playwright test tests/ux-journeys.spec.ts
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ux-journeys-report
+          path: e2e/test-results/
+          retention-days: 7
+
   dev-smoke:
     name: Fresh-clone pnpm dev
     runs-on: ubuntu-latest
@@ -132,7 +351,11 @@ jobs:
     # dies with 0A000 "extension pg_partman is not available" without
     # it. verify gets away with the stock image only because it never
     # applies the migration chain. The real image is built from
-    # infra/postgres, so this job uses that, below.
+    # infra/postgres, so this job uses that, below. Keep this image.
+    # The syncVersion spec's monthly partitions are a substitute for
+    # machines without pg_partman, not proof this migration ran.
+    # Asserting the partition invariant after migrate is still a
+    # separate queued job.
 
     env:
       # Straight from .env.example, so the quickstart's own
@@ -143,7 +366,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -170,6 +393,7 @@ jobs:
         # Same compose file and same service definition, one service.
         # That gets the pg_partman image, the pg_partman_bgw preload
         # and init-db.sql, which is what the migration chain needs.
+        # Do not point this step at stock postgis/postgis.
         run: docker compose -f infra/docker-compose.yml up -d --wait postgres
 
       - name: Migrate and generate the client
@@ -195,6 +419,22 @@ jobs:
         run: |
           pnpm --filter @gratis-gis/portal-api db:migrate:deploy
           pnpm --filter @gratis-gis/portal-api db:generate
+          # Real pg_partman on the project image. The Jest spec's
+          # monthly partitions are a substitute and do not prove this.
+          bash infra/assert-partition-invariant.sh
+
+      - name: Prisma schema matches the migrations
+        # Migrations are hand-lifted from `prisma migrate diff`, so a
+        # schema that drifts from them invites a migration that renames
+        # foreign keys, drops defaults or drops foreign keys. The shadow
+        # database lives on the same pg_partman image the migrations
+        # need. Known differences are listed in
+        # apps/portal-api/prisma/drift-baseline.sql.
+        run: |
+          docker compose -f infra/docker-compose.yml exec -T postgres \
+            createdb -U gratisgis gratisgis_shadow
+          SHADOW_DATABASE_URL=postgresql://gratisgis:devpassword@localhost:5432/gratisgis_shadow \
+            bash scripts/check-prisma-drift.sh
 
       # db:seed is the quickstart's next line and is deliberately
       # skipped. It loads demo data; it is not needed for the servers
@@ -292,7 +532,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -310,7 +550,7 @@ jobs:
         run: pnpm --filter @gratis-gis/field-engine build
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
@@ -324,7 +564,7 @@ jobs:
 
       - name: Upload unit test reports
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-unit-test-reports
           path: clients/android/**/build/reports/tests/testDebugUnitTest/
@@ -338,9 +578,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           # The floor declared in pyproject. Testing on the newest
           # interpreter only would let a 3.9-incompatible annotation
@@ -367,3 +607,46 @@ jobs:
           pip install build twine
           python -m build
           twine check dist/*
+
+  # Interpolates the prebuilt-image compose with a generated env and
+  # the TrueNAS include wrapper. No image build and no image pull.
+  # publish-images.yml is what makes the tags real; this job only
+  # stops a compose edit from shipping a file that will not parse.
+  nas-compose:
+    name: NAS compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate NAS compose
+        run: ./infra/check-nas-compose.sh
+
+      # Every variable the apps read must reach them through Compose,
+      # or be listed in infra/env-passthrough.allow with a reason.
+      - name: Env passthrough
+        run: |
+          python3 infra/check-env-passthrough.py --self-test
+          python3 infra/check-env-passthrough.py
+
+  # Boots the pasted file against the published edge images. Catches
+  # a Keycloak mount that never becomes healthy and a Silo process
+  # that exits 127, which `compose config` cannot see.
+  nas-boot:
+    name: NAS compose boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    needs: nas-compose
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Boot the NAS stack
+        run: ./infra/boot-nas-ci.sh
+
+      - name: Upload NAS boot logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nas-boot-logs
+          path: ${{ runner.temp }}/nas-boot
+          if-no-files-found: ignore

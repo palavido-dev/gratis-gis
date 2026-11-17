@@ -83,14 +83,7 @@
  * Elements that survive sanitizing. `a` is special cased below because
  * it is the only one that keeps an attribute.
  */
-export const ALLOWED_ATTRIBUTION_TAGS = [
-  'a',
-  'b',
-  'strong',
-  'em',
-  'i',
-  'span',
-] as const;
+export const ALLOWED_ATTRIBUTION_TAGS = ['a', 'b', 'strong', 'em', 'i', 'span'] as const;
 
 export type AllowedAttributionTag = (typeof ALLOWED_ATTRIBUTION_TAGS)[number];
 
@@ -115,43 +108,115 @@ export const MAX_ATTRIBUTION_LENGTH = 2000;
  * as "the attribution, or nothing".
  */
 export function sanitizeAttributionHtml(input: unknown): string {
+  return sanitizeHtml(input, {
+    maxLength: MAX_ATTRIBUTION_LENGTH,
+    allowed: ALLOWED_TAG_SET,
+    voidTags: NO_VOID_TAGS,
+  });
+}
+
+/**
+ * Popup templates are stored with the map and rendered with
+ * innerHTML for every viewer. The same tokenizer as attribution,
+ * with the small formatting set map authors already use (`br`,
+ * paragraphs, lists, headings). Attributes other than a checked
+ * http(s) href are dropped. An existing `<br>` or `<strong>` still
+ * renders. An event handler does not.
+ */
+export const POPUP_HTML_TAGS = [
+  ...ALLOWED_ATTRIBUTION_TAGS,
+  'br',
+  'p',
+  'div',
+  'ul',
+  'ol',
+  'li',
+  'h1',
+  'h2',
+  'h3',
+] as const;
+
+const POPUP_TAG_SET: ReadonlySet<string> = new Set(POPUP_HTML_TAGS);
+const POPUP_VOID_TAGS: ReadonlySet<string> = new Set(['br']);
+const NO_VOID_TAGS: ReadonlySet<string> = new Set();
+const MAX_POPUP_HTML_LENGTH = 20_000;
+
+export function sanitizePopupHtml(input: unknown): string {
+  return sanitizeHtml(input, {
+    maxLength: MAX_POPUP_HTML_LENGTH,
+    allowed: POPUP_TAG_SET,
+    voidTags: POPUP_VOID_TAGS,
+  });
+}
+
+/** http(s) href, or null. Shared with markdown link rendering. */
+export function safeHttpHref(rawHref: string): string | null {
+  return safeHttpUrl(rawHref);
+}
+
+interface SanitizeProfile {
+  maxLength: number;
+  allowed: ReadonlySet<string>;
+  voidTags: ReadonlySet<string>;
+}
+
+function sanitizeHtml(input: unknown, profile: SanitizeProfile): string {
   if (typeof input !== 'string' || input.length === 0) return '';
-  const source =
-    input.length > MAX_ATTRIBUTION_LENGTH
-      ? input.slice(0, MAX_ATTRIBUTION_LENGTH)
-      : input;
+  const source = input.length > profile.maxLength ? input.slice(0, profile.maxLength) : input;
 
   const out: string[] = [];
   /** Allowed elements currently open, innermost last. */
   const open: string[] = [];
+  // The output is capped too, not just the input: links gain
+  // attributes and `&` becomes `&amp;`, so a capped input could come
+  // out twice as long, and the next pass (render, or the next save)
+  // cut it mid-tag. Stop before a piece that would not fit together
+  // with the closing tags still owed.
+  let used = 0;
+  const closing = (extra?: string): number =>
+    open.reduce((n, t) => n + t.length + 3, 0) + (extra ? extra.length + 3 : 0);
+  const fits = (piece: string, opens?: string): boolean =>
+    used + piece.length + closing(opens) <= profile.maxLength;
+  const emit = (piece: string): void => {
+    out.push(piece);
+    used += piece.length;
+  };
 
   for (const token of tokenize(source)) {
     if (token.kind === 'text') {
-      out.push(escapeHtml(decodeHtmlEntities(token.text)));
+      const piece = escapeHtml(decodeHtmlEntities(token.text));
+      if (!fits(piece)) break;
+      emit(piece);
       continue;
     }
     if (token.kind === 'start') {
-      const rendered = renderStartTag(token);
+      const rendered = renderStartTag(token, profile.allowed);
       if (rendered === null) {
         // Refused: show it rather than deleting it.
-        out.push(escapeHtml(decodeHtmlEntities(token.raw)));
+        const piece = escapeHtml(decodeHtmlEntities(token.raw));
+        if (!fits(piece)) break;
+        emit(piece);
         continue;
       }
-      out.push(rendered);
-      // The slash in `<b/>` is ignored by the HTML parser for every
-      // non-void element, and none of the allowed elements are void,
-      // so a self-closing spelling opens the element just the same.
-      open.push(token.name);
+      const opens = profile.voidTags.has(token.name) ? undefined : token.name;
+      if (!fits(rendered, opens)) break;
+      emit(rendered);
+      // A void element such as `<br>` must not be pushed onto the
+      // open stack. A self-closing non-void tag still opens, because
+      // the HTML parser ignores the slash on those elements.
+      if (!profile.voidTags.has(token.name)) open.push(token.name);
       continue;
     }
     // End tag. Close down to the nearest matching open element so the
     // output stays well formed even when the input interleaved tags.
     const depth = lastIndexOfTag(open, token.name);
     if (depth === -1) {
-      out.push(escapeHtml(decodeHtmlEntities(token.raw)));
+      const piece = escapeHtml(decodeHtmlEntities(token.raw));
+      if (!fits(piece)) break;
+      emit(piece);
       continue;
     }
-    for (let i = open.length - 1; i >= depth; i--) out.push(`</${open[i]}>`);
+    for (let i = open.length - 1; i >= depth; i--) emit(`</${open[i]}>`);
     open.length = depth;
   }
 
@@ -216,9 +281,18 @@ function tokenize(source: string): Token[] {
     }
   };
 
+  // A '<' after the last '>' can never close. Without this check each
+  // such '<' rescanned to the end of the input: quadratic, seconds of
+  // frozen tab for a 20 KB popup of "<a<a<a...".
+  const lastGt = source.lastIndexOf('>');
   while (i < source.length) {
     if (source[i] !== '<') {
       text += source[i];
+      i += 1;
+      continue;
+    }
+    if (i > lastGt) {
+      text += '<';
       i += 1;
       continue;
     }
@@ -242,10 +316,7 @@ const TAG_NAME_START = /[A-Za-z]/;
 const TAG_NAME_CHAR = /[A-Za-z0-9-]/;
 const HTML_SPACE = /[ \t\n\r\f]/;
 
-function readTag(
-  source: string,
-  start: number,
-): { token: Token; end: number } | null {
+function readTag(source: string, start: number): { token: Token; end: number } | null {
   let i = start + 1;
   const isEnd = source[i] === '/';
   if (isEnd) i += 1;
@@ -326,11 +397,7 @@ function readTag(
         i = close + 1;
       } else {
         const valueStart = i;
-        while (
-          i < source.length &&
-          !HTML_SPACE.test(source[i] as string) &&
-          source[i] !== '>'
-        ) {
+        while (i < source.length && !HTML_SPACE.test(source[i] as string) && source[i] !== '>') {
           i += 1;
         }
         value = source.slice(valueStart, i);
@@ -362,8 +429,9 @@ function readTag(
  * output from an allowlist instead of subtracting from the input makes
  * that failure mode unrepresentable.
  */
-function renderStartTag(token: StartTagToken): string | null {
-  if (!ALLOWED_TAG_SET.has(token.name)) return null;
+function renderStartTag(token: StartTagToken, allowed: ReadonlySet<string>): string | null {
+  if (!allowed.has(token.name)) return null;
+  if (token.name === 'br') return '<br>';
   if (token.name !== 'a') return `<${token.name}>`;
 
   const href = token.attrs.get('href');
@@ -555,7 +623,11 @@ function decodeHtmlEntities(value: string): string {
       if (code >= 0xd800 && code <= 0xdfff) return match;
       return String.fromCodePoint(code);
     }
-    const named = NAMED_ENTITIES[body.toLowerCase()];
+    // Own keys only: `&constructor;` found Object on the prototype.
+    const key = body.toLowerCase();
+    const named = Object.prototype.hasOwnProperty.call(NAMED_ENTITIES, key)
+      ? NAMED_ENTITIES[key]
+      : undefined;
     return named === undefined ? match : named;
   });
 }

@@ -2,12 +2,14 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
   Get,
   HttpCode,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -33,7 +35,10 @@ import {
 } from './keycloak-admin.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
+import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AdminAuditService } from './admin-audit.service.js';
+import { isAdminTierLocked } from './admin-tier-lock.js';
 
 /** Keycloak user enriched with portal-specific fields we track ourselves. */
 export type AdminUserRep = KeycloakUserRep & {
@@ -59,6 +64,12 @@ export type AdminUserRep = KeycloakUserRep & {
    * flip via direct DB only.
    */
   isProtected: boolean;
+  /**
+   * The portal's own user id, which items and groups use as their
+   * owner. Equal to the Keycloak id except for seeded accounts. Only
+   * set by the list; null when the person has no local row yet.
+   */
+  localId?: string | null;
 };
 
 type OrgRole = 'viewer' | 'contributor' | 'admin';
@@ -88,6 +99,13 @@ class UpdateUserDto {
   @IsOptional() @IsDateString() autoDisableAt?: string | null;
 }
 
+/** Role order, used to tell a demotion from a promotion. */
+const ROLE_RANK: Record<'viewer' | 'contributor' | 'admin', number> = {
+  viewer: 0,
+  contributor: 1,
+  admin: 2,
+};
+
 /**
  * Admin-only CRUD endpoints for managing users in the built-in
  * Keycloak realm. All paths are gated by AdminGuard: non-admins
@@ -107,7 +125,27 @@ export class AdminUsersController {
     private readonly kc: KeycloakAdminService,
     private readonly prisma: PrismaService,
     private readonly authSync: AuthSyncService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
+
+  private note(
+    me: AuthUser,
+    action: 'user.invite' | 'user.role' | 'user.enabled' | 'user.auto_disable' | 'user.delete' | 'user.password_reset',
+    targetId: string,
+    outcome: 'succeeded' | 'failed',
+    detail?: Record<string, unknown>,
+  ): void {
+    if (!this.audit) return;
+    void this.audit.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action,
+      targetType: 'user',
+      targetId,
+      outcome,
+      ...(detail ? { detail } : {}),
+    });
+  }
 
   @Get('_meta')
   meta(): { configured: boolean } {
@@ -121,11 +159,37 @@ export class AdminUsersController {
     @Query('first') first?: string,
     @Query('max') max?: string,
   ): Promise<AdminUserRep[]> {
-    const opts: { search?: string; first?: number; max?: number } = {};
-    if (q) opts.search = q;
-    if (first !== undefined) opts.first = Number(first);
-    if (max !== undefined) opts.max = Number(max);
-    const kcUsers = await this.kc.listUsers(opts);
+    // `first` and `max` count users of the caller's org, not realm
+    // rows. The realm can hold several orgs, so Keycloak is paged here
+    // until `max` of them are found; filtering one realm page after
+    // the fact hid every user past it.
+    const skip = parseListParam(first, 'first', 0, 0, 1_000_000);
+    const want = parseListParam(max, 'max', 100, 1, 1000);
+    const PAGE = 200;
+    const out: AdminUserRep[] = [];
+    let inOrg = 0;
+    for (let kcFirst = 0; out.length < want; kcFirst += PAGE) {
+      const opts: { search?: string; first: number; max: number } = {
+        first: kcFirst,
+        max: PAGE,
+      };
+      if (q) opts.search = q;
+      const kcUsers = await this.kc.listUsers(opts);
+      for (const u of await this.inOrgRows(me, kcUsers)) {
+        if (inOrg++ < skip) continue;
+        out.push(u);
+        if (out.length >= want) break;
+      }
+      if (kcUsers.length < PAGE) break;
+    }
+    return out;
+  }
+
+  /** One Keycloak page joined with the local rows, caller's org only. */
+  private async inOrgRows(
+    me: AuthUser,
+    kcUsers: KeycloakUserRep[],
+  ): Promise<AdminUserRep[]> {
     // Pull lastSeenAt + autoDisableAt in one query for the
     // usernames we just got back, rather than N+1 per user. We
     // join by USERNAME, not id: seeded users carry a different
@@ -142,6 +206,7 @@ export class AdminUsersController {
       ? await this.prisma.user.findMany({
           where: { username: { in: usernames } },
           select: {
+            id: true,
             username: true,
             orgId: true,
             lastSeenAt: true,
@@ -164,6 +229,10 @@ export class AdminUsersController {
           lastSeenAt: row?.lastSeenAt?.toISOString() ?? null,
           autoDisableAt: row?.autoDisableAt?.toISOString() ?? null,
           isProtected: row?.isProtected ?? false,
+          // The portal's own id for this person. It differs from the
+          // Keycloak id for seeded accounts, and it is the id items
+          // and groups use as their owner.
+          localId: row?.id ?? null,
         };
       });
   }
@@ -223,7 +292,18 @@ export class AdminUsersController {
     if (dto.firstName !== undefined) input.firstName = dto.firstName;
     if (dto.lastName !== undefined) input.lastName = dto.lastName;
     if (dto.orgRole !== undefined) input.orgRole = dto.orgRole;
-    return this.kc.createUser(input);
+    return this.kc.createUser(input).then(
+      (created) => {
+        this.note(me, 'user.invite', created.id, 'succeeded', {
+          role: dto.orgRole ?? 'viewer',
+        });
+        return created;
+      },
+      (err: unknown) => {
+        this.note(me, 'user.invite', '', 'failed', { role: dto.orgRole ?? 'viewer' });
+        throw err;
+      },
+    );
   }
 
   @Patch(':id')
@@ -247,7 +327,7 @@ export class AdminUsersController {
     if (dto.orgRole !== undefined) intent.orgRole = dto.orgRole;
     if (dto.enabled !== undefined) intent.enabled = dto.enabled;
     if (dto.autoDisableAt !== undefined) intent.autoDisableAt = dto.autoDisableAt;
-    await this.assertMutationAllowed(me, id, intent);
+    const { localUser: target } = await this.assertMutationAllowed(me, id, intent);
 
     // Drop any undefined optional keys so the service's read-modify-
     // write logic doesn't overwrite existing values with undefined.
@@ -337,7 +417,59 @@ export class AdminUsersController {
         });
       }
     }
-    const kcUserAfter = await this.kc.updateUser(id, patch);
+    // API keys and scheduled scripts never ask Keycloak, so the local
+    // row has to follow. Changes that take access away are written
+    // before the Keycloak call, so a Keycloak failure leaves the
+    // account with less access rather than more. Changes that give
+    // access back are written after Keycloak accepts them.
+    const demotes =
+      target !== null &&
+      dto.orgRole !== undefined &&
+      ROLE_RANK[dto.orgRole] < ROLE_RANK[target.orgRole];
+    if (target && demotes && dto.orgRole !== undefined) {
+      await this.prisma.user.update({
+        where: { id: target.id },
+        data: { orgRole: dto.orgRole },
+      });
+    }
+    if (target && patch.enabled === false) {
+      await disableLocalAccount(this.prisma, target.id);
+    }
+    if (target && (demotes || patch.enabled === false)) {
+      this.authSync.invalidate(target.id);
+    }
+
+    let kcUserAfter: KeycloakUserRep;
+    try {
+      kcUserAfter = await this.kc.updateUser(id, patch);
+    } catch (err) {
+      if (dto.orgRole !== undefined) {
+        this.note(me, 'user.role', id, 'failed', { role: dto.orgRole });
+      }
+      if (dto.enabled !== undefined || patch.enabled !== undefined) {
+        this.note(me, 'user.enabled', id, 'failed', {
+          enabled: patch.enabled === true,
+        });
+      }
+      if (dto.autoDisableAt !== undefined) {
+        this.note(me, 'user.auto_disable', id, 'failed', {
+          cleared: dto.autoDisableAt === null,
+        });
+      }
+      throw err;
+    }
+    if (target) {
+      if (dto.orgRole !== undefined && !demotes) {
+        await this.prisma.user.update({
+          where: { id: target.id },
+          data: { orgRole: dto.orgRole },
+        });
+      }
+      if (patch.enabled === true) {
+        await enableLocalAccount(this.prisma, target.id);
+      }
+      this.authSync.invalidate(target.id);
+    }
     // Enrich with the local-only fields so the FE row update gets a
     // complete AdminUserRep (matches what /admin/users list returns).
     // Without this, the dialog's spread merge keeps the stale
@@ -354,6 +486,19 @@ export class AdminUsersController {
           },
         })
       : null;
+    if (dto.orgRole !== undefined) {
+      this.note(me, 'user.role', id, 'succeeded', { role: dto.orgRole });
+    }
+    if (dto.enabled !== undefined || patch.enabled !== undefined) {
+      this.note(me, 'user.enabled', id, 'succeeded', {
+        enabled: patch.enabled === true,
+      });
+    }
+    if (dto.autoDisableAt !== undefined) {
+      this.note(me, 'user.auto_disable', id, 'succeeded', {
+        cleared: dto.autoDisableAt === null,
+      });
+    }
     return {
       ...kcUserAfter,
       lastSeenAt: local?.lastSeenAt?.toISOString() ?? null,
@@ -385,7 +530,20 @@ export class AdminUsersController {
     // gate it through the same self / sole-admin / protected checks.
     // We model delete as "would remove an active admin" so the
     // sole-admin floor catches it the same way demote does.
-    await this.assertMutationAllowed(me, id, { kind: 'delete' });
+    try {
+      await this.assertMutationAllowed(me, id, { kind: 'delete' });
+    } catch (err) {
+      // A user already removed in Keycloak 404s in the guard, which
+      // made the local-only cleanup below unreachable. Allow it for a
+      // local row of this org that is not protected and not the caller.
+      if (!(err instanceof NotFoundException)) throw err;
+      const ghost = await this.prisma.user
+        .findUnique({ where: { id }, select: { id: true, orgId: true, isProtected: true } })
+        .catch(() => null);
+      if (!ghost || ghost.orgId !== me.orgId || ghost.isProtected || ghost.id === me.id) {
+        throw err;
+      }
+    }
 
     // First try to grab the Keycloak record so we know the username
     // for local cleanup. Either the user is there (we'll delete) or
@@ -398,6 +556,35 @@ export class AdminUsersController {
       // Treat any failure as "not in Keycloak"; if it was a real
       // upstream / token error the local cleanup path is still safe
       // and the next admin action will surface the auth issue.
+    }
+
+    // Local row: by id first (the modern path where local user.id ===
+    // Keycloak sub), then by username (seeded users have different
+    // ids, see docs/data-model.md).
+    const local =
+      (await this.prisma.user.findUnique({ where: { id } }).catch(() => null)) ??
+      (username ? await this.prisma.user.findUnique({ where: { username } }) : null);
+
+    if (local) {
+      // Items and groups point at their owner with ON DELETE RESTRICT,
+      // so the local delete would fail after Keycloak had already
+      // dropped the account. Refuse before touching anything. Items in
+      // the trash count too: they still have an owner.
+      const [ownedItems, ownedGroups] = await Promise.all([
+        this.prisma.item.count({ where: { ownerId: local.id } }),
+        this.prisma.group.count({ where: { ownerId: local.id } }),
+      ]);
+      if (ownedItems > 0 || ownedGroups > 0) {
+        this.note(me, 'user.delete', id, 'failed');
+        throw new ConflictException(
+          `This user still owns ${ownedItems} item(s), counting any in the trash, ` +
+            `and ${ownedGroups} group(s). Reassign them to someone else first.`,
+        );
+      }
+      // Lock the account out locally before anything else, so a
+      // failure further down never leaves working API keys behind.
+      await disableLocalAccount(this.prisma, local.id);
+      this.authSync.invalidate(local.id);
     }
 
     let deletedUpstream = false;
@@ -413,21 +600,21 @@ export class AdminUsersController {
       }
     }
 
-    // Local cleanup. Match by id first (covers the modern path where
-    // local user.id === Keycloak sub) and by username (covers seeded
-    // users with mismatched ids per docs/data-model.md).
-    const localById = await this.prisma.user.findUnique({ where: { id } }).catch(() => null);
-    const localByUsername = username
-      ? await this.prisma.user.findUnique({ where: { username } })
-      : null;
     let deletedLocal = false;
-    if (localById) {
-      await this.prisma.user.delete({ where: { id } });
-      this.authSync.invalidate(id);
-      deletedLocal = true;
-    } else if (localByUsername) {
-      await this.prisma.user.delete({ where: { id: localByUsername.id } });
-      this.authSync.invalidate(localByUsername.id);
+    if (local) {
+      try {
+        await this.prisma.user.delete({ where: { id: local.id } });
+      } catch {
+        // Something came to point at the row after the check above
+        // (an item created in between). Keep the row as a deleted
+        // tombstone instead of failing half way: sign-in and keys are
+        // already refused for it.
+        await this.prisma.user.update({
+          where: { id: local.id },
+          data: { deletedAt: new Date() },
+        });
+      }
+      this.authSync.invalidate(local.id);
       deletedLocal = true;
     }
 
@@ -435,10 +622,12 @@ export class AdminUsersController {
     // they were operating on a fully ghost row -- the UI can refresh
     // its list to re-sync.
     if (!deletedUpstream && !deletedLocal) {
+      this.note(me, 'user.delete', id, 'failed');
       throw new NotFoundException(
         `User ${id} not found in Keycloak or local store.`,
       );
     }
+    this.note(me, 'user.delete', id, 'succeeded');
   }
 
   /**
@@ -467,6 +656,7 @@ export class AdminUsersController {
       'UPDATE_PASSWORD',
       'VERIFY_EMAIL',
     ]);
+    this.note(me, 'user.password_reset', id, 'succeeded');
   }
 
   /**
@@ -513,6 +703,11 @@ export class AdminUsersController {
         orgRole: true,
       },
     });
+    // Same org gate as get(). Without it, the no-local-row branch
+    // below handed out the name and email of any realm user.
+    if (!inCallerOrg(me, kcUser, target?.orgId)) {
+      throw new NotFoundException('User not found');
+    }
     if (!target) {
       // Genuinely never signed in -- Keycloak has the user but no
       // local row exists. Return a friendly empty bundle so the UI
@@ -791,7 +986,9 @@ export class AdminUsersController {
     // Defense in depth: a target whose local row is in a different
     // org from the caller can't be touched, even if the AdminGuard
     // route was somehow reached cross-org.
-    if (localUser && localUser.orgId !== me.orgId) {
+    // A user who has never signed in has no local row, so the
+    // Keycloak `org` attribute decides; same rule as the GET routes.
+    if (!inCallerOrg(me, kcUser, localUser?.orgId)) {
       throw new ForbiddenException('User is not in your organization');
     }
     // Self-identity check via username (stable across Keycloak sub
@@ -837,8 +1034,9 @@ export class AdminUsersController {
       autoDisableAt?: string | null;
       kind?: 'delete';
     },
-  ): Promise<void> {
-    const { localUser, isSelf } = await this.loadTarget(me, targetId);
+  ): Promise<Awaited<ReturnType<AdminUsersController['loadTarget']>>> {
+    const target = await this.loadTarget(me, targetId);
+    const { localUser, isSelf } = target;
 
     // (1) Protected master admin: untouchable through any API
     // surface. The error message is intentionally generic so we
@@ -920,6 +1118,7 @@ export class AdminUsersController {
         );
       }
     }
+    return target;
   }
 }
 
@@ -941,6 +1140,26 @@ export class AdminUsersController {
  * from another org, and unscoped service accounts, stay out of the
  * response.
  */
+
+/**
+ * A paging parameter of the user list. Missing means the default;
+ * anything but a whole number in range is a 400 (Number('x') used to
+ * reach Keycloak as "NaN" and come back as a 502).
+ */
+export function parseListParam(
+  raw: string | undefined,
+  name: string,
+  fallback: number,
+  min: number,
+  maxValue: number,
+): number {
+  if (raw === undefined || raw === '') return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new BadRequestException(`${name} must be a whole number.`);
+  }
+  return Math.min(Math.max(Number(raw), min), maxValue);
+}
+
 function inCallerOrg(
   me: AuthUser,
   kcUser: KeycloakUserRep,
@@ -971,11 +1190,6 @@ function readOrgAttribute(user: KeycloakUserRep): string | undefined {
  * single-org private instance unless the operator explicitly opts
  * into testing mode.
  */
-function isAdminTierLocked(): boolean {
-  const raw = (process.env.PORTAL_LOCK_ADMIN_TIER ?? '').trim().toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
-}
-
 /**
  * Permission ordering for picking the "highest" permission across
  * multiple group shares of the same item. Mirrors the

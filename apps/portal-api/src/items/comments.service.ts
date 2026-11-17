@@ -9,32 +9,41 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from './sharing.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import {
+  commentSnippet,
+  extractMentionUsernames,
+} from './comment-mentions.js';
 
 /**
- * #155 Threaded comments service. Phase 1 ships map-level threads
- * only; the polymorphic anchoring (`parentKind`, `parentId`) is
- * persisted from the start so Phase 2 can attach threads to layer
- * features or drawing features without a schema migration.
+ * #155 Threaded comments service. Phase 1–2: map / feature / drawing
+ * anchors. Phase 3 (R2-comments-mentions): `@username` in create or
+ * reply fans out `comment_mentioned` email via NotificationsService
+ * (gated by NOTIFICATIONS_ENABLED + prefs). Unknown handles stay
+ * literal text. Self-mentions, cross-org users, deleted users, and
+ * recipients without canRead are skipped. Cap 10 unique per comment.
  *
  * Permissions:
  *   - LIST / READ: anyone with canRead on the item (anonymous OK
  *     when item is `access='public'`).
  *   - CREATE thread or reply: canRead (anyone who can view can
- *     comment). Phase 1 is signed-in only; anonymous comments land
- *     alongside anonymous markup in Phase 1.5.
+ *     comment). Signed-in only.
  *   - EDIT a comment: the comment's author within an EDIT_WINDOW_MS
  *     grace window, or the item owner / org admin (via canEdit on
- *     the item) at any time.
+ *     the item) at any time. Edits do not re-fire mention mail.
  *   - DELETE a comment: the author at any time, or the item editor.
  *   - RESOLVE / REOPEN a thread: the thread opener, or the item
  *     editor. Resolved threads are kept (not deleted) so the
  *     conversation history stays auditable.
- *
- * No notification fan-out in Phase 1; the in-portal bell + email
- * paths land in Phase 3 once we have a notifications surface that
- * can carry @-mentions.
  */
 const MAX_BODY_LEN = 10_000;
+/**
+ * Threads per list page. The list is public for public items and
+ * polled by anonymous viewers, so a busy review map with thousands
+ * of threads used to send a multi-MB body on every poll. Pages hold
+ * the newest threads; older ones come with `before=<cursor>`.
+ */
+export const COMMENT_THREAD_PAGE_MAX = 200;
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 export interface CommentThreadDTO {
@@ -66,23 +75,59 @@ export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sharing: SharingService,
+    private readonly notifications: NotificationsService,
   ) {}
 
+  /**
+   * One page of threads, newest first by creation, returned oldest
+   * first inside the page (the order the panel shows). `nextCursor`
+   * is set when older threads exist; pass it back as `before`.
+   */
   async list(
     user: AuthUser | null,
     itemId: string,
-  ): Promise<CommentThreadDTO[]> {
+    opts: { limit?: number; before?: string } = {},
+  ): Promise<{ threads: CommentThreadDTO[]; nextCursor: string | null }> {
     const item = await this.loadItem(itemId);
     await this.assertCanRead(user, item);
-    const threads = await this.prisma.commentThread.findMany({
-      where: { itemId },
-      orderBy: { createdAt: 'asc' },
+    const limit = Math.min(
+      Math.max(Math.trunc(opts.limit ?? COMMENT_THREAD_PAGE_MAX), 1),
+      COMMENT_THREAD_PAGE_MAX,
+    );
+    // The cursor is the id of the oldest thread on the previous page.
+    // It is looked up inside this item, so a cursor from another item
+    // cannot be used to read across items.
+    let olderThan: { createdAt: Date; id: string } | null = null;
+    if (opts.before !== undefined) {
+      olderThan = await this.prisma.commentThread.findFirst({
+        where: { id: opts.before, itemId },
+        select: { createdAt: true, id: true },
+      });
+      if (!olderThan) throw new BadRequestException('Unknown comments cursor.');
+    }
+    const page = await this.prisma.commentThread.findMany({
+      where: {
+        itemId,
+        ...(olderThan
+          ? {
+              OR: [
+                { createdAt: { lt: olderThan.createdAt } },
+                { createdAt: olderThan.createdAt, id: { lt: olderThan.id } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
       include: {
         comments: {
           orderBy: { createdAt: 'asc' },
         },
       },
     });
+    const hasMore = page.length > limit;
+    const threads = page.slice(0, limit).reverse();
+    const nextCursor = hasMore ? (threads[0]?.id ?? null) : null;
     const authorIds = new Set<string>();
     for (const t of threads) {
       for (const c of t.comments) authorIds.add(c.authorId);
@@ -97,7 +142,10 @@ export class CommentsService {
         a.fullName && a.fullName.trim().length > 0 ? a.fullName : a.username,
       ]),
     );
-    return threads.map((t) => this.threadToDto(t, displayById));
+    return {
+      threads: threads.map((t) => this.threadToDto(t, displayById)),
+      nextCursor,
+    };
   }
 
   async createThread(
@@ -133,6 +181,17 @@ export class CommentsService {
       include: { comments: true },
     });
     const display = await this.resolveDisplay(user);
+    const first = created.comments[0];
+    if (first) {
+      void this.notifyMentions({
+        author: user,
+        item,
+        threadId: created.id,
+        commentId: first.id,
+        body,
+        authorDisplay: display,
+      });
+    }
     return this.threadToDto(created, new Map([[user.id, display]]));
   }
 
@@ -166,6 +225,14 @@ export class CommentsService {
       data: { updatedAt: new Date() },
     });
     const display = await this.resolveDisplay(user);
+    void this.notifyMentions({
+      author: user,
+      item,
+      threadId,
+      commentId: comment.id,
+      body,
+      authorDisplay: display,
+    });
     return this.commentToDto(comment, display);
   }
 
@@ -210,7 +277,11 @@ export class CommentsService {
       where: { id: commentId },
       data: { body, editedAt: new Date() },
     });
-    const display = await this.resolveDisplay(user);
+    // The comment is still the author's, also when an editor changed
+    // it. Naming the caller showed it as the editor's until a reload.
+    const display = isAuthor
+      ? await this.resolveDisplay(user)
+      : await this.resolveDisplayById(existing.authorId);
     return this.commentToDto(updated, display);
   }
 
@@ -300,6 +371,90 @@ export class CommentsService {
 
   // ---- helpers ----------------------------------------------------------
 
+  /**
+   * Resolve `@username` tokens and enqueue mention email. Fire-and-
+   * forget: failures must not fail the comment write.
+   */
+  private async notifyMentions(args: {
+    author: AuthUser;
+    item: Awaited<ReturnType<CommentsService['loadItem']>>;
+    threadId: string;
+    commentId: string;
+    body: string;
+    authorDisplay: string;
+  }): Promise<void> {
+    try {
+      const usernames = extractMentionUsernames(args.body);
+      if (usernames.length === 0) return;
+
+      const lowered = usernames.map((u) => u.toLowerCase());
+      const candidates = await this.prisma.user.findMany({
+        where: {
+          orgId: args.author.orgId,
+          deletedAt: null,
+          OR: lowered.map((u) => ({
+            username: { equals: u, mode: 'insensitive' as const },
+          })),
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          orgId: true,
+          orgRole: true,
+          org: { select: { slug: true } },
+        },
+      });
+      if (candidates.length === 0) return;
+
+      const shares = await this.prisma.itemShare.findMany({
+        where: { itemId: args.item.id },
+      });
+      const memberships = await this.prisma.groupMember.findMany({
+        where: { userId: { in: candidates.map((c) => c.id) } },
+        select: { userId: true, groupId: true },
+      });
+      const groupsByUser = new Map<string, string[]>();
+      for (const m of memberships) {
+        const list = groupsByUser.get(m.userId) ?? [];
+        list.push(m.groupId);
+        groupsByUser.set(m.userId, list);
+      }
+
+      const snippet = commentSnippet(args.body);
+      const payloadBase = {
+        itemId: args.item.id,
+        itemTitle: args.item.title,
+        threadId: args.threadId,
+        commentId: args.commentId,
+        mentionedByName: args.authorDisplay,
+        snippet,
+      };
+
+      for (const cand of candidates) {
+        if (cand.id === args.author.id) continue;
+        const recipient: AuthUser = {
+          id: cand.id,
+          orgId: cand.orgId,
+          orgSlug: cand.org.slug,
+          username: cand.username,
+          email: cand.email,
+          orgRole: cand.orgRole,
+          groupIds: groupsByUser.get(cand.id) ?? [],
+          capabilities: new Set(),
+        };
+        if (!this.sharing.canRead(recipient, args.item, shares)) continue;
+        void this.notifications.notify(
+          cand.id,
+          'comment_mentioned',
+          payloadBase,
+        );
+      }
+    } catch {
+      // Mention fan-out must never fail the comment write.
+    }
+  }
+
   private sanitizeBody(body: unknown): string {
     if (typeof body !== 'string') {
       throw new BadRequestException('Comment body is required');
@@ -348,6 +503,18 @@ export class CommentsService {
       where: { itemId: item.id },
     });
     return this.sharing.canEdit(user, item, shares);
+  }
+
+  private async resolveDisplayById(userId: string): Promise<string> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true, username: true },
+    });
+    const display =
+      (row?.fullName && row.fullName.trim().length > 0 ? row.fullName : null) ??
+      row?.username ??
+      'Reviewer';
+    return display.slice(0, 200);
   }
 
   private async resolveDisplay(user: AuthUser): Promise<string> {

@@ -26,7 +26,9 @@ upload it through that item type instead:
 - A Shapefile / GeoJSON / GeoPackage / KML you want to render →
  **Data layer** (the new-item wizard offers upload-and-ingest).
 - A PMTiles / MBTiles / zipped XYZ tile bundle → **Tile layer**.
-- A DOCX you want to use as a report → **Report template**.
+- A DOCX you want as a designed document report → that would be
+ **Report template**, which is not built; keep it as a **File**
+ for now, or use a **Print template** for map-on-paper PDF.
 - An XLSX form spec → **Form** (import the XLSForm).
 
 Otherwise, **File** is the catch-all. Reference data, archived

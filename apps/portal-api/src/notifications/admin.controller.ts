@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { UuidPathPipe } from '../common/uuid-shape.js';
 import {
   BadRequestException,
   Body,
@@ -6,6 +7,8 @@ import {
   Delete,
   Get,
   HttpCode,
+  Logger,
+  Optional,
   Param,
   Post,
   Put,
@@ -14,14 +17,15 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
-  IsEmail,
   IsEnum,
   IsInt,
   IsOptional,
   IsString,
   Max,
   Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   NotificationChannel,
   NotificationStatus,
@@ -29,11 +33,18 @@ import {
 } from '@prisma/client';
 
 import { AdminGuard } from '../admin/admin.guard.js';
+import { AdminAuditService } from '../admin/admin-audit.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NOTIFICATION_TYPES, getTypeMeta } from './notification-types.js';
-import { SystemSettingsService, type SmtpConfig } from './system-settings.service.js';
+import {
+  SMTP_PASSWORD_AGAIN,
+  SystemSettingsService,
+  sameSmtpTarget,
+  type SmtpConfig,
+} from './system-settings.service.js';
 import { NotificationTypeDefaultService } from './notification-type-default.service.js';
 import { NotificationTemplateService } from './notification-template.service.js';
 import { EmailTransport } from './email-transport.js';
@@ -44,6 +55,7 @@ import {
 } from './templates.js';
 import { SAMPLE_PAYLOADS } from './sample-payloads.js';
 import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+import { textEnv } from '../common/env.js';
 
 class SaveSmtpDto {
   @IsBoolean() enabled!: boolean;
@@ -57,12 +69,34 @@ class SaveSmtpDto {
   @IsOptional() @IsString() password?: string;
 }
 
-class TestSmtpDto {
-  @IsEmail() to!: string;
+export class TestSmtpDto {
+  // No recipient field: the test always goes to the signed-in admin's
+  // own account email, so it cannot be used to mail anyone else.
   /** When provided, send the test against this unsaved config so the
    *  admin can verify before clicking Save. Optional; falls back to
-   *  the stored config. */
-  @IsOptional() config?: SaveSmtpDto;
+   *  the stored config. ValidateNested + Type make SaveSmtpDto's own
+   *  rules (port range, types) run; without them none did. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SaveSmtpDto)
+  config?: SaveSmtpDto;
+}
+
+/**
+ * What an SMTP test tells the caller. The raw error can carry the
+ * first line any TCP service sends back (an SSH banner, an HTTP
+ * status line), which turned the test into a port and banner probe of
+ * the API's network. The full text goes to the log instead.
+ */
+export function describeSmtpTestError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = /^SMTP server returned (\d{3})/.exec(msg)?.[1];
+  if (code === '535' || code === '530' || code === '534') {
+    return `The SMTP server refused the login (${code}).`;
+  }
+  if (code) return `The SMTP server answered ${code} and did not accept the message.`;
+  if (/timed out/i.test(msg)) return 'Timed out talking to the SMTP server.';
+  return 'Could not complete an SMTP conversation with that host and port.';
 }
 
 class PutDefaultDto {
@@ -130,16 +164,19 @@ interface RecentRow {
  * (used after the underlying issue is fixed, e.g. SMTP creds
  * corrected).
  *
- * Scope: this is org-wide today (no per-org filter on the query),
- * matching the rest of the admin pages. When multi-org tenancy
- * lands (#47), the queries grow an `orgId` filter and the page
- * becomes per-admin's-org.
+ * Scope: the queue, SMTP relay (also pushed to the shared Keycloak
+ * realm) and per-type defaults are install-wide, so those routes
+ * carry OperatorOrgGuard and only admins of the operator
+ * organization reach them. Templates are stored per organization
+ * and stay open to every org admin.
  */
 @ApiTags('admin')
 @ApiBearerAuth()
 @UseGuards(AdminGuard)
 @Controller('admin/notifications')
 export class NotificationsAdminController {
+  private readonly log = new Logger('NotificationsAdmin');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SystemSettingsService,
@@ -147,9 +184,11 @@ export class NotificationsAdminController {
     private readonly templates: NotificationTemplateService,
     private readonly transport: EmailTransport,
     private readonly keycloak: KeycloakAdminService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   @Get('stats')
+  @UseGuards(OperatorOrgGuard)
   async stats(): Promise<StatsPayload> {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -239,6 +278,7 @@ export class NotificationsAdminController {
    * an admin can spot a wave of failures next to the successes.
    */
   @Get('recent')
+  @UseGuards(OperatorOrgGuard)
   async recent(): Promise<RecentRow[]> {
     const rows = await this.prisma.notification.findMany({
       orderBy: { createdAt: 'desc' },
@@ -282,7 +322,10 @@ export class NotificationsAdminController {
    * acting on the row a moment later.
    */
   @Post(':id/retry')
-  async retry(@Param('id') id: string): Promise<{ retried: boolean }> {
+  @UseGuards(OperatorOrgGuard)
+  async retry(
+    @Param('id', new UuidPathPipe('Notification not found')) id: string,
+  ): Promise<{ retried: boolean }> {
     const r = await this.prisma.notification.updateMany({
       where: { id, status: { in: ['failed', 'sending'] } },
       data: {
@@ -302,6 +345,7 @@ export class NotificationsAdminController {
    *  only `hasPassword` so the form can show "stored" state without
    *  leaking secret material to the browser. */
   @Get('smtp')
+  @UseGuards(OperatorOrgGuard)
   async getSmtp(): Promise<SmtpStatePayload> {
     const cfg = await this.settings.getSmtpConfig();
     if (!cfg) {
@@ -338,6 +382,7 @@ export class NotificationsAdminController {
    * the admin's Save (the row is written either way).
    */
   @Put('smtp')
+  @UseGuards(OperatorOrgGuard)
   async saveSmtp(
     @CurrentUser() me: AuthUser,
     @Body() dto: SaveSmtpDto,
@@ -390,6 +435,21 @@ export class NotificationsAdminController {
           err instanceof Error ? err.message : String(err);
       }
     }
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'admin.smtp',
+      targetType: 'smtp',
+      targetId: 'install',
+      outcome: 'succeeded',
+      detail: {
+        host: dto.host,
+        port: dto.port,
+        enabled: dto.enabled,
+        passwordChanged: dto.password !== undefined,
+        realmSynced: realmSyncWarning === undefined,
+      },
+    });
     const state = await this.getSmtp();
     return realmSyncWarning ? { ...state, realmSyncWarning } : state;
   }
@@ -401,8 +461,21 @@ export class NotificationsAdminController {
    * the stored config.
    */
   @Post('smtp/test')
+  @UseGuards(OperatorOrgGuard)
   @HttpCode(200)
-  async testSmtp(@Body() dto: TestSmtpDto): Promise<{ ok: boolean; error?: string }> {
+  async testSmtp(
+    @CurrentUser() me: AuthUser,
+    @Body() dto: TestSmtpDto,
+  ): Promise<{ ok: boolean; error?: string; sentTo?: string }> {
+    const to = me.email;
+    // Accounts provisioned without an email get a placeholder address
+    // (auth-sync.service.ts) that no server will deliver to.
+    if (!to || !to.includes('@') || to.endsWith('@local.gratisgis')) {
+      return {
+        ok: false,
+        error: 'Your account has no email address. Add one to your profile, then send the test.',
+      };
+    }
     const builtCfg: SmtpConfig | null = await (async () => {
       if (!dto.config) return this.settings.getSmtpConfig();
       const c: SmtpConfig = {
@@ -420,10 +493,17 @@ export class NotificationsAdminController {
       };
       // If admin left password blank in the form but a stored one
       // exists, fall back to the stored value so the test exercises
-      // the real config the worker would use.
+      // the real config the worker would use. Only for the same
+      // server, port and user: sending it to any other host would
+      // hand the stored password to whoever runs that host.
       if (c.password === undefined) {
         const stored = await this.settings.getSmtpConfig();
-        if (stored?.password) c.password = stored.password;
+        if (stored?.password) {
+          if (!sameSmtpTarget(stored, c)) {
+            throw new BadRequestException(SMTP_PASSWORD_AGAIN);
+          }
+          c.password = stored.password;
+        }
       }
       return c;
     })();
@@ -434,19 +514,21 @@ export class NotificationsAdminController {
     try {
       await this.transport.sendTest(
         cfg,
-        dto.to,
+        to,
         'GratisGIS notifications: test email',
         'This is a test email from your GratisGIS portal. ' +
           'If you can read this, your SMTP relay is working.',
         '<p>This is a test email from your GratisGIS portal.</p>' +
           '<p>If you can read this, your SMTP relay is working.</p>',
       );
-      return { ok: true };
+      return { ok: true, sentTo: to };
     } catch (err) {
-      return {
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      };
+      this.log.warn(
+        `SMTP test to ${cfg.host}:${cfg.port} failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { ok: false, error: describeSmtpTestError(err) };
     }
   }
 
@@ -458,8 +540,21 @@ export class NotificationsAdminController {
   }
 
   @Put('defaults')
-  async putDefault(@Body() dto: PutDefaultDto): Promise<{ ok: true }> {
+  @UseGuards(OperatorOrgGuard)
+  async putDefault(
+    @CurrentUser() me: AuthUser,
+    @Body() dto: PutDefaultDto,
+  ): Promise<{ ok: true }> {
     await this.defaults.setOverride(dto.type, dto.channel, dto.enabled);
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'notifications.defaults',
+      targetType: 'notification_type',
+      targetId: `${dto.type}:${dto.channel}`,
+      outcome: 'succeeded',
+      detail: { enabled: dto.enabled },
+    });
     return { ok: true };
   }
 
@@ -486,7 +581,7 @@ export class NotificationsAdminController {
         `No sample payload registered for ${type}. Add one in sample-payloads.ts.`,
       );
     }
-    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const orgLabel = textEnv(process.env.PORTAL_NAME, 'GratisGIS');
     const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
     const rendered = renderNotification(type, payload, { orgLabel, baseUrl });
     if (!rendered) {
@@ -542,7 +637,7 @@ export class NotificationsAdminController {
     const type = parseType(typeRaw);
     const channel = parseChannel(channelRaw);
     const override = await this.templates.get(me.orgId, type, channel);
-    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const orgLabel = textEnv(process.env.PORTAL_NAME, 'GratisGIS');
     const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
     // Always include a preview of the hardcoded default so the
     // editor can show "what you'll get if you click Reset".
@@ -584,6 +679,15 @@ export class NotificationsAdminController {
       bodyText: dto.bodyText,
       bodyHtml: dto.bodyHtml,
     });
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'notifications.template',
+      targetType: 'notification_template',
+      targetId: `${type}:${channel}`,
+      outcome: 'succeeded',
+      detail: { op: 'save' },
+    });
     return { ok: true };
   }
 
@@ -598,6 +702,15 @@ export class NotificationsAdminController {
     const type = parseType(typeRaw);
     const channel = parseChannel(channelRaw);
     await this.templates.clearOverride(me.orgId, type, channel);
+    void this.audit?.record({
+      orgId: me.orgId,
+      actorUserId: me.id,
+      action: 'notifications.template',
+      targetType: 'notification_template',
+      targetId: `${type}:${channel}`,
+      outcome: 'succeeded',
+      detail: { op: 'reset' },
+    });
   }
 
   /**
@@ -610,7 +723,7 @@ export class NotificationsAdminController {
   async previewTemplate(
     @Body() dto: PreviewTemplateDto,
   ): Promise<{ subject: string; text: string; html: string }> {
-    const orgLabel = process.env.PORTAL_NAME ?? 'GratisGIS';
+    const orgLabel = textEnv(process.env.PORTAL_NAME, 'GratisGIS');
     const baseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3000';
     const rendered = this.templates.previewUnsaved(
       { subject: dto.subject, bodyText: dto.bodyText, bodyHtml: dto.bodyHtml },

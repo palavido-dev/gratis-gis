@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DependentsWarning } from '@/components/dependents-warning';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -120,7 +121,7 @@ export function DeleteItemButton({
           /* fall through to generic error */
         }
       }
-      setError(`Delete failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Delete failed'));
       return;
     }
     setOpen(false);
@@ -193,10 +194,17 @@ export function DeleteItemButton({
                 </p>
               </div>
             ) : null}
+            {/* Inside the dialog: under it, the message sat behind the
+                modal's overlay and could not be read until Cancel. */}
+            {error ? (
+              <p role="alert" className="mt-3 text-xs text-danger">
+                {error}
+              </p>
+            ) : null}
           </>
         ) : null}
       </ConfirmDialog>
-      {error ? (
+      {error && !open ? (
         <p role="alert" className="mt-2 text-xs text-danger">
           {error}
         </p>

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape } from '../../common/uuid-shape.js';
 import {
   Controller,
   Get,
@@ -9,6 +10,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -50,6 +52,7 @@ const ITEMS_QUERY_PARAMS = [
   'limit',
   'offset',
   'sortby',
+  'cursor',
 ] as const;
 const FEATURE_QUERY_PARAMS = ['crs'] as const;
 
@@ -86,6 +89,9 @@ export class OgcFeaturesController {
   ) {}
 
   @Public()
+  // Tighter than the global 300/min: catalogue walk scans every
+  // public data_layer (SEC-ogc-features-collections-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
   async collections(@Req() req: Request) {
     const base = absoluteBase(req);
@@ -121,6 +127,7 @@ export class OgcFeaturesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id')
   async collection(@Req() req: Request, @Param('id') id: string) {
     const row = await this.resolvePublicCollection(id);
@@ -131,6 +138,9 @@ export class OgcFeaturesController {
   }
 
   @Public()
+  // Tighter than the global 300/min: items accept limit up to
+  // 10_000 (SEC-ogc-features-throttle; matches Records 60/min).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id/items')
   @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async items(
@@ -142,6 +152,7 @@ export class OgcFeaturesController {
     @Query('limit') limitParam?: string,
     @Query('offset') offsetParam?: string,
     @Query('sortby') sortbyParam?: string,
+    @Query('cursor') cursorParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), ITEMS_QUERY_PARAMS);
     const row = await this.resolvePublicCollection(id);
@@ -157,7 +168,7 @@ export class OgcFeaturesController {
     return buildItemsResponse({
       query: {
         bboxParam, bboxCrsParam, crsParam,
-        limitParam, offsetParam, sortbyParam,
+        limitParam, offsetParam, sortbyParam, cursorParam,
       },
       itemsUrl: `${base}/api/public/ogc/collections/${id}/items`,
       collectionUrl: `${base}/api/public/ogc/collections/${id}`,
@@ -166,6 +177,13 @@ export class OgcFeaturesController {
           ...opts,
           ...(tierClip ? { geoLimit: tierClip } : {}),
         }),
+      readPage: ({ pageSize, after, ...opts }) =>
+        this.v3.readFeaturePage(
+          row.itemId,
+          row.layerId,
+          { ...opts, ...(tierClip ? { geoLimit: tierClip } : {}) },
+          { pageSize, after },
+        ),
     });
   }
 
@@ -176,6 +194,9 @@ export class OgcFeaturesController {
    * the OGC envelope around the result differs.
    */
   @Public()
+  // Same 60/min bucket class as /items: single-feature lookups
+  // would otherwise bypass the listing throttle (SEC-ogc-features-throttle).
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':id/items/:featureId')
   @Header('Content-Type', GEOJSON_MEDIA_TYPE)
   async feature(
@@ -185,6 +206,9 @@ export class OgcFeaturesController {
     @Query('crs') crsParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), FEATURE_QUERY_PARAMS);
+    // Feature ids are entity uuids. Anything else reached a ::uuid
+    // cast in the engine and came back as a 500.
+    if (!isUuidShape(featureId)) throw new NotFoundException('Feature not found.');
     const row = await this.resolvePublicCollection(id);
     if (!row) throw new NotFoundException('Collection not found.');
     const crs = parseCrs(crsParam);

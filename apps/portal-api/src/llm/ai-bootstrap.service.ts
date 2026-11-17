@@ -60,7 +60,7 @@ export class AiBootstrapService implements OnModuleInit {
       }
 
       const admin = await this.prisma.user.findFirst({
-        where: { orgId: org.id, orgRole: 'admin', deletedAt: null },
+        where: { orgId: org.id, orgRole: 'admin', deletedAt: null, disabledAt: null },
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });

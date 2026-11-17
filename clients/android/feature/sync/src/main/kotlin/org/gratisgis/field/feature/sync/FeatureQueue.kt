@@ -30,6 +30,8 @@ data class FeatureEdit(
   /** `_observation_id` of the feature as read when the edit was made.
    *  Null for an insert. */
   val baseObservationId: String? = null,
+  /** The portal the edit is made on ([AccountScope.portal]). */
+  val portal: String? = null,
 )
 
 sealed interface EnqueueResult {
@@ -49,10 +51,29 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
   private val json = Json { ignoreUnknownKeys = true }
 
   suspend fun enqueue(edit: FeatureEdit): EnqueueResult {
+    // The fold is read, worked out by the engine and written in separate
+    // steps, so a drain can claim one of the rows in between. The write
+    // only lands when the rows are unchanged; otherwise read again, and
+    // the claimed row is then no longer foldable, so the edit becomes
+    // its own row. A drain claims a row once per attempt, so a few
+    // passes always settle.
+    repeat(MAX_FOLD_ATTEMPTS - 1) {
+      tryEnqueue(edit)?.let { return it }
+    }
+    return tryEnqueue(edit) ?: error("Queue rows kept changing while folding an edit")
+  }
+
+  private suspend fun tryEnqueue(edit: FeatureEdit): EnqueueResult? {
     val now = Instant.now().toString()
     val sameFeature = db.queue().forFeature(edit.collectionId, edit.dataLayerId, edit.layerKey, edit.globalId)
+    // A row a drain has already sent may be on the server, so nothing
+    // is folded into it: see QueueEntity.mayHaveReachedServer. The edit
+    // becomes its own row behind it, and the drain orders the two.
     val foldable = sameFeature.filter { row ->
-      (row.syncStatus == "pending" || row.syncStatus == "failed") && ownedBy(row, edit.ownerUserId)
+      (row.syncStatus == "pending" || row.syncStatus == "failed") &&
+        !row.mayHaveReachedServer &&
+        (row.portal == null || row.portal == edit.portal) &&
+        ownedBy(row, edit.ownerUserId)
     }.sortedBy { it.queuedAt }
 
     if (foldable.isEmpty()) {
@@ -73,6 +94,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
         retryCount = null,
         ownerUserId = edit.ownerUserId,
         baseObservationId = edit.baseObservationId,
+        portal = edit.portal,
       )
       db.queue().upsert(row)
       return EnqueueResult.Queued(row)
@@ -87,7 +109,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
     val removeIds = foldable.drop(1).map { it.id }
 
     if (folded["kind"]?.jsonPrimitive?.content == "annihilated") {
-      db.queue().replaceChain(edit.collectionId, removeIds + keep.id, null)
+      if (!db.queue().replaceChainIfUnchanged(edit.collectionId, foldable, removeIds + keep.id, null)) return null
       return EnqueueResult.Annihilated(foldable.size)
     }
     val e = folded.getValue("edit").jsonObject
@@ -105,7 +127,7 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
       baseObservationId = keep.baseObservationId,
       conflictCurrentJson = null,
     )
-    db.queue().replaceChain(edit.collectionId, removeIds, next)
+    if (!db.queue().replaceChainIfUnchanged(edit.collectionId, foldable, removeIds, next)) return null
     return EnqueueResult.Folded(next, foldable.size)
   }
 
@@ -117,6 +139,10 @@ class FeatureQueue(private val db: FieldDatabase, private val engine: FieldEngin
         put("currentUserId", JsonPrimitive(userId))
       },
     ).jsonPrimitive.content.toBoolean()
+
+  private companion object {
+    const val MAX_FOLD_ATTEMPTS = 5
+  }
 
   private fun foldable(op: String, geometry: JsonElement?, properties: JsonElement?): JsonObject = buildJsonObject {
     put("op", JsonPrimitive(op))

@@ -22,20 +22,20 @@ import { sendSmtpMail } from './smtp-client.js';
 @Injectable()
 export class EmailTransport {
   private readonly log = new Logger(EmailTransport.name);
-  private cachedConfig: SmtpConfig | null = null;
   private cachedFrom: string = 'GratisGIS <noreply@gratisgis.local>';
+  /** host:port:secure last logged, so a config change is logged once. */
+  private lastLogged = '';
 
   constructor(private readonly settings: SystemSettingsService) {}
 
   /**
-   * Lazily resolve the active SMTP config on first use (or on
-   * reload after an admin save). Returns null when delivery is
-   * disabled / misconfigured so callers can degrade gracefully
-   * (the worker logs + drops the notification rather than
-   * crashing the api).
+   * Resolve the active SMTP config on every use. SystemSettingsService
+   * holds the short-lived cache, so a save on another replica reaches
+   * this one within its TTL. Returns null when delivery is disabled /
+   * misconfigured so callers can degrade gracefully (the worker logs +
+   * drops the notification rather than crashing the api).
    */
   private async getConfig(): Promise<SmtpConfig | null> {
-    if (this.cachedConfig) return this.cachedConfig;
     const cfg = await this.settings.getSmtpConfig();
     if (!cfg || !cfg.enabled) return null;
     if (!cfg.host) {
@@ -51,11 +51,14 @@ export class EmailTransport {
       return null;
     }
     this.cachedFrom = formatFrom(cfg);
-    this.cachedConfig = cfg;
-    this.log.log(
-      `SMTP transport configured: host=${cfg.host} port=${cfg.port} secure=${cfg.secure}`,
-    );
-    return this.cachedConfig;
+    const key = `${cfg.host}:${cfg.port}:${cfg.secure}`;
+    if (key !== this.lastLogged) {
+      this.lastLogged = key;
+      this.log.log(
+        `SMTP transport configured: host=${cfg.host} port=${cfg.port} secure=${cfg.secure}`,
+      );
+    }
+    return cfg;
   }
 
   /** True when the active config is good enough to attempt delivery. */
@@ -70,7 +73,6 @@ export class EmailTransport {
    * just drop the cached config and let the next send re-read.
    */
   async reload(): Promise<void> {
-    this.cachedConfig = null;
     this.settings.invalidateSmtpCache();
     // Eagerly re-read so the next send is hot.
     await this.getConfig();
@@ -98,6 +100,7 @@ export class EmailTransport {
         port: cfg.port,
         secure: cfg.secure,
         ...(cfg.user ? { user: cfg.user, password: cfg.password ?? '' } : {}),
+        allowPlaintextAuth: process.env.SMTP_ALLOW_PLAINTEXT_AUTH === 'true',
       },
       {
         from: this.cachedFrom,
@@ -130,6 +133,7 @@ export class EmailTransport {
         port: cfg.port,
         secure: cfg.secure,
         ...(cfg.user ? { user: cfg.user, password: cfg.password ?? '' } : {}),
+        allowPlaintextAuth: process.env.SMTP_ALLOW_PLAINTEXT_AUTH === 'true',
       },
       {
         from: formatFrom(cfg),
@@ -142,10 +146,24 @@ export class EmailTransport {
   }
 }
 
-function formatFrom(cfg: SmtpConfig): string {
+export function formatFrom(cfg: SmtpConfig): string {
   if (!cfg.fromAddress) return 'GratisGIS <noreply@gratisgis.local>';
   if (cfg.fromDisplayName) {
-    return `${cfg.fromDisplayName} <${cfg.fromAddress}>`;
+    return `${displayNamePhrase(cfg.fromDisplayName)} <${cfg.fromAddress}>`;
   }
   return cfg.fromAddress;
+}
+
+/**
+ * A From display name as an RFC 5322 phrase. Unquoted, a comma made
+ * "City of Springfield, GIS" two mailboxes, which strict receivers
+ * reject; non-ASCII went out as raw 8-bit header bytes. ASCII is
+ * quoted, anything else is RFC 2047 encoded.
+ */
+function displayNamePhrase(name: string): string {
+  const flat = name.replace(/[\r\n]+/g, ' ').trim();
+  if (/^[\x20-\x7E]*$/.test(flat)) {
+    return `"${flat.replace(/(["\\])/g, '\\$1')}"`;
+  }
+  return `=?UTF-8?B?${Buffer.from(flat, 'utf8').toString('base64')}?=`;
 }

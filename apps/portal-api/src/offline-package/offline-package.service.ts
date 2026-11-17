@@ -63,6 +63,17 @@ export class OfflinePackageService {
           sourceUrl: input.sourceUrl,
         },
       });
+      // Earlier failures of this area are superseded by the new
+      // attempt; keeping every one made the item's build list grow
+      // without end.
+      await this.prisma.offlinePackage.deleteMany({
+        where: {
+          itemId: input.itemId,
+          areaId: input.area.id,
+          status: 'failed',
+          id: { not: row.id },
+        },
+      });
       return { package: row, alreadyQueued: false };
     } catch (err) {
       if (

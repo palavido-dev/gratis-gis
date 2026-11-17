@@ -32,16 +32,16 @@ import { Client as PgClient, Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 import type { Item } from '@prisma/client';
-import { uuidv7 } from '@gratis-gis/engine';
+import { uuidv7, type GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { DataLayerEngine, dataLayerScope } from './data-layer.js';
 import { EngineService } from './engine.service.js';
+import { FEATURE_WRITE_LOCK_BUCKETS, featureWriteLocksSql } from './feature-locks.js';
 import { TileCacheService } from './tile-cache.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { GeocodingService } from '../geocoding/geocoding.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import type { LensPolicyService } from '../policy/lens-policy.service.js';
 import type { AuthUser, AuthSyncService } from '../auth/auth-sync.service.js';
 import type { ItemBboxRefreshService } from '../items/item-bbox-refresh.service.js';
 import type { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
@@ -104,10 +104,6 @@ function adapterClient(url: string): {
   return { client, prisma: client as unknown as PrismaService };
 }
 
-const lensPolicyPassthrough = {
-  checkFeature: () => true,
-} as unknown as LensPolicyService;
-
 /** Slippy-map tile coordinates containing a lng/lat at zoom z. */
 function tileFor(z: number, lng: number, lat: number): { x: number; y: number } {
   const n = 2 ** z;
@@ -143,7 +139,6 @@ d('observation-log read paths against real PostGIS', () => {
     new DataLayerEngine(
       engineSvc,
       prisma,
-      lensPolicyPassthrough,
       new TileCacheService(),
     );
 
@@ -241,6 +236,14 @@ d('observation-log read paths against real PostGIS', () => {
       CREATE TRIGGER observation_notify_written
         AFTER INSERT ON observation
         FOR EACH ROW EXECUTE FUNCTION observation_notify_written()
+    `);
+    await pool.query(`DROP TABLE IF EXISTS item`);
+    await pool.query(`
+      CREATE TABLE item (
+        id uuid PRIMARY KEY,
+        data_json jsonb NOT NULL,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )
     `);
   });
 
@@ -603,6 +606,19 @@ d('observation-log read paths against real PostGIS', () => {
       expect(page.features.map((f) => f.id).sort()).toEqual([mine, theirs].sort());
     });
 
+    it('pageFeatures carries the creation stamp apart from the last edit', async () => {
+      // The table's Edit history columns read these; the page used to
+      // return only the _edited_* pair, so Created was always blank.
+      const page = await makeEngine().pageFeatures({ itemId, layerId, limit: 100 });
+      const row = page.features.find((f) => f.id === mine)!;
+      expect(row.properties['_created_by']).toBe(ALICE.sub);
+      expect(row.properties['_edited_by']).toBe(BOB.sub);
+      expect(typeof row.properties['_created_at']).toBe('string');
+      expect(
+        Date.parse(row.properties['_created_at'] as string),
+      ).toBeLessThan(Date.parse(row.properties['_edited_at'] as string));
+    });
+
     it('pageFeatures returns only rows the caller created', async () => {
       const page = await makeEngine().pageFeatures({
         itemId,
@@ -802,6 +818,30 @@ d('observation-log read paths against real PostGIS', () => {
       expect(tileContains(mvt, kid2)).toBe(false);
     });
 
+    // Review 37-4: "Use as filter" writes one `in` clause on the
+    // hidden _global_id, which must match exactly the named features
+    // in the tile, the table page and the aggregate alike.
+    it('an id list on _global_id narrows the tile, the page and the count', async () => {
+      const engine = makeEngine();
+      const where = {
+        combinator: 'all' as const,
+        clauses: [{ field: '_global_id', op: 'in', value: `${kid2}` }],
+      };
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await engine.mvtTile({ itemId, layerId, z: 14, x, y, where });
+      expect(tileContains(mvt, kid1)).toBe(false);
+      expect(tileContains(mvt, kid2)).toBe(true);
+      const page = await engine.pageFeatures({ itemId, layerId, limit: 100, where });
+      expect(page.features.map((f) => f.id)).toEqual([kid2]);
+      const both = await engine.aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: { ...where, clauses: [{ ...where.clauses[0]!, value: `${kid1},${kid2}` }] },
+      });
+      expect(both.groups[0]!.values.count).toBe(2);
+    });
+
     it('where applies to the latest version, not to any version', async () => {
       // Move kid2 from s2 to s1, then ask for s2. A predicate applied
       // before the collapse would find the superseded row and put a
@@ -969,7 +1009,7 @@ d('observation-log read paths against real PostGIS', () => {
     it('resolves the keys once for two tiles, then again after the parent changes', async () => {
       // ONE engine with a cache we can read the counters of.
       const cache = new TileCacheService();
-      const engine = new DataLayerEngine(engineSvc, prisma, lensPolicyPassthrough, cache);
+      const engine = new DataLayerEngine(engineSvc, prisma, cache);
       const { x, y } = tileFor(14, HERE[0], HERE[1]);
 
       const first = await engine.mvtTile({ itemId, layerId, z: 14, x, y, via: viaOver });
@@ -1282,6 +1322,311 @@ d('observation-log read paths against real PostGIS', () => {
   // legitimately contain zero live features and still have data behind
   // it. A client that stopped on an empty page would silently truncate,
   // which is the exact class of bug the un-paged endpoint had.
+  describe('scenario 13: a limited listFeatures skips tombstones before the limit', () => {
+    // The limit used to apply before tombstones were dropped, so more
+    // than 10 deleted entities early in uuid order made a limited read
+    // short or empty. A replace import (old ids sort first) hit it on
+    // every layer with more than 10 old features.
+    const itemId = uuidv7();
+    const layerId = 'layer-tomb';
+    const scope = dataLayerScope(itemId, layerId);
+    const ids = Array.from({ length: 20 }, () => uuidv7()).sort();
+    const gone = ids.slice(0, 12);
+    const live = ids.slice(12);
+
+    beforeAll(async () => {
+      for (const id of ids) {
+        await seed(scope, id, 'create', { NAME: id.slice(0, 8) }, HERE);
+      }
+      for (const id of gone) await seed(scope, id, 'delete', null, null);
+    });
+
+    it.each([1, 3, 8, 50])('limit %d returns live rows, not an empty or short page', async (limit) => {
+      const engine = makeEngine();
+      const out = await engine.listFeatures({ itemId, layerId, limit });
+      expect(out.features.map((f) => f.id)).toEqual(live.slice(0, limit));
+    });
+
+    it('the own-rows variant does the same', async () => {
+      const engine = makeEngine();
+      const out = await engine.listFeatures({
+        itemId,
+        layerId,
+        limit: 2,
+        ownRowsOnly: { userId: PRINCIPAL.sub },
+      });
+      expect(out.features.map((f) => f.id)).toEqual(live.slice(0, 2));
+    });
+  });
+
+  describe('scenario 14: replace tombstones reach restricted delta clients', () => {
+    // A replace import deletes the scope's old rows and then writes
+    // bare tombstones. listDeltaSince decided visibility for a
+    // restricted caller from those (now gone) earlier rows, so a
+    // device with a geo limit or own-rows scope never got the deletes.
+    const itemId = uuidv7();
+    const layerId = 'layer-replace';
+    const scope = dataLayerScope(itemId, layerId);
+    const oldEntity = uuidv7();
+    const ordinaryGone = uuidv7();
+    const CLIP: GeoJsonGeometry = {
+      type: 'Polygon',
+      coordinates: [[[-80, 38.8], [-79.8, 38.8], [-79.8, 39], [-80, 39], [-80, 38.8]]],
+    };
+
+    beforeAll(async () => {
+      const write = async (
+        entity: string,
+        details: Record<string, unknown>,
+      ) => {
+        const ts = nextTs();
+        await engineSvc.write({
+          scope,
+          entity,
+          kind: 'delete',
+          validFrom: ts,
+          validTo: null,
+          txTime: ts,
+          attrs: null,
+          geom: null,
+          author: PRINCIPAL,
+          source: { kind: 'data_layer:write', details },
+          parents: [],
+        });
+      };
+      // What commitCopiedLayer leaves behind for a replaced entity.
+      await write(oldEntity, { syncVersion: 2, replaced: true });
+      // An ordinary tombstone with no history is still never sent.
+      await write(ordinaryGone, { syncVersion: 2 });
+    });
+
+    it('sends it to an own-rows caller', async () => {
+      const out = await makeEngine().listDeltaSince({
+        itemId,
+        layerId,
+        since: 1,
+        ownRowsOnly: { userId: 'someone-else' },
+      });
+      expect(out.map((c) => [c.entity, c.kind, c.properties])).toEqual([
+        [oldEntity, 'delete', null],
+      ]);
+    });
+
+    it('sends it to a geo-limited caller', async () => {
+      const out = await makeEngine().listDeltaSince({
+        itemId,
+        layerId,
+        since: 1,
+        geoLimit: CLIP,
+      });
+      expect(out.map((c) => [c.entity, c.kind])).toEqual([[oldEntity, 'delete']]);
+    });
+  });
+
+  describe('scenario 15: online batch writes take bucketed advisory locks', () => {
+    it('holds at most one lock per bucket for a 10,000-entity batch', async () => {
+      // One lock per entity filled the shared lock table ("out of
+      // shared memory") for the largest online batches.
+      const scope = dataLayerScope(uuidv7(), 'layer-locks');
+      const entities = Array.from({ length: 10_000 }, () => uuidv7());
+      const held = await client.$transaction(async (tx) => {
+        await tx.$executeRaw(
+          featureWriteLocksSql(entities.map(() => scope), entities),
+        );
+        const rows = await tx.$queryRaw<Array<{ n: bigint }>>`
+          SELECT count(*)::bigint AS n FROM pg_locks
+          WHERE locktype = 'advisory' AND pid = pg_backend_pid()
+        `;
+        return Number(rows[0]!.n);
+      });
+      expect(held).toBeGreaterThan(0);
+      expect(held).toBeLessThanOrEqual(FEATURE_WRITE_LOCK_BUCKETS);
+    });
+  });
+
+  describe('scenario 16: pageFeatures sorts the layer, not the first page', () => {
+    // The sort was a JS pass over the first limit+1 rows in entity
+    // order, and `_created_at` sorted nothing.
+    const itemId = uuidv7();
+    const layerId = 'layer-sort';
+    const scope = dataLayerScope(itemId, layerId);
+    const ids = Array.from({ length: 6 }, () => uuidv7()).sort();
+    // The largest acres sit on the LAST entities in uuid order.
+    const acres = [1, 2, 3, 4, 50, 60];
+
+    beforeAll(async () => {
+      for (let i = 0; i < ids.length; i++) {
+        await seed(scope, ids[i]!, 'create', { acres: acres[i] }, HERE);
+      }
+      // A string in a numeric column must not break the order.
+      await seed(scope, uuidv7(), 'create', { acres: 'unknown' }, HERE);
+    });
+
+    it('a truncated page sorted by a number column returns the true top rows', async () => {
+      const out = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 2,
+        sort: 'acres',
+        dir: 'desc',
+      });
+      expect(out.truncated).toBe(true);
+      expect(out.features.map((f) => f.properties.acres)).toEqual([60, 50]);
+    });
+
+    it('sorts by creation time', async () => {
+      const asc = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 3,
+        sort: '_created_at',
+        dir: 'asc',
+      });
+      expect(asc.features.map((f) => f.id)).toEqual(ids.slice(0, 3));
+      const desc = await makeEngine().pageFeatures({
+        itemId,
+        layerId,
+        limit: 1,
+        sort: '_created_at',
+        dir: 'desc',
+      });
+      expect(desc.features[0]!.properties.acres).toBe('unknown');
+    });
+  });
+
+  describe('scenario 17: a bad date value does not fail the time filter', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-time';
+    const scope = dataLayerScope(itemId, layerId);
+    const good = uuidv7();
+
+    beforeAll(async () => {
+      await seed(scope, good, 'create', { seen: '2024-05-02' }, HERE);
+      // Each of these used to fail the whole read with a cast error.
+      for (const bad of ['0000-00-00', '2024-02-30', '2024-05-01 approx']) {
+        await seed(scope, uuidv7(), 'create', { seen: bad }, HERE);
+      }
+    });
+
+    it('skips rows whose value is not a real date', async () => {
+      const out = await makeEngine().listFeatures({
+        itemId,
+        layerId,
+        timeFilter: { column: 'seen', from: '2024-01-01', to: '2024-12-31' },
+      });
+      expect(out.features.map((f) => f.id)).toEqual([good]);
+    });
+  });
+
+  describe('scenario 18: a declared field named like a tile column', () => {
+    // `geom`, `_global_id` and `_label_point` collided with the tile
+    // query's own columns, and every tile of the layer failed.
+    const itemId = uuidv7();
+    const layerId = 'layer-geomfield';
+    const scope = dataLayerScope(itemId, layerId);
+    const entity = uuidv7();
+
+    beforeAll(async () => {
+      await seed(scope, entity, 'create', { geom: 'POINT(1 2)', name: 'n' }, HERE);
+    });
+
+    it.each([false, true])('still renders the tile (labels %s)', async (labelPoints) => {
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const { mvt } = await makeEngine().mvtTile({
+        itemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        fields: [
+          { name: 'geom', type: 'string' },
+          { name: '_global_id', type: 'string' },
+          { name: '_label_point', type: 'string' },
+          { name: 'name', type: 'string' },
+          { name: 'name', type: 'string' },
+        ],
+        ...(labelPoints ? { labelPoints: true } : {}),
+      });
+      expect(tileContains(mvt, entity)).toBe(true);
+    });
+  });
+
+  describe('scenario 19: free-text search matches values, not column names', () => {
+    const itemId = uuidv7();
+    const layerId = 'layer-q';
+    const scope = dataLayerScope(itemId, layerId);
+    const entity = uuidv7();
+
+    beforeAll(async () => {
+      await seed(scope, entity, 'create', { status: 'open', owner: 'Smith' }, HERE);
+    });
+
+    it('the table search ignores key names', async () => {
+      const engine = makeEngine();
+      expect((await engine.pageFeatures({ itemId, layerId, limit: 10, q: 'status' })).count).toBe(0);
+      expect((await engine.pageFeatures({ itemId, layerId, limit: 10, q: 'smi' })).count).toBe(1);
+    });
+
+    it('the search bar without configured fields ignores key names', async () => {
+      const engine = makeEngine();
+      expect((await engine.searchFeatures({ itemId, layerId, q: 'owner', limit: 10 })).results).toEqual([]);
+      expect(
+        (await engine.searchFeatures({ itemId, layerId, q: 'open', limit: 10 })).results.map((r) => r.id),
+      ).toEqual([entity]);
+    });
+  });
+
+  describe('scenario 20: guarded batch updates with mixed, duplicate and cross-layer rows', () => {
+    const itemId = uuidv7();
+    const create = async (layerId: string, globalId?: string) =>
+      makeEngine().writeFeatureCreate({
+        itemId,
+        layerId,
+        ...(globalId ? { globalId } : {}),
+        geometry: { type: 'Point', coordinates: HERE },
+        properties: { STATUS: 'Open' },
+        principal: PRINCIPAL,
+      });
+
+    it('writes rows without an expected head instead of failing the batch', async () => {
+      const a = await create('layer-mix');
+      const b = await create('layer-mix');
+      const out = await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId: 'layer-mix', globalId: a.globalId, properties: { STATUS: 'A' }, principal: PRINCIPAL, expectedHeadObservationId: a.observationId },
+        { itemId, layerId: 'layer-mix', globalId: b.globalId, properties: { STATUS: 'B' }, principal: PRINCIPAL },
+      ]);
+      expect(out.applied.map((r) => r.globalId).sort()).toEqual([a.globalId, b.globalId].sort());
+      expect(out.conflicts).toEqual([]);
+    });
+
+    it('reports a second row for the same entity as a conflict', async () => {
+      const a = await create('layer-dup');
+      const out = await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId: 'layer-dup', globalId: a.globalId, properties: { STATUS: '1' }, principal: PRINCIPAL, expectedHeadObservationId: a.observationId },
+        { itemId, layerId: 'layer-dup', globalId: a.globalId, properties: { STATUS: '2' }, principal: PRINCIPAL, expectedHeadObservationId: a.observationId },
+      ]);
+      expect(out.applied).toHaveLength(1);
+      expect(out.conflicts).toEqual([
+        { globalId: a.globalId, headObservationId: out.applied[0]!.observationId },
+      ]);
+    });
+
+    it('keeps the results of one entity id in two layers apart', async () => {
+      const shared = uuidv7();
+      const one = await create('layer-x1', shared);
+      await create('layer-x2', shared);
+      const out = await makeEngine().writeFeaturesUpdate([
+        { itemId, layerId: 'layer-x1', globalId: shared, properties: { STATUS: 'ok' }, principal: PRINCIPAL, expectedHeadObservationId: one.observationId },
+        // Stale on purpose: layer-x2's head is not layer-x1's create.
+        { itemId, layerId: 'layer-x2', globalId: shared, properties: { STATUS: 'no' }, principal: PRINCIPAL, expectedHeadObservationId: one.observationId },
+      ]);
+      expect(out.applied).toHaveLength(1);
+      expect(out.conflicts).toHaveLength(1);
+      const x2 = await makeEngine().listFeatures({ itemId, layerId: 'layer-x2', entity: shared });
+      expect(out.conflicts[0]!.headObservationId).toBe(x2.features[0]!.properties._observation_id);
+    });
+  });
+
   describe('scenario 6: readFeaturePage across tombstones', () => {
     const itemId = uuidv7();
     const layerId = 'layer-1';
@@ -1445,6 +1790,12 @@ d('observation-log read paths against real PostGIS', () => {
     const itemsStub = {
       get: async (_user: AuthUser, id: string) =>
         id === geocoderId ? geocoderItem : sourceItem,
+      // The owner reads every row: no geo limit, no own-rows scope.
+      featureReadScope: async () => ({
+        geoLimit: null,
+        rowScope: 'all' as const,
+        userId: 'owner',
+      }),
     };
 
     beforeAll(async () => {
@@ -1475,6 +1826,13 @@ d('observation-log read paths against real PostGIS', () => {
       const out = await geocoder().search({} as AuthUser, geocoderId, 'Oak');
       expect(out.map((c) => c.featureId)).toEqual([renamed]);
       expect(out[0]!.label).toBe('Oak Avenue');
+    });
+
+    it('finds a typo whose word similarity is under the pg_trgm default', async () => {
+      // word_similarity('Avneu', 'Oak Avenue') is about 0.33: above the
+      // geocoder's minScore 0.2, below the 0.6 default `%>` uses.
+      const out = await geocoder().search({} as AuthUser, geocoderId, 'Avneu');
+      expect(out.map((c) => c.featureId)).toEqual([renamed]);
     });
   });
 
@@ -1767,6 +2125,30 @@ d('observation-log read paths against real PostGIS', () => {
         },
       });
       expect(either.groups[0]!.values.count).toBe(2);
+    });
+
+    // Review 64-1: a reader's cross-filter click rides in `and`
+    // beside the author's "match any". Flattening it into the
+    // author's clauses would ask for ACRES >= 12 AND ACRES <= 5,
+    // which nothing satisfies.
+    it('ANDs a carried selection beside an "any" filter', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId,
+        aggs: [{ op: 'count', as: 'count' }],
+        where: {
+          combinator: 'any',
+          clauses: [
+            { field: 'ACRES', op: '>=', value: '12' },
+            { field: 'ACRES', op: '<=', value: '5' },
+          ],
+          and: {
+            combinator: 'all',
+            clauses: [{ field: 'ACRES', op: '<', value: '10' }],
+          },
+        },
+      });
+      expect(out.groups[0]!.values.count).toBe(1);
     });
 
     it('a numeric comparison skips rows whose value is not a number', async () => {
@@ -2533,6 +2915,19 @@ d('observation-log read paths against real PostGIS', () => {
 
     const user = { id: 'itest-user', username: 'itest' } as AuthUser;
 
+    beforeAll(async () => {
+      await pool.query(
+        `INSERT INTO item (id, data_json) VALUES ($1, $2::jsonb)`,
+        [
+          itemId,
+          JSON.stringify({
+            version: 3,
+            layers: [{ id: layerId, syncVersion: 0 }],
+          }),
+        ],
+      );
+    });
+
     async function createRowCount(scope: string, entity: string) {
       const res = await pool.query(
         `SELECT COUNT(*)::int AS n FROM observation
@@ -2555,12 +2950,14 @@ d('observation-log read paths against real PostGIS', () => {
         inserted: 1,
         deduplicated: 0,
         globalIds: [gid],
+        insertedIndices: [0],
       });
       const retry = await svc.insertFeatures(itemId, layerId, [feature], user);
       expect(retry).toEqual({
         inserted: 0,
         deduplicated: 1,
         globalIds: [gid],
+        insertedIndices: [],
       });
       expect(
         await createRowCount(dataLayerScope(itemId, layerId), gid),
@@ -2600,9 +2997,11 @@ d('observation-log read paths against real PostGIS', () => {
         // transaction open. B must queue on the advisory lock, and
         // after A commits its probe must see A's row.
         await clientA.query('BEGIN');
+        // The entity's bucket key, as featureWriteLocksSql builds it.
         await clientA.query(
-          `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
-          [`${scope}|${gid}`],
+          `SELECT pg_advisory_xact_lock(hashtextextended(
+             'feature-write|' || $1 || '|' || (hashtextextended($2, 0) & $3::bigint)::text, 0))`,
+          [scope, gid, FEATURE_WRITE_LOCK_BUCKETS - 1],
         );
         await clientA.query(
           `INSERT INTO observation (
@@ -2662,8 +3061,140 @@ d('observation-log read paths against real PostGIS', () => {
       expect(again.inserted).toBe(1);
       expect(again.deduplicated).toBe(0);
       expect(await createRowCount(scope, gid)).toBe(2);
+      // Both create rows used to join, listing the entity twice with
+      // two different `_created_at` values. Exactly one row, stamped
+      // with the latest create, on every read that joins creates.
+      const engine = makeEngine();
+      const list = await engine.listFeatures({ itemId, layerId });
+      const mine = list.features.filter((f) => f.id === gid);
+      expect(mine).toHaveLength(1);
+      const creates = await pool.query(
+        `SELECT tx_time FROM observation
+          WHERE scope = $1 AND entity = $2::uuid AND kind = 'create'
+          ORDER BY valid_from DESC, tx_time DESC, id DESC`,
+        [scope, gid],
+      );
+      expect(new Date(mine[0]!.properties._created_at as string).getTime()).toBe(
+        (creates.rows[0].tx_time as Date).getTime(),
+      );
+      const bbox = await engine.listFeatures({
+        itemId,
+        layerId,
+        bbox: [HERE[0] - 1, HERE[1] - 1, HERE[0] + 1, HERE[1] + 1],
+      });
+      expect(bbox.features.filter((f) => f.id === gid)).toHaveLength(1);
+      const paged: string[] = [];
+      for await (const page of engine.iterateFeatures({ itemId, layerId })) {
+        for (const f of page) if (f.id === gid) paged.push(String(f.id));
+      }
+      expect(paged).toHaveLength(1);
+    });
+
+    it('own rows follow the latest create: a re-created id is not the old creator\'s', async () => {
+      const A = { sub: 'own-latest-a', displayName: 'A' };
+      const B = { sub: 'own-latest-b', displayName: 'B' };
+      const gid = uuidv7();
+      const engine = makeEngine();
+      const create = (principal: typeof A, name: string) =>
+        engine.writeFeaturesCreateIdempotent([
+          {
+            itemId,
+            layerId,
+            principal,
+            globalId: gid,
+            properties: { NAME: name },
+            geometry: { type: 'Point', coordinates: HERE },
+          },
+        ]);
+      await create(A, 'OwnLatest First');
+      await engine.writeFeatureDelete({ itemId, layerId, globalId: gid, principal: A });
+      await create(B, 'OwnLatest Second');
+
+      const near: [number, number, number, number] = [
+        HERE[0] - 1,
+        HERE[1] - 1,
+        HERE[0] + 1,
+        HERE[1] + 1,
+      ];
+      const sees = async (sub: string) => {
+        const ownRowsOnly = { userId: sub };
+        const list = await engine.listFeatures({ itemId, layerId, ownRowsOnly });
+        const page = await engine.pageFeatures({
+          itemId,
+          layerId,
+          limit: 1000,
+          entityIds: [gid],
+          ownRowsOnly,
+        });
+        const search = await engine.searchFeatures({
+          itemId,
+          layerId,
+          q: 'OwnLatest',
+          limit: 8,
+          ownRowsOnly,
+        });
+        const agg = await engine.aggregateFeatures({
+          itemId,
+          layerId,
+          aggs: [{ op: 'count', as: 'count' }],
+          ownRowsOnly,
+        });
+        const extent = await engine.filteredExtent({ itemId, layerId, ownRowsOnly });
+        return {
+          list: list.features.some((f) => f.id === gid),
+          page: page.features.some((f) => f.id === gid),
+          search: search.results.some((r) => r.id === gid),
+          count: Number(agg.groups[0]?.values.count ?? 0),
+          extent: extent !== null && near[0] <= HERE[0],
+        };
+      };
+      // Before: A matched on either create, so A could still read (and
+      // through the same predicate, edit) B's feature.
+      expect(await sees(A.sub)).toEqual({
+        list: false,
+        page: false,
+        search: false,
+        count: 0,
+        extent: false,
+      });
+      expect(await sees(B.sub)).toEqual({
+        list: true,
+        page: true,
+        search: true,
+        count: 1,
+        extent: true,
+      });
+
+    });
+
+    it('an entity whose create row is missing still lists', async () => {
+      const svc = makeService();
+      const gid = uuidv7();
+      const scope = dataLayerScope(itemId, layerId);
+      await svc.insertFeatures(
+        itemId,
+        layerId,
+        [{ globalId: gid, geometry: { type: 'Point', coordinates: HERE }, properties: { NAME: 'Orphan' } }],
+        user,
+      );
+      await makeEngine().writeFeatureUpdate({
+        itemId,
+        layerId,
+        globalId: gid,
+        principal: PRINCIPAL,
+        properties: { NAME: 'Orphan 2' },
+        geometry: { type: 'Point', coordinates: HERE },
+      });
+      // A replace import that raced an online edit can leave the head
+      // live with no create row; tiles and aggregates still show it.
+      await pool.query(
+        `DELETE FROM observation WHERE scope = $1 AND entity = $2::uuid AND kind = 'create'`,
+        [scope, gid],
+      );
       const list = await makeEngine().listFeatures({ itemId, layerId });
-      expect(list.features.some((f) => f.id === gid)).toBe(true);
+      const mine = list.features.filter((f) => f.id === gid);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]!.properties._created_by).toBe(PRINCIPAL.sub);
     });
   });
 
@@ -2742,6 +3273,149 @@ d('observation-log read paths against real PostGIS', () => {
       expect(cache.onObservationWritten(scope)).toBe(1);
       expect(cache.get(`${scope}|12/1/1|`)).toBeNull();
       expect(cache.get(`${scope}-other|12/1/1|`)).not.toBeNull();
+    });
+  });
+
+  describe('scenario 12: disk tiles follow the scope data version', () => {
+    // The disk tier files a tile under the scope's data version, read
+    // from Postgres. It must move on every change a tile can see,
+    // including ones no NOTIFY reports (a raw DELETE) and a delete plus
+    // insert of the same row count in one transaction, and it must not
+    // move for another scope.
+    const itemId = uuidv7();
+    const layerId = 'layer-disk-version';
+    const scope = dataLayerScope(itemId, layerId);
+    let dir: string;
+    const prevDir = process.env.TILE_CACHE_DIR;
+    const prevSha = process.env.GIT_SHA;
+
+    beforeAll(async () => {
+      const { mkdtemp } = await import('node:fs/promises');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      dir = await mkdtemp(join(tmpdir(), 'gg-tile-disk-pg-'));
+    });
+
+    afterAll(async () => {
+      if (prevDir === undefined) delete process.env.TILE_CACHE_DIR;
+      else process.env.TILE_CACHE_DIR = prevDir;
+      if (prevSha === undefined) delete process.env.GIT_SHA;
+      else process.env.GIT_SHA = prevSha;
+      const { rm } = await import('node:fs/promises');
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    it('changes on insert, raw delete and same-count replace, and not for other scopes', async () => {
+      const engine = makeEngine();
+      const v0 = await engine.scopeDataVersion(scope);
+      const a = uuidv7();
+      await seed(scope, a, 'create', { N: 1 }, HERE);
+      const v1 = await engine.scopeDataVersion(scope);
+      expect(v1).not.toBe(v0);
+
+      await seed(dataLayerScope(uuidv7(), layerId), uuidv7(), 'create', {}, HERE);
+      expect(await engine.scopeDataVersion(scope)).toBe(v1);
+
+      // Replace one row with another in one transaction: same count.
+      const tx = await pool.connect();
+      await tx.query('BEGIN');
+      await tx.query('DELETE FROM observation WHERE scope = $1', [scope]);
+      await tx.query(
+        `INSERT INTO observation (id, valid_from, scope, entity, kind, attrs, geom, author_sub, source)
+         VALUES ($1, now() - interval '1 day', $2, $3, 'create', '{"N":2}',
+                 ST_SetSRID(ST_MakePoint($4, $5), 4326), 'itest', '{}')`,
+        [uuidv7(), scope, a, HERE[0], HERE[1]],
+      );
+      await tx.query('COMMIT');
+      tx.release();
+      const v2 = await engine.scopeDataVersion(scope);
+      expect(v2).not.toBe(v1);
+
+      // A raw delete fires no NOTIFY; the version still moves.
+      await pool.query('DELETE FROM observation WHERE scope = $1', [scope]);
+      expect(await engine.scopeDataVersion(scope)).not.toBe(v2);
+    });
+
+    it('serves a restarted process from disk, and recomputes after a write it never heard', async () => {
+      process.env.TILE_CACHE_DIR = dir;
+      process.env.GIT_SHA = 'pg-spec';
+      const e = uuidv7();
+      await seed(scope, e, 'create', { STATUS: 'Open' }, HERE);
+      // Tiles under 1 KiB are not persisted; forty more points make
+      // this one comfortably larger.
+      for (let i = 0; i < 40; i += 1) {
+        await seed(scope, uuidv7(), 'create', {}, [HERE[0] + i * 0.00001, HERE[1]]);
+      }
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+
+      const first = new TileCacheService();
+      const before = await new DataLayerEngine(engineSvc, prisma, first)
+        .mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(tileContains(before.mvt, e)).toBe(true);
+      await first.onModuleDestroy();
+
+      // "Restart": a fresh cache and engine over the same directory.
+      const second = new TileCacheService();
+      const again = await new DataLayerEngine(engineSvc, prisma, second)
+        .mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(second.getStats().diskHits).toBe(1);
+      expect(again.etag).toBe(before.etag);
+      await second.onModuleDestroy();
+
+      // A delete written while no process was listening.
+      await seed(scope, e, 'delete', null, null);
+      const third = new TileCacheService();
+      const after = await new DataLayerEngine(engineSvc, prisma, third)
+        .mvtTile({ itemId, layerId, z: 14, x, y });
+      expect(third.getStats().diskHits).toBe(0);
+      expect(tileContains(after.mvt, e)).toBe(false);
+      await third.onModuleDestroy();
+    });
+
+    it('never persists a relate (via) tile', async () => {
+      process.env.TILE_CACHE_DIR = dir;
+      process.env.GIT_SHA = 'pg-spec';
+      const { readdir } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      const countFiles = async () => {
+        let n = 0;
+        for (const shard of await readdir(dir).catch(() => [] as string[])) {
+          if (!/^[0-9a-f]{2}$/.test(shard)) continue;
+          n += (await readdir(join(dir, shard))).filter((f) => f.endsWith('.tile')).length;
+        }
+        return n;
+      };
+      const parentItemId = uuidv7();
+      const parentLayerId = 'layer-disk-parent';
+      const parentScope = dataLayerScope(parentItemId, parentLayerId);
+      await seed(parentScope, uuidv7(), 'create', { KEY: 'k' }, HERE);
+      const childItemId = uuidv7();
+      const childScope = dataLayerScope(childItemId, layerId);
+      for (let i = 0; i < 40; i += 1) {
+        await seed(childScope, uuidv7(), 'create', { SITE: 'k' }, [HERE[0] + i * 0.00001, HERE[1]]);
+      }
+      const { x, y } = tileFor(14, HERE[0], HERE[1]);
+      const cache = new TileCacheService();
+      const engine = new DataLayerEngine(engineSvc, prisma, cache);
+      const before = await countFiles();
+      const plain = await engine.mvtTile({ itemId: childItemId, layerId, z: 14, x, y });
+      expect(plain.mvt.length).toBeGreaterThan(1024);
+      await cache.diskTier()?.flush();
+      // The plain tile was written: the tier is on and the tile is big
+      // enough, so the next assertion means something.
+      expect(await countFiles()).toBe(before + 1);
+      const viaTile = await engine.mvtTile({
+        itemId: childItemId,
+        layerId,
+        z: 14,
+        x,
+        y,
+        via: { myField: 'SITE', parentField: 'KEY', parentItemId, parentLayerId },
+      });
+      expect(viaTile.mvt.length).toBeGreaterThan(1024);
+      await cache.diskTier()?.flush();
+      expect(await countFiles()).toBe(before + 1);
+      await cache.onModuleDestroy();
     });
   });
 

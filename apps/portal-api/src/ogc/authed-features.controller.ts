@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { isUuidShape } from '../common/uuid-shape.js';
 import {
   Controller,
   Get,
@@ -7,7 +8,6 @@ import {
   Param,
   Query,
   Req,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -16,10 +16,12 @@ import type { ItemShare } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  featureScopeFilter,
+} from '../items/sharing.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { parseCollectionId } from '../public/ogc/collection-id.js';
 import {
@@ -44,6 +46,7 @@ const ITEMS_QUERY_PARAMS = [
   'limit',
   'offset',
   'sortby',
+  'cursor',
 ] as const;
 const FEATURE_QUERY_PARAMS = ['crs'] as const;
 import { absoluteBase } from '../public/ogc/url.js';
@@ -80,7 +83,6 @@ import { absoluteBase } from '../public/ogc/url.js';
 @ApiTags('ogc', 'features')
 @ApiBearerAuth()
 @Controller('ogc')
-@UseGuards(JwtAuthGuard)
 export class AuthedOgcFeaturesController {
   constructor(
     private readonly prisma: PrismaService,
@@ -196,6 +198,7 @@ export class AuthedOgcFeaturesController {
     @Query('limit') limitParam?: string,
     @Query('offset') offsetParam?: string,
     @Query('sortby') sortbyParam?: string,
+    @Query('cursor') cursorParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), ITEMS_QUERY_PARAMS);
     const resolved = await this.resolveCollection(user, id);
@@ -203,7 +206,7 @@ export class AuthedOgcFeaturesController {
     return buildItemsResponse({
       query: {
         bboxParam, bboxCrsParam, crsParam,
-        limitParam, offsetParam, sortbyParam,
+        limitParam, offsetParam, sortbyParam, cursorParam,
       },
       itemsUrl: `${base}/api/ogc/collections/${id}/items`,
       collectionUrl: `${base}/api/ogc/collections/${id}`,
@@ -212,6 +215,13 @@ export class AuthedOgcFeaturesController {
           ...opts,
           ...resolved.clips,
         }),
+      readPage: ({ pageSize, after, ...opts }) =>
+        this.v3.readFeaturePage(
+          resolved.row.itemId,
+          resolved.row.layerId,
+          { ...opts, ...resolved.clips },
+          { pageSize, after },
+        ),
     });
   }
 
@@ -225,6 +235,9 @@ export class AuthedOgcFeaturesController {
     @Query('crs') crsParam?: string,
   ) {
     rejectUnknownParams(Object.keys(req.query), FEATURE_QUERY_PARAMS);
+    // Feature ids are entity uuids. Anything else reached a ::uuid
+    // cast in the engine and came back as a 500.
+    if (!isUuidShape(featureId)) throw new NotFoundException('Feature not found.');
     const resolved = await this.resolveCollection(user, id);
     const crs = parseCrs(crsParam);
     // The clips apply to single-feature reads too, or a caller who
@@ -297,22 +310,16 @@ export class AuthedOgcFeaturesController {
     // public inside SharingService. Skipping either here would make
     // this surface see MORE than the portal's own reads.
     const shares = (item as { shares?: ItemShare[] }).shares ?? [];
-    const geoLimit = await this.sharing.geoLimitFor(user, item, shares);
-    const rowScope = this.sharing.effectiveRowScope(
-      user,
-      item,
-      shares,
-      layer.editingPolicy ?? 'all-rows',
-      'read',
-    );
+    const scope = await this.sharing.featureScopeFor(user, item, shares, {
+      action: 'read',
+      layerPolicy: layer.editingPolicy ?? 'all-rows',
+    });
     const isTable = layer.geometryType === null;
     const clips: {
       geoLimit?: unknown;
       ownRowsOnly?: { userId: string };
       isTable?: boolean;
-    } = {};
-    if (geoLimit) clips.geoLimit = geoLimit;
-    if (rowScope === 'own') clips.ownRowsOnly = { userId: user.id };
+    } = { ...featureScopeFilter(scope) };
     if (isTable) clips.isTable = true;
 
     const label = layer.label ?? layer.id;

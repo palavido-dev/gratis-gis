@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { fileURLToPath } from 'node:url';
+import { PAGE_CSP, PAGE_CSP_SOURCE } from './src/lib/content-security-policy.mjs';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -13,9 +14,7 @@ const nextConfig = {
   // every asset URL; the Docker build stage sets GG_DEPLOYMENT_ID
   // per image build. Standalone output serializes the resolved
   // config, so the runtime stage sees the same id without the env.
-  ...(process.env.GG_DEPLOYMENT_ID
-    ? { deploymentId: process.env.GG_DEPLOYMENT_ID }
-    : {}),
+  ...(process.env.GG_DEPLOYMENT_ID ? { deploymentId: process.env.GG_DEPLOYMENT_ID } : {}),
   // Don't ship `x-powered-by: Next.js` on every response.  Pure
   // information disclosure, no functional reason to advertise the
   // framework + version to every visitor.
@@ -58,6 +57,20 @@ const nextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        source: PAGE_CSP_SOURCE,
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: PAGE_CSP,
+          },
+        ],
+      },
+    ];
+  },
 };
+
 
 export default nextConfig;

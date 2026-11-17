@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Root build file. Plugin versions come from gradle/libs.versions.toml;
 // every module applies what it needs from there.
 plugins {

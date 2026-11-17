@@ -178,6 +178,29 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
     setTimeout(() => setFlash((curr) => (curr === msg ? null : curr)), 3500);
   }
 
+  /**
+   * Run one request per id (four at a time) and report which failed.
+   * The first failure used to stop the whole batch with the earlier
+   * removals done but still listed and ticked, so pressing the button
+   * again failed on the first row, which was already gone.
+   */
+  async function collectFailures(
+    ids: string[],
+    fn: (id: string) => Promise<void>,
+  ): Promise<{ ids: string[]; message: string }> {
+    const failedIds: string[] = [];
+    let message = '';
+    await runBatched(ids, 4, async (id) => {
+      try {
+        await fn(id);
+      } catch (e) {
+        failedIds.push(id);
+        if (!message) message = e instanceof Error ? e.message : String(e);
+      }
+    });
+    return { ids: failedIds, message };
+  }
+
   async function bulkRevokeShares() {
     if (!bundle || selectedShares.size === 0) return;
     setBusy(true);
@@ -192,7 +215,7 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
       // the principal in the body, so we call it once per item.
       // Concurrency capped at 4 so the API isn't hammered when the
       // admin ticks 50 rows.
-      await runBatched(ids, 4, async (itemId) => {
+      const failed = await collectFailures(ids, async (itemId) => {
         const r = await fetch(`/api/portal/items/${itemId}/share`, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
@@ -210,6 +233,13 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           );
         }
       });
+      if (failed.ids.length > 0) {
+        // Keep only the rows that failed ticked and reload, so a retry
+        // does not trip over shares that were already removed.
+        setSelectedShares(new Set(failed.ids));
+        await reload();
+        throw new Error(failed.message);
+      }
       flashMessage(
         t('adminUsers.access.toastRevokedShares', {
           count: ids.length,
@@ -234,7 +264,7 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
     // as bulkRevokeShares above.
     const localUserId = bundle.user.id;
     try {
-      await runBatched(ids, 4, async (groupId) => {
+      const failed = await collectFailures(ids, async (groupId) => {
         const r = await fetch(
           `/api/portal/groups/${groupId}/members/${localUserId}`,
           { method: 'DELETE' },
@@ -248,6 +278,11 @@ export function UserAccessDialog({ userId, username, onClose }: Props) {
           );
         }
       });
+      if (failed.ids.length > 0) {
+        setSelectedGroups(new Set(failed.ids));
+        await reload();
+        throw new Error(failed.message);
+      }
       flashMessage(
         t('adminUsers.access.toastRemovedFromGroups', {
           count: ids.length,

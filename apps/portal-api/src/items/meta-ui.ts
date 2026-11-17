@@ -29,8 +29,21 @@ type MetaUiItemInput = {
 };
 
 export function buildMetaUi(item: MetaUiItemInput): MetaUi {
-  const layers = layersFor(item);
-  const downloads = downloadsFor(item);
+  // `data` is stored with only an "is an object" check, so a badly
+  // shaped blob can reach here. This block is presentation only and
+  // runs on every read of the item, including the reads that edit,
+  // delete and restore start with. If it threw, one bad save would
+  // leave the item unreadable and impossible to fix, so a failure
+  // falls back to no layers and no downloads.
+  let layers: MetaUiLayer[] = [];
+  let downloads: MetaUiDownload[] = [];
+  try {
+    layers = layersFor(item);
+    downloads = downloadsFor(item);
+  } catch {
+    layers = [];
+    downloads = [];
+  }
   return {
     version: 1,
     layers,
@@ -70,8 +83,12 @@ function layersFor(item: MetaUiItemInput): MetaUiLayer[] {
 function dataLayerLayers(item: MetaUiItemInput): MetaUiLayer[] {
   const subs = resolveDataSublayers(item);
   if (subs && subs.length > 0) {
+    // Tables (no geometryType) are included, so "Add to map" adds the
+    // same sublayers as the Add Layer dialog. A table carries
+    // geometryType null; the map lists it under Tables and draws
+    // nothing for it. Clients that only draw should skip entries
+    // whose geometryType is null.
     return subs
-      .filter((s) => s.geometryType)
       .map((s) => ({
         title: subs.length === 1 ? item.title : s.label || s.id,
         source: {
@@ -90,6 +107,23 @@ function dataLayerLayers(item: MetaUiItemInput): MetaUiLayer[] {
       geometryType: null,
     },
   ];
+}
+
+/** Spatial sublayers of a v3 data layer, or null for any other shape. */
+function v3SpatialLayers(
+  item: MetaUiItemInput,
+): Array<{ id: string; label: string }> | null {
+  const d = item.data as { version?: number; layers?: unknown } | null;
+  if (d?.version !== 3 || !Array.isArray(d.layers)) return null;
+  return (d.layers as Array<{ id?: unknown; label?: unknown; geometryType?: unknown }>)
+    .filter(
+      (l): l is { id: string; label?: unknown; geometryType?: unknown } =>
+        !!l && typeof l.id === 'string' && !!l.geometryType,
+    )
+    .map((l) => ({
+      id: l.id,
+      label: typeof l.label === 'string' && l.label ? l.label : l.id,
+    }));
 }
 
 function resolveDataSublayers(item: MetaUiItemInput):
@@ -223,12 +257,24 @@ function downloadsFor(item: MetaUiItemInput): MetaUiDownload[] {
   const out: MetaUiDownload[] = [];
   if (item.type === 'data_layer' || item.type === 'derived_layer') {
     // Auth-gated path first so private items never advertise a
-    // public OGC URL that 404s for anonymous callers.
-    out.push({
-      label: 'GeoJSON',
-      url: `/api/items/${item.id}/geojson`,
-      format: 'GeoJSON',
-    });
+    // public OGC URL that 404s for anonymous callers. A v3 data layer
+    // is served per sublayer; the item-level route has no rows for it.
+    const v3 = item.type === 'data_layer' ? v3SpatialLayers(item) : null;
+    if (v3) {
+      for (const l of v3) {
+        out.push({
+          label: v3.length === 1 ? 'GeoJSON' : `GeoJSON (${l.label})`,
+          url: `/api/items/${item.id}/layers/${encodeURIComponent(l.id)}/geojson`,
+          format: 'GeoJSON',
+        });
+      }
+    } else {
+      out.push({
+        label: 'GeoJSON',
+        url: `/api/items/${item.id}/geojson`,
+        format: 'GeoJSON',
+      });
+    }
     if (item.access === 'public') {
       out.push({
         label: 'GeoJSON (OGC API Features)',

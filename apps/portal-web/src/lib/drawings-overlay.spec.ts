@@ -176,4 +176,21 @@ describe('arrowTip', () => {
     expect(tip?.coordinates).toEqual([1, 0]);
     expect(tip?.bearing).toBeCloseTo(90, 5);
   });
+
+  it('takes the bearing in the Mercator plane away from the equator', () => {
+    // Equal degree steps at 51 N run flatter than 45 degrees on a
+    // Mercator map, because a degree of longitude is shorter there.
+    const tip = arrowTip({
+      type: 'LineString',
+      coordinates: [
+        [0, 51],
+        [0.01, 51.01],
+      ],
+    });
+    const expected =
+      (Math.atan2(0.01 * Math.cos((51.005 * Math.PI) / 180), 0.01) * 180) /
+      Math.PI;
+    expect(tip?.bearing).toBeCloseTo(expected, 1);
+    expect(tip!.bearing).toBeLessThan(40);
+  });
 });

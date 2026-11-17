@@ -66,6 +66,25 @@ const MAX_INLINE_FEATURE_IDS = 50_000;
  * essential difference from spatial-join.  No attribute projection,
  * no row multiplication; the filter is purely a WHERE clause.
  */
+const FEATURE_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Feature ids as strings ready to bind as `uuid[]`. Feature ids in a
+ * data layer are observation entity uuids; anything else is a caller
+ * mistake and gets a 400 here instead of a cast error from Postgres.
+ */
+export function featureIdsAsUuids(
+  ids: ReadonlyArray<string | number>,
+  what: string,
+): string[] {
+  const out = ids.map((id) => String(id));
+  if (!out.every((id) => FEATURE_UUID_RE.test(id))) {
+    throw new BadRequestException(`${what} must be feature ids (UUIDs)`);
+  }
+  return out;
+}
+
 export const spatialFilterGenerator: ToolGenerator<SpatialFilterParams> = {
   kind: 'spatial-filter',
 
@@ -164,11 +183,13 @@ export const spatialFilterGenerator: ToolGenerator<SpatialFilterParams> = {
             `spatial-filter.params.otherSource.featureIds may not exceed ${MAX_INLINE_FEATURE_IDS}`,
           );
         }
-        sqlParams.push(right.featureIds);
+        sqlParams.push(featureIdsAsUuids(right.featureIds, 'spatial-filter.params.otherSource.featureIds'));
         const placeholder = `$${paramOffset + sqlParams.length}`;
+        // global_id is the observation entity, a uuid column. There is
+        // no uuid = text operator, so a text[] here failed every run.
         rightCte = `
           SELECT * FROM (${baseFragment}) r
-          WHERE r.global_id = ANY(${placeholder}::text[])
+          WHERE r.global_id = ANY(${placeholder}::uuid[])
         `;
       } else {
         rightCte = baseFragment;

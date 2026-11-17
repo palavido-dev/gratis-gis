@@ -1,7 +1,7 @@
 ---
 id: admin-branding
 title: Branding
-summary: Customize the portal's logo, colors, fonts, and footer text. Org-wide presentation.
+summary: Set the organization name and what visitors see on the public landing page.
 category: admin
 order: 60
 complexity: basic
@@ -13,56 +13,42 @@ related:
   - admin-organization-settings
 ---
 
-The **branding** page (admin → branding) controls the portal's
-look at the org level: logo in the top bar, primary color
-through the UI, font, footer text, favicon. Web apps inherit the
-org brand by default but can override per app.
+The **Branding** page (Admin -> Branding) sets your organization's
+name and the public landing page, which is what people see at the
+portal's address before they sign in. Changes apply as soon as you
+save.
 
 ## What you can change
 
-- **Logo.** A PNG or SVG that replaces "GratisGIS" in the top
- bar. Tall logos are cropped to a fixed height; wide logos
- keep their aspect ratio. Recommended: 200×60 SVG.
-- **Favicon.** A 32×32 PNG or an SVG.
-- **Primary color.** The accent color used throughout (button
- fills, active nav items, link color). Defaults to the
- GratisGIS sage / accent. Pick a color with sufficient
- contrast against light and dark backgrounds.
-- **Font family.** Pick a Google Font (the portal proxies the
- download so no external requests at runtime) or stick with the
- system default. Pick something readable at 12px; the portal's
- UI font carries a lot of small text.
-- **Footer text.** Up to ~200 characters of plain text shown on
- every page. Typical: "Hosted by Your Org. Contact
- support@yourorg.example for help."
-- **Login screen background image.** A full-bleed image shown
- behind the Keycloak sign-in form (proxied through the portal).
+- **Organization name.** Used in headers, navigation, email, and
+  anywhere else the portal names your organization. It cannot be
+  empty.
+- **Title.** The heading on the landing page. Leave it blank to use
+  the organization name.
+- **Subtitle.** A one-line tagline under the title. Optional.
+- **Hero image.** A wide image behind the title. Wide images work
+  best (about 1920 by 640 or larger, JPG, PNG, WebP or GIF), up to
+  5 MB. Leave it empty for a plain band.
+- **Show public items on the landing page.** When this is off, the
+  landing page shows only the title, the hero image and a Sign in
+  button.
+- **Featured items.** Public items to show on the landing page, in
+  the order you pick. When you pick some, the landing page shows
+  only those. Leave the list empty to show every public item in the
+  organization, newest first.
 
-## What this does NOT change
+**Open landing page in a new tab** shows the result.
 
-- **Map visual styles.** Basemaps and layer symbology are
- per-map. The branding here doesn't push a primary color into
- every map.
-- **Web app theme.** The brand is the default theme for new web
- apps; existing apps with a custom theme keep theirs.
-- **PDF / report template look.** Reports have their own
- templating; they don't inherit from this page.
+## What this page does not change
 
-## Per-web-app override
-
-Each web app can override:
-
-- Primary color.
-- Logo (or no logo).
-- Splash screen content.
-
-See **Themes** under Web apps.
+There is no logo, favicon, color, font, footer or sign-in background
+setting. The portal's colors follow the light and dark theme of the
+viewer's system. Maps keep their own basemaps and symbology, and web
+apps keep their own themes (see **Themes** under Web apps).
 
 ## Notes
 
-- **Don't reuse Esri-branded artwork.** Avoid using Esri logos
- or art from AGO in your branding. GratisGIS doesn't use Esri
- vocabulary or art by design.
-- **Test in dark mode.** The primary color you pick has to
- work on both light and dark surfaces; the portal supports
- both with a system-preference toggle.
+- Only items shared publicly can appear on the landing page. Share
+  an item with everyone before you feature it.
+- Avoid artwork you do not have the rights to use, such as another
+  vendor's logos.

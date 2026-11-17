@@ -1,10 +1,11 @@
 # Local development setup
 
 Step-by-step guide for getting GratisGIS running on a developer
-workstation. The instructions assume macOS on Apple Silicon (M1
-through M4) since that's the most common dev target, but the same
-flow works on Intel Macs, Linux, and Windows with WSL2 with only
-the prereq install commands changing.
+workstation. The flow is the same on macOS, Linux, and Windows with
+WSL2. Only the prerequisite install commands change.
+
+This guide is for a local workstation. A VPS or other server install
+is [deployment.md](./deployment.md).
 
 By the end of this guide you'll have:
 
@@ -12,7 +13,8 @@ By the end of this guide you'll have:
   Docker
 - The portal-api (NestJS) and portal-web (Next.js) running in
   watch mode
-- Two seeded test users you can sign in as
+- Three seeded test users you can sign in as (admin, contributor,
+  viewer)
 - A handful of seeded items to poke at
 
 If you'd rather follow a guided tour of the product after you're
@@ -21,7 +23,7 @@ running, see [walkthrough.md](./walkthrough.md).
 
 ## 1. Prerequisites
 
-You need four things on the host machine:
+On macOS, you need four things on the host machine:
 
 | Tool | Why | Recommended install on macOS |
 | --- | --- | --- |
@@ -35,8 +37,9 @@ Docker Desktop should be configured with at least:
 - 4 CPU cores (the default 2 makes Postgres + Keycloak feel
   sluggish)
 - 8 GB RAM (4 GB works but tight if you also run Nominatim)
-- 60 GB disk (the planet Nominatim import alone wants ~80 GB; if
-  you skip it you only need ~10 GB)
+- About 10 GB of disk without Nominatim. The default planet
+  Nominatim import downloads ~80 GB and builds a 1.1-1.3 TB database,
+  so use a small extract in development (below).
 
 On Apple Silicon, leave the **"Use Rosetta for x86/amd64 emulation
 on Apple Silicon"** option checked under Settings → General. A few
@@ -46,6 +49,60 @@ Rosetta they fail to start with a `no matching manifest` error.
 The other infra images (`postgis/postgis`, `quay.io/keycloak/keycloak`,
 `pgsty/silo`  -  S3-compatible MinIO fork after `minio/minio` left
 Docker Hub) all have native arm64 builds and run at full speed.
+
+
+### Linux (Ubuntu 24.04, Debian 12, Mint 22)
+
+[Discussion #238](https://github.com/palavido-dev/gratis-gis/discussions/238)
+is a setup report from Linux Mint 22.3, which uses the Ubuntu 24.04
+package base. The prerequisites below are for that family of
+workstations (Ubuntu 24.04, Debian 12, Mint 22) before section 2.
+Debian 12 uses Debian's Docker install docs for the same packages.
+On Linux Mint, use the Ubuntu 24.04 codename `noble` in Docker's apt
+repo. Mint's own codename is not a Docker suite.
+
+| Tool | Why | Install |
+| --- | --- | --- |
+| Docker Engine with the Compose v2 plugin | Runs the infra containers. `infra/install.sh` and `pnpm infra:up` both require `docker compose` to already work. | Docker's apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`. Ubuntu 24.04 and Mint 22 follow the [Ubuntu engine install](https://docs.docker.com/engine/install/ubuntu/). Debian 12 follows the [Debian engine install](https://docs.docker.com/engine/install/debian/). |
+| `docker` group | The daemon must be reachable by your user. `docker info` has to succeed before `pnpm infra:up`. | `sudo usermod -aG docker "$USER"`, then log out and back in. |
+| Node.js 24.9 or newer, via nvm | `engines` requires `>=24.9.0`. Production images are Node 24 LTS. | Install [nvm](https://github.com/nvm-sh/nvm), then `nvm install 24` and `nvm alias default 24`. |
+| pnpm 9+ via corepack | The repo pins `packageManager` to pnpm 9.12.0. | `corepack enable && corepack prepare pnpm@9.12.0 --activate` |
+| Git | Cloning and commits | `sudo apt install git` |
+
+**Port 5432 and a system Postgres.** Ubuntu, Debian, and Mint often
+have a `postgresql` package already listening on `5432`, which is the
+host port in `infra/docker-compose.yml`. Stop it for local dev:
+
+```bash
+sudo systemctl stop postgresql
+sudo systemctl disable postgresql
+```
+
+If you still need the system Postgres, leave that service running and
+publish the compose Postgres on another host port in
+`infra/docker-compose.yml`. The stack and a system Postgres cannot
+share host port 5432.
+
+Confirm the toolchain before cloning:
+
+```bash
+docker compose version
+docker info
+node -v    # v24.9.0 or newer
+pnpm -v    # 9.x
+```
+
+
+### Windows with WSL2
+
+Run the Linux steps inside the distro, with two extra constraints.
+
+- Use Docker Desktop's WSL2 backend, and turn on integration for the
+  distro (Docker Desktop, Settings, Resources, WSL integration).
+  `docker info` inside the distro should talk to that daemon.
+- Clone inside the Linux filesystem, for example `~/src/gratis-gis`.
+  A checkout under `/mnt/c` makes `pnpm install` and file watching
+  slow, and Docker bind mounts from the Windows drive are unreliable.
 
 
 ## 2. Clone and install
@@ -108,29 +165,19 @@ its realm and Postgres become ready for connections.
 
 ### 3a. About Nominatim
 
-Nominatim is the self-hosted geocoder. It defaults to importing
-the **entire planet** OSM extract on first boot, which takes 1 to
-3 days on a Mac Mini and ~80 GB of disk. You almost certainly
-don't want this for development.
-
-Two options:
-
-**Option A: skip Nominatim entirely.** Comment out the `nominatim`
-service in `infra/docker-compose.yml`, or just don't touch it and
-let it spin (the rest of the stack starts fine while it imports
-in the background; you only lose address geocoding).
-
-**Option B: use a small extract.** Create an `infra/.env` file
-(gitignored) with a tiny region:
+Nominatim is the self-hosted geocoder. In the dev stack it defaults
+to the Monaco extract, which imports in a few minutes. For a real
+region, create an `infra/.env` file (gitignored), for example:
 
 ```bash
-NOMINATIM_PBF_URL=https://download.geofabrik.de/europe/monaco-latest.osm.pbf
-NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/europe/monaco-updates/
-NOMINATIM_SHM_SIZE=1gb
+NOMINATIM_PBF_URL=https://download.geofabrik.de/north-america-latest.osm.pbf
+NOMINATIM_REPLICATION_URL=https://download.geofabrik.de/north-america-updates/
+NOMINATIM_SHM_SIZE=8gb
 ```
 
-Monaco imports in a few minutes. Replace with your country / state
-of interest later.
+The full planet is an ~80 GB download that builds a 1.1-1.3 TB
+database over one to three days. You almost certainly don't want
+that for development.
 
 See [infra/NOMINATIM.md](../infra/NOMINATIM.md) for the full
 sizing matrix.
@@ -156,9 +203,11 @@ folders, etc.). The seed script creates:
 These match the users that the Keycloak realm import already set
 up, so the app side and the auth side line up out of the box.
 
-> Note: `pnpm dev` also runs `prisma migrate deploy` on portal-api
-> startup, so you can skip the explicit `db:migrate` step in
-> day-to-day work. The seed script does **not** run automatically;
+> Note: `pnpm dev` does **not** run migrations. Only the container
+> image's entrypoint does. After you pull a change that adds a
+> migration, run `pnpm --filter @gratis-gis/portal-api db:migrate`
+> again, or portal-api fails with schema errors. The seed script does
+> **not** run automatically either;
 > you only need to run it once per fresh database (or after
 > `pnpm infra:reset`, which nukes the volumes).
 
@@ -212,7 +261,8 @@ pnpm dev
 # Pull in someone else's changes
 git pull
 pnpm install         # in case dependencies changed
-pnpm dev             # migrations apply on api boot
+pnpm --filter @gratis-gis/portal-api db:migrate   # new migrations
+pnpm dev
 
 # Reset everything (nukes data!)
 pnpm infra:reset
@@ -228,8 +278,18 @@ pnpm test
 ## 8. Optional: email notifications
 
 The portal can send email notifications for share-created events
-(more triggers in follow-up phases). Off by default. To turn it on,
-add the following to your `apps/portal-api/.env`:
+(more triggers in follow-up phases). Off by default.
+
+On a VPS install, add `NOTIFICATIONS_ENABLED=true` to
+`infra/.env.prod` and run `./infra/deploy.sh`. On the NAS stack, set
+`NOTIFICATIONS_ENABLED=true` in Dockge's env box (or the app's
+environment in TrueNAS) and restart. Then enter the SMTP server on
+**Admin -> Notifications**. The `SMTP_*` and `PORTAL_NAME` values
+below also pass through both stacks, as a fallback when the admin
+page has no SMTP saved.
+
+For local development, add the following to your
+`apps/portal-api/.env`:
 
 ```bash
 NOTIFICATIONS_ENABLED=true
@@ -297,12 +357,35 @@ will fail with a clearer error pointing at the underlying issue. The
 user row is still created; an admin can re-trigger the email later
 via "Reset password" once SMTP is healthy.
 
+### Who can reach what through the SMTP settings
+
+The SMTP host and port on **Admin -> Notifications** are used as
+given. The portal opens a connection to that address from the API
+container, and that includes hosts on your internal network and the
+other containers in the stack. That is on purpose, because a
+company relay often sits on the LAN. It also means the Save and
+**Send test** buttons can reach internal addresses.
+
+Only admins of the operator organization can open this page and use
+those buttons, so treat that role as trusted:
+
+- Give operator admin to people you would trust with network access
+  from the server.
+- On a shared or demo install, do not publish an operator admin
+  login.
+- The test email always goes to the signed-in admin's own account
+  address. Error messages say only whether the connection, the login
+  or the message failed. The full server reply goes to the API log.
+
 
 ## 9. Common gotchas
 
 **"Port 5432 is already in use"**: you have another Postgres
-running on the host. Stop it (`brew services stop postgresql`) or
-change the port in `infra/docker-compose.yml`.
+running on the host. On macOS, stop it with
+`brew services stop postgresql`. On Ubuntu, Debian, or Mint, stop
+the system service with `sudo systemctl stop postgresql` (see the
+Linux prerequisites above). Or change the host port in
+`infra/docker-compose.yml`.
 
 **"Port 8080 is already in use"**: Keycloak's port. macOS itself
 sometimes binds 8080; check with `lsof -i :8080`.

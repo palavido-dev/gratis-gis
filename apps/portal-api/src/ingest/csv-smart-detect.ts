@@ -36,6 +36,7 @@ import {
   isSqlSafeFieldName,
   toSqlSafeFieldName,
 } from '@gratis-gis/shared-types';
+import { isCodeLikeNumber } from './csv-codes.js';
 
 export interface SmartDetectResult {
   kind: 'detected';
@@ -284,6 +285,70 @@ export function readDelimitedSample(
   return { delimiter, header, rows };
 }
 
+/**
+ * Every data row of a delimited file on disk, in order, read a line at
+ * a time so the file never sits in memory. Same rules as
+ * readDelimitedSample: the first line is the header, a row whose
+ * column count differs from it is skipped (and counted). The smart
+ * paths plan from a 1 MiB prefix; this is how they then reach the
+ * rest of the file instead of importing only the prefix's rows.
+ */
+export async function* readDelimitedRowsFromFile(
+  filePath: string,
+  chunkRows: number,
+  /** The delimiter the plan was made with (sniffDelimiter on the
+   *  prefix). Sniffed from the header line when omitted. */
+  knownDelimiter?: string,
+): AsyncGenerator<{ rows: string[][]; skipped: number }> {
+  const { createReadStream } = await import('node:fs');
+  const { createInterface } = await import('node:readline');
+  const lines = createInterface({
+    input: createReadStream(filePath, { encoding: 'utf8' }),
+    crlfDelay: Infinity,
+  });
+  let delimiter: string | null = null;
+  let width = 0;
+  let rows: string[][] = [];
+  let skipped = 0;
+  try {
+    for await (const raw of lines) {
+      if (delimiter === null) {
+        const header = stripBom(raw);
+        delimiter = knownDelimiter ?? sniffDelimiter(header);
+        width = parseRow(header, delimiter).length;
+        continue;
+      }
+      if (raw.length === 0) continue;
+      const row = parseRow(raw, delimiter);
+      if (row.length !== width) {
+        skipped += 1;
+        continue;
+      }
+      rows.push(row);
+      if (rows.length >= chunkRows) {
+        yield { rows, skipped };
+        rows = [];
+        skipped = 0;
+      }
+    }
+  } finally {
+    lines.close();
+  }
+  if (rows.length > 0 || skipped > 0) yield { rows, skipped };
+}
+
+/**
+ * Data rows in a delimited file on disk (lines after the header that
+ * are not empty), counted without holding the file in memory.
+ */
+export async function countDelimitedDataRows(filePath: string): Promise<number> {
+  let n = 0;
+  for await (const chunk of readDelimitedRowsFromFile(filePath, 10_000)) {
+    n += chunk.rows.length + chunk.skipped;
+  }
+  return n;
+}
+
 export function detectCsvCoordinates(buffer: Buffer): SmartDetect {
   const text = stripBom(buffer.toString('utf8'));
   const pair = detectCsvColumnPair(text);
@@ -326,7 +391,7 @@ function splitLines(text: string): string[] {
 /** Single-character delimiter sniff: count commas, tabs, semicolons
  *  in the first 10 non-empty lines; pick the most common. Defaults
  *  to comma when nothing wins (e.g. single-column files). */
-function sniffDelimiter(text: string): ',' | '\t' | ';' {
+export function sniffDelimiter(text: string): ',' | '\t' | ';' {
   const sample = text.split(/\r?\n/).filter((l) => l.length > 0).slice(0, 10);
   let commas = 0;
   let tabs = 0;
@@ -465,7 +530,7 @@ function inferFieldTypes(
       const t = v.trim();
       if (t.length === 0) continue;
       nonEmpty += 1;
-      if (!/^-?\d+(\.\d+)?$/.test(t)) allNumber = false;
+      if (!/^-?\d+(\.\d+)?$/.test(t) || isCodeLikeNumber(t)) allNumber = false;
       if (!/^(true|false|yes|no|0|1)$/i.test(t)) allBool = false;
     }
     if (nonEmpty === 0) return { name, type: 'string' };

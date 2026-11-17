@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
-  DRAWING_SET_PALETTE,
   defaultDrawingSetTitle,
   nextDrawingSetColor,
   type DrawingFeature,
@@ -16,6 +15,7 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from './sharing.service.js';
+import { withLockedItem } from './item-data-lock.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
 /**
@@ -25,9 +25,11 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
  * service is the only write path: every mutation reads the item,
  * checks permissions against the caller (signed-in user or null
  * anonymous), modifies the array, and writes the whole `data` blob
- * back via Prisma. Each write bumps the item's `updatedAt` and goes
- * through a transaction so two concurrent edits to different drawing
- * sets don't clobber each other.
+ * back via Prisma. Permissions are checked on a plain read; the change
+ * itself is applied to the data read again under the item's row lock
+ * (withLockedItem), inside the transaction that writes it, so two
+ * concurrent edits to different drawing sets, or a drawing edit and a
+ * map Save, don't clobber each other.
  *
  * Permission posture (different from item edit because the WHOLE
  * point is letting non-editors mark up):
@@ -96,45 +98,43 @@ export class DrawingsService {
         'Anonymous markup is not enabled on this map',
       );
     }
-    const sets = data.drawings ?? [];
-    if (sets.length >= DRAWING_LIMITS.MAX_SETS_PER_MAP) {
-      throw new BadRequestException(
-        `This map already has ${sets.length} drawing sets ` +
-          `(maximum ${DRAWING_LIMITS.MAX_SETS_PER_MAP}). ` +
-          'Delete an existing set before adding a new one.',
-      );
-    }
-    const usedColors = sets.map((s) => s.color);
-    const now = new Date().toISOString();
     const authorId =
       author.kind === 'user' ? author.user.id : null;
     const authorDisplay = await this.resolveAuthorDisplay(author);
-    const next: DrawingSet = {
-      id: randomUUID(),
-      authorId,
-      authorDisplay,
-      ...(author.kind === 'anonymous'
-        ? { anonymousAuthorToken: author.anon.token }
-        : {}),
-      title:
-        typeof input.title === 'string' && input.title.trim().length > 0
-          ? input.title.trim().slice(0, 200)
-          : defaultDrawingSetTitle(authorDisplay),
-      color: validateHexColor(input.color) ?? nextDrawingSetColor(usedColors),
-      visible: true,
-      features: sanitizeFeatures(input.features ?? []),
-      createdAt: now,
-      updatedAt: now,
-    };
-    const nextData: MapDataLike = {
-      ...data,
-      drawings: [...sets, next],
-    };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    return this.mutateMapData(item.id, (fresh) => {
+      const sets = fresh.drawings ?? [];
+      if (sets.length >= DRAWING_LIMITS.MAX_SETS_PER_MAP) {
+        throw new BadRequestException(
+          `This map already has ${sets.length} drawing sets ` +
+            `(maximum ${DRAWING_LIMITS.MAX_SETS_PER_MAP}). ` +
+            'Delete an existing set before adding a new one.',
+        );
+      }
+      const usedColors = sets.map((s) => s.color);
+      const now = new Date().toISOString();
+      const next: DrawingSet = {
+        id: randomUUID(),
+        authorId,
+        authorDisplay,
+        ...(author.kind === 'anonymous'
+          ? { anonymousAuthorToken: author.anon.token }
+          : {}),
+        title:
+          typeof input.title === 'string' && input.title.trim().length > 0
+            ? input.title.trim().slice(0, 200)
+            : defaultDrawingSetTitle(authorDisplay),
+        color: validateHexColor(input.color) ?? nextDrawingSetColor(usedColors),
+        visible: true,
+        features: sanitizeFeatures(input.features ?? []),
+        createdAt: now,
+        updatedAt: now,
+      };
+      assertDrawingsSize(next, [...sets, next], { all: sets });
+      return {
+        data: { ...fresh, drawings: [...sets, next] },
+        result: publicDrawingSet(next),
+      };
     });
-    return publicDrawingSet(next);
   }
 
   async update(
@@ -146,38 +146,67 @@ export class DrawingsService {
       color?: string;
       visible?: boolean;
       features?: DrawingFeature[];
+      /**
+       * Features to add to the set as stored under the lock. A client
+       * that sent the whole array built from its own copy lost
+       * features: two pins dropped in quick succession were both
+       * built from the same base, so the second PATCH erased the
+       * first, and an editor's stale page erased a reviewer's pins.
+       */
+      appendFeatures?: DrawingFeature[];
     },
   ): Promise<DrawingSet> {
     const { data, item } = await this.loadMapForWrite(author, mapId);
-    const sets = data.drawings ?? [];
-    const idx = sets.findIndex((s) => s.id === drawingId);
-    if (idx < 0) throw new NotFoundException('Drawing set not found');
-    const existing = sets[idx]!;
-    await this.assertCanWriteSet(author, item, existing);
-    const updated: DrawingSet = {
-      ...existing,
-      ...(typeof patch.title === 'string'
-        ? { title: patch.title.trim().slice(0, 200) }
-        : {}),
-      ...(validateHexColor(patch.color)
-        ? { color: validateHexColor(patch.color)! }
-        : {}),
-      ...(typeof patch.visible === 'boolean'
-        ? { visible: patch.visible }
-        : {}),
-      ...(Array.isArray(patch.features)
-        ? { features: sanitizeFeatures(patch.features) }
-        : {}),
-      updatedAt: new Date().toISOString(),
-    };
-    const nextSets = sets.slice();
-    nextSets[idx] = updated;
-    const nextData: MapDataLike = { ...data, drawings: nextSets };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    const found = (data.drawings ?? []).find((s) => s.id === drawingId);
+    if (!found) throw new NotFoundException('Drawing set not found');
+    // Who wrote a set never changes, so this check also holds for the
+    // copy read under the lock below.
+    await this.assertCanWriteSet(author, item, found);
+    return this.mutateMapData(item.id, (fresh) => {
+      const sets = fresh.drawings ?? [];
+      const idx = sets.findIndex((s) => s.id === drawingId);
+      if (idx < 0) throw new NotFoundException('Drawing set not found');
+      const existing = sets[idx]!;
+      const baseFeatures = Array.isArray(patch.features)
+        ? sanitizeFeatures(patch.features)
+        : existing.features;
+      let features: DrawingFeature[] | null = Array.isArray(patch.features)
+        ? baseFeatures
+        : null;
+      if (Array.isArray(patch.appendFeatures) && patch.appendFeatures.length > 0) {
+        const added = sanitizeFeatures(patch.appendFeatures);
+        const known = new Set(baseFeatures.map((f) => f.id));
+        // A retried append must not add the same feature twice.
+        const fresh = added.filter((f) => !known.has(f.id));
+        if (baseFeatures.length + fresh.length > MAX_FEATURES_PER_SET) {
+          throw new BadRequestException(
+            `A markup set holds at most ${MAX_FEATURES_PER_SET} features.`,
+          );
+        }
+        features = [...baseFeatures, ...fresh];
+      }
+      const updated: DrawingSet = {
+        ...existing,
+        ...(typeof patch.title === 'string'
+          ? { title: patch.title.trim().slice(0, 200) }
+          : {}),
+        ...(validateHexColor(patch.color)
+          ? { color: validateHexColor(patch.color)! }
+          : {}),
+        ...(typeof patch.visible === 'boolean'
+          ? { visible: patch.visible }
+          : {}),
+        ...(features !== null ? { features } : {}),
+        updatedAt: new Date().toISOString(),
+      };
+      const nextSets = sets.slice();
+      nextSets[idx] = updated;
+      assertDrawingsSize(updated, nextSets, { set: existing, all: sets });
+      return {
+        data: { ...fresh, drawings: nextSets },
+        result: publicDrawingSet(updated),
+      };
     });
-    return publicDrawingSet(updated);
   }
 
   async remove(
@@ -190,11 +219,13 @@ export class DrawingsService {
     const existing = sets.find((s) => s.id === drawingId);
     if (!existing) return; // idempotent delete
     await this.assertCanWriteSet(author, item, existing);
-    const nextSets = sets.filter((s) => s.id !== drawingId);
-    const nextData: MapDataLike = { ...data, drawings: nextSets };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    await this.mutateMapData(item.id, (fresh) => {
+      const current = fresh.drawings ?? [];
+      if (!current.some((s) => s.id === drawingId)) return null;
+      return {
+        data: { ...fresh, drawings: current.filter((s) => s.id !== drawingId) },
+        result: undefined,
+      };
     });
   }
 
@@ -236,11 +267,42 @@ export class DrawingsService {
         'You do not have edit permission on this map',
       );
     }
-    const data = (item.data ?? {}) as MapDataLike;
-    const nextData: MapDataLike = { ...data, allowAnonymousDrawings: allowed };
-    await this.prisma.item.update({
-      where: { id: item.id },
-      data: { data: nextData as object },
+    await this.mutateMapData(item.id, (fresh) => ({
+      data: { ...fresh, allowAnonymousDrawings: allowed },
+      result: undefined,
+    }));
+  }
+
+  /**
+   * Apply `change` to the map's data as read under the row lock and
+   * write the result in the same transaction. `change` returns null
+   * for "nothing to write".
+   */
+  private async mutateMapData<T>(
+    mapId: string,
+    change: (fresh: MapDataLike) => { data: MapDataLike; result: T } | null,
+  ): Promise<T> {
+    return withLockedItem(this.prisma, mapId, async (tx, locked) => {
+      if (!locked) throw new NotFoundException('Map not found');
+      const out = change((locked.data ?? {}) as MapDataLike);
+      if (out === null) return undefined as T;
+      // Keep the item's version where it was. Markup is not an edit of
+      // the map, and a map builder open on this item guards its Save
+      // with the updatedAt it loaded; letting every markup write bump
+      // it made that Save fail as "changed elsewhere" until a reload
+      // threw the unsaved work away. A map Save never overwrites
+      // markup anyway: it carries the stored sets over under the same
+      // lock (carryMapDrawingsFrom).
+      await tx.item.update({
+        where: { id: mapId },
+        data: {
+          data: out.data as object,
+          ...(Number.isFinite(locked.updatedAtMs)
+            ? { updatedAt: new Date(locked.updatedAtMs) }
+            : {}),
+        },
+      });
+      return out.result;
     });
   }
 
@@ -328,10 +390,11 @@ export class DrawingsService {
       );
     }
     if (author.kind === 'anonymous') {
-      // Anonymous can only edit sets they authored. Prefer the
-      // stored cookie token (set at create); fall back to display
-      // match for any legacy sets written before the token field
-      // landed.
+      // Anonymous can only edit sets they authored, proven by the
+      // cookie token stored at create. There is no display-name
+      // fallback: the display is derived from the first 6 hex of the
+      // token and is shown to everyone, so a forged cookie could match
+      // it. Token-less legacy sets are left to the map's editors.
       if (set.authorId !== null) {
         throw new ForbiddenException(
           'You can only edit drawing sets you created in this session',
@@ -339,10 +402,9 @@ export class DrawingsService {
       }
       if (
         typeof set.anonymousAuthorToken === 'string' &&
-        set.anonymousAuthorToken.length > 0
+        set.anonymousAuthorToken.length > 0 &&
+        set.anonymousAuthorToken === author.anon.token
       ) {
-        if (set.anonymousAuthorToken === author.anon.token) return;
-      } else if (set.authorDisplay === author.anon.display) {
         return;
       }
       throw new ForbiddenException(
@@ -378,15 +440,110 @@ function validateHexColor(c: string | undefined): string | null {
 /**
  * Hard-cap features per drawing set and sanitize each one so a
  * malformed write can't blow up the item's data blob. Drops
- * unknown geometry types, clamps the array length, and stamps a
- * fresh id + timestamps when those are missing.
+ * unknown geometry types and malformed coordinates, clamps the
+ * array length, and stamps a fresh id + timestamps when those are
+ * missing or not what they claim to be.
  *
- * Cap rationale: Phase 1 drawings live inline on the item's JSON
- * column. 500 features per set + a soft cap of 16 sets per map
- * (enforced at the call site of create) keeps a malicious or
- * over-eager redline under ~1 MB serialized.
+ * Cap rationale: drawings live inline on the map's JSON column and
+ * any reader of a public map can add them, so every map open and
+ * every later save carries them. The DTO's nested limits never run
+ * (the array is not validated element by element), so the service
+ * is the only real check. Vertex caps bound one feature, and the
+ * byte caps bound one set and all sets on a map.
  */
 const MAX_FEATURES_PER_SET = 500;
+const MAX_VERTICES_PER_FEATURE = 10_000;
+const MAX_SET_BYTES = 1024 * 1024;
+const MAX_MAP_DRAWINGS_BYTES = 8 * 1024 * 1024;
+const MAX_ID_LENGTH = 64;
+const DASH_STYLES = new Set([
+  'solid',
+  'dash',
+  'short-dash',
+  'long-dash',
+  'dash-dot',
+  'dot',
+  'dash-dot-dot',
+]);
+
+/**
+ * Nesting depth of `coordinates` for each geometry type: 1 is a
+ * position, 2 a list of positions, and so on.
+ */
+const COORDINATE_DEPTH: Record<string, number> = {
+  Point: 1,
+  MultiPoint: 2,
+  LineString: 2,
+  MultiLineString: 3,
+  Polygon: 3,
+  MultiPolygon: 4,
+};
+
+/**
+ * Copy `coords` if it is a well formed coordinate array of the given
+ * depth with at most `budget.left` positions. Returns null otherwise.
+ * Positions keep only their numbers (2 or 3 of them), so no extra
+ * keys or strings ride along inside the geometry.
+ */
+function cleanCoordinates(
+  coords: unknown,
+  depth: number,
+  budget: { left: number },
+): unknown[] | null {
+  if (!Array.isArray(coords)) return null;
+  if (depth === 1) {
+    if (coords.length < 2 || coords.length > 3) return null;
+    if (!coords.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+      return null;
+    }
+    budget.left -= 1;
+    return budget.left < 0 ? null : (coords.slice() as number[]);
+  }
+  const out: unknown[] = [];
+  for (const c of coords) {
+    const inner = cleanCoordinates(c, depth - 1, budget);
+    if (inner === null) return null;
+    out.push(inner);
+  }
+  return out;
+}
+
+function isIsoDate(v: unknown): v is string {
+  return (
+    typeof v === 'string' &&
+    v.length <= 40 &&
+    !Number.isNaN(Date.parse(v))
+  );
+}
+
+/**
+ * Refuse a drawing write that would make one set, or all sets on the
+ * map together, larger than the caps above. A write that does not
+ * grow an already oversized map is let through, so markup saved
+ * before the cap can still be trimmed or hidden.
+ */
+function assertDrawingsSize(
+  set: DrawingSet,
+  all: DrawingSet[],
+  before: { set?: DrawingSet; all: DrawingSet[] },
+): void {
+  const setBytes = JSON.stringify(set).length;
+  const beforeSetBytes = before.set ? JSON.stringify(before.set).length : 0;
+  if (setBytes > MAX_SET_BYTES && setBytes > beforeSetBytes) {
+    throw new BadRequestException(
+      'This drawing set is too large. Split it into smaller sets or simplify the shapes.',
+    );
+  }
+  const allBytes = JSON.stringify(all).length;
+  if (
+    allBytes > MAX_MAP_DRAWINGS_BYTES &&
+    allBytes > JSON.stringify(before.all).length
+  ) {
+    throw new BadRequestException(
+      'This map has too much markup. Delete or simplify some drawing sets first.',
+    );
+  }
+}
 
 function sanitizeFeatures(features: DrawingFeature[]): DrawingFeature[] {
   if (!Array.isArray(features)) return [];
@@ -429,13 +586,21 @@ function sanitizeFeature(
     return null;
   }
   if (!ALLOWED_GEOMETRY_TYPES.has(geom.type)) return null;
+  const coordinates = cleanCoordinates(
+    (geom as { coordinates?: unknown }).coordinates,
+    COORDINATE_DEPTH[geom.type]!,
+    { left: MAX_VERTICES_PER_FEATURE },
+  );
+  if (coordinates === null) return null;
   return {
     id:
-      typeof raw.id === 'string' && raw.id.length > 0
+      typeof raw.id === 'string' &&
+      raw.id.length > 0 &&
+      raw.id.length <= MAX_ID_LENGTH
         ? raw.id
         : randomUUID(),
     kind: raw.kind,
-    geometry: raw.geometry,
+    geometry: { type: geom.type, coordinates } as DrawingFeature['geometry'],
     ...(raw.style ? { style: clampStyle(raw.style) } : {}),
     ...(typeof raw.label === 'string'
       ? { label: raw.label.slice(0, 500) }
@@ -443,8 +608,7 @@ function sanitizeFeature(
     ...(typeof raw.note === 'string'
       ? { note: raw.note.slice(0, 2000) }
       : {}),
-    createdAt:
-      typeof raw.createdAt === 'string' ? raw.createdAt : now,
+    createdAt: isIsoDate(raw.createdAt) ? raw.createdAt : now,
     updatedAt: now,
   };
 }
@@ -455,11 +619,7 @@ function clampStyle(s: NonNullable<DrawingFeature['style']>): NonNullable<Drawin
   if (typeof s.strokeWidth === 'number') {
     out.strokeWidth = Math.min(Math.max(s.strokeWidth, 0), 24);
   }
-  if (
-    typeof s.dashStyle === 'string' &&
-    DRAWING_SET_PALETTE // sentinel import keeps the linter happy
-  ) {
-    // Trust the enum union; the shared-types DashStyle is closed.
+  if (typeof s.dashStyle === 'string' && DASH_STYLES.has(s.dashStyle)) {
     out.dashStyle = s.dashStyle;
   }
   if (typeof s.fillOpacity === 'number') {
@@ -471,6 +631,9 @@ function clampStyle(s: NonNullable<DrawingFeature['style']>): NonNullable<Drawin
 export const DRAWING_LIMITS = {
   MAX_FEATURES_PER_SET,
   MAX_SETS_PER_MAP: 64,
+  MAX_VERTICES_PER_FEATURE,
+  MAX_SET_BYTES,
+  MAX_MAP_DRAWINGS_BYTES,
 };
 
 /**

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { buildMetaUi, withMetaUi } from './meta-ui.js';
+import { ItemsService } from './items.service.js';
 
 describe('buildMetaUi', () => {
-  it('emits one data-layer hint per v3 sublayer with geometry', () => {
+  it('emits one data-layer hint per v3 sublayer, tables included', () => {
     const ui = buildMetaUi({
       id: '11111111-1111-4111-8111-111111111111',
       type: 'data_layer',
@@ -21,7 +22,9 @@ describe('buildMetaUi', () => {
     expect(ui.landingPath).toBe(
       '/items/11111111-1111-4111-8111-111111111111',
     );
-    expect(ui.layers).toHaveLength(1);
+    // The table rides along with geometryType null, so "Add to map"
+    // adds what the Add Layer dialog adds (review 40-9).
+    expect(ui.layers).toHaveLength(2);
     expect(ui.layers[0]).toEqual({
       title: 'Parcels',
       source: {
@@ -31,10 +34,20 @@ describe('buildMetaUi', () => {
       },
       geometryType: 'Polygon',
     });
+    expect(ui.layers[1]).toEqual({
+      title: 'Notes',
+      source: {
+        kind: 'data-layer',
+        itemId: '11111111-1111-4111-8111-111111111111',
+        layerKey: 'notes',
+      },
+      geometryType: null,
+    });
     expect(ui.downloads).toEqual([
       {
         label: 'GeoJSON',
-        url: '/api/items/11111111-1111-4111-8111-111111111111/geojson',
+        // v3 is served per sublayer; the item-level route has no rows.
+        url: '/api/items/11111111-1111-4111-8111-111111111111/layers/parcels/geojson',
         format: 'GeoJSON',
       },
     ]);
@@ -138,3 +151,65 @@ describe('buildMetaUi', () => {
   });
 });
 
+
+// A badly shaped data blob passes the save-time checks. The hints
+// must not throw, or every later read, edit and delete of the item
+// fails with a 500.
+describe('buildMetaUi with a malformed blob', () => {
+  const base = {
+    id: '22222222-2222-4222-8222-222222222222',
+    title: 'Broken',
+    access: 'org',
+    thumbnailUrl: null,
+  };
+  it.each([
+    ['arcgis_service', { url: 'https://x/arcgis/rest/services/A/MapServer', layers: 5 }],
+    ['arcgis_service', { url: 'https://x/arcgis/rest/services/A/MapServer', layers: [], selectedLayerIds: 5 }],
+    ['tile_layer', { tileUrl: 5 }],
+    ['data_layer', { version: 3, layers: [null] }],
+  ])('returns empty hints for a %s blob it cannot read', (type, data) => {
+    const ui = buildMetaUi({ ...base, type, data } as never);
+    expect(ui.layers).toEqual([]);
+    expect(ui.landingPath).toBe(`/items/${base.id}`);
+  });
+});
+
+describe('filterMapForViewer with a malformed blob', () => {
+  it('drops non-object layers and tolerates non-array access entries', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    Object.assign(svc, { prisma: { item: { findMany: async () => [] } } });
+    const out = (await svc.filterMapForViewer(null, {
+      layers: [
+        null,
+        { id: 'a', access: { policy: 'custom', entries: 5 } },
+        { id: 'b' },
+      ],
+    })) as { layers: Array<{ id: string }> };
+    expect(out.layers.map((l) => l.id)).toEqual(['b']);
+  });
+});
+
+describe('filterMapForViewer backing items', () => {
+  it('drops item-backed layers of every kind when the viewer cannot read the item', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const findMany = jest.fn(async () => [
+      { id: 'pub', access: 'public', shares: [] },
+      { id: 'priv', access: 'private', shares: [] },
+    ]);
+    Object.assign(svc, { prisma: { item: { findMany } } });
+    const out = (await svc.filterMapForViewer(null, {
+      layers: [
+        { id: 'a', source: { kind: 'arcgis-rest', url: 'https://x', sourceItemId: 'priv' } },
+        { id: 'b', source: { kind: 'tile', itemId: 'priv' } },
+        { id: 'c', source: { kind: 'point-cloud', itemId: 'priv' } },
+        { id: 'd', source: { kind: 'postgis-live', serviceItemId: 'priv' } },
+        { id: 'e', source: { kind: 'arcgis-rest', url: 'https://x', sourceItemId: 'pub' } },
+        { id: 'f', source: { kind: 'arcgis-rest', url: 'https://x' } },
+      ],
+    })) as { layers: Array<{ id: string }> };
+    expect(out.layers.map((l) => l.id)).toEqual(['e', 'f']);
+    const asked = (findMany.mock.calls[0] as unknown as [{ where: { id: { in: string[] } } }])[0]
+      .where.id.in;
+    expect(asked.sort()).toEqual(['priv', 'pub']);
+  });
+});

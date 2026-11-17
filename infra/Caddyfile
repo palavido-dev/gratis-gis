@@ -1,4 +1,4 @@
-# Caddy config for the gratisgis.org production stack. Two virtual
+# Caddy config for the demo.gratisgis.org production stack. Two virtual
 # hosts:
 #
 #   - {$PORTAL_DOMAIN}      -> portal-web:3000
@@ -9,11 +9,11 @@
 #                              also hit /api/* paths under the same
 #                              hostname, which Next.js forwards via
 #                              its server actions / route handlers.
-#                              ...except: NestJS sets a global /api
-#                              prefix and lives on its own port, so
-#                              we also route /api/* to portal-api:4000
-#                              directly. portal-web does NOT proxy
-#                              browser-side calls.
+#                              NestJS sets a global /api prefix and
+#                              lives on its own port, so /api/* goes
+#                              to portal-api:4000 directly, except
+#                              /api/portal/* and the other routes the
+#                              portal-web BFF serves (see below).
 #   - {$AUTH_DOMAIN}        -> keycloak:8080
 #                              Keycloak handles its own routing under
 #                              /realms, /admin, /resources, etc.
@@ -30,24 +30,23 @@
     # when iterating on cert issuance to avoid the LE rate limit.
     # No `auto_https off`; we want the default behaviour.
 
-    # Trust no upstream proxy for X-Forwarded-* by default. Caddy is the
-    # edge here (it binds :443 directly), so there is no legitimate
-    # upstream proxy whose forwarding headers we should believe. With no
-    # trusted proxies, Caddy treats an incoming X-Forwarded-For from a
-    # client as untrusted and its own appended entry (the true peer) is
-    # authoritative. This is defence-in-depth for the app, which now also
-    # reads the client IP from the rightmost XFF entry; before both, the
-    # feedback rate limiter keyed on a spoofable leftmost value.
-    servers {
-        trusted_proxies static private_ranges
-    }
+    # Trust no upstream proxy for X-Forwarded-*. Caddy is the edge here
+    # (it binds :443 directly), so there is no legitimate upstream proxy
+    # whose forwarding headers we should believe. That is Caddy's default,
+    # so there is no `trusted_proxies` setting. Do not add
+    # `trusted_proxies static private_ranges`: any container that
+    # hairpins to the public name, and IPv6 clients that docker-proxy
+    # presents as the bridge gateway, come from a private address, and
+    # their own X-Forwarded-For would then pass through to Keycloak and
+    # portal-api and become the logged client_ip.
 }
 
-# www.gratisgis.org always 301s to the apex. Most users don't type
+# www.{$PORTAL_DOMAIN} (www.demo.gratisgis.org on the demo) always 301s to the
+# portal host. Needs its own DNS record. Most users don't type
 # www. anymore, but anyone who does shouldn't get an empty/bare
 # response or a cert mismatch. Listing the hostname here makes
 # Caddy include it in the SAN when it asks Let's Encrypt for a
-# cert, so https://www.gratisgis.org also serves valid TLS.
+# cert, so https://www.demo.gratisgis.org also serves valid TLS.
 www.{$PORTAL_DOMAIN} {
     redir https://{$PORTAL_DOMAIN}{uri} 301
 }
@@ -64,13 +63,14 @@ www.{$PORTAL_DOMAIN} {
         format json
     }
 
-    # Lift the request-body cap so large spatial-data uploads
-    # (county-scale parcel layers run 200-500 MB zipped) stream
-    # through Caddy. Caddy 2 default is unlimited but some deploy
-    # paths set a lower cap; explicit max_size makes the intent
-    # obvious. Multer at the api caps at 1 GB; this matches.
+    # Request-body cap for this site. The web app's import uploads go
+    # straight to storage in parts and never pass through here. This
+    # cap only matters for the older multipart POST /ingest/stage path.
+    # portal-api's sanity ceiling for that path is 50 GiB, and this is
+    # set a little above it so the multipart framing fits. Caddy reads
+    # "GB" as 10^9 bytes, so the unit here is GiB on purpose.
     request_body {
-        max_size 1GB
+        max_size 51GiB
     }
 
     # Send everything to the web app. Next.js's standalone server is
@@ -99,13 +99,27 @@ www.{$PORTAL_DOMAIN} {
         file_server
     }
 
+    # portal-api's Prometheus endpoint lives at /metrics, outside the
+    # /api prefix, so nothing below would route it to portal-api anyway.
+    # This block makes that explicit: Prometheus scrapes each replica
+    # on the docker network (portal-api:4000), never through the edge.
+    # See docs/operations/metrics.md.
+    @metrics path /metrics /metrics/*
+    handle @metrics {
+        respond 404
+    }
+
     handle /api/auth/* {
         reverse_proxy portal-web:3000
     }
     handle /api/portal/* {
         reverse_proxy portal-web:3000
     }
-    handle /api/geocode/* {
+    # /api/geocode?q= is address search. The wildcard does not match
+    # the exact path, so the request fell through to portal-api and
+    # Express answered "Cannot GET /api/geocode".
+    @geocode path /api/geocode /api/geocode/*
+    handle @geocode {
         reverse_proxy portal-web:3000
     }
     # #162 Phase 1.1: portal-web owns the locale-switch route too.
@@ -175,8 +189,11 @@ www.{$PORTAL_DOMAIN} {
     @nextStatic path /_next/static/*
     header @nextStatic Cache-Control "public, max-age=31536000, immutable"
 
-    # Light security headers. CSP is intentionally absent; Next + Map
-    # tile loads make a strict CSP a separate project.
+    # Light security headers. The page CSP is sent by portal-web
+    # itself (apps/portal-web/src/lib/content-security-policy.mjs), so
+    # keep the two in step. Its frame-ancestors is 'self', and browsers
+    # that know frame-ancestors ignore X-Frame-Options, so the edge
+    # says SAMEORIGIN to match rather than a DENY nothing enforced.
     #
     # HSTS: Caddy does NOT automatically add Strict-Transport-Security
     # in v2 despite a stale community-help thread that says it does;
@@ -187,7 +204,7 @@ www.{$PORTAL_DOMAIN} {
     # been stable long enough.
     header {
         X-Content-Type-Options nosniff
-        X-Frame-Options DENY
+        X-Frame-Options SAMEORIGIN
         Referrer-Policy strict-origin-when-cross-origin
         Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
         # Permissions-Policy: deny access to APIs the portal doesn't
@@ -230,10 +247,13 @@ www.{$PORTAL_DOMAIN} {
     # The gratis-gis realm stays fully reachable for end-user auth
     # via /realms/gratis-gis/*.
     #
-    # If you ever need the admin console / Admin REST surface while
-    # these blocks are live, reach Keycloak directly:
-    #   ssh -L 8081:localhost:8081 gratis  # forward the host port
-    #   open http://localhost:8081/admin/  # or run kcadm.sh inside the container
+    # If you need the Admin REST surface while these blocks are live,
+    # run kcadm.sh inside the container (Keycloak publishes no host port):
+    #   docker exec -it gratis-gis-prod-keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+    #     --server http://localhost:8080 --realm master --user admin
+    # For the browser console, tunnel to the container's address on the
+    # docker network (docker inspect gratis-gis-prod-keycloak), for example
+    #   ssh -L 8081:<container ip>:8080 <server>  then open http://localhost:8081/admin/
     @adminApi path /admin /admin/* /metrics
     @masterRealm path /realms/master /realms/master/*
     handle @adminApi {

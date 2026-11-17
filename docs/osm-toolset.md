@@ -48,7 +48,7 @@ Most of those steps map to one tool in the pack below.
 
 ## What ships today
 
-These are running on the public preview (`gratisgis.org`) today:
+These are running on the public preview (`demo.gratisgis.org`) today:
 
 - **OSM Query** (`osm-query`): pick a preset (school, park,
   restaurant, etc.), draw an area, get every matching feature

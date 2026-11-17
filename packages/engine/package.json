@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "license": "AGPL-3.0-or-later",
-  "author": "Matt Palavido <matthew.palavido@gmail.com>",
+  "author": "Matt Palavido <matthew@gratisgis.org>",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -24,7 +24,7 @@
     "h3-js": "^4.5.0"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "typescript": "^6.0.3"
   }
 }

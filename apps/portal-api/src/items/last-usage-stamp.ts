@@ -28,6 +28,9 @@ import type { PrismaService } from '../prisma/prisma.service.js';
  * `prisma.item.update` reintroduces the bug silently, because nothing
  * type-checks the difference.
  */
+/** Most items the throttle remembers before it forgets expired ones. */
+const MAX_TRACKED = 10_000;
+
 export class LastUsageStamp {
   private readonly writtenAt = new Map<string, number>();
 
@@ -49,9 +52,11 @@ export class LastUsageStamp {
    * stamp is not worth failing the request over.
    */
   stamp(itemId: string, now = Date.now()): void {
-    const last = this.writtenAt.get(itemId) ?? 0;
+    const key = itemId.toLowerCase();
+    const last = this.writtenAt.get(key) ?? 0;
     if (now - last < this.throttleMs) return;
-    this.writtenAt.set(itemId, now);
+    if (this.writtenAt.size >= MAX_TRACKED) this.prune(now);
+    this.writtenAt.set(key, now);
 
     this.prisma
       .$executeRaw`UPDATE "item" SET "last_usage_at" = ${new Date(
@@ -59,12 +64,32 @@ export class LastUsageStamp {
       )} WHERE "id" = ${itemId}::uuid`.catch((err: unknown) => {
       // Roll the throttle back so the next read retries rather than
       // waiting out a window we never actually wrote.
-      this.writtenAt.delete(itemId);
+      this.writtenAt.delete(key);
       this.log.warn(
         `last_usage_at stamp failed for item=${itemId}: ${
           err instanceof Error ? err.message : String(err)
         }`,
       );
     });
+  }
+
+  /**
+   * Bound the map. Entries past their window carry no information, so
+   * drop those first; if that is not enough, drop the oldest. Without
+   * this the map grew by one entry per item ever opened, forever.
+   */
+  private prune(now: number): void {
+    for (const [k, at] of this.writtenAt) {
+      if (now - at >= this.throttleMs) this.writtenAt.delete(k);
+    }
+    while (this.writtenAt.size >= MAX_TRACKED) {
+      const oldest = this.writtenAt.keys().next().value as string;
+      this.writtenAt.delete(oldest);
+    }
+  }
+
+  /** For tests. */
+  get trackedCount(): number {
+    return this.writtenAt.size;
   }
 }

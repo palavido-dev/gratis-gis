@@ -16,6 +16,7 @@ import {
   MAX_ZIP_ENTRIES,
   MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES,
   assertZipExpansionBudget,
+  convertUpload,
   extractZipToDir,
 } from './tile-conversion.js';
 
@@ -324,5 +325,18 @@ describe('extractZipToDir', () => {
     await expect(extractZipToDir(zipPath, destDir)).rejects.toThrow(
       /Not a zip file/,
     );
+  });
+});
+describe('convertUpload work dir on failure', () => {
+  it('removes its temp dir when the conversion throws', async () => {
+    const { readdir } = await import('node:fs/promises');
+    const before = (await readdir(tmpdir())).filter((n) => n.startsWith('tile-conv-'));
+    await expect(
+      convertUpload(async () => {
+        throw new Error('download failed');
+      }, 'x.tif'),
+    ).rejects.toThrow('download failed');
+    const after = (await readdir(tmpdir())).filter((n) => n.startsWith('tile-conv-'));
+    expect(after.filter((n) => !before.includes(n))).toEqual([]);
   });
 });

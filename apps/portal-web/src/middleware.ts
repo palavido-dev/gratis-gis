@@ -4,28 +4,64 @@
  * preserves the originally requested URL as callbackUrl, so they land
  * where they intended after authenticating.
  *
- * Also stamps an `x-gratis-pathname` request header on every protected
- * request so server components downstream can branch on the current
- * route without a custom server. Used by AppShell to suppress its own
- * chrome on the field-deployment runtime (which owns the full
- * viewport).
- *
  * The `matcher` below is the list of routes that require a session. Public
  * pages (the home page, the /api/auth/* routes) are intentionally excluded.
  */
+import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { withAuth } from 'next-auth/middleware';
 
+import { APP_RUNTIME_PATH_RE, appRuntimeCsp } from './lib/app-runtime-csp';
+
+const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
+/** How long this server trusts its copy of the embed allow-list. An
+ *  admin's change shows up on app pages within this long. */
+const EMBED_ORIGINS_TTL_MS = 30_000;
+let embedOrigins: { list: string[]; at: number } | null = null;
+
+/** The admin's embed allow-list, cached. A failed read keeps the last
+ *  good list, or none, so the page always gets a policy. */
+async function loadEmbedOrigins(): Promise<string[]> {
+  if (embedOrigins && Date.now() - embedOrigins.at < EMBED_ORIGINS_TTL_MS) {
+    return embedOrigins.list;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/public/embed-origins`, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (res.ok) {
+      const body = (await res.json()) as { origins?: unknown };
+      const list = Array.isArray(body.origins)
+        ? body.origins.filter((o): o is string => typeof o === 'string')
+        : [];
+      embedOrigins = { list, at: Date.now() };
+      return list;
+    }
+  } catch {
+    /* fall through to the last good list */
+  }
+  return embedOrigins?.list ?? [];
+}
+
+// Authorized requests go through unchanged, except the custom app
+// runtime, which gets its Content-Security-Policy here: the page
+// policy plus the admin's allowed embed sites in frame-src (review
+// 28b-5). next.config skips that path so its header cannot win.
 export default withAuth(
-  function onAuthorized(req: NextRequest) {
-    // Forward the path to the downstream handlers so a server
-    // component can read it via headers().get('x-gratis-pathname').
-    // Re-issuing the request is the documented Next.js pattern for
-    // injecting headers from middleware.
-    const requestHeaders = new Headers(req.headers);
-    requestHeaders.set('x-gratis-pathname', req.nextUrl.pathname);
-    return NextResponse.next({ request: { headers: requestHeaders } });
+  async function middleware(req: NextRequestWithAuth) {
+    if (!APP_RUNTIME_PATH_RE.test(req.nextUrl.pathname)) {
+      return NextResponse.next();
+    }
+    // Loaded here rather than at the top: the policy lives in an .mjs
+    // shared with next.config, and the CommonJS jest runner that
+    // imports this module for its matcher cannot load ESM.
+    const { PAGE_CSP } = await import('./lib/content-security-policy.mjs');
+    const res = NextResponse.next();
+    res.headers.set(
+      'Content-Security-Policy',
+      appRuntimeCsp(PAGE_CSP, await loadEmbedOrigins()),
+    );
+    return res;
   },
   {
     pages: {
@@ -118,8 +154,14 @@ export const config = {
   matcher: [
     '/items/:path*',
     '/groups/:path*',
-    '/reports/:path*',
     '/recently-deleted/:path*',
+    // Signed-in sections. Outside the matcher a signed-out visit drew
+    // the page shell and relied on apiFetch's redirect as a backstop.
+    // /feedback (anonymous feedback) and /print, /print-preview (used
+    // by public custom apps) stay out on purpose.
+    '/admin/:path*',
+    '/assistant/:path*',
+    '/maps/:path*',
     '/profile/:path*',
     '/field/:path*',
     // /settings/* is user-scoped and must redirect to sign-in rather
@@ -127,5 +169,9 @@ export const config = {
     // missing here while /settings/notifications was the only page,
     // which worked only because apiFetch's redirect is a backstop.
     '/settings/:path*',
+    // /forms/<id>/respond is the link a form hands out. Outside the
+    // matcher, a signed-out respondent hit apiFetch's bare redirect to
+    // /signin and landed on /items after signing in, not on the form.
+    '/forms/:path*',
   ],
 };

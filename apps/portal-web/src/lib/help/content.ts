@@ -251,7 +251,30 @@ function categoryRank(rawCategory: string): number {
  * file, and return a flat array of HelpDoc.  Called at build /
  * request time from Next.js server components.
  */
+/**
+ * Every help doc, rendered. Read once per process in production: the
+ * content is baked into the image and cannot change under a running
+ * server, and a single doc page used to read and render all of it up
+ * to four times (metadata, nav, index, doc), on a route anyone can
+ * request. Development reads it fresh so edits show on reload.
+ *
+ * Callers get their own copy of the list, so sorting or filtering it
+ * cannot change what the next request sees.
+ */
+let docsOnce: Promise<HelpDoc[]> | null = null;
 export async function loadAllDocs(): Promise<HelpDoc[]> {
+  if (process.env.NODE_ENV !== 'production') return readAllDocs();
+  if (!docsOnce) {
+    docsOnce = readAllDocs().catch((err: unknown) => {
+      // Do not keep a failure: the next request tries again.
+      docsOnce = null;
+      throw err;
+    });
+  }
+  return [...(await docsOnce)];
+}
+
+async function readAllDocs(): Promise<HelpDoc[]> {
   const out: HelpDoc[] = [];
   await walk(HELP_ROOT, [], out);
   // Sort: explicit category rank, then category alpha (for ties

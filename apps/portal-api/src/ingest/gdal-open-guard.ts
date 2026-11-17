@@ -40,31 +40,22 @@ export function assertSafeGdalOpenPath(args: {
   fileBytes?: Buffer | string | null;
 }): void {
   if (hasBlockedVsi(args.openPath)) {
-    throw new Error(
-      'This file references a network path GDAL is not allowed to fetch.',
-    );
+    throw new Error('This file references a network path GDAL is not allowed to fetch.');
   }
   const name = args.sourceName.toLowerCase();
-  const looksVrt =
-    name.endsWith('.vrt') ||
-    name.endsWith('.xml') ||
-    name.endsWith('.ovf');
+  const looksVrt = name.endsWith('.vrt') || name.endsWith('.xml') || name.endsWith('.ovf');
   if (!looksVrt || args.fileBytes == null) return;
   const head =
     typeof args.fileBytes === 'string'
       ? args.fileBytes.slice(0, 256_000)
       : args.fileBytes.subarray(0, 256_000).toString('utf8');
   if (hasBlockedVsi(head)) {
-    throw new Error(
-      'This VRT/XML references a network path GDAL is not allowed to fetch.',
-    );
+    throw new Error('This VRT/XML references a network path GDAL is not allowed to fetch.');
   }
   // Absolute http(s) inside a VRT SourceFilename is the same class of
   // hole even without the /vsicurl/ prefix (GDAL may promote it).
   if (/SourceFilename[^>]*>\s*https?:\/\//i.test(head)) {
-    throw new Error(
-      'This VRT references an absolute HTTP(S) source, which is not allowed.',
-    );
+    throw new Error('This VRT references an absolute HTTP(S) source, which is not allowed.');
   }
 }
 
@@ -76,8 +67,12 @@ export function assertSafeGdalOpenPath(args: {
 /**
  * Default vector drivers ingest may open. VRT is excluded on purpose
  * (#234 MED-10): a crafted VRT is the usual /vsicurl/ smuggling path.
- * Override with `GDAL_ALLOWED_DRIVERS` (comma/space separated) on
- * portal-api / portal-worker. Point-cloud workers keep a broader set
+ * Override with `GDAL_ALLOWED_DRIVERS` on portal-api / portal-worker.
+ * The list is comma-separated. Driver names may contain spaces
+ * (`ESRI Shapefile`, `MapInfo File`); splitting on whitespace turns
+ * those into two tokens and the real driver is then rejected.
+ * A value with no comma is whitespace-separated short names
+ * (`GeoJSON GPKG`). Point-cloud workers keep a broader set
  * (including VRT/GTiff) and do not call this allowlist.
  */
 export const DEFAULT_GDAL_ALLOWED_DRIVERS = [
@@ -101,14 +96,21 @@ export const DEFAULT_GDAL_ALLOWED_DRIVERS = [
   'ODS',
 ] as const;
 
+/**
+ * Parse `GDAL_ALLOWED_DRIVERS`. Commas separate drivers so names
+ * that contain spaces survive. An empty value means the built-in
+ * default list.
+ */
+export function parseGdalAllowedDriverList(raw: string | undefined): string[] {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return [...DEFAULT_GDAL_ALLOWED_DRIVERS];
+  const parts = trimmed.includes(',') ? trimmed.split(',') : trimmed.split(/\s+/);
+  return parts.map((d) => d.trim()).filter(Boolean);
+}
+
 /** Resolve the active allowlist from env, falling back to defaults. */
-export function resolveGdalAllowedDrivers(
-  env: NodeJS.ProcessEnv = process.env,
-): Set<string> {
-  const raw = (env['GDAL_ALLOWED_DRIVERS'] ?? '').trim();
-  const list = raw
-    ? raw.split(/[\s,]+/).filter(Boolean)
-    : [...DEFAULT_GDAL_ALLOWED_DRIVERS];
+export function resolveGdalAllowedDrivers(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  const list = parseGdalAllowedDriverList(env['GDAL_ALLOWED_DRIVERS']);
   return new Set(list.map((d) => d.toLowerCase()));
 }
 
@@ -123,15 +125,40 @@ export function assertAllowedGdalDriver(driverDescription: string): void {
     throw new Error('GDAL opened the file with an unknown driver.');
   }
   if (!resolveGdalAllowedDrivers().has(name.toLowerCase())) {
-    throw new Error(
-      `GDAL driver "${name}" is not allowed for ingest.`,
-    );
+    throw new Error(`GDAL driver "${name}" is not allowed for ingest.`);
   }
 }
 
-export function applyGdalNetworkHardening(
-  gdal: { config?: { set?: (k: string, v: string) => void } },
-): void {
+/**
+ * Raster drivers a user raster upload may be opened with. GeoTIFF and
+ * JPEG 2000 only, the formats the tile-layer converter accepts. Never
+ * VRT: a VRT names other files or URLs as its sources, so a "GeoTIFF"
+ * whose bytes are a VRT made the server fetch internal URLs and read
+ * other stored objects with its own storage credentials.
+ */
+export const RASTER_UPLOAD_DRIVERS = ['GTiff', 'JP2OpenJPEG'] as const;
+
+/**
+ * Check the first bytes of a raster upload against the format its name
+ * claims. TIFF: II*\0, MM\0*, BigTIFF II+\0 / MM\0+. JPEG 2000: the JP2
+ * signature box or a bare J2K codestream. Returns false for anything
+ * else (a VRT starts with `<`).
+ */
+export function rasterMagicMatches(format: 'tiff' | 'jp2', head: Buffer): boolean {
+  if (format === 'tiff') {
+    if (head.length < 4) return false;
+    const le = head[0] === 0x49 && head[1] === 0x49 && head[3] === 0x00 && (head[2] === 0x2a || head[2] === 0x2b);
+    const be = head[0] === 0x4d && head[1] === 0x4d && head[2] === 0x00 && (head[3] === 0x2a || head[3] === 0x2b);
+    return le || be;
+  }
+  const jp2Box = Buffer.from([0x00, 0x00, 0x00, 0x0c, 0x6a, 0x50, 0x20, 0x20, 0x0d, 0x0a, 0x87, 0x0a]);
+  if (head.length >= 12 && head.subarray(0, 12).equals(jp2Box)) return true;
+  return head.length >= 4 && head[0] === 0xff && head[1] === 0x4f && head[2] === 0xff && head[3] === 0x51;
+}
+
+export function applyGdalNetworkHardening(gdal: {
+  config?: { set?: (k: string, v: string) => void };
+}): void {
   // Prefer EMPTY_DIR so a malicious sidecar cannot force GDAL to
   // readdir a remote listing as part of open.
   process.env['GDAL_DISABLE_READDIR_ON_OPEN'] ??= 'EMPTY_DIR';
@@ -141,6 +168,14 @@ export function applyGdalNetworkHardening(
   process.env['GDAL_HTTP_CONNECTTIMEOUT'] ??= '2';
   process.env['GDAL_HTTP_TIMEOUT'] ??= '5';
   process.env['CPL_VSIL_CURL_USE_HEAD'] ??= 'NO';
+  // The GML driver fetches the schema named in xsi:schemaLocation when
+  // a document looks like a WFS response (GML_DOWNLOAD_SCHEMA defaults
+  // to YES). That dial goes out through libcurl, around safeFetch, to
+  // any URL the uploader wrote, including internal hosts. Forced, not
+  // defaulted: no deployment needs an upload to fetch remote schemas.
+  // GML_SKIP_RESOLVE_ELEMS=ALL likewise keeps xlink:href resolution off.
+  process.env['GML_DOWNLOAD_SCHEMA'] = 'NO';
+  process.env['GML_SKIP_RESOLVE_ELEMS'] = 'ALL';
   // Publish the default allowlist into the process env when unset so
   // operators inspecting the container see the same set we enforce
   // in assertAllowedGdalDriver.
@@ -151,5 +186,7 @@ export function applyGdalNetworkHardening(
     set('GDAL_HTTP_CONNECTTIMEOUT', '2');
     set('GDAL_HTTP_TIMEOUT', '5');
     set('CPL_VSIL_CURL_USE_HEAD', 'NO');
+    set('GML_DOWNLOAD_SCHEMA', 'NO');
+    set('GML_SKIP_RESOLVE_ELEMS', 'ALL');
   }
 }

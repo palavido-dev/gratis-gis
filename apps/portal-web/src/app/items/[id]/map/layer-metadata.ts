@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { prefetchUserNames } from '@/lib/user-name-cache';
+import { isUuid } from '@/lib/api-path-guard';
+import { v3SublayerOf } from '@/lib/layer-extent-url';
+import { isEditorTargetSublayer } from '@/lib/server-sublayer';
 
 export type GeometryFamily = 'point' | 'line' | 'polygon';
 
@@ -76,6 +79,18 @@ export async function discoverLayerMetadata(
   signal?: AbortSignal,
 ): Promise<LayerMetadata> {
   let raw: unknown;
+  // The v3 sublayer to describe from its schema alone. Editor targets
+  // are `geojson-url` sources pointing at a sublayer; they used to
+  // fall into the generic branch below and download the whole layer
+  // (37 MB for a 24k-row parcels layer) on every open and every save.
+  const v3 =
+    layer.source.kind === 'data-layer' &&
+    typeof layer.source.layerKey === 'string' &&
+    layer.source.layerKey.length > 0
+      ? { itemId: layer.source.itemId, layerKey: layer.source.layerKey }
+      : isEditorTargetSublayer(layer)
+        ? v3SublayerOf(layer.source)
+        : null;
   try {
     if (layer.source.kind === 'group') {
       // Group layers are pure UI markers; nothing to discover.
@@ -175,16 +190,11 @@ export async function discoverLayerMetadata(
         return { ...EMPTY, error: `ArcGIS service returned ${res.status}` };
       }
       raw = await res.json();
-    } else if (
-      layer.source.kind === 'data-layer' &&
-      typeof layer.source.layerKey === 'string' &&
-      layer.source.layerKey.length > 0
-    ) {
+    } else if (v3 !== null) {
       // v3 sublayer. Three changes from the v1/v2 path:
       //
-      // 1. Hit /items/:id/layers/:layerKey/geojson (the per-sublayer
-      //    endpoint), not /items/:id/geojson (which only works for
-      //    legacy single-table items).
+      // 1. Skip the /geojson feature sample entirely (see below);
+      //    tiles draw the layer and the server answers extents.
       // 2. Consult the parent item's sublayer descriptor for the
       //    authoritative geometryType. The features-driven
       //    "geometryTypes.size === 0 -> table" inference is wrong
@@ -194,14 +204,10 @@ export async function discoverLayerMetadata(
       //    table in the layer panel.
       // 3. Also pull the sublayer's `fields[]` schema from the same
       //    parent-item fetch. v3 sublayers carry their authoritative
-      //    field list in their item data; the features-driven loop
-      //    below is only useful for valuesByField. Using the schema
-      //    means the labels editor + search-bar field-inserter
-      //    dropdowns appear instantly, even when the /geojson sample
-      //    is still in flight or has failed against a giant layer
-      //    (see #145).
-      const itemId = layer.source.itemId;
-      const layerKey = layer.source.layerKey;
+      //    field list in their item data, so the labels editor and
+      //    search-bar field-inserter dropdowns work without any
+      //    feature sample (see #145).
+      const { itemId, layerKey } = v3;
       let declaredGeometry: 'point' | 'line' | 'polygon' | null | undefined;
       // Schema-direct fields. Captured here, applied to fieldSet
       // before the (slower, optional) geojson sample. Empty for
@@ -210,7 +216,7 @@ export async function discoverLayerMetadata(
       try {
         const descInit: RequestInit = {};
         if (signal) descInit.signal = signal;
-        const descRes = await fetch(`/api/portal/items/${itemId}`, descInit);
+        const descRes = await fetch(`/api/portal/items/${encodeURIComponent(itemId)}`, descInit);
         if (descRes.ok) {
           const item = (await descRes.json()) as {
             data?: {
@@ -302,10 +308,16 @@ export async function discoverLayerMetadata(
       // #158 postgis-live layers fetch features via the bbox-
       // driven effect on the map canvas; the metadata loader
       // can't materialize a full sample (the table may be
-      // millions of rows). Return an empty default — the user
-      // sees fields show up once the canvas hits the first
-      // viewport-bound features endpoint.
-      return { ...EMPTY, loading: false };
+      // millions of rows). The service item recorded each table's
+      // columns and geometry kind when it was probed, so read the
+      // field list and geometry from there. Nothing feeds canvas
+      // features back into metadata, so without this the filter,
+      // label, popup and search pickers had no fields all session.
+      return await postgisLiveMetadata(
+        layer.source.serviceItemId,
+        layer.source.tableName,
+        signal,
+      );
     } else {
       const url =
         layer.source.kind === 'geojson-url'
@@ -338,16 +350,6 @@ export async function discoverLayerMetadata(
     )?.features ?? [];
 
   const fieldSet = new Set<string>();
-  // Seed schema-declared fields (v3 data-layer path only; other
-  // sources omit this). Ensures the inserter dropdowns see every
-  // declared column even when the feature sample is empty or sparse.
-  const schemaFields =
-    raw && typeof raw === 'object'
-      ? (raw as { __schemaFields?: string[] }).__schemaFields
-      : undefined;
-  if (Array.isArray(schemaFields)) {
-    for (const name of schemaFields) fieldSet.add(name);
-  }
   const valuesByField: Record<string, Set<string>> = {};
   const geometryTypes = new Set<GeometryFamily>();
 
@@ -394,23 +396,11 @@ export async function discoverLayerMetadata(
     raw && typeof raw === 'object' && (raw as { type?: string }).type === 'FeatureCollection'
       ? (raw as GeoJSON.FeatureCollection)
       : null;
-  // If the v3 path stashed a declared geometry on the raw payload
-  // (the parent item said "this sublayer is a point/line/polygon"
-  // even though we sampled zero features), seed geometryTypes from
-  // it. Without this an empty spatial sublayer would slip into the
-  // isTable branch below.
-  const declaredGeometry =
-    raw && typeof raw === 'object'
-      ? (raw as { __declaredGeometry?: GeometryFamily }).__declaredGeometry
-      : undefined;
-  if (declaredGeometry && geometryTypes.size === 0) {
-    geometryTypes.add(declaredGeometry);
-  }
   // Loaded successfully but no geometry showed up: this is a
   // table, even if the source isn't arcgis-rest. Catches the
   // geojson-url case where someone hands us an attribute-only
-  // FeatureCollection (rare but possible). Empty v3 spatial
-  // sublayers are excluded by the declaredGeometry seed above.
+  // FeatureCollection (rare but possible). v3 sublayers never get
+  // here: their branch above returns with the declared geometry.
   const isTable =
     featureCollection !== null && geometryTypes.size === 0;
   const out: LayerMetadata = {
@@ -502,6 +492,45 @@ export function metadataFromFeatureCollection(
     // one geometry sample = spatial layer.
     isTable: geometryTypes.size === 0 && fc.features.length > 0,
     error: null,
+    loading: false,
+  };
+}
+
+/**
+ * Fields and geometry of a PostGIS Live table, from the snapshot the
+ * service item stored when it was probed. Empty (not an error) when
+ * the service item cannot be read or no longer lists the table.
+ */
+async function postgisLiveMetadata(
+  serviceItemId: string,
+  tableName: string,
+  signal: AbortSignal | undefined,
+): Promise<LayerMetadata> {
+  if (!isUuid(serviceItemId)) return { ...EMPTY, loading: false };
+  const init: RequestInit = {};
+  if (signal) init.signal = signal;
+  const res = await fetch(`/api/portal/items/${serviceItemId}`, init);
+  if (!res.ok) return { ...EMPTY, loading: false };
+  const item = (await res.json()) as {
+    data?: {
+      layers?: Array<{
+        name?: string;
+        geometryKind?: string;
+        columns?: Array<{ name?: string }>;
+      }>;
+    };
+  };
+  const snap = item.data?.layers?.find((l) => l.name === tableName);
+  if (!snap) return { ...EMPTY, loading: false };
+  const fields = (snap.columns ?? [])
+    .map((c) => c.name)
+    .filter((n): n is string => typeof n === 'string' && n.length > 0)
+    .sort();
+  const fam = geometryFamily(snap.geometryKind);
+  return {
+    ...EMPTY,
+    fields,
+    geometryTypes: fam ? new Set([fam]) : new Set<GeometryFamily>(),
     loading: false,
   };
 }

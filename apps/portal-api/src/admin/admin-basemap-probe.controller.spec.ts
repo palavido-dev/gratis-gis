@@ -331,7 +331,8 @@ describe('AdminBasemapProbeController WMS', () => {
         crs: 'EPSG:3857',
       },
       title: 'Example WMS',
-      attribution: 'None',
+      // "None" is the OGC word for "no constraints", not an
+      // attribution, and this document has no organization.
     });
   });
 
@@ -586,5 +587,70 @@ describe('AdminBasemapProbeController attribution sanitizing', () => {
       'https://tile.example.org/{z}/{x}/{y}.png',
     );
     expect('attribution' in result).toBe(false);
+  });
+});
+
+describe('AdminBasemapProbeController MapServer and constraints', () => {
+  const controller = new AdminBasemapProbeController();
+
+  it('keeps a pasted query string out of the middle of the metadata and tile URLs', async () => {
+    stubFetch({
+      'https://gis.example.org/rest/services/X/MapServer?f=json&token=abc':
+        JSON.stringify({ mapName: 'X', singleFusedMapCache: true }),
+    });
+    const result = await controller.probe(
+      'https://gis.example.org/rest/services/X/MapServer?token=abc',
+    );
+    expect(result.tileUrl).toBe(
+      'https://gis.example.org/rest/services/X/MapServer/tile/{z}/{y}/{x}?token=abc',
+    );
+  });
+
+  it('refuses a dynamic MapServer that has no cached tiles', async () => {
+    stubFetch({
+      'https://gis.example.org/rest/services/X/MapServer?f=json': JSON.stringify({
+        mapName: 'X',
+        singleFusedMapCache: false,
+      }),
+    });
+    await expect(
+      controller.probe('https://gis.example.org/rest/services/X/MapServer'),
+    ).rejects.toThrow(/cached tiles/);
+  });
+
+  it('refuses an ArcGIS error body sent with HTTP 200', async () => {
+    stubFetch({
+      'https://gis.example.org/rest/services/X/MapServer?f=json': JSON.stringify({
+        error: { code: 499, message: 'Token Required' },
+      }),
+    });
+    await expect(
+      controller.probe('https://gis.example.org/rest/services/X/MapServer'),
+    ).rejects.toThrow(/Token Required/);
+  });
+
+  it('does not use the reserved word "none" as the attribution', async () => {
+    const wmtsCaps = `<?xml version="1.0" encoding="UTF-8"?>
+<Capabilities xmlns:ows="http://www.opengis.net/ows/1.1" version="1.0.0">
+  <ows:ServiceIdentification><ows:Title>Test</ows:Title><ows:AccessConstraints>NONE</ows:AccessConstraints></ows:ServiceIdentification>
+  <ows:ServiceProvider><ows:ProviderName>Acme Mapping</ows:ProviderName></ows:ServiceProvider>
+  <Contents>
+    <Layer>
+      <ows:Identifier>L</ows:Identifier>
+      <TileMatrixSetLink><TileMatrixSet>W</TileMatrixSet></TileMatrixSetLink>
+      <ResourceURL format="image/png" resourceType="tile" template="https://x/{TileMatrix}/{TileRow}/{TileCol}.png"/>
+    </Layer>
+    <TileMatrixSet>
+      <ows:Identifier>W</ows:Identifier>
+      <ows:SupportedCRS>EPSG:3857</ows:SupportedCRS>
+      <TileMatrix><ows:Identifier>0</ows:Identifier></TileMatrix>
+    </TileMatrixSet>
+  </Contents>
+</Capabilities>`;
+    stubFetch({
+      'https://x.org/wmts?service=WMTS&request=GetCapabilities&version=1.0.0': wmtsCaps,
+    });
+    const result = await controller.probe('https://x.org/wmts');
+    expect(result.attribution).toBe('Acme Mapping');
   });
 });

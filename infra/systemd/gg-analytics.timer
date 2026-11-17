@@ -9,8 +9,8 @@ Documentation=https://github.com/palavido-dev/gratis-gis
 # the collector reads only the bytes appended since the last run.
 OnBootSec=5min
 OnUnitActiveSec=15min
-# Catch up after a reboot rather than waiting a full interval.
-Persistent=true
+# OnBootSec above is what runs it soon after a reboot. Persistent=
+# applies only to OnCalendar timers, so it is not set here.
 Unit=gg-analytics.service
 
 [Install]

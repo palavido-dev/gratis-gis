@@ -37,7 +37,8 @@ in the `feature_attachment` table.
 ## B
 
 **Basemap.** Item type wrapping a single base-layer reference
-(style URL, tile URL, WMS, or portal map). Every map picks one.
+(style URL, tile URL, or WMS). Composing a basemap from a portal
+map is Phase 2 and not selectable yet. Every map picks one.
 
 **Bitemporal.** Stored with two time dimensions: when an event
 happened in the world and when the system observed it. The
@@ -65,15 +66,16 @@ maps, forms, web apps). Formerly "publisher" in AGO vocabulary.
 ## D
 
 **Data layer.** The native item type for feature data, owned by
-the portal. One or more PostGIS-backed sublayers. The native
-equivalent of an AGO feature service.
+the portal. One or more PostGIS-backed sublayers. Closest portal
+analogue to an AGO hosted feature service, not a drop-in clone.
 
 **Dependency.** A reference from one item to another. The portal
 tracks dependencies in both directions so you can see what a
 map references and what references a map.
 
-**Derived layer.** Item type whose features are the materialized
-result of an analysis pipeline. Lives in its own PostGIS table.
+**Derived layer.** Item type that stores an analysis recipe and
+computes features on read via PostGIS. Does not keep a separate
+warehouse table of output rows.
 
 ## E
 
@@ -157,10 +159,17 @@ values plus labels. Schema fields can reference a pick list.
 by Tile layer items. Range-readable over HTTP, no server
 compute.
 
+**Print template.** Item type for a paper layout (page size,
+positioned map / legend / text / parameters) used by the Print
+widget and the map editor Print button. Renders via the browser
+print path; not a DOCX/report document.
+
 ## R
 
-**Report template.** Item type wrapping a parametrized document
-layout that produces a populated PDF or DOCX on run.
+**Report template.** Reserved item type for a parametrized
+document layout that would produce PDF or DOCX from layer rows
+or form submissions. Not built; use a print template for paper
+maps.
 
 ## S
 

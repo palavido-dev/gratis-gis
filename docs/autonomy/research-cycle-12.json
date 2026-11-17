@@ -1,0 +1,265 @@
+{
+  "cycle": 12,
+  "researchedAt": "2026-10-28T09:40:00Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-11; R11 ship-without-input drained on origin/main through #433 (field feature-sheet/offline/layers i18n #424-#426, print_template help #427, Contour #429, Group-by #430, SEC feedback/comments/OGC Features throttles #431-#433; #428 closed superseded). Open issues still only #162 (Weblate needs-maintainer) and #183 (OPEN; Tile3D / SSE stay needs-maintainer). Security Sentinel this cycle: clean after #433; deep-dive SEC-* + R11 SEC throttles shipped; no new @Public / BFF allowlist regressions; safeFetch, zip/GDAL budgets, otherSource ACL, Records 60/min + bbox scan, ToolsController.run 30/min, feedback 30/min, comments list 60/min, OGC Features items 60/min intact. Honesty/i18n scan after R11: derived-layer.md + tool.md Analyze blurbs include Contour/Group-by; print_template help honest; sync-conflict Re-apply/Dismiss already documented on data-layer.md / data-collection.md. Remaining gaps: field-runtime still hard-codes aria-label Back / Cancel, empty editable-layers footer copy, and vertex-progress subtitle (N vertices / tap Finish / need N more); map-editor rightPanelTitle still hard-codes Map settings though layer panel Add layer/group is already t(); PwaInstallButton still hard-codes Install / Dismiss / iOS copy; Public STAC items+search (limit up to 1000) and Public drawings GET list ride only the global 300/min guard; Public features-page (limit up to 5000) and features-search lack a tighter Nest @Throttle. Analyze Buffer-shaped registry is saturated (spatial-join / spatial-filter / filter / calculate-field stay builder-only per R11 rejects). Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, multi-input Analyze shortcuts, calculate-field / filter Analyze shortcuts, report-template implementation, and OGC Tiles byte-stream throttle rejected.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T09:38:00Z",
+    "result": "clean",
+    "notes": "No new @Public routes or BFF anonymous allowlist entries since #433. Feedback POST 30/min, comments GET list 60/min, OGC Features items + featureId 60/min, tools/run 30/min, drawings writes 30/min, Records list 60/min all intact. Global ThrottlerGuard 300/min still covers Public controllers that lack a tighter decorator: STAC items/search (limit clamp 1000), PublicController features-page (limit clamp 5000) + features-search + geojson/features mirrors, drawings GET list, OGC citation exports, OGC Features collection landing, OGC Tiles matrix/tile routes, portal-info, health, thumbnails, storage/point-cloud/tile proxies (ACL + key-pinned). User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; Keycloak admin and env-configured basemap HEAD probes stay operator-trusted. Zip central-directory budget and assertSafeGdalOpenPath still guard /vsizip/; derived-layer otherSource canRead checks remain. Deep-dive SEC-* + R11 SEC throttles shipped. No High hardening queued; Low follow-ups: SEC-stac-items-search-throttle (60/min), SEC-drawings-list-throttle (60/min), SEC-public-features-page-throttle (60/min on features-page + features-search)."
+  },
+  "proposals": [
+    {
+      "id": "R12-i18n-field-runtime-nav-chrome",
+      "title": "Continue #162 i18n on field runtime Back / Cancel / empty-layers chrome",
+      "summary": "After R11 feature-sheet / offline / layers i18n (#424-#426), field-runtime still hard-codes aria-label=\"Back\" on the deployment header Link, aria-label=\"Cancel\" on the armed-template footer X, and the empty-state footer copy \"No editable layers in this map.\". Extract into fieldRuntime catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Highest-visibility leftover #162 field slice after R11. Collectors hit Back and Cancel on every session; empty-map footer is the first thing a misconfigured deployment shows.",
+      "risk": "Reuse fieldRuntime.closeAria where Cancel wording matches Close. Scope to runtime chrome only, not FormModal. Machine-translate non-en with the Phase 1.1 pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free field chrome. No Contour brand kit.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/426"
+      ],
+      "suggestedFirstPR": "Wire Back / Cancel aria-labels + empty editable-layers footer into en/es/fr/de/pt-BR; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R12-i18n-field-vertex-progress-chrome",
+      "title": "Continue #162 i18n on line/polygon vertex progress subtitle",
+      "summary": "Armed multi-vertex collect footer still builds English with template literals: `${n} vertex/vertices — tap Finish` and `— need ${n} more`. Undo/Finish/Add-at-GPS buttons already use t(); finish the subtitle with plural-aware catalog keys (fieldRuntime.vertexProgressReady / vertexProgressNeed).",
+      "rationale": "Second finishable #162 field slice. Line/polygon collect is the highest-friction capture path; leftover English undoes R9/R10 collect i18n on the same footer.",
+      "risk": "Keep minVerts thresholds (2 line / 3 polygon) as code; only translate the progress phrase. Do not invent new Finish UX.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest collect chrome in the collector's language. No Field Maps cosplay.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "i18n vertex progress subtitle keys; CHANGELOG docs note optional; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R12-i18n-map-settings-title",
+      "title": "Continue #162 i18n on map editor Map settings panel title",
+      "summary": "map-editor.tsx still passes rightPanelTitle=\"Map settings\" as a literal while mapLayerPanel Add layer/group already uses t(). Wire through mapSettings (or mapEditor) catalog keys in en/es/fr/de/pt-BR.",
+      "rationale": "Authors who switched locale still see English on the right settings rail. Small, finishable #162 portal chrome slice.",
+      "risk": "Title-only change. Do not redesign the settings panel. Confirm mapSettings catalog already exists before inventing a parallel namespace.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free portal chrome. No brand redesign.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/map/map-editor.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Replace Map settings literal with t(); add locale rows; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R12-i18n-pwa-install-chrome",
+      "title": "Continue #162 i18n on PWA Install / Dismiss chrome",
+      "summary": "PwaInstallButton still hard-codes Install / Install GratisGIS... / Install on iOS / aria-label Dismiss. Used from field runtime + items list. Extract into a small pwaInstall catalog with t() calls.",
+      "rationale": "Third finishable #162 chrome slice. Install prompt is the gate to home-screen / offline-friendly storage for non-English collectors.",
+      "risk": "Do not change beforeinstallprompt / iOS Share heuristics. Scope to visible strings only.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted PWA chrome in the user's language. No Weblate hosting choice.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/components/pwa-install-button.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "i18n Install/Dismiss/iOS copy; skip What's new.",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R12-sync-conflict-help-crosslink",
+      "title": "Cross-link sync conflict Re-apply / Dismiss from Layer data help",
+      "summary": "data-layer.md and data-collection.md already describe sync conflict Re-apply / Dismiss. Confirm Layer data panel help / getting-started offline paths link those sections, and that analysis or field help does not oversell CRDT merge. Small docs honesty / discoverability pass; no product change.",
+      "rationale": "Editors who hit the Layer data warn banner may not find the written Re-apply path. Cheap docs ship after R11 drained Analyze shortcuts.",
+      "risk": "Docs-only. Do not invent CRDT / presence merge. Keep drawings conflict language honest (not multi-user CRDT).",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about sync conflict review. No presence CRDT.",
+      "sources": [
+        "apps/portal-web/content/help/items/data-layer.md",
+        "apps/portal-web/content/help/items/data-collection.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/sync-conflicts-panel.tsx"
+      ],
+      "suggestedFirstPR": "Add/verify related links + short Layer data pointer; CHANGELOG docs note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R12-tool-help-post-r11-honesty",
+      "title": "Confirm tool.md / derived-layer.md match Contour + Group-by Analyze",
+      "summary": "After #429/#430, spot-check items/tool.md and items/derived-layer.md Analyze lists against layer-analyze-panel.tsx. Fix any leftover Buffer/Clip-only parenthetical or missing Contour/Group-by mention. Also confirm Public tools/run 30/min note remains.",
+      "rationale": "R11-tool-help was closed superseded by Contour tool.md refresh; a short post-drain honesty pass prevents drift before R12 Analyze work (none planned).",
+      "risk": "Docs-only. Do not claim Filter / Spatial join Analyze shortcuts. CHANGELOG docs note only if something was actually wrong.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest catalog of free Analyze paths.",
+      "sources": [
+        "apps/portal-web/content/help/items/tool.md",
+        "apps/portal-web/content/help/items/derived-layer.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx"
+      ],
+      "suggestedFirstPR": "Diff help vs panel; patch only if stale; otherwise close as already honest with a QUEUE done note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-stac-items-search-throttle",
+      "title": "Tighter throttle on Public STAC items + search",
+      "summary": "StacController items / search GET / search POST are @Public with only the global 300/min ThrottlerGuard while parseSearchParams clamps limit up to 1000. Anonymous crawlers can page public tile_layer catalogs harder than Records (already 60/min). Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on items + both search methods matching Records / OGC Features items.",
+      "rationale": "Standing Low follow-up after SEC-ogc-features-throttle. Same class of Public catalog scan without a product call.",
+      "risk": "Legitimate STAC clients that poll may hit 60/min. Prefer 60; document in CHANGELOG Security. Keep limit clamp and public ACL unchanged.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without waiting on pricing or Keycloak defaults.",
+      "sources": [
+        "apps/portal-api/src/public/stac/stac.controller.ts",
+        "apps/portal-api/src/public/stac/stac-core.ts",
+        "apps/portal-api/src/public/ogc/features.controller.ts",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on STAC items + search GET/POST; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-drawings-list-throttle",
+      "title": "Tighter throttle on Public GET map drawings list",
+      "summary": "DrawingsController.list is @Public (service gates non-public via canRead) with only the global 300/min ThrottlerGuard, while create/update/delete already use @Throttle 30/min. Anonymous callers can hammer drawing-set polling on public maps. Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on list matching comments list.",
+      "rationale": "Low hardening complementary to drawings write throttle and comments list throttle. No anonymous-markup product change.",
+      "risk": "Busy public maps with many pollers may hit 60/min. Prefer 60; document in CHANGELOG Security. Leave write throttles at 30/min.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without waiting on abuse product calls.",
+      "sources": [
+        "apps/portal-api/src/items/drawings.controller.ts",
+        "apps/portal-api/src/items/comments.controller.ts",
+        "docs/autonomy/research-cycle-11.json"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on DrawingsController.list; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-public-features-page-throttle",
+      "title": "Tighter throttle on Public features-page + features-search",
+      "summary": "PublicController layerFeaturesPage defaults limit 5000 (clamped) and layerFeaturesSearch is @Public with only the global 300/min guard. Anonymous attribute-table / search widgets on public items can scan harder than OGC Features items (now 60/min). Add @Throttle({ default: { ttl: 60_000, limit: 60 } }) on features-page and features-search; leave MVT tiles and ACL/geo clip unchanged.",
+      "rationale": "Standing Low follow-up after Features items throttle. Same Public DoS class (pagination + throttle + max row scan already exist; Nest rate was the missing piece).",
+      "risk": "Public custom apps that auto-refresh tables may hit 60/min. Prefer 60 to match Records/Features; document in CHANGELOG Security. Do not lower the 5000 clamp in the same PR.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without inventing a new public tier.",
+      "sources": [
+        "apps/portal-api/src/public/public.controller.ts",
+        "apps/portal-api/src/public/ogc/features.controller.ts",
+        "docs/research/security-deep-dive-2026-10-27.md"
+      ],
+      "suggestedFirstPR": "Add @Throttle 60/min on features-page + features-search; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R12-i18n-field-offline-basemap-row",
+      "title": "Continue #162 i18n on offline basemap row chrome if any literals remain",
+      "summary": "offline-basemap-row.tsx + DownloadProgressDialog were largely covered by #425. Spot-check for leftover English titles/buttons after R11 and extract any remaining literals into fieldRuntime. Close as already-done if clean.",
+      "rationale": "Defensive #162 follow-through so R12 does not leave a known field file half-done after the offline panel pass.",
+      "risk": "Likely a no-op. Prefer closing with evidence over inventing duplicate keys.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Finishable i18n only. No Weblate hosting.",
+      "sources": [
+        "apps/portal-web/src/app/items/[id]/field/offline-basemap-row.tsx",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "https://github.com/palavido-dev/gratis-gis/pull/425"
+      ],
+      "suggestedFirstPR": "Grep literals; patch or mark done in QUEUE with evidence.",
+      "relatedIssues": [162]
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R12-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer field/portal i18n and Low SEC."
+    },
+    {
+      "id": "R12-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Fails playbook brand test. Print help honesty already shipped in #427."
+    },
+    {
+      "id": "R12-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R12-reject-recipe-materialize-sinks",
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks",
+      "reason": "Honesty already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a first PR."
+    },
+    {
+      "id": "R12-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild as closing #183",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer."
+    },
+    {
+      "id": "R12-reject-weblate-hosting",
+      "title": "Reject choosing Weblate vs Crowdin vs Tolgee",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction only."
+    },
+    {
+      "id": "R12-reject-analyze-multi-input-shortcuts",
+      "title": "Reject Spatial join / Spatial filter Analyze shortcuts",
+      "reason": "R11 rejection still holds. Multi-source otherSource pickers are heavy Analyze UX; Clip/Erase already cover mask pickers; honesty help already shipped."
+    },
+    {
+      "id": "R12-reject-analyze-calculate-field-shortcut",
+      "title": "Reject Calculate field Analyze shortcut",
+      "reason": "Expression dialect needs a real expression editor. Calculate geometry already covers meter-honest measures."
+    },
+    {
+      "id": "R12-reject-analyze-filter-shortcut",
+      "title": "Reject Filter Analyze shortcut",
+      "reason": "Filter is a free-form {{field}} expression. AnalyzeQueryBuilder covers ad-hoc SQL preview; materialised filter recipes stay on the builder."
+    },
+    {
+      "id": "R12-reject-report-template-item",
+      "title": "Reject building the Report template item type",
+      "reason": "report-template.md honestly says not built. Implementing DOCX/PDF document reports is a new pillar."
+    },
+    {
+      "id": "R12-reject-ogc-tiles-byte-throttle",
+      "title": "Reject Nest @Throttle on OGC Tiles PNG/MVT byte routes",
+      "reason": "Tile endpoints are high-frequency map traffic; a 60/min Nest limit would break legitimate MapLibre loads. Prefer CDN / edge / existing ACL. STAC catalog + features-page are the better Low SEC targets."
+    },
+    {
+      "id": "R12-reject-presence-crdt",
+      "title": "Reject live cursors Phase 2 CRDT",
+      "reason": "Abuse / transport defaults stay needs-maintainer. Presence WebSocket frame cap already shipped."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ],
+  "queueRecommendation": [
+    "R12-i18n-field-runtime-nav-chrome",
+    "R12-i18n-field-vertex-progress-chrome",
+    "R12-i18n-map-settings-title",
+    "R12-i18n-pwa-install-chrome",
+    "R12-sync-conflict-help-crosslink",
+    "R12-tool-help-post-r11-honesty",
+    "R12-i18n-field-offline-basemap-row",
+    "SEC-stac-items-search-throttle",
+    "SEC-drawings-list-throttle",
+    "SEC-public-features-page-throttle"
+  ]
+}

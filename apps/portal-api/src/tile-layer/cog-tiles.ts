@@ -21,23 +21,14 @@
 /** Tiles are 256px, matching the XYZ grid every client assumes. */
 export const COG_TILE_SIZE = 256;
 
-/** Half the web-mercator world width in meters. */
-const HALF_WORLD = Math.PI * 6378137;
-
-export interface Bbox3857 {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
-/** Web-mercator bounds of an XYZ tile. */
-export function tileBounds3857(z: number, x: number, y: number): Bbox3857 {
-  const span = (2 * HALF_WORLD) / 2 ** z;
-  const minX = -HALF_WORLD + x * span;
-  const maxY = HALF_WORLD - y * span;
-  return { minX, minY: maxY - span, maxX: minX + span, maxY };
-}
+// The tile grid maths is shared with the elevation mosaic, which
+// needs exactly the same bounds. One copy, so the two cannot drift.
+export {
+  tileBbox3857 as tileBounds3857,
+  tileBboxWgs84 as tileBoundsWgs84,
+  type Bbox3857,
+} from './elevation-mosaic.compositor.js';
+import type { Bbox3857 } from './elevation-mosaic.compositor.js';
 
 /**
  * Does this source need an alpha band added during the warp?
@@ -85,6 +76,27 @@ export function warpArgs(
   ];
   if (addAlpha) args.push('-dstalpha');
   return args;
+}
+
+/**
+ * gdal_translate arguments that cut a warped Byte raster down to
+ * something the PNG driver will write, or null when it already fits.
+ *
+ * PNG takes at most 4 bands. A 4-band source whose last band is not
+ * tagged Alpha (RGB plus near-infrared, as NAIP ships) gains a fifth
+ * from -dstalpha, and a source with more bands than that is over the
+ * limit before the warp. Keeping bands 1 to 3 as the picture plus the
+ * alpha band draws it as true colour with a transparent edge.
+ */
+export function pngBandSelectArgs(
+  warpedBandCount: number,
+  alphaBandIndex: number,
+): string[] | null {
+  if (warpedBandCount <= 4) return null;
+  return [
+    '-of', 'MEM',
+    '-b', '1', '-b', '2', '-b', '3', '-b', String(alphaBandIndex),
+  ];
 }
 
 /**
@@ -153,22 +165,4 @@ export function isValidTileAddress(z: number, x: number, y: number): boolean {
   if (z < 0 || z > 24) return false;
   const n = 2 ** z;
   return x >= 0 && y >= 0 && x < n && y < n;
-}
-
-/**
- * WGS84 [w, s, e, n] bounds of an XYZ tile, for the cheap footprint
- * test against the lon/lat bbox stamped on the item. A tile outside
- * the raster is answered without opening the raster at all, which is
- * most of them for a county-sized image on a world grid.
- */
-export function tileBoundsWgs84(
-  z: number,
-  x: number,
-  y: number,
-): [number, number, number, number] {
-  const { minX, minY, maxX, maxY } = tileBounds3857(z, x, y);
-  const lon = (v: number) => (v / HALF_WORLD) * 180;
-  const lat = (v: number) =>
-    (Math.atan(Math.sinh(v / 6378137)) * 180) / Math.PI;
-  return [lon(minX), lat(minY), lon(maxX), lat(maxY)];
 }

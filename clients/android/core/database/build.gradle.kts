@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // :core:database: Room. The stores mirror the web runtime's IndexedDB
 // layout in apps/portal-web/src/lib/offline-store.ts (deployments,
 // features, forms, pickLists, queue, blobs, meta); the field names on

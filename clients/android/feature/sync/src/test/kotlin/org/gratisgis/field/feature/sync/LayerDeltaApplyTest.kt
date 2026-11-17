@@ -114,4 +114,30 @@ class LayerDeltaApplyTest {
     assertEquals(true, props["back"]?.jsonPrimitive?.booleanOrNull)
     assertEquals("x", props["_global_id"]?.jsonPrimitive?.contentOrNull)
   }
+
+  @Test
+  fun keepsConflictTokenAndEditorFieldsAFullReadCarries() {
+    val result = LayerDeltaApply.applyDeltaChanges(
+      listOf(
+        change("e", "update").copy(
+          observationId = "head-2",
+          authorSub = "boss",
+          txTime = "2026-11-08T10:00:00.000Z",
+          createdBy = "worker",
+          createdAt = "2026-11-01T00:00:00.000Z",
+        ),
+      ),
+      collectionId = "dc-1",
+      dataLayerId = "dl-1",
+      layerKey = "main",
+      cachedAt = "2026-11-08T11:00:00.000Z",
+    )
+    val props = json.parseToJsonElement(result.upserts[0].featureJson)
+      .jsonObject["properties"]!!.jsonObject
+    assertEquals("head-2", props["_observation_id"]?.jsonPrimitive?.contentOrNull)
+    assertEquals("boss", props["_edited_by"]?.jsonPrimitive?.contentOrNull)
+    assertEquals("2026-11-08T10:00:00.000Z", props["_edited_at"]?.jsonPrimitive?.contentOrNull)
+    assertEquals("worker", props["_created_by"]?.jsonPrimitive?.contentOrNull)
+    assertEquals("2026-11-01T00:00:00.000Z", props["_created_at"]?.jsonPrimitive?.contentOrNull)
+  }
 }

@@ -17,6 +17,9 @@ import type { OfflineMessage } from '@gratis-gis/shared-types';
 
 import {
   enqueueEdit,
+  listFeaturesForLayer,
+  listQueueAllOwners,
+  putFeatures,
   listPendingBlobs,
   listPendingBlobsForFeature,
   listQueue,
@@ -505,5 +508,418 @@ describe('uploadPendingBlobsForFeature', () => {
     // collector to delete or replace.
     expect(calls()).toHaveLength(2);
     expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
+  });
+});
+
+describe('syncQueue: form attachments pending in the properties', () => {
+  // A signature (or photo) answer captured offline in the field app is
+  // a { dataUrl } attachment inside the feature's properties. The
+  // replay uploads it first, so the row stores a descriptor, not base64.
+  const DATA_URL = 'data:image/png;base64,QQ==';
+  const pendingSig = () => [
+    { name: 'signature.png', mimeType: 'image/png', sizeBytes: 1, dataUrl: DATA_URL },
+  ];
+
+  it('uploads it before the write and sends the descriptor', async () => {
+    await enqueueEdit(edit({ properties: { species: 'oak', sig: pendingSig() } }));
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('data:')) {
+        return new Response(new Blob([new Uint8Array([65])], { type: 'image/png' }));
+      }
+      if (url === '/api/portal/storage/presign-upload') return json(200, PRESIGN_OK);
+      if (url === PRESIGN_OK.uploadUrl) return new Response(null, { status: 200 });
+      if (url === FEATURES_PATH && init?.method === 'POST') return json(201, {});
+      throw new Error(`unexpected ${init?.method ?? 'GET'} ${url}`);
+    });
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    expect(calls().filter((c) => !c.url.startsWith('data:'))).toEqual([
+      { url: '/api/portal/storage/presign-upload', method: 'POST' },
+      { url: PRESIGN_OK.uploadUrl, method: 'PUT' },
+      { url: FEATURES_PATH, method: 'POST' },
+    ]);
+    const post = fetchMock.mock.calls.find(
+      ([url, init]) => url === FEATURES_PATH && init?.method === 'POST',
+    )!;
+    const sent = JSON.parse(String(post[1]!.body)) as {
+      features: Array<{ properties: Record<string, unknown> }>;
+    };
+    expect(sent.features[0]!.properties).toEqual({
+      species: 'oak',
+      sig: [
+        {
+          name: 'signature.png',
+          mimeType: 'image/png',
+          sizeBytes: 1,
+          url: PRESIGN_OK.publicUrl,
+          key: PRESIGN_OK.key,
+        },
+      ],
+    });
+    expect(await listQueue(DC, USER)).toEqual([]);
+  });
+
+  it('keeps the row, and its pending image, when the upload cannot reach the network', async () => {
+    await enqueueEdit(edit({ properties: { species: 'oak', sig: pendingSig() } }));
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('data:')) {
+        return new Response(new Blob([new Uint8Array([65])], { type: 'image/png' }));
+      }
+      throw new TypeError('Failed to fetch');
+    });
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(0);
+    expect(result.errors[0]?.terminal).toBe(false);
+    const [row] = await listQueue(DC, USER);
+    // An outage, not the row's fault: back as it was, image still
+    // pending for the next drain, and no feature write was attempted.
+    expect(row!.syncStatus).toBe('pending');
+    expect(row!.retryCount).toBeUndefined();
+    expect(row!.properties).toEqual({ species: 'oak', sig: pendingSig() });
+    expect(calls().some((c) => c.url === FEATURES_PATH)).toBe(false);
+  });
+});
+
+describe('syncQueue: an uploaded form attachment is kept across a failed write (54-8)', () => {
+  const DATA_URL = 'data:image/png;base64,QQ==';
+  const pendingSig = () => [
+    { name: 'signature.png', mimeType: 'image/png', sizeBytes: 1, dataUrl: DATA_URL },
+  ];
+  const descriptor = {
+    name: 'signature.png',
+    mimeType: 'image/png',
+    sizeBytes: 1,
+    url: PRESIGN_OK.publicUrl,
+    key: PRESIGN_OK.key,
+  };
+
+  it('uploads the image once, and sends the feature once it is accepted', async () => {
+    await enqueueEdit(edit({ properties: { species: 'oak', sig: pendingSig() } }));
+    let featureStatus = 500;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('data:')) {
+        return new Response(new Blob([new Uint8Array([65])], { type: 'image/png' }));
+      }
+      if (url === '/api/portal/storage/presign-upload') return json(200, PRESIGN_OK);
+      if (url === PRESIGN_OK.uploadUrl) return new Response(null, { status: 200 });
+      if (url === FEATURES_PATH && init?.method === 'POST') {
+        return json(featureStatus, featureStatus === 500 ? { message: 'down' } : {});
+      }
+      throw new Error(`unexpected ${init?.method ?? 'GET'} ${url}`);
+    });
+
+    // First attempt: the image lands, the feature write does not.
+    const first = await syncQueue(DC, { currentUserId: USER });
+    expect(first.synced).toBe(0);
+    const [row] = await listQueue(DC, USER);
+    expect(row!.syncStatus).toBe('failed');
+    expect(row!.properties).toEqual({ species: 'oak', sig: [descriptor] });
+
+    // Second attempt (a person pressed Sync now): no second upload.
+    featureStatus = 201;
+    const second = await syncQueue(DC, { currentUserId: USER, manual: true });
+    expect(second.synced).toBe(1);
+    const puts = calls().filter((c) => c.url === PRESIGN_OK.uploadUrl);
+    expect(puts).toHaveLength(1);
+    const posts = fetchMock.mock.calls.filter(
+      ([url, init]) => url === FEATURES_PATH && init?.method === 'POST',
+    );
+    expect(posts).toHaveLength(2);
+    const sent = JSON.parse(String(posts[1]![1]!.body)) as {
+      features: Array<{ properties: Record<string, unknown> }>;
+    };
+    expect(sent.features[0]!.properties).toEqual({ species: 'oak', sig: [descriptor] });
+    expect(await listQueueAllOwners(DC)).toEqual([]);
+  });
+
+  it('keeps the uploaded image when the feature write cannot reach the network', async () => {
+    await enqueueEdit(edit({ properties: { species: 'oak', sig: pendingSig() } }));
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('data:')) {
+        return new Response(new Blob([new Uint8Array([65])], { type: 'image/png' }));
+      }
+      if (url === '/api/portal/storage/presign-upload') return json(200, PRESIGN_OK);
+      if (url === PRESIGN_OK.uploadUrl) return new Response(null, { status: 200 });
+      if (url === FEATURES_PATH && init?.method === 'POST') throw new TypeError('Failed to fetch');
+      throw new Error(`unexpected ${init?.method ?? 'GET'} ${url}`);
+    });
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    const rows = await listQueueAllOwners(DC);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.syncStatus).toBe('pending');
+    expect(rows[0]!.properties).toEqual({ species: 'oak', sig: [descriptor] });
+  });
+});
+
+describe('syncQueue: conflict guard (docs/sync-protocol.md)', () => {
+  function bodyOf(i: number): Record<string, unknown> {
+    return JSON.parse(String(fetchMock.mock.calls[i]![1]!.body)) as Record<string, unknown>;
+  }
+
+  it('sends baseObservationId on the dry run and the real PATCH', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    fetchMock
+      .mockResolvedValueOnce(json(200, { ok: true }))
+      .mockResolvedValueOnce(
+        json(200, { type: 'Feature', id: 'feature-1', properties: { _observation_id: 'obs-new' } }),
+      );
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    expect(bodyOf(0).baseObservationId).toBe('obs-base');
+    expect(bodyOf(1).baseObservationId).toBe('obs-base');
+  });
+
+  it('sends baseObservationId on the dry run and the real DELETE', async () => {
+    await enqueueEdit(
+      edit({ op: 'delete', geometry: null, properties: null, baseObservationId: 'obs-base' }),
+    );
+    fetchMock
+      .mockResolvedValueOnce(json(200, { ok: true }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    expect(bodyOf(0)).toEqual({ baseObservationId: 'obs-base', checkOnly: true });
+    expect(bodyOf(1)).toEqual({ baseObservationId: 'obs-base' });
+  });
+
+  it('a folded chain keeps the first row base', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-first' }));
+    await enqueueEdit(
+      edit({
+        op: 'update',
+        geometry: null,
+        properties: { species: 'elm' },
+        baseObservationId: 'obs-later',
+      }),
+    );
+    const rows = await listQueue(DC, USER);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.baseObservationId).toBe('obs-first');
+  });
+
+  it('never puts a base on an insert', async () => {
+    await enqueueEdit(edit({ baseObservationId: 'obs-x' }));
+    const [row] = await listQueue(DC, USER);
+    expect(row!.baseObservationId).toBeUndefined();
+  });
+
+  it('treats a 409 that already holds the queued values as its own landed write', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    fetchMock.mockResolvedValueOnce(
+      json(409, {
+        statusCode: 409,
+        code: 'feature-conflict',
+        current: {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [1, 2] },
+          properties: { species: 'oak', _observation_id: 'obs-mine' },
+        },
+      }),
+    );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.synced).toBe(1);
+    expect(result.rejected).toBe(0);
+    expect(await listQueue(DC, USER)).toEqual([]);
+    // Only the dry run: nothing to send.
+    expect(calls()).toHaveLength(1);
+  });
+
+  it('still parks a 409 whose current differs', async () => {
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'obs-base' }));
+    fetchMock.mockResolvedValue(
+      json(409, {
+        statusCode: 409,
+        code: 'feature-conflict',
+        message: 'This feature was changed by someone else since you last read it.',
+        current: { type: 'Feature', geometry: null, properties: { species: 'pine' } },
+      }),
+    );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.rejected).toBe(1);
+  });
+
+  it('moves only the same account\'s later rows to the new head (shared device)', async () => {
+    // Account Y queued an edit against o1 first; this account (X)
+    // edits too and drains. Y's row must keep o1 so it 409s instead
+    // of overwriting X's write.
+    await enqueueEdit(
+      edit({ op: 'update', geometry: null, baseObservationId: 'o1', ownerUserId: 'user-bob' }),
+    );
+    await new Promise((r) => setTimeout(r, 5));
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'o1' }));
+    const [mine] = await listQueue(DC, USER);
+    // A later row of this account, authored on top of the one that lands.
+    await updateQueueRecord({
+      ...mine!,
+      id: 'later-row',
+      queuedAt: new Date(Date.parse(mine!.queuedAt) + 1000).toISOString(),
+      properties: { species: 'elm' },
+    });
+    fetchMock
+      .mockResolvedValueOnce(json(200, { ok: true }))
+      .mockResolvedValueOnce(
+        json(200, { type: 'Feature', id: 'feature-1', properties: { _observation_id: 'o2' } }),
+      );
+
+    await syncQueue(DC, { currentUserId: USER });
+
+    const rows = await listQueueAllOwners(DC);
+    const bob = rows.find((r) => r.ownerUserId === 'user-bob')!;
+    const later = rows.find((r) => r.id === 'later-row')!;
+    expect(bob.baseObservationId).toBe('o1');
+    expect(later.baseObservationId).toBe('o2');
+  });
+
+  it('does not move the cached token backwards when a newer one arrived', async () => {
+    const cached = (token: string) => ({
+      dataCollectionId: DC,
+      dataLayerId: LAYER.dataLayerId,
+      layerKey: LAYER.layerKey,
+      globalId: 'feature-1',
+      feature: {
+        type: 'Feature' as const,
+        geometry: { type: 'Point' as const, coordinates: [1, 2] },
+        properties: { _global_id: 'feature-1', _observation_id: token },
+      },
+      cachedAt: new Date().toISOString(),
+    });
+    const landing = () =>
+      fetchMock
+        .mockResolvedValueOnce(json(200, { ok: true }))
+        .mockResolvedValueOnce(
+          json(200, { type: 'Feature', id: 'feature-1', properties: { _observation_id: 'o2' } }),
+        );
+    const token = async () =>
+      ((await listFeaturesForLayer(DC, LAYER.dataLayerId, LAYER.layerKey))[0]!.properties as {
+        _observation_id?: string;
+      })._observation_id;
+
+    // A delta already delivered o3, newer than what this edit lands.
+    await putFeatures([cached('o3')]);
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'o1' }));
+    landing();
+    await syncQueue(DC, { currentUserId: USER });
+    expect(await token()).toBe('o3');
+
+    // Still at the base the edit was made against: moves forward.
+    await putFeatures([cached('o1')]);
+    await enqueueEdit(edit({ op: 'update', geometry: null, baseObservationId: 'o1' }));
+    landing();
+    await syncQueue(DC, { currentUserId: USER });
+    expect(await token()).toBe('o2');
+  });
+});
+
+describe('syncQueue: an edit folded in after the drain listed the queue', () => {
+  // The drain lists the queue once, then works through it with network
+  // I/O per row. A re-save of a later feature in that window folds into
+  // its still-pending row. The drain must send, and write back, the row
+  // as it is when claimed, never the copy it listed.
+  type Body = { features?: Array<{ globalId: string; properties: Record<string, unknown> }> };
+  const sentBody = (init?: RequestInit): Body =>
+    JSON.parse(String(init?.body ?? '{}')) as Body;
+
+  /** Hold the POST for `globalId` until `release` is called. */
+  function holdFirstFeature(globalId: string) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let reached!: () => void;
+    const reachedGate = new Promise<void>((r) => (reached = r));
+    return {
+      release,
+      reached: reachedGate,
+      async maybeHold(init?: RequestInit) {
+        if (sentBody(init).features?.[0]?.globalId === globalId) {
+          reached();
+          await gate;
+        }
+      },
+    };
+  }
+
+  /** Queue feature-w strictly before feature-x so the drain reaches w
+   *  first (rows queued in the same millisecond have no fixed order). */
+  async function queueWThenX(): Promise<void> {
+    const w = await enqueueEdit(edit({ globalId: 'feature-w' }));
+    if (w.kind !== 'queued') throw new Error('expected a fresh row');
+    await updateQueueRecord({ ...w.record, queuedAt: '2000-01-01T00:00:00.000Z' });
+    await enqueueEdit(edit({ globalId: 'feature-x', properties: { species: 'old' } }));
+  }
+
+  it('sends the newer values once and leaves no row behind', async () => {
+    await queueWThenX();
+    const hold = holdFirstFeature('feature-w');
+    fetchMock.mockImplementation(async (_url, init) => {
+      await hold.maybeHold(init);
+      return json(201, { inserted: 1 });
+    });
+
+    const run = syncQueue(DC, { currentUserId: USER });
+    await hold.reached;
+    // feature-x is re-saved while the drain is busy with feature-w.
+    const folded = await enqueueEdit(
+      edit({ op: 'update', globalId: 'feature-x', geometry: null, properties: { species: 'new' } }),
+    );
+    expect(folded.kind).toBe('folded');
+    hold.release();
+    const result = await run;
+
+    const xBodies = fetchMock.mock.calls
+      .map(([, init]) => sentBody(init).features?.[0])
+      .filter((f) => f?.globalId === 'feature-x');
+    // Sent exactly once, with the newer value.
+    expect(xBodies).toHaveLength(1);
+    expect(xBodies[0]!.properties).toEqual({ species: 'new' });
+    expect(result.synced).toBe(2);
+    expect(await listQueueAllOwners(DC)).toEqual([]);
+  });
+
+  it('keeps the newer values queued when the send cannot reach the network', async () => {
+    await queueWThenX();
+    const hold = holdFirstFeature('feature-w');
+    fetchMock.mockImplementation(async (_url, init) => {
+      await hold.maybeHold(init);
+      if (sentBody(init).features?.[0]?.globalId === 'feature-x') {
+        throw new TypeError('Failed to fetch');
+      }
+      return json(201, { inserted: 1 });
+    });
+
+    const run = syncQueue(DC, { currentUserId: USER });
+    await hold.reached;
+    await enqueueEdit(
+      edit({ op: 'update', globalId: 'feature-x', geometry: null, properties: { species: 'new' } }),
+    );
+    hold.release();
+    await run;
+
+    const rows = await listQueueAllOwners(DC);
+    // One row, still pending, holding the newer value: nothing lost.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.globalId).toBe('feature-x');
+    expect(rows[0]!.syncStatus).toBe('pending');
+    expect(rows[0]!.properties).toEqual({ species: 'new' });
+  });
+});
+
+describe('syncQueue: deployment owner notification', () => {
+  it('sends the data collection header on a queued insert, as the online add does', async () => {
+    await enqueueEdit(edit());
+    fetchMock.mockResolvedValue(json(201, { inserted: 1 }));
+    await syncQueue(DC, { currentUserId: USER });
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init?.headers as Record<string, string>)['x-data-collection-id']).toBe(DC);
   });
 });

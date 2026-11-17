@@ -11,18 +11,17 @@ import {
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { IngestService } from '../ingest/ingest.service.js';
 import { IngestStagingService } from '../ingest/ingest-staging.service.js';
 import { ImportJobsService } from './import-jobs.service.js';
 import type { DataLayerLayerShape } from '../data-layer/tables.service.js';
 
 class CreateImportJobDto {
-  @IsString() stagingId!: string;
+  @IsUUID() stagingId!: string;
   @IsString() sourceLayerName!: string;
   @IsOptional() @IsIn(['replace', 'append']) mode?: 'replace' | 'append';
 }
@@ -49,7 +48,6 @@ export class ImportJobsController {
     private readonly jobs: ImportJobsService,
     private readonly items: ItemsService,
     private readonly staging: IngestStagingService,
-    private readonly ingest: IngestService,
   ) {}
 
   /**
@@ -95,31 +93,28 @@ export class ImportJobsController {
         `Layer ${layerId} is not part of this item's schema.`,
       );
     }
-    await this.items.assertCanEdit(user, itemId);
+    await this.items.assertCanImportAllRows(
+      user,
+      itemId,
+      (layer as { editingPolicy?: unknown }).editingPolicy,
+    );
+    // A layer with editing turned off is frozen for share holders.
+    this.items.assertLayerEditingEnabled(
+      user,
+      item,
+      layer as { editingEnabled?: unknown },
+    );
 
     // Pre-validate the staging so a doomed job never lands in the
     // queue. getStaging throws Forbidden if the staging belongs to
     // someone else and NotFound if it has expired.
     const staged = await this.staging.getStaging(dto.stagingId, user.id);
 
-    // Probe the staged file once to capture totalFeatures so the
-    // detail-page banner can render percentage-done immediately,
-    // not after the first batch flush. Tolerates a probe failure
-    // (still enqueues without a total) so the user isn't blocked
-    // by an exotic format that streamLayerFromPath would still
-    // handle.
-    let totalFeatures: number | null = null;
-    try {
-      const probe = await this.ingest.probeFileFromPath(staged.filePath);
-      const matched = probe.layers.find(
-        (l) => l.name === dto.sourceLayerName,
-      );
-      if (matched) totalFeatures = matched.featureCount;
-    } catch {
-      // Probe failed; the worker will surface a real error if the
-      // file is genuinely broken. Move on without totalFeatures so
-      // the queue isn't blocked.
-    }
+    // The layer's feature count from the probe that ran when the file
+    // was staged, so the banner can show a percentage from the start.
+    // This used to probe the file again here: a full synchronous GDAL
+    // scan on the API event loop, with no ingest slot, once per layer.
+    const totalFeatures = staged.layerCounts?.get(dto.sourceLayerName) ?? null;
 
     const row = await this.jobs.enqueue({
       itemId,
@@ -131,6 +126,7 @@ export class ImportJobsController {
       totalFeatures,
       userId: user.id,
       orgId: user.orgId,
+      bytes: BigInt(staged.sizeBytes),
     });
     return this.jobs.toWire(row);
   }

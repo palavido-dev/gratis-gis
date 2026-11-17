@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { Request } from 'express';
+import type { Response } from 'express';
 
 import { ScriptExecutorService } from './script-executor.service.js';
 
@@ -189,7 +189,11 @@ describe('ScriptExecutorController forwards the whole request', () => {
       ScriptExecutorController,
     } = require('./script-executor.controller.js');
     const controller = new ScriptExecutorController(executor);
-    const req = { on: jest.fn() } as unknown as Request;
+    const req = {
+      on: jest.fn(),
+      writableFinished: false,
+      destroyed: false,
+    } as unknown as Response;
     return { controller, calls, req };
   };
 

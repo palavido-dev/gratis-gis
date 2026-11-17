@@ -135,7 +135,8 @@ export class AdminAppTemplatesController {
     // than always using user.id because it preserves the original
     // bootstrap-owner convention on orgs that already have one.
     const adminRow = await this.prisma.user.findFirst({
-      where: { orgId: user.orgId, orgRole: 'admin' },
+      // A removed or disabled admin keeps orgRole 'admin'; skip them.
+      where: { orgId: user.orgId, orgRole: 'admin', deletedAt: null, disabledAt: null },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });

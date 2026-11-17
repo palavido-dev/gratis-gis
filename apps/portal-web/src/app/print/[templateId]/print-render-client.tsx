@@ -51,6 +51,7 @@ import {
   PRINT_PAPER,
   PRINT_CARD,
 } from '@/lib/print-theme';
+import { metersPerPixel, scaleBar, scaleDenominator } from '@/lib/web-mercator';
 
 interface PrintRenderClientProps {
   templateId: string;
@@ -310,13 +311,13 @@ function resolveSegment(
   // #106: map_* dynamic tokens are populated from the parent app's
   // captured map state when available.  Without a snapshot we
   // resolve to empty so the parent's literal text still flows.
-  // Scale is approximated from Web Mercator zoom: each step doubles
-  // resolution, so a denominator at zoom z is roughly
-  // 559082264 / 2^z at the equator.  Rough but recognizable to
-  // mapmakers; "1:24,000" reads correctly to the user.
+  // Scale at the snapshot's center latitude, from the same helper as
+  // the scale bar, so the two never disagree on one page.
   if (id === 'map_scale') {
     if (!mapSnapshot) return '';
-    const denom = Math.round(559082264 / Math.pow(2, mapSnapshot.zoom));
+    const denom = Math.round(
+      scaleDenominator(mapSnapshot.center?.[1] ?? 0, mapSnapshot.zoom),
+    );
     return `1:${formatNumber(denom, locale)}`;
   }
   if (id === 'map_extent_bbox') {
@@ -568,31 +569,15 @@ function ScalebarRender({
   // of a bare unit label.
   const lat = mapSnapshot?.center?.[1] ?? 0;
   const zoom = mapSnapshot?.zoom ?? 0;
-  const segPx = 80;
-  const mpp =
-    (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
-  const segMeters = mpp * segPx;
-  const metric = element.units === 'metric';
-  let displayValue: number;
-  let unitLabel: string;
-  if (metric) {
-    if (segMeters >= 1000) {
-      displayValue = roundNice(segMeters / 1000);
-      unitLabel = 'km';
-    } else {
-      displayValue = roundNice(segMeters);
-      unitLabel = 'm';
-    }
-  } else {
-    const feet = segMeters * 3.28084;
-    if (feet >= 1000) {
-      displayValue = roundNice(feet / 5280);
-      unitLabel = 'mi';
-    } else {
-      displayValue = roundNice(feet);
-      unitLabel = 'ft';
-    }
-  }
+  // Up to 80 px of bar; the bar is then drawn at the length of the
+  // round distance it is labelled with, so it stays to scale.
+  const bar = scaleBar(
+    metersPerPixel(lat, zoom),
+    80,
+    element.units === 'metric' ? 'metric' : 'imperial',
+  );
+  const displayValue = bar.value;
+  const unitLabel = bar.unit;
   return (
     <div
       style={{
@@ -605,33 +590,22 @@ function ScalebarRender({
         color: PRINT_INK,
       }}
     >
-      <div style={{ display: 'flex', height: 7, border: `1px solid ${PRINT_INK}` }}>
-        <div style={{ flex: 1, background: PRINT_INK }} />
-        <div style={{ flex: 1, background: PRINT_CARD }} />
-        <div style={{ flex: 1, background: PRINT_INK }} />
-        <div style={{ flex: 1, background: PRINT_CARD }} />
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-        <span>0</span>
-        <span>
-          {fmt.number(displayValue)} {unitLabel}
-        </span>
+      <div style={{ width: `${Math.round(bar.px)}px`, maxWidth: '100%' }}>
+        <div style={{ display: 'flex', height: 7, border: `1px solid ${PRINT_INK}` }}>
+          <div style={{ flex: 1, background: PRINT_INK }} />
+          <div style={{ flex: 1, background: PRINT_CARD }} />
+          <div style={{ flex: 1, background: PRINT_INK }} />
+          <div style={{ flex: 1, background: PRINT_CARD }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+          <span>0</span>
+          <span>
+            {fmt.number(displayValue)} {unitLabel}
+          </span>
+        </div>
       </div>
     </div>
   );
-}
-
-/**
- * Largest "nice" number (1 / 2 / 5 x 10^n) at or below the value, so
- * scalebar labels read 250 / 500 / 1000 rather than 487.32. Mirrors
- * the server renderer's helper.
- */
-function roundNice(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) return 1;
-  const pow = Math.pow(10, Math.floor(Math.log10(value)));
-  const mantissa = value / pow;
-  const nice = mantissa >= 5 ? 5 : mantissa >= 2 ? 2 : 1;
-  return nice * pow;
 }
 
 function NorthArrowRender({

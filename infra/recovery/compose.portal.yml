@@ -1,0 +1,83 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Throwaway stack for the migrated-portal recovery drill.
+# Pass -p gg-recovery-portal. The API runs on the host, not here.
+name: gg-recovery-portal
+
+services:
+  postgres:
+    image: gratis-gis-postgres:local
+    environment:
+      POSTGRES_DB: gratisgis
+      POSTGRES_USER: gratisgis
+      POSTGRES_PASSWORD: portal-drill-pg
+      KEYCLOAK_DB_PASSWORD: portal-drill-kc-db
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw
+      - -c
+      - pg_partman_bgw.interval=3600
+      - -c
+      - pg_partman_bgw.role=gratisgis
+      - -c
+      - pg_partman_bgw.dbname=gratisgis
+      - -c
+      - shared_buffers=128MB
+    ports:
+      - "127.0.0.1:55435:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./drill-init.sh:/docker-entrypoint-initdb.d/20-init-keycloak-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gratisgis -d gratisgis"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--http-port=8080"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: portal-drill-kc-admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: portal-drill-kc-db
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: http://127.0.0.1:18081
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:18081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  minio:
+    image: minio/minio:RELEASE.2024-10-02T17-50-41Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: drillminio
+      MINIO_ROOT_PASSWORD: portal-drill-minio
+    ports:
+      - "127.0.0.1:19010:9000"
+    volumes:
+      - miniodata:/data
+
+  # A running writer. Capture must pause it and then leave it running.
+  portal-worker:
+    image: gratis-gis-postgres:local
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+  # Defined, not started. Capture must not start it.
+  script-runner:
+    profiles: ["manual"]
+    image: gratis-gis-postgres:local
+    entrypoint: ["sleep", "infinity"]
+    restart: "no"
+
+volumes:
+  pgdata:
+  miniodata:

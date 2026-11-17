@@ -46,6 +46,14 @@ selected. Use **Map-level** to post without an anchor.
 Each thread has its own reply box. Type, click the send button,
 done. Replies show up in order, newest at the bottom.
 
+## Mentioning someone
+
+Type `@username` in a new thread or reply to email that org
+member (when they can view the map and notifications are enabled
+on the portal). Unknown handles stay as plain text. You cannot
+mention yourself, and a single comment notifies at most ten
+people. Mentions do not fire again when you edit a comment.
+
 ## Editing your comment
 
 Within 15 minutes of posting, you can edit your own comment.

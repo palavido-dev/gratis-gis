@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Logger } from '@nestjs/common';
+import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -23,7 +23,16 @@ interface SocketState {
   user: AuthUser;
   connectionId: string;
   unsubscribe: () => void;
+  /** Times of recent frames, for the per-connection rate cap. */
+  frameTimes: number[];
 }
+
+/**
+ * Frames one connection may send per second. The web client sends
+ * cursor frames at 4 Hz; anything far above that is dropped rather
+ * than costing a database read each.
+ */
+export const PRESENCE_MAX_FRAMES_PER_SEC = 20;
 
 /**
  * Presence Phase 1.5 WebSocket transport (#156).
@@ -79,7 +88,13 @@ export class RealtimeGateway
     const unsubscribe = this.realtime.subscribe(mapId, (members) => {
       this.send(client, { type: 'roster', members });
     });
-    this.state.set(client, { mapId, user, connectionId, unsubscribe });
+    this.state.set(client, {
+      mapId,
+      user,
+      connectionId,
+      unsubscribe,
+      frameTimes: [],
+    });
 
     client.on('message', (raw) => {
       void this.onMessage(client, raw);
@@ -113,6 +128,10 @@ export class RealtimeGateway
   private async onMessage(client: WebSocket, raw: unknown): Promise<void> {
     const st = this.state.get(client);
     if (!st) return;
+    const now = Date.now();
+    st.frameTimes = st.frameTimes.filter((t) => now - t < 1000);
+    if (st.frameTimes.length >= PRESENCE_MAX_FRAMES_PER_SEC) return;
+    st.frameTimes.push(now);
     // Defense in depth alongside gateway maxPayload (SEC-ws-frame-cap).
     if (!isPresenceFrameWithinBudget(raw)) {
       this.close(client, 'Frame too large');
@@ -166,6 +185,16 @@ export class RealtimeGateway
       this.send(client, { type: 'error', message: `Unknown type: ${msg.type}` });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Request failed';
+      // The socket was authorized once, at connect. A heartbeat that
+      // fails the read check means access was revoked (or the map was
+      // trashed) since then: stop pushing the roster and close.
+      if (err instanceof ForbiddenException || err instanceof NotFoundException) {
+        st.unsubscribe();
+        this.state.delete(client);
+        void this.realtime.leave(st.user, st.mapId, st.connectionId).catch(() => undefined);
+        this.close(client, message);
+        return;
+      }
       this.send(client, { type: 'error', message });
     }
   }

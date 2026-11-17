@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppWindow,
@@ -26,6 +27,12 @@ import type {
   TerrainStackEntry,
 } from '@gratis-gis/shared-types';
 import { layersForPortalItem } from './portal-item-layers';
+import {
+  fetchPrincipalAccess,
+  withGrant,
+  type AccessAnswers,
+} from '@/lib/principal-access';
+import type { ItemReach } from '@/lib/map-access-matrix';
 import { toast } from '@/lib/toast';
 import { parseApiError } from '@/lib/api-error';
 import { useT } from '@/lib/i18n/locale-context';
@@ -53,11 +60,12 @@ import { SelectToolbar, type SelectToolMode } from './select-tool';
 import { useFeatureEditing, type EditableLayerInfo } from './feature-editing';
 import type { DrawGeometryType } from './use-terra-draw';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
-import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Settings as SettingsIcon } from 'lucide-react';
+import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Ruler, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
 import { ElevationProfileTool } from './elevation-profile';
+import { MeasureTool } from './measure-tool';
 import { VisibilityTool } from './visibility-tool';
-import { resolveDemForBbox } from '@/lib/dem-resolver';
+import { mapHasElevationSource, resolveDemForBbox } from '@/lib/dem-resolver';
 import {
   CommentsPanel,
   type CommentThreadDTO,
@@ -77,9 +85,34 @@ import {
   type MatrixPrincipal,
 } from './access-matrix';
 import { discoverLayerMetadata, type LayerMetadata } from './layer-metadata';
+import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
+import { fetchAllPages } from '@/lib/fetch-all-pages';
+import { showLayerAndParents } from '@/lib/search-hidden-layers';
+import { fetchCommentPage } from '@/lib/comment-pages';
+
+/**
+ * The parts of a layer source that decide what metadata discovery
+ * fetches. Display-only settings stored on the source are left out.
+ */
+function metadataSourceKey(source: MapLayer['source']): string {
+  const s = source as unknown as Record<string, unknown>;
+  return JSON.stringify([
+    s['kind'],
+    s['url'],
+    s['itemId'],
+    s['layerKey'],
+    s['layerId'],
+    s['serviceItemId'],
+    s['tableName'],
+    s['dataUrl'],
+    s['kind'] === 'geojson-inline' ? s['geojson'] : null,
+  ]);
+}
 
 interface Props {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   /**
    * Item title shown in the BuilderShell top bar. Comes from the
    * parent detail page (`item.title`) so the builder doesn't need a
@@ -220,6 +253,7 @@ function boundaryFitFor(
 
 export function MapEditor({
   itemId,
+  updatedAt,
   itemTitle,
   initial,
   canEdit,
@@ -233,6 +267,7 @@ export function MapEditor({
   addItemId,
   addLayerKey,
 }: Props) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const t = useT();
   // Hydrate older persisted maps. Each bump in the schema lands a new
   // migrator here; the goal is that any v2.x map still opens cleanly.
@@ -383,6 +418,8 @@ export function MapEditor({
     Array<{ id: string; title: string; kind: 'internal' | 'arcgis' }>
   >([]);
   useEffect(() => {
+    // Only the settings panel uses this list, and only editors see it.
+    if (!canEdit) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -392,16 +429,17 @@ export function MapEditor({
         // items to geocoders client-side because the lite list
         // doesn't return the data blob; the service list is
         // typically small enough that this is fine.
+        // Every page, not the server's default first 500.
         const [gsRes, svcRes] = await Promise.all([
-          fetch('/api/portal/items?type=geocoding_service&lite=1').then((r) =>
-            r.ok ? r.json() : [],
+          fetchAllPages<{ id: string; title: string }>(
+            '/api/portal/items?type=geocoding_service&lite=1',
           ),
-          fetch('/api/portal/items?type=service&full=1').then((r) =>
-            r.ok ? r.json() : [],
+          fetchAllPages<{ id: string; title: string; data?: unknown }>(
+            '/api/portal/items?type=service&full=1',
           ),
         ]);
-        const gsList = Array.isArray(gsRes) ? gsRes : [];
-        const svcList = Array.isArray(svcRes) ? svcRes : [];
+        const gsList = gsRes.rows;
+        const svcList = svcRes.rows;
         const arcgisGeocoders = svcList.filter((s) => {
           const proto = (s as { data?: { protocol?: unknown } }).data?.protocol;
           return proto === 'arcgis_geocode';
@@ -431,7 +469,7 @@ export function MapEditor({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [canEdit]);
 
   const [legendOpen, setLegendOpen] = useState(false);
   const [tableOpen, setTableOpen] = useState(false);
@@ -444,6 +482,9 @@ export function MapEditor({
   // shown to signed-in users and errors in plain language for
   // everyone else.
   const [visibilityOpen, setVisibilityOpen] = useState(false);
+  // Measure tool: distance + area sketches on the map canvas.
+  // Local only — nothing persists to a layer.
+  const [measureOpen, setMeasureOpen] = useState(false);
   // #154: Markup panel + per-map drawing sets. Hydrated from the
   // initial map data so a fresh page-load renders existing
   // drawings on the canvas immediately. The panel manages writes
@@ -454,6 +495,15 @@ export function MapEditor({
     [],
   );
   const [commentFocusId, setCommentFocusId] = useState<string | null>(null);
+  // Deep link from comment_mentioned email: ?comments=1&thread=<id>
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('comments') !== '1') return;
+    setCommentsOpen(true);
+    const thread = params.get('thread');
+    if (thread) setCommentFocusId(thread);
+  }, []);
   // undefined = follow selection; null = force map-level; object = explicit
   const [composeAnchorOverride, setComposeAnchorOverride] = useState<
     CommentAnchor | null | undefined
@@ -464,9 +514,10 @@ export function MapEditor({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`/api/portal/items/${itemId}/comments`);
-        if (!res.ok || cancelled) return;
-        const list = (await res.json()) as CommentThreadDTO[];
+        // Newest page only; the panel's "Load older" adds the rest
+        // and reports them back through onThreadsChange.
+        const { threads: list } =
+          await fetchCommentPage<CommentThreadDTO>(itemId);
         if (!cancelled) setCommentThreads(list);
       } catch {
         /* pins are best-effort */
@@ -528,24 +579,6 @@ export function MapEditor({
     [selection],
   );
 
-  // Phase 2: a single selected feature becomes the compose target
-  // for a new comment thread. An explicit override (markup pick or
-  // clear-to-map-level) wins over the live selection.
-  const selectionComposeAnchor = useMemo(
-    () => singleSelectionAnchor(selection, map.layers),
-    [selection, map.layers],
-  );
-  const composeAnchor =
-    composeAnchorOverride === undefined
-      ? selectionComposeAnchor
-      : composeAnchorOverride;
-
-  // When the live selection changes, drop an explicit override so the
-  // new selection becomes the compose target again.
-  useEffect(() => {
-    setComposeAnchorOverride(undefined);
-  }, [selectionComposeAnchor?.parentId]);
-
   const drawingCommentOptions = useMemo(() => {
     const out: Array<{ id: string; label: string }> = [];
     for (const set of drawings) {
@@ -564,12 +597,14 @@ export function MapEditor({
   // item) only happens when an author actually opens the matrix.
   const [matrixOpen, setMatrixOpen] = useState(false);
   const [webmapShares, setWebmapShares] = useState<ItemShare[]>([]);
-  const [itemShares, setItemShares] = useState<Record<string, ItemShare[]>>({});
+  // Server answers to "can this principal read that backing item".
+  // Item reads only carry share rosters for the owner and admins, so
+  // the matrix asks instead of reading each layer item's shares.
+  const [itemAccess, setItemAccess] = useState<AccessAnswers>({});
+  // Access level of each backing item, for the "Everyone else" column.
+  const [itemReach, setItemReach] = useState<Record<string, ItemReach>>({});
   const [groupDirectory, setGroupDirectory] = useState<Record<string, string>>({});
   const [userNames, setUserNames] = useState<Record<string, string>>({});
-  const [groupMemberships, setGroupMemberships] = useState<
-    Record<string, string[]>
-  >({});
 
   // Maps layer id → backing item id (null for geojson-url / inline).
   // Matrix uses this to know which layers can have item-level gaps.
@@ -597,17 +632,22 @@ export function MapEditor({
   }, [map.layers]);
 
   async function loadMatrixData() {
-    // Webmap's own shares: drives the principal column list.
+    // Webmap's own shares: drives the principal column list. The
+    // owner and admins get the full rows; other map editors get the
+    // principal ids only, which is all the matrix reads.
+    let principalShares: ItemShare[] = [];
     try {
       const res = await fetch(`/api/portal/items/${itemId}`);
       if (res.ok) {
         const j = (await res.json()) as { shares?: ItemShare[] };
-        setWebmapShares(j.shares ?? []);
+        principalShares = j.shares ?? [];
+        setWebmapShares(principalShares);
       }
     } catch {
       /* non-fatal: matrix shows empty principals list */
     }
-    // Each distinct backing item: pulls its shares for gap detection.
+    // Each distinct backing item: ask the server which principals can
+    // read it, for gap detection.
     const uniqItemIds = Array.from(
       new Set(
         Object.values(layerItemIds).filter(
@@ -615,20 +655,29 @@ export function MapEditor({
         ),
       ),
     );
-    await Promise.all(
+    void fetchPrincipalAccess(
+      uniqItemIds,
+      principalShares.map((s) => ({
+        type: s.principalType as 'user' | 'group',
+        id: s.principalId,
+      })),
+    ).then(setItemAccess);
+    // The access level of each backing item decides the "Everyone
+    // else" column; no share can name those viewers.
+    void Promise.all(
       uniqItemIds.map(async (id) => {
         try {
           const r = await fetch(`/api/portal/items/${id}`);
           if (!r.ok) return;
-          const j = (await r.json()) as { shares?: ItemShare[] };
-          setItemShares((prev) => ({ ...prev, [id]: j.shares ?? [] }));
+          const j = (await r.json()) as { access?: ItemReach['access'] };
+          setItemReach((prev) => ({ ...prev, [id]: { access: j.access } }));
         } catch {
-          /* non-fatal: cell falls back to "no warning" */
+          /* non-fatal: the column shows no warning */
         }
       }),
     );
     // Groups: fetch all groups visible to the current user so the
-    // matrix can display names + resolve which groups a user is in.
+    // matrix can display names.
     try {
       const r = await fetch('/api/portal/groups');
       if (r.ok) {
@@ -641,21 +690,12 @@ export function MapEditor({
       /* non-fatal: groups show as short ids */
     }
 
-    // Users: batch-resolve names + group memberships for every
-    // principal on the webmap's share list. One call covers the
-    // whole matrix: avoids a per-row fetch during render.
+    // Users: batch-resolve names for every user principal on the
+    // webmap's share list. One call covers the whole matrix.
     try {
-      // Snapshot webmapShares here; the list was just refreshed at
-      // the top of loadMatrixData so whatever's in state now is
-      // current.
       const userIds = Array.from(
         new Set(
-          (await (async () => {
-            const r = await fetch(`/api/portal/items/${itemId}`);
-            if (!r.ok) return [] as ItemShare[];
-            const j = (await r.json()) as { shares?: ItemShare[] };
-            return j.shares ?? [];
-          })())
+          principalShares
             .filter((s) => s.principalType === 'user')
             .map((s) => s.principalId),
         ),
@@ -669,7 +709,6 @@ export function MapEditor({
             id: string;
             username: string;
             fullName: string | null;
-            groupIds?: string[];
           }>;
           setUserNames((prev) => {
             const next = { ...prev };
@@ -678,17 +717,10 @@ export function MapEditor({
             }
             return next;
           });
-          setGroupMemberships((prev) => {
-            const next = { ...prev };
-            for (const u of rows) {
-              next[u.id] = u.groupIds ?? [];
-            }
-            return next;
-          });
         }
       }
     } catch {
-      /* non-fatal: users show as short ids, memberships empty */
+      /* non-fatal: users show as short ids */
     }
   }
 
@@ -724,6 +756,10 @@ export function MapEditor({
     bitemId: string,
     p: MatrixPrincipal,
   ): Promise<void> {
+    // "Everyone else" is reached through the item's access level; no
+    // share can be granted to it.
+    if (p.type === 'everyone') return;
+    const principal = { type: p.type, id: p.id };
     const res = await fetch(`/api/portal/items/${bitemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -734,16 +770,8 @@ export function MapEditor({
       }),
     });
     if (!res.ok) return;
-    // Refresh that item's shares so the gap badge disappears.
-    try {
-      const r = await fetch(`/api/portal/items/${bitemId}`);
-      if (r.ok) {
-        const j = (await r.json()) as { shares?: ItemShare[] };
-        setItemShares((prev) => ({ ...prev, [bitemId]: j.shares ?? [] }));
-      }
-    } catch {
-      /* non-fatal: matrix may show stale state until close/reopen */
-    }
+    // Mark the pair as granted so the gap badge disappears.
+    setItemAccess((prev) => withGrant(prev, bitemId, principal));
   }
 
   // Drop selection for layers that have been removed so the state
@@ -780,35 +808,76 @@ export function MapEditor({
     }
     return out;
   }, [metadata]);
+
+  // Phase 2: a single selected feature becomes the compose target
+  // for a new comment thread. An explicit override (markup pick or
+  // clear-to-map-level) wins over the live selection.
+  const selectionComposeAnchor = useMemo(
+    () => singleSelectionAnchor(selection, map.layers, featuresByLayer),
+    [selection, map.layers, featuresByLayer],
+  );
+  const composeAnchor =
+    composeAnchorOverride === undefined
+      ? selectionComposeAnchor
+      : composeAnchorOverride;
+
+  // When the live selection changes, drop an explicit override so the
+  // new selection becomes the compose target again.
+  useEffect(() => {
+    setComposeAnchorOverride(undefined);
+  }, [selectionComposeAnchor?.parentId]);
   // AbortControllers per layer so a rapid edit-churn doesn't leave us
   // with in-flight fetches scribbling over newer state.
   const abortsRef = useRef<Record<string, AbortController>>({});
 
   // Discover metadata for any layer we haven't seen yet. The key here is
-  // layer id + a stable hash of the source: if a user swaps the URL in
-  // place we need a fresh fetch, not a stale cache.
+  // layer id + the parts of the source that decide what is fetched: if
+  // a user swaps the URL in place we need a fresh fetch, not a stale
+  // cache. Display settings that also live on `source` (point-cloud
+  // colour scheme, colormap and point size) are left out, so dragging
+  // those sliders no longer restarts every discovery in flight.
   const sourceKeys = map.layers.map(
-    (l) => `${l.id}|${JSON.stringify(l.source)}`,
+    (l) => `${l.id}|${metadataSourceKey(l.source)}`,
   );
   const sourceKeysJoined = sourceKeys.join('\n');
+  // The source key each layer's metadata was fetched for.
+  const fetchedKeyRef = useRef<Record<string, string>>({});
   useEffect(() => {
-    const seen = new Set(sourceKeys.map((k) => k.split('|')[0]));
-    // Drop metadata for layers that were removed.
+    const want = new Map<string, string>();
+    for (const k of sourceKeys) {
+      const bar = k.indexOf('|');
+      want.set(k.slice(0, bar), k.slice(bar + 1));
+    }
+    // Drop metadata for layers that were removed, and stop their
+    // fetches. Fetches for layers still here are left alone.
     setMetadata((prev) => {
       const next: Record<string, LayerMetadata> = {};
       for (const [id, md] of Object.entries(prev)) {
-        if (seen.has(id)) next[id] = md;
+        if (want.has(id)) next[id] = md;
       }
       return next;
     });
+    for (const id of Object.keys(abortsRef.current)) {
+      if (!want.has(id)) {
+        abortsRef.current[id]?.abort();
+        delete abortsRef.current[id];
+        delete fetchedKeyRef.current[id];
+      }
+    }
 
     for (const layer of map.layers) {
+      const key = want.get(layer.id)!;
+      const sameKey = fetchedKeyRef.current[layer.id] === key;
       const existing = metadata[layer.id];
-      if (existing && !existing.loading && !existing.error) continue;
-      // Cancel any previous fetch for this layer.
-      abortsRef.current[layer.id]?.abort();
+      if (sameKey && existing && !existing.loading && !existing.error) continue;
+      // Already fetching this exact source: let it finish.
+      const inFlight = abortsRef.current[layer.id];
+      if (sameKey && inFlight && !inFlight.signal.aborted) continue;
+      // Cancel any previous fetch for this layer (its source changed).
+      inFlight?.abort();
       const controller = new AbortController();
       abortsRef.current[layer.id] = controller;
+      fetchedKeyRef.current[layer.id] = key;
 
       setMetadata((prev) => ({
         ...prev,
@@ -825,18 +894,26 @@ export function MapEditor({
       }));
       discoverLayerMetadata(layer, controller.signal).then((md) => {
         if (controller.signal.aborted) return;
+        if (abortsRef.current[layer.id] === controller) {
+          delete abortsRef.current[layer.id];
+        }
         setMetadata((prev) => ({ ...prev, [layer.id]: md }));
       });
     }
-    // Cleanup on unmount: abort all in-flight discoveries.
-    return () => {
-      for (const c of Object.values(abortsRef.current)) c.abort();
-    };
     // We depend on the joined source key so this effect re-runs when a
     // layer is added / removed / has its source swapped. Adding metadata
     // itself would cause infinite loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKeysJoined]);
+  // Abort every discovery still running when the editor unmounts. The
+  // effect above used to do this on every re-run, which cancelled and
+  // restarted unrelated layers' fetches on each source change.
+  useEffect(
+    () => () => {
+      for (const c of Object.values(abortsRef.current)) c.abort();
+    },
+    [],
+  );
 
   /**
    * Map layers whose underlying data_layer item the signed-in user
@@ -1080,6 +1157,28 @@ export function MapEditor({
     if (featureEditing.active && selectTool !== 'off') setSelectTool('off');
   }, [featureEditing.active, selectTool]);
 
+  // Measure and markup report when they start taking clicks. These
+  // callbacks were fresh arrows on every render, so the tools' effects
+  // re-ran after each render and kept switching select off; choosing a
+  // select mode while Measure was open flashed on and reverted. Stable
+  // callbacks fire on real transitions only, and choosing select or an
+  // edit tool now closes Measure and disarms markup instead.
+  const [markupStandDown, setMarkupStandDown] = useState(0);
+  const selectToolRef = useRef(selectTool);
+  selectToolRef.current = selectTool;
+  const featureEditingRef = useRef(featureEditing);
+  featureEditingRef.current = featureEditing;
+  const onClickToolActive = useCallback((active: boolean) => {
+    if (!active) return;
+    if (featureEditingRef.current.active) featureEditingRef.current.deactivate();
+    if (selectToolRef.current !== 'off') setSelectTool('off');
+  }, []);
+  useEffect(() => {
+    if (!featureEditing.active) return;
+    setMeasureOpen(false);
+    setMarkupStandDown((n) => n + 1);
+  }, [featureEditing.active]);
+
   /**
    * Persist one inline attribute edit, then repaint.
    *
@@ -1117,6 +1216,10 @@ export function MapEditor({
   );
 
   function markDirty() {
+    // A viewer can hide layers or move sliders but has no Save, so
+    // marking that dirty armed a "Leave site?" prompt they could
+    // never clear. Scratch mode passes canEdit, so it still tracks.
+    if (!canEdit) return;
     setDirty(true);
     setSaved(false);
   }
@@ -1297,9 +1400,7 @@ export function MapEditor({
     autoTerrainTried.current = true;
     const [w, s, e, n] = withBox.source.bboxWgs84;
     try {
-      const res = await fetch('/api/portal/items?type=tile_layer&full=1');
-      if (!res.ok) return;
-      const items = (await res.json()) as Array<{
+      const all = await fetchAllPages<{
         id: string;
         title: string;
         data?: {
@@ -1308,7 +1409,9 @@ export function MapEditor({
           bbox?: [number, number, number, number];
           maxZoom?: number;
         } | null;
-      }>;
+      }>('/api/portal/items?type=tile_layer&full=1');
+      if (!all.ok) return;
+      const items = all.rows;
       const match = items.find((i) => {
         if (!i.data?.dem || !i.data.tileUrl || !i.data.bbox) return false;
         const [bw, bs, be, bn] = i.data.bbox;
@@ -1425,6 +1528,16 @@ export function MapEditor({
     [],
   );
 
+  // Profile + visibility need an elevation surface on the map.
+  // Hide the toolbar buttons (and force-close open panes) when the
+  // map has no terrain stack / DEM wired in.
+  const hasElevation = mapHasElevationSource(map.terrain);
+  useEffect(() => {
+    if (hasElevation) return;
+    if (profileOpen) setProfileOpen(false);
+    if (visibilityOpen) setVisibilityOpen(false);
+  }, [hasElevation, profileOpen, visibilityOpen]);
+
   // Elevation layers available for 3D terrain (#186 / #211):
   // tile_layer items flagged dem. Fetched lazily when the layers
   // panel's terrain section first opens; the list is tiny
@@ -1444,16 +1557,18 @@ export function MapEditor({
     demLayersLoading.current = true;
     void (async () => {
       try {
-        const res = await fetch('/api/portal/items?type=tile_layer&full=1');
-        if (!res.ok) {
-          setDemLayers([]);
-          return;
-        }
-        const items = (await res.json()) as Array<{
+        // Every page: elevation layers past the server's default
+        // first 500 tile layers were silently missing from the picker.
+        const all = await fetchAllPages<{
           id: string;
           title: string;
           data?: { dem?: boolean; tileUrl?: string; maxZoom?: number } | null;
-        }>;
+        }>('/api/portal/items?type=tile_layer&full=1');
+        if (!all.ok) {
+          setDemLayers([]);
+          return;
+        }
+        const items = all.rows;
         setDemLayers(
           items
             .filter((i) => i.data?.dem && i.data?.tileUrl)
@@ -1700,13 +1815,13 @@ export function MapEditor({
         ...(cam ? { ...map, ...cam } : map),
         drawings,
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       // Keep client state aligned with what was just persisted so a
@@ -1725,9 +1840,16 @@ export function MapEditor({
   // builder for the new item.
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [saveAsTitle, setSaveAsTitle] = useState('');
+  // Guards against a second POST while one is in flight. A held or
+  // repeated Enter in the name box called this again before the
+  // `saving` state re-rendered, creating duplicate maps.
+  const scratchSavingRef = useRef(false);
   async function saveScratchAsItem() {
     const title = saveAsTitle.trim();
     if (!title) return;
+    if (scratchSavingRef.current) return;
+    scratchSavingRef.current = true;
+    let leaving = false;
     setError(null);
     setSaving(true);
     try {
@@ -1739,7 +1861,7 @@ export function MapEditor({
         body: JSON.stringify({ type: 'map', title, data: payload }),
       });
       if (!res.ok) {
-        setError(`Save failed: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Save failed'));
         return;
       }
       const created = (await res.json()) as { id: string };
@@ -1748,8 +1870,11 @@ export function MapEditor({
       // to stand down for this one deliberate redirect.
       skipUnloadGuardRef.current = true;
       setDirty(false);
+      // Stay locked: the page is leaving for the new item.
+      leaving = true;
       window.location.assign(`/items/${created.id}?view=configure`);
     } finally {
+      if (!leaving) scratchSavingRef.current = false;
       setSaving(false);
     }
   }
@@ -1875,17 +2000,55 @@ export function MapEditor({
         }}
       />
       <ToolbarIconToggle
-        Icon={ChartSpline}
-        label={t('mapEditor.elevationProfileButton')}
-        active={profileOpen}
-        onClick={() => setProfileOpen((v) => !v)}
+        Icon={Ruler}
+        label={t('mapEditor.measureButton')}
+        active={measureOpen}
+        onClick={() => {
+          setMeasureOpen((v) => {
+            const next = !v;
+            if (next) {
+              if (featureEditing.active) featureEditing.deactivate();
+              if (selectTool !== 'off') setSelectTool('off');
+              if (markupOpen) setMarkupOpen(false);
+              if (profileOpen) setProfileOpen(false);
+              if (visibilityOpen) setVisibilityOpen(false);
+            }
+            return next;
+          });
+        }}
       />
-      {currentUser ? (
+      {hasElevation ? (
+        <ToolbarIconToggle
+          Icon={ChartSpline}
+          label={t('mapEditor.elevationProfileButton')}
+          active={profileOpen}
+          onClick={() => {
+            setProfileOpen((v) => {
+              const next = !v;
+              if (next) {
+                if (measureOpen) setMeasureOpen(false);
+                if (visibilityOpen) setVisibilityOpen(false);
+              }
+              return next;
+            });
+          }}
+        />
+      ) : null}
+      {hasElevation && currentUser ? (
         <ToolbarIconToggle
           Icon={Eye}
           label={t('mapEditor.visibilityButton')}
           active={visibilityOpen}
-          onClick={() => setVisibilityOpen((v) => !v)}
+          onClick={() => {
+            setVisibilityOpen((v) => {
+              const next = !v;
+              if (next) {
+                if (measureOpen) setMeasureOpen(false);
+                if (profileOpen) setProfileOpen(false);
+              }
+              return next;
+            });
+          }}
         />
       ) : null}
       {/* #187: item-bound surfaces (markup persistence, comments,
@@ -2024,6 +2187,18 @@ export function MapEditor({
           }
           return;
         }
+        // v3 sublayers draw from tiles and have no cached features,
+        // so ask the server for the extent of the rows the layer's
+        // filter keeps.
+        const extentUrl = pcLayer
+          ? layerExtentUrl(pcLayer.source, pcLayer.filter)
+          : null;
+        if (extentUrl) {
+          void fetchLayerExtent(extentUrl).then((bbox) => {
+            if (bbox) canvasRef.current?.zoomTo(bbox);
+          });
+          return;
+        }
         // Compute the bbox from the layer's cached feature
         // collection. Metadata is populated as the canvas loads
         // each layer; if it isn't ready yet, the action is a no-op
@@ -2099,10 +2274,10 @@ export function MapEditor({
         icon={<MapBaseIcon className="h-4 w-4 text-muted" />}
         toolbarRight={toolbarRight}
         leftPanel={leftPanel}
-        leftPanelTitle="Layers"
+        leftPanelTitle={t('mapLayerPanel.title')}
         leftRailIcon={<LayersIcon className="h-4 w-4" />}
         rightPanel={rightPanel}
-        rightPanelTitle="Map settings"
+        rightPanelTitle={t('mapSettings.title')}
         rightRailIcon={<SettingsIcon className="h-4 w-4" />}
       >
         {/* Canvas + overlays. `absolute inset-0` over the BuilderShell
@@ -2125,31 +2300,48 @@ export function MapEditor({
             drawings={drawings}
             onMapReady={setMapLibre}
             suppressPopup={
-              profileOpen || visibilityOpen || featureEditing.canvasProps.suppressPopup
+              profileOpen ||
+              visibilityOpen ||
+              measureOpen ||
+              featureEditing.canvasProps.suppressPopup
             }
             editClaimedLayerIds={featureEditing.canvasProps.editClaimedLayerIds}
             onEditClaimedClick={featureEditing.canvasProps.onEditClaimedClick}
           />
-          <ElevationProfileTool
+          <MeasureTool
             map={mapLibre}
-            open={profileOpen}
-            onClose={() => setProfileOpen(false)}
-            resolveDemUrl={resolveProfileDem}
+            open={measureOpen}
+            onClose={() => setMeasureOpen(false)}
+            onDrawActiveChange={onClickToolActive}
           />
-          <VisibilityTool
-            map={mapLibre}
-            open={visibilityOpen}
-            onClose={() => setVisibilityOpen(false)}
-            resolveDemUrl={resolveProfileDem}
-            onLayerReady={(layer) => {
-              setMap((m) => ({ ...m, layers: [layer, ...m.layers] }));
-              markDirty();
-            }}
-          />
+          {hasElevation ? (
+            <ElevationProfileTool
+              map={mapLibre}
+              open={profileOpen}
+              onClose={() => setProfileOpen(false)}
+              resolveDemUrl={resolveProfileDem}
+            />
+          ) : null}
+          {hasElevation ? (
+            <VisibilityTool
+              map={mapLibre}
+              open={visibilityOpen}
+              onClose={() => setVisibilityOpen(false)}
+              resolveDemUrl={resolveProfileDem}
+              onLayerReady={(layer) => {
+                setMap((m) => ({ ...m, layers: [layer, ...m.layers] }));
+                markDirty();
+              }}
+            />
+          ) : null}
           <SelectToolbar
             mode={selectTool}
             onChange={(next) => {
-              if (next !== 'off') featureEditing.deactivate();
+              if (next !== 'off') {
+                featureEditing.deactivate();
+                setMeasureOpen(false);
+                setMarkupStandDown((n) => n + 1);
+              }
               setSelectTool(next);
             }}
             selectedCount={selectedCount}
@@ -2165,6 +2357,9 @@ export function MapEditor({
                 ? { geocoderItemId: map.search.geocoderId }
                 : {})}
               viewportBbox={mapBbox ?? null}
+              onShowLayer={(id) =>
+                setLayers(showLayerAndParents(map.layers, id))
+              }
               onPick={(r) => {
                 canvasRef.current?.flyAndHighlight({
                   bbox: r.bbox,
@@ -2172,6 +2367,9 @@ export function MapEditor({
                   ...(r.kind === 'feature'
                     ? {
                         layerId: r.layerId,
+                        ...(r.feature.id !== undefined
+                          ? { featureId: r.feature.id }
+                          : {}),
                         featureProps: (r.feature.properties ?? {}) as Record<
                           string,
                           unknown
@@ -2245,12 +2443,8 @@ export function MapEditor({
                 mapCenter={map.center}
                 onDrawingsChange={setDrawings}
                 initialDrawings={drawings}
-                onDrawActiveChange={(active) => {
-                  if (active) {
-                    if (featureEditing.active) featureEditing.deactivate();
-                    if (selectTool !== 'off') setSelectTool('off');
-                  }
-                }}
+                onDrawActiveChange={onClickToolActive}
+                standDownSignal={markupStandDown}
                 onPromoted={(result) => {
                   void (async () => {
                     toast(
@@ -2390,8 +2584,8 @@ export function MapEditor({
         layers={map.layers}
         principals={matrixPrincipals}
         layerItemIds={layerItemIds}
-        itemShares={itemShares}
-        groupMemberships={groupMemberships}
+        itemAccess={itemAccess}
+        itemReach={itemReach}
         onClose={() => setMatrixOpen(false)}
         onPatchAccess={patchLayerAccess}
         onGrantItemAccess={grantItemAccess}

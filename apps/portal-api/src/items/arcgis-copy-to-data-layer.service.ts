@@ -133,7 +133,7 @@ export class ArcgisCopyToDataLayerService {
     rawUrl: string,
     serviceType: ArcgisServiceData['serviceType'] | undefined,
   ): Promise<string> {
-    const clean = rawUrl.replace(/\/+$/, '');
+    const clean = rawUrl.replace(/(?<!\/)\/+$/, '');
     if (/\/FeatureServer$/i.test(clean) || serviceType === 'FeatureServer') {
       if (/\/FeatureServer$/i.test(clean)) return clean;
       // serviceType says FeatureServer but URL may still be a root;

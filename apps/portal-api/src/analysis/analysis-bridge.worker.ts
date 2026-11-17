@@ -5,7 +5,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { IngestStagingService } from '../ingest/ingest-staging.service.js';
 import { ImportJobsService } from '../import-jobs/import-jobs.service.js';
-import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
+import {
+  cancelLinkedImport,
+  stampAnalysisTargetFailed,
+} from './analysis-target-stamp.js';
 
 /**
  * Analysis-to-import bridge (contours and future vector analysis
@@ -119,6 +122,9 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         source_item_id: string;
       }>
     >`
+      WITH lease AS (
+        SELECT set_config('gratis.reclaim', '1', true)
+      )
       UPDATE analysis_job
       SET state = CASE WHEN state = 'cancel_requested'
                        THEN 'cancelled' ELSE 'failed' END,
@@ -128,6 +134,7 @@ export class AnalysisBridgeWorker implements OnModuleInit {
       WHERE state IN ('running', 'cancel_requested')
         AND COALESCE(heartbeat_at, started_at, created_at)
             < now() - make_interval(mins => ${RECLAIM_AFTER_MINUTES})
+        AND (SELECT count(*) FROM lease) = 1
       RETURNING id, kind, state, target_item_id, source_item_id
     `;
     for (const row of rows) {
@@ -203,7 +210,10 @@ export class AnalysisBridgeWorker implements OnModuleInit {
     for (const job of candidates) {
       const claimed = await this.prisma.analysisJob.updateMany({
         where: { id: job.id, state: 'ingest' },
-        data: { state: 'importing', progress: 82 },
+        // Fresh heartbeat: the stranded sweep ages 'importing' rows by
+        // it, and a job that sat in 'ingest' through a restart would
+        // otherwise look stale to another replica while still staging.
+        data: { state: 'importing', progress: 82, heartbeatAt: new Date() },
       });
       if (claimed.count === 0) continue; // another replica took it
       try {
@@ -245,13 +255,18 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           userId: job.userId,
           orgId: job.orgId,
         });
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        const recorded = await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: {
             params: { ...params, importJobId: importJob.id },
             progress: 85,
           },
         });
+        if (recorded.count === 0) {
+          // Cancelled while we were staging: the cancel could not see
+          // this import yet, so stop it here.
+          await cancelLinkedImport(this.prisma, importJob.id);
+        }
         // The artifact has served its purpose; the staged copy is
         // what the import reads. Best-effort cleanup.
         try {
@@ -267,8 +282,10 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           err instanceof Error
             ? err.message
             : 'The analysis result could not be imported.';
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        // Only while still 'importing': a job the user cancelled during
+        // staging stays cancelled.
+        await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: {
             state: 'failed',
             error: msg.slice(0, 2000),
@@ -294,8 +311,8 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         where: { id: params.importJobId },
       });
       if (!imp) {
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: {
             state: 'failed',
             error: 'The import step went missing.',
@@ -305,8 +322,8 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         continue;
       }
       if (imp.status === 'succeeded') {
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: {
             state: 'done',
             progress: 100,
@@ -315,8 +332,8 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         });
         this.log.log(`analysis ${job.id}: done (import ${imp.id})`);
       } else if (imp.status === 'failed' || imp.status === 'cancelled') {
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: {
             state: 'failed',
             error:
@@ -328,8 +345,8 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         });
       } else {
         // Still running; nudge progress so the UI shows life.
-        await this.prisma.analysisJob.update({
-          where: { id: job.id },
+        await this.prisma.analysisJob.updateMany({
+          where: { id: job.id, state: 'importing' },
           data: { progress: 90 },
         });
       }

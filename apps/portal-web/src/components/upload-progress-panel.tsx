@@ -2,6 +2,9 @@
 'use client';
 
 import { FileUp, Loader2, XCircle } from 'lucide-react';
+import { apiErrorMessage } from '@/lib/api-error';
+import { formatBytes } from '@/lib/format-bytes';
+import { useT } from '@/lib/i18n/locale-context';
 
 /**
  * Shared upload-progress UI + helper. Used wherever a sizeable file
@@ -30,6 +33,9 @@ export interface UploadBusy {
   fileName: string;
   fileSize: number;
   bytesUploaded: number;
+  /** True while a resumable upload continues an interrupted one. The
+   *  uploading headline then reads "Resuming upload". */
+  resuming?: boolean;
   /** Optional override for the panel copy. The defaults read like
    *  "Reading on the server" (probe / wizard); a caller doing a
    *  feature ingest can pass its own to read like "Importing
@@ -75,12 +81,15 @@ export function UploadProgressPanel({
       : busy.phase === 'reading'
         ? 100
         : 0;
+  const t = useT();
   const customCopy = busy.copy?.[busy.phase];
   const baseCopy = DEFAULT_COPY[busy.phase];
   const headline =
     customCopy?.headline ??
     (busy.phase === 'uploading'
-      ? `${baseCopy.headline} ${pct.toFixed(0)}%`
+      ? busy.resuming
+        ? t('resumableUpload.resumingHeadline', { pct: pct.toFixed(0) })
+        : `${baseCopy.headline} ${pct.toFixed(0)}%`
       : baseCopy.headline);
   const subhead = customCopy?.subhead ?? baseCopy.subhead;
   const showCancel = busy.phase !== 'parsing';
@@ -154,6 +163,11 @@ export async function uploadWithProgress<T>(
     bytesUploaded: number;
   }) => void,
   ref: { current: XMLHttpRequest | null } = { current: null },
+  // The response is one JSON document unless the caller says
+  // otherwise. The layer import endpoint streams NDJSON, so its
+  // caller passes a parser that reads the terminal event instead.
+  parse: (text: string) => T = (text) => JSON.parse(text) as T,
+  errorText?: (status: number, text: string) => string,
 ): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -175,22 +189,30 @@ export async function uploadWithProgress<T>(
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          resolve(JSON.parse(xhr.responseText) as T);
+          resolve(parse(xhr.responseText));
         } catch (err) {
-          reject(
-            new Error(
-              `Server response was not JSON: ${(err as Error).message}`,
-            ),
-          );
+          if (err instanceof SyntaxError) {
+            reject(
+              new Error(`Server response was not JSON: ${err.message}`),
+            );
+          } else {
+            reject(err as Error);
+          }
         }
+      } else if (errorText) {
+        reject(new Error(errorText(xhr.status, xhr.responseText)));
+      } else if (xhr.status >= 400 && xhr.status <= 599) {
+        // Read the body the way every fetch caller does, so a portal
+        // refusal shows its sentence rather than the JSON wrapper, and
+        // a proxy's HTML error page is not dumped into the message.
+        void apiErrorMessage(
+          new Response(xhr.responseText, { status: xhr.status }),
+          'Upload failed',
+        )
+          .catch(() => `Upload failed (${xhr.status}).`)
+          .then((message) => reject(new Error(message)));
       } else {
-        reject(
-          new Error(
-            `Upload failed (${xhr.status}): ${
-              xhr.responseText || xhr.statusText || 'no body'
-            }`,
-          ),
-        );
+        reject(new Error(`Upload failed (${xhr.status}).`));
       }
     };
     xhr.onerror = () => reject(new Error('Network error during upload.'));
@@ -205,17 +227,5 @@ export async function uploadWithProgress<T>(
   });
 }
 
-/** Tiny byte formatter so the panel doesn't reach into offline-store
- *  helpers (which would also pull IDB code into bundles that don't
- *  need it). */
-export function formatBytesSimple(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let v = n;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i += 1;
-  }
-  return `${v < 10 ? v.toFixed(1) : v.toFixed(0)} ${units[i]}`;
-}
+/** Kept for existing importers; the one formatter is lib/format-bytes. */
+export const formatBytesSimple = formatBytes;

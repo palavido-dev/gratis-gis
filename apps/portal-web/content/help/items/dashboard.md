@@ -12,6 +12,7 @@ tags:
 related:
   - items-map
   - items-data-layer
+  - items-print-template
   - items-report-template
 ---
 

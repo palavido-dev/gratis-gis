@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
 
 import {
   BadRequestException,
+  ConflictException,
   Body,
   Controller,
   Delete,
   Get,
+  Optional,
   Param,
   Patch,
   Post,
@@ -26,12 +30,29 @@ import {
 } from 'class-validator';
 import type { Response } from 'express';
 
+import { AdminAuditService } from '../admin/admin-audit.service.js';
 import { AdminGuard } from '../admin/admin.guard.js';
+import { OperatorOrgGuard } from './operator-org.js';
+import {
+  AllowWhenBackupUiDisabled,
+  BackupUiEnabledGuard,
+  backupUiDisabled,
+} from './backup-ui-switch.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { BackupService } from './backup.service.js';
-import { BackupRestoreService } from './backup-restore.service.js';
-import { MaintenanceModeService } from './maintenance-mode.service.js';
+import {
+  BackupRestoreService,
+  RestoreNotStartedError,
+} from './backup-restore.service.js';
+import { MaintenanceModeService, failedRestore } from './maintenance-mode.service.js';
+import { EmailTransport } from '../notifications/email-transport.js';
+import {
+  announceRecoveryFailure,
+  readRecoveryStatus,
+  recoveryBanner,
+  shouldAnnounceRecovery,
+} from './recovery-status.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -97,7 +118,9 @@ class UpdateConfigDto {
 
 @ApiTags('admin', 'backup')
 @ApiBearerAuth()
-@UseGuards(AdminGuard)
+// GRATIS_DISABLE_BACKUP_UI closes every route here except the
+// availability probe the web uses to hide the page.
+@UseGuards(AdminGuard, OperatorOrgGuard, BackupUiEnabledGuard)
 @Controller('admin/backup')
 export class BackupController {
   constructor(
@@ -105,7 +128,35 @@ export class BackupController {
     private readonly restore: BackupRestoreService,
     private readonly mode: MaintenanceModeService,
     private readonly prisma: PrismaService,
+    private readonly mail: EmailTransport,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
+
+  private readonly recoveryAnnounced = new Set<string>();
+
+  private note(
+    user: AuthUser,
+    action: 'backup.config' | 'backup.run' | 'backup.restore' | 'backup.cancel' | 'backup.delete',
+    targetId: string,
+    outcome: 'succeeded' | 'failed',
+  ): void {
+    if (!this.audit) return;
+    void this.audit.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action,
+      targetType: 'backup',
+      targetId,
+      outcome,
+    });
+  }
+
+  /** Whether this install turned the backup surface off. */
+  @Get('availability')
+  @AllowWhenBackupUiDisabled()
+  availability() {
+    return { disabled: backupUiDisabled() };
+  }
 
   @Get('config')
   getConfig() {
@@ -121,7 +172,9 @@ export class BackupController {
     // patch shape on the service side; the service itself does the
     // range / enum / cron-shape validation that class-validator
     // can't express cleanly.
-    return this.backup.updateConfig(dto, user.id);
+    const updated = await this.backup.updateConfig(dto, user.id);
+    this.note(user, 'backup.config', user.orgId, 'succeeded');
+    return updated;
   }
 
   @Get('runs')
@@ -142,6 +195,8 @@ export class BackupController {
   @Post('runs')
   async runNow(@CurrentUser() user: AuthUser) {
     const run = await this.backup.runBackup('manual', user.id);
+    // runBackup returns a failed or cancelled run instead of throwing.
+    this.note(user, 'backup.run', run.id, run.status === 'succeeded' ? 'succeeded' : 'failed');
     return {
       ...run,
       sizeBytes:
@@ -160,12 +215,22 @@ export class BackupController {
     @Res({ passthrough: false }) res: Response,
   ) {
     const { path: p, filename } = await this.backup.resolveArchivePath(id);
+    const { size } = await stat(p);
     res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Length', String(size));
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${filename}"`,
     );
-    createReadStream(p).pipe(res);
+    // pipeline, not pipe: pipe left the file open after an aborted
+    // download (holding a deleted archive's space) and never ended
+    // the response on a read error. pipeline closes both ends.
+    try {
+      await pipeline(createReadStream(p), res);
+    } catch {
+      if (!res.headersSent) res.status(500).end();
+      else res.destroy();
+    }
   }
 
   /**
@@ -177,8 +242,10 @@ export class BackupController {
    * nothing anywhere that could signal the work itself.
    */
   @Post('runs/:id/cancel')
-  async cancel(@Param('id') id: string) {
-    return this.backup.requestCancel(id);
+  async cancel(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const result = await this.backup.requestCancel(id);
+    this.note(user, 'backup.cancel', id, 'succeeded');
+    return result;
   }
 
   /**
@@ -187,12 +254,32 @@ export class BackupController {
    */
   @Get('health')
   async health() {
-    return this.backup.getHealth();
+    const base = await this.backup.getHealth();
+    const recovery = await readRecoveryStatus(
+      process.env.GRATIS_RECOVERY_STATUS_FILE,
+    );
+    const to = process.env.GRATIS_RECOVERY_NOTICE_TO;
+    if (shouldAnnounceRecovery(this.recoveryAnnounced, recovery, to)) {
+      try {
+        await announceRecoveryFailure(this.mail, to!, recovery!);
+      } catch {
+        this.recoveryAnnounced.delete(
+          `${recovery!.outcome}:${recovery!.phase}`,
+        );
+      }
+    }
+    return {
+      ...base,
+      recovery,
+      recoveryBanner: recoveryBanner(recovery),
+    };
   }
 
   @Delete('runs/:id')
-  async remove(@Param('id') id: string) {
-    return this.backup.deleteRun(id);
+  async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const result = await this.backup.deleteRun(id);
+    this.note(user, 'backup.delete', id, 'succeeded');
+    return result;
   }
 
   // ---------------------------------------------------------------
@@ -242,13 +329,36 @@ export class BackupController {
       );
     }
 
+    // While maintenance is on, a restore may start only to recover
+    // from a failed one, and never while this replica is running one.
+    // Any other maintenance (a restore in progress, an admin's manual
+    // switch) refuses, as the middleware used to for every restore.
+    const before = this.mode.snapshot();
+    if (
+      before.active &&
+      (this.mode.isHeldLocally() || !failedRestore(before.reason))
+    ) {
+      throw new ConflictException(
+        'Maintenance is on and no failed restore is waiting to be re-run. Wait for the current restore to finish, or turn maintenance off first.',
+      );
+    }
+
+    // Refusals that need no maintenance window (a live backup, an
+    // archive whose schema does not match this portal) come first,
+    // so they never leave a failed-restore hold behind.
+    await this.restore.preflight(id);
+
     // Flip maintenance mode BEFORE we touch anything; the global
     // middleware then 503s unrelated requests that are in flight or
     // arriving during the restore window. Awaited so the shared flag
     // is persisted (and the other replica will pick it up) before the
     // restore starts dropping the schema.
+    // replaceReason when re-running after a failed restore: the
+    // banner should say a restore is running, and the check above
+    // then refuses a second one started on the other replica.
     await this.mode.activate(
       `Restoring backup ${id.slice(0, 8)}… Initiated by ${user.username ?? user.id.slice(0, 8)}.`,
+      { replaceReason: before.active },
     );
     try {
       const audit = await this.restore.runRestore({
@@ -259,8 +369,20 @@ export class BackupController {
       // consistent DB+bucket. #233: on failure we deliberately keep
       // maintenance on so a half-applied restore cannot serve users.
       await this.mode.deactivate();
+      this.note(user, 'backup.restore', id, 'succeeded');
       return audit;
     } catch (err) {
+      this.note(user, 'backup.restore', id, 'failed');
+      if (err instanceof RestoreNotStartedError) {
+        // Nothing was changed. Lift the maintenance this request
+        // raised, unless maintenance was already on before it.
+        if (!before.active) await this.mode.deactivate();
+        else if (before.reason) {
+          // Put the failed-restore hold back as it was.
+          await this.mode.activate(before.reason, { replaceReason: true });
+        }
+        throw new ConflictException(err.message);
+      }
       const msg = err instanceof Error ? err.message : String(err);
       await this.mode.activate(
         `Restore of backup ${id.slice(0, 8)} failed and left the portal in an inconsistent state. Maintenance stays on until an admin finishes or re-runs the restore. Last error: ${msg.slice(0, 300)}`,

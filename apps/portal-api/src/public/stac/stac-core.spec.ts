@@ -5,6 +5,7 @@ import {
   RASTER_COLLECTION_ID,
   STAC_CONFORMANCE,
   bboxIntersectsGeometry,
+  buildItemCollection,
   buildRasterCollection,
   buildStacItem,
   filterAndPage,
@@ -404,5 +405,71 @@ describe('conformance honesty', () => {
         'https://api.stacspec.org/v1.0.0/item-search',
       ]),
     );
+  });
+});
+
+describe('intersects shape check', () => {
+  it('refuses a geometry whose coordinates are not nested numbers', () => {
+    expect(() =>
+      parseSearchParams({ intersects: { type: 'Polygon', coordinates: 5 } }),
+    ).toThrow(/GeoJSON geometry/);
+    expect(() =>
+      parseSearchParams({ intersects: { type: 'Point', coordinates: ['a', 1] } }),
+    ).toThrow(/GeoJSON geometry/);
+    expect(() =>
+      parseSearchParams({ intersects: { type: 'GeometryCollection', geometries: 3 } }),
+    ).toThrow(/GeoJSON geometry/);
+  });
+
+  it('accepts a well formed polygon', () => {
+    expect(() =>
+      parseSearchParams({
+        intersects: {
+          type: 'Polygon',
+          coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]],
+        },
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('footprint, item links and POST paging', () => {
+  const fromData = row({
+    bbox: [],
+    data: { ...(row().data as object), bbox: [10, 10, 11, 11] } as never,
+  });
+
+  it('filters and reports extent by the same footprint the item shows', () => {
+    const out = filterAndPage([fromData], parseSearchParams({ bbox: '10.5,10.5,12,12' }));
+    expect(out.matched).toBe(1);
+    const coll = buildRasterCollection([fromData], ROOT) as {
+      extent: { spatial: { bbox: number[][] } };
+    };
+    expect(coll.extent.spatial.bbox[0]).toEqual([10, 10, 11, 11]);
+  });
+
+  it('links the anonymous item document on the public mount', () => {
+    const links = (buildStacItem(row(), BASE, ROOT) as { links: Array<{ title?: string; href: string }> })
+      .links;
+    const doc = links.find((l) => l.title === 'Portal item document')!;
+    expect(doc.href).toBe(`${BASE}/api/public/items/${row().id}`);
+  });
+
+  it('pages a POST search with POST links that keep the body', () => {
+    const rows = [0, 1, 2].map((i) =>
+      row({ id: `11111111-2222-4333-8444-55555555555${i}` }),
+    );
+    const body = { bbox: [-81, 38, -79, 40], limit: 1 };
+    const out = buildItemCollection({
+      rows,
+      params: parseSearchParams(body),
+      base: BASE,
+      apiRoot: ROOT,
+      selfUrl: `${ROOT}/search`,
+      postBody: body,
+    }) as { links: Array<{ rel: string; method?: string; body?: Record<string, unknown> }> };
+    const next = out.links.find((l) => l.rel === 'next')!;
+    expect(next.method).toBe('POST');
+    expect(next.body).toEqual({ bbox: [-81, 38, -79, 40], limit: 1, offset: 1 });
   });
 });

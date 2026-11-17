@@ -1,11 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Pool, type PoolClient } from 'pg';
+import { existsSync } from 'node:fs';
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { Worker } from 'node:worker_threads';
 import { join } from 'node:path';
 import type { Writable } from 'node:stream';
 
 import { type Observation } from '@gratis-gis/engine';
+
+/** Advisory lock buckets per scope for the append de-dupe. A power of
+ *  two so the bucket is a bit mask of the entity hash. */
+export const APPEND_LOCK_BUCKETS = 64;
 
 /**
  * COPY-based bulk writer for the observation table (#115 P3 + P9).
@@ -44,16 +49,17 @@ import { type Observation } from '@gratis-gis/engine';
  *     considerably faster than GeoJSON.
  *   - The `cell` h3 index is set null in the bulk path; #115 P4
  *     dropped the index that justified per-row computation.
- *   - This path bypasses derived-layer cache invalidation
- *     (notifySourceWrite). The worker fires a single bulk
- *     invalidation after the COPY completes -- cheaper than
- *     N per-row calls and good enough for the staleness window
- *     between import-finished and the next regular write.
+ *   - This class does not touch derived-layer caches itself.
+ *     bulkInsertFeatures calls notifySourceWrite once per batch it
+ *     hands to the writer.
  */
 export class CopyWriter {
   private pool: Pool;
   private client: PoolClient | null = null;
   private stream: Writable | null = null;
+  /** First error the COPY stream reported. Kept because a stream
+   *  emits 'error' once: a later write or wait would never hear it. */
+  private streamError: Error | null = null;
   private rowCount = 0;
   private encoder: Worker | null = null;
   private nextRequestId = 0;
@@ -72,6 +78,10 @@ export class CopyWriter {
       max: 1,
       min: 0,
     });
+    // An idle client that loses its connection emits on the pool. An
+    // 'error' event with no listener is thrown as an uncaught
+    // exception, and the worker process has no handler for that.
+    this.pool.on('error', () => {});
   }
 
   /**
@@ -92,13 +102,29 @@ export class CopyWriter {
    *  the transaction (see `deleteScope`). Pair with `beginCopy()`. */
   async begin(): Promise<void> {
     this.client = await this.pool.connect();
-    // SET LOCAL synchronous_commit=off for this transaction.
-    // Bulk imports are re-runnable; trading per-commit fsync
-    // durability for ~20-30% throughput is the right call here.
-    // The setting reverts at transaction end so other queries on
-    // the same client (none in this design) get default behavior.
+    // pg-pool drops its own error listener while a client is checked
+    // out, and this one is held for the whole import. Without a
+    // listener a Postgres restart or a terminated backend mid-COPY
+    // throws "Connection terminated unexpectedly" as an uncaught
+    // exception and kills the whole worker process, every other job
+    // with it. Record it instead so the job fails on its own.
+    this.client.on('error', (err: unknown) => {
+      this.streamError ??= err instanceof Error ? err : new Error(String(err));
+    });
+    // synchronous_commit stays ON. Turning it off let COMMIT return
+    // before the WAL flush, so a power loss could drop a load the
+    // job row later called succeeded, or leave rows behind a job
+    // the reaper marked failed. County imports pay the fsync.
     await this.client.query('BEGIN');
-    await this.client.query('SET LOCAL synchronous_commit = OFF');
+    // The app role carries a 30s statement_timeout (migration
+    // 20260518150000) to bound runaway API queries. A bulk import is
+    // one COPY statement that runs as long as the whole file takes,
+    // so any import over 30s was cancelled mid-load: a 467,947-row
+    // shapefile stopped at its first batch (#573). Lift the limit for
+    // this transaction only. The import is bounded by its own cancel
+    // check and heartbeat, and SET LOCAL ends with the transaction,
+    // so the pooled connection goes back with the role default.
+    await this.client.query('SET LOCAL statement_timeout = 0');
   }
 
   /**
@@ -129,6 +155,40 @@ export class CopyWriter {
     ]);
   }
 
+  /** Latest live entity ids in `scope`. Call before `deleteScope` on
+   *  a replace so the commit can write tombstones for entities the
+   *  new file does not contain. Invalid once COPY has started. */
+  async liveEntityIds(scope: string): Promise<string[]> {
+    const result = await this.query<{ entity: string }>(
+      `SELECT entity::text AS entity
+       FROM (
+         SELECT DISTINCT ON (entity) entity, kind
+         FROM observation
+         WHERE scope = $1
+         ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
+       ) latest
+       WHERE kind <> 'delete'`,
+      [scope],
+    );
+    return result.rows.map((row) => row.entity);
+  }
+
+  /** Ordinary SQL on this writer's connection. Only between `begin`
+   *  and `beginCopy`, and again after `sealCopy` until `commit`.
+   *  The COPY stream owns the connection in between. */
+  async query<T extends QueryResultRow = QueryResultRow>(
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<QueryResult<T>> {
+    if (!this.client) {
+      throw new Error('CopyWriter.query called without a connection.');
+    }
+    if (this.stream) {
+      throw new Error('CopyWriter.query called while COPY is open.');
+    }
+    return this.client.query<T>(sql, params);
+  }
+
   /** Issue the COPY statement and spawn the encoder worker. After
    *  this the connection is dedicated to the COPY until `end()` or
    *  `abort()`. */
@@ -155,11 +215,24 @@ export class CopyWriter {
       ].join(', ') +
       ') FROM STDIN WITH (FORMAT text)';
     this.stream = this.client.query(copyFrom(sql)) as unknown as Writable;
-    // Spawn the encoder worker_thread. The compiled JS sits at
-    // dist/engine/copy-writer.js, with copy-encoder.worker.js next
-    // to it. portal-api is built as CommonJS so we resolve via
-    // __dirname rather than import.meta.url.
-    this.encoder = new Worker(join(__dirname, 'copy-encoder.worker.js'));
+    // Listen for the whole life of the stream. Postgres refusing a row
+    // (a value too long, bad geometry text) destroys the stream with an
+    // error, often while nothing is waiting on it. Without this the
+    // next write returned false and writeBatch waited for a drain that
+    // never came: an import sat at its first batch forever (#573).
+    this.stream.on('error', (err: unknown) => {
+      this.streamError ??= err instanceof Error ? err : new Error(String(err));
+    });
+    // The compiled image has copy-encoder.worker.js beside this file.
+    // A test run from the TypeScript source does not, so it loads the
+    // .ts file with the type stripper. The worker has no other imports.
+    const compiled = join(__dirname, 'copy-encoder.worker.js');
+    const script = existsSync(compiled)
+      ? compiled
+      : join(__dirname, 'copy-encoder.worker.ts');
+    this.encoder = new Worker(script, {
+      execArgv: script.endsWith('.ts') ? ['--experimental-strip-types'] : [],
+    });
     this.encoder.on('message', (msg: EncoderMessage) => {
       const slot = this.pending.get(msg.id);
       if (!slot) return;
@@ -225,27 +298,54 @@ export class CopyWriter {
         })),
       });
     });
-    this.rowCount += batch.length;
     const stream = this.stream;
+    this.throwIfBroken(stream);
+    this.rowCount += batch.length;
     const ok = stream.write(lines);
     if (!ok) {
       // The COPY stream's buffer is full -- wait for the consumer
       // (the pg socket) to drain before we let the caller queue
       // more. Without this, large bursts grow the in-process
-      // buffer unboundedly.
-      await new Promise<void>((resolve, reject) => {
-        const onDrain = () => {
-          stream.off('error', onError);
-          resolve();
-        };
-        const onError = (err: Error) => {
-          stream.off('drain', onDrain);
-          reject(err);
-        };
-        stream.once('drain', onDrain);
-        stream.once('error', onError);
-      });
+      // buffer unboundedly. A stream that errors or closes instead
+      // never drains, so those end the wait too.
+      await this.settle(stream, 'drain');
     }
+    this.throwIfBroken(stream);
+  }
+
+  /** Throw the stream's error, or a plain one if it closed without. */
+  private throwIfBroken(stream: Writable): void {
+    if (this.streamError) throw this.streamError;
+    if (stream.destroyed) {
+      throw new Error('The COPY stream closed before the import finished.');
+    }
+  }
+
+  /** Wait for `event`, or reject when the stream errors or closes. */
+  private settle(stream: Writable, event: 'drain' | 'finish'): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        stream.off(event, onEvent);
+        stream.off('error', onFail);
+        stream.off('close', onFail);
+      };
+      const onEvent = () => {
+        cleanup();
+        resolve();
+      };
+      const onFail = () => {
+        cleanup();
+        reject(
+          this.streamError ??
+            new Error('The COPY stream closed before the import finished.'),
+        );
+      };
+      stream.on(event, onEvent);
+      stream.on('error', onFail);
+      stream.on('close', onFail);
+      // It may already have failed before we started listening.
+      if (this.streamError || stream.destroyed) onFail();
+    });
   }
 
   /**
@@ -260,30 +360,149 @@ export class CopyWriter {
   }
 
   /**
-   * Close the COPY stream and commit the transaction. Returns the
-   * number of rows written. Errors during stream-end or commit
-   * roll back the transaction, so a partially-streamed batch
-   * never lands.
+   * Finish the COPY stream and leave the transaction open so the
+   * caller can delete duplicate appends before commit. A partial
+   * stream that throws never reaches here; abort() destroys the
+   * connection and Postgres rolls the transaction back.
    */
-  async end(): Promise<number> {
+  async sealCopy(): Promise<void> {
     if (!this.stream || !this.client) {
-      throw new Error('CopyWriter.end called before start().');
+      throw new Error('CopyWriter.sealCopy called before start().');
     }
     const stream = this.stream;
-    await new Promise<void>((resolve, reject) => {
-      stream.on('finish', () => resolve());
-      stream.on('error', reject);
-      stream.end();
-    });
-    await this.client.query('COMMIT');
-    this.client.release();
-    this.client = null;
+    this.throwIfBroken(stream);
+    const finished = this.settle(stream, 'finish');
+    stream.end();
+    await finished;
     this.stream = null;
     if (this.encoder) {
       await this.encoder.terminate();
       this.encoder = null;
     }
+  }
+
+  /**
+   * Remove create rows this transaction just inserted when they are
+   * not the first live observation for that entity.
+   *
+   * Only rows whose xmin is this transaction's xid are eligible.
+   * `pg_current_xact_id()::xid` stays equal to xmin after the
+   * 32-bit xid counter wraps. `xmin::text::bigint = txid_current()`
+   * does not: txid_current() keeps the epoch. Committed
+   * history, updates, deletes, other scopes, and duplicates that
+   * were already stored are left alone. A create after a committed
+   * delete is kept. Two creates for a new entity in this load keep
+   * the earliest. Advisory locks on the entity buckets we just wrote
+   * make a concurrent append of the same entity wait, then see the
+   * winner's commit. At most APPEND_LOCK_BUCKETS locks are taken.
+   *
+   * Lock order: the layer's item row (FOR UPDATE) first, then the
+   * bucket locks in ascending key order. API edits that go through
+   * the item row lock take it first too, then their own per-entity
+   * advisory keys, so both sides queue on the item row before any
+   * advisory lock and cannot wait on each other in a cycle. The
+   * bucket keys use their own namespace, so they never collide with
+   * the API's per-entity keys. Pass `itemId` whenever the scope
+   * belongs to an item; leaving it out skips the row lock.
+   */
+  async dropDuplicateAppendCreates(
+    scope: string,
+    itemId?: string,
+  ): Promise<number> {
+    if (!this.client) {
+      throw new Error(
+        'CopyWriter.dropDuplicateAppendCreates called without a connection.',
+      );
+    }
+    if (this.stream) {
+      throw new Error(
+        'CopyWriter.dropDuplicateAppendCreates called while COPY is open.',
+      );
+    }
+    if (itemId) {
+      await this.client.query(
+        'SELECT 1 FROM item WHERE id = $1::uuid FOR UPDATE',
+        [itemId],
+      );
+    }
+    // One advisory lock per entity bucket, not per entity. Postgres
+    // keeps advisory locks in the shared lock table, which holds about
+    // max_locks_per_transaction x max_connections entries (6,400 by
+    // default) for the whole server. A per-entity lock made a 20k
+    // feature append fail with "out of shared memory". Two appends
+    // that write the same entity share its bucket in this scope, so
+    // the later one still waits and then sees the first one's commit;
+    // unrelated entities in one bucket just wait too. Keys are taken
+    // in ascending order so two appends cannot deadlock on each other.
+    await this.client.query(
+      `SELECT pg_advisory_xact_lock(k)
+       FROM (
+         SELECT DISTINCT hashtextextended(
+           'append-dedupe|' || $1::text || '|' ||
+             (hashtextextended(entity::text, 0) & $2::bigint)::text,
+           0
+         ) AS k
+         FROM observation
+         WHERE scope = $1
+           AND kind = 'create'
+           AND xmin = pg_current_xact_id()::xid
+         ORDER BY 1
+       ) locks`,
+      [scope, APPEND_LOCK_BUCKETS - 1],
+    );
+    const result = await this.client.query(
+      `DELETE FROM observation AS fresh
+       WHERE fresh.scope = $1
+         AND fresh.kind = 'create'
+         AND fresh.xmin = pg_current_xact_id()::xid
+         AND (
+           EXISTS (
+             SELECT 1
+             FROM (
+               SELECT prev.kind
+               FROM observation AS prev
+               WHERE prev.scope = fresh.scope
+                 AND prev.entity = fresh.entity
+                 AND prev.xmin IS DISTINCT FROM pg_current_xact_id()::xid
+               ORDER BY prev.valid_from DESC, prev.tx_time DESC, prev.id DESC
+               LIMIT 1
+             ) prior
+             WHERE prior.kind <> 'delete'
+           )
+           OR EXISTS (
+             SELECT 1
+             FROM observation AS sibling
+             WHERE sibling.scope = fresh.scope
+               AND sibling.entity = fresh.entity
+               AND sibling.kind = 'create'
+               AND sibling.xmin = pg_current_xact_id()::xid
+               AND sibling.id <> fresh.id
+               AND (sibling.tx_time, sibling.id) < (fresh.tx_time, fresh.id)
+           )
+         )`,
+      [scope],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  async commit(): Promise<number> {
+    if (!this.client) {
+      throw new Error('CopyWriter.commit called without a connection.');
+    }
+    if (this.stream) {
+      throw new Error('CopyWriter.commit called while COPY is open.');
+    }
+    await this.client.query('COMMIT');
+    this.client.release();
+    this.client = null;
     return this.rowCount;
+  }
+
+  /** Seal the stream and commit. Callers that must run SQL after
+   *  the stream use `sealCopy` and `commit` themselves. */
+  async end(): Promise<number> {
+    await this.sealCopy();
+    return this.commit();
   }
 
   /** Abort the in-flight COPY and roll back. Call from a finally
@@ -303,6 +522,10 @@ export class CopyWriter {
     // Tear the COPY stream down first (best-effort) so nothing keeps
     // writing into a socket we are about to drop.
     if (this.stream) {
+      // Destroying the socket emits 'error' on the next tick. Without
+      // a listener that becomes an unhandled error and can take the
+      // worker down after a cancel that already rolled back.
+      this.stream.on('error', () => {});
       try {
         this.stream.destroy();
       } catch {
@@ -311,6 +534,7 @@ export class CopyWriter {
       this.stream = null;
     }
     if (this.client) {
+      this.client.on('error', () => {});
       try {
         // Passing a truthy value destroys the client instead of
         // returning it to the pool; the disconnect rolls back the

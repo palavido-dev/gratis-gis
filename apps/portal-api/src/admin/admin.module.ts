@@ -15,6 +15,19 @@ import { HousekeepingScheduleService } from './housekeeping-schedule.service.js'
 import { HousekeepingCronService } from './housekeeping-cron.service.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { KeycloakSyncService } from './keycloak-sync.service.js';
+import { BackupModule } from '../backup/backup.module.js';
+import { AdminAuditController } from './admin-audit.controller.js';
+import { AdminAuditModule } from './admin-audit.module.js';
+import { DiagnosticsController } from './diagnostics.controller.js';
+import { DiagnosticsService } from './diagnostics.service.js';
+import { PermissionsReportController } from './permissions-report.controller.js';
+import { JobsMonitorController } from './jobs-monitor.controller.js';
+import { JobsMonitorService } from './jobs-monitor.service.js';
+import { MaintenanceAdminController } from './maintenance-admin.controller.js';
+import { ReadinessController } from './readiness.controller.js';
+import { ReadinessService } from './readiness.service.js';
+import { ResourceQuotaModule } from './resource-quota.module.js';
+import { PermissionsReportService } from './permissions-report.service.js';
 import { AdminOnboardingController } from './onboarding.controller.js';
 import { AdminSecurityController } from './admin-security.controller.js';
 import { OnboardingService } from './onboarding.service.js';
@@ -25,6 +38,9 @@ import { NotificationsAdminController } from '../notifications/admin.controller.
 import { StorageModule } from '../storage/storage.module.js';
 import { FieldQueueModule } from '../field-queue/field-queue.module.js';
 import { FieldQueueAdminController } from '../field-queue/field-queue-admin.controller.js';
+import { UpdatesController } from '../updates/updates.controller.js';
+import { UpdatesService } from '../updates/updates.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 
 /**
  * Wires the admin surfaces: Keycloak integration (users +
@@ -40,6 +56,9 @@ import { FieldQueueAdminController } from '../field-queue/field-queue-admin.cont
  */
 @Module({
   imports: [
+    AdminAuditModule,
+    BackupModule,
+    ResourceQuotaModule,
     DataLayerTablesModule,
     ItemsModule,
     NotificationsModule,
@@ -54,20 +73,33 @@ import { FieldQueueAdminController } from '../field-queue/field-queue-admin.cont
     AdminBrandingController,
     AdminCapabilitiesController,
     AdminIntegrationsController,
+    AdminAuditController,
     AdminOnboardingController,
+    DiagnosticsController,
+    JobsMonitorController,
+    MaintenanceAdminController,
+    PermissionsReportController,
+    ReadinessController,
     AdminSecurityController,
     HousekeepingController,
     NotificationsAdminController,
     FieldQueueAdminController,
+    UpdatesController,
   ],
   providers: [
     KeycloakAdminService,
     KeycloakSyncService,
     AdminGuard,
+    OperatorOrgGuard,
     HousekeepingService,
     HousekeepingScheduleService,
     HousekeepingCronService,
+    DiagnosticsService,
     OnboardingService,
+    JobsMonitorService,
+    PermissionsReportService,
+    ReadinessService,
+    UpdatesService,
   ],
   exports: [KeycloakAdminService, KeycloakSyncService],
 })

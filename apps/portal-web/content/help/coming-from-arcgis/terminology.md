@@ -30,12 +30,12 @@ Esri vocabulary was already the clear word.
 | Survey (Survey123) | **Form** | XLSForm import exists on the form designer. Not a Survey123 drop-in. The ArcGIS Online content importer skips surveys. |
 | Survey responses | The form's **Responses** tab, backed by a paired data layer | A standalone form-submission item is not built. |
 | Operations Dashboard | **Web app** (KPI Dashboard or Operations Board) | Dashboards are web-app layouts. There is no dashboard item type. |
-| Field Maps | Field PWA and **data collection** | Offline capture and sync. Not a Field Maps drop-in. |
+| Field Maps | Field PWA and **Data collection** | Offline capture and sync. Not a Field Maps drop-in. See **Data collection** help. |
 | Story Map | (no direct equivalent yet) | Future scope. |
 | Notebook | (not built in; use a Tool item or external Jupyter against the data API) | Hosted notebooks deferred indefinitely. |
 | Tile layer (cached map service) | **Tile layer** | Same term. PMTiles at rest. |
 | Vector tile layer | **Tile layer** (vector kind) | Same item, different content. |
-| Imagery layer | (no direct equivalent today) | Raster imagery support is on the roadmap; out of v1. |
+| Imagery layer | (no direct equivalent today) | Raster imagery support is on the roadmap; not in v1.0.0. |
 | Geoenrichment / Routing services | (not built in) | Bring your own service via a tool item. |
 | Solution template | (not built) | Layer packages and widget packages are reserved types with no editor. |
 

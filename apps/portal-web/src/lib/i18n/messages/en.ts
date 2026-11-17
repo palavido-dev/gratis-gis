@@ -21,6 +21,8 @@
  */
 export const en = {
   common: {
+    itemChangedElsewhere:
+      'Someone else saved this item after you opened it, so your save was not applied. Your changes are still on screen. Reload to see the latest version, then make your changes again.',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',
@@ -30,6 +32,57 @@ export const en = {
     backToItems: 'Back to items',
     settings: 'Settings',
     language: 'Language',
+    geolocationInsecure:
+      'The browser will not share your GPS location on this plain HTTP address. Address search does not use GPS. To use My location, open the portal with HTTPS. On a home NAS that is Tailscale Serve with your MagicDNS name. localhost is also allowed.',
+  },
+  /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
+  builderShell: {
+    backToItem: 'Back to item',
+    closePanel: 'Close panel',
+    pinPanel: 'Pin panel',
+    unpinPanel: 'Unpin panel',
+    pinPanelTitle: 'Pin panel open',
+    unpinPanelTitle: 'Unpin (collapse to icon)',
+    openLeftPanel: 'Open left panel',
+    openRightPanel: 'Open right panel',
+  },
+  /**
+   * Feature Editor configure (editor-detail) builder chrome
+   * (#162 / R14-i18n-viewer-editor-detail-chrome). Runtime toolbar
+   * strings stay under editorRuntime.
+   */
+  editorDetail: {
+    unsavedChanges: 'Unsaved changes',
+    saved: 'Saved',
+    openInWorkspace: 'Open in workspace',
+    openInWorkspaceTitle: 'Open this editor in a new tab',
+    openEditorNewTab: 'Open editor in a new tab',
+    discard: 'Discard',
+    addFromMap: 'Add from map',
+    addFromMapTitle: 'Bulk-import editable layers from a map',
+    addTarget: 'Add target',
+    clearReferenceMapAria: 'Clear reference map',
+    configurationTitle: 'Editor configuration',
+    removeTargetAria: 'Remove target',
+    removeTemplateAria: 'Remove template',
+  },
+  /**
+   * Viewer configure (viewer/detail) builder chrome
+   * (#162 / R14-i18n-viewer-editor-detail-chrome).
+   */
+  viewerDetail: {
+    unsavedChanges: 'Unsaved changes',
+    saved: 'Saved',
+    openViewer: 'Open viewer',
+    openViewerTitle: 'Open this viewer in a new tab',
+    openViewerNewTab: 'Open viewer in a new tab',
+    discard: 'Discard',
+    addFromMap: 'Add from map',
+    addFromMapTitle: 'Bulk-import layers from a map',
+    addLayer: 'Add layer',
+    clearReferenceMapAria: 'Clear reference map',
+    configurationTitle: 'Viewer configuration',
+    removeLayerAria: 'Remove layer',
   },
   nav: {
     items: 'Items',
@@ -45,15 +98,48 @@ export const en = {
     users: 'Users',
     landingPage: 'Landing page',
     backup: 'Backup',
+    updates: 'Updates',
     housekeeping: 'Housekeeping',
     notifications: 'Notifications',
     ai: 'AI',
     build: 'Build',
+    buildHint: 'Describe a layer, map, form, or app',
     security: 'Sign-in',
     fieldQueues: 'Field queues',
     migrations: 'Migrations',
     feedback: 'Feedback',
     gettingStarted: 'Getting started',
+    audit: 'Audit',
+    permissions: 'Permissions',
+    diagnostics: 'Diagnostics',
+    jobs: 'Jobs',
+    operations: 'Operations',
+  },
+  updates: {
+    title: 'Updates',
+    intro:
+      'This page only tells you what is new. It does not change the install. Take a backup, then follow the steps for this machine.',
+    back: 'Back to portal',
+    current: 'This install',
+    latest: 'Available',
+    channel: 'Channel',
+    install: 'Install',
+    changelog: 'Changelog',
+    offline: 'Could not reach GitHub. The versions above are what this install already knows.',
+    banner: 'An update is available.',
+    createBackup: 'Create backup',
+    backupWorking: 'Starting backup...',
+    downloadBackup: 'Download backup',
+    backupPage: 'Open the backup page',
+    backupFailed: 'Could not start a backup',
+    loadFailed: 'Could not load update information',
+    nasCompose:
+      'Copy the new compose file for this channel:',
+    nasComposePaste:
+      'In TrueNAS, edit the app and paste the file, then Save. In Dockge, open the stack, paste the file, and Save. Keep GRATIS_HTTP_PORT if you changed it.',
+    nasImages:
+      'The compose file is current. In TrueNAS, Stop the app and then Start it, or use Update. In Dockge, click Update. The stack pulls the new edge or latest images.',
+    dev: 'Pull the newest checkout and restart pnpm dev.',
   },
   shell: {
     notificationsLabel: 'Notifications',
@@ -62,8 +148,9 @@ export const en = {
     closeNavigation: 'Close navigation',
   },
   search: {
-    placeholder: 'Search items...',
+    placeholder: 'Search items only',
     label: 'Search items',
+    scopeHint: 'Searches item titles, descriptions, and tags. People and groups are not included.',
   },
   help: {
     buttonTitle: 'Help (press ? anywhere)',
@@ -122,6 +209,9 @@ export const en = {
     createButton: 'Create item',
     backButton: 'Back',
     changeType: 'Change type',
+    taskIntro: 'Start with an upload, a map, or a form. Every other item type is under More, and a link that names a type still opens it.',
+    moreTypes: 'More item types',
+    fewerTypes: 'Fewer item types',
     detailsEyebrow: 'New {type}',
     detailsEyebrowFallback: 'item',
     viewerBlocked:
@@ -231,7 +321,7 @@ export const en = {
     custom: {
       label: 'Web app',
       desc:
-        'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+        'A web app made of a map and widgets. A dashboard is a starter template for this type, not a separate item. Pick a template on the next screen, or start blank.',
     },
     theme: {
       label: 'Theme',
@@ -246,7 +336,7 @@ export const en = {
     tool: {
       label: 'Tool',
       desc:
-        'A reusable named action - "open this dashboard" or "go to this URL" - that you bind to a Button on a Custom Web App. One tool can be reused across many apps, so updating the destination once propagates everywhere.',
+        'A reusable named action, such as opening a web app or a URL, that you bind to a button. One tool can be reused across many apps.',
     },
     derived_layer: {
       label: 'Derived layer',
@@ -272,6 +362,15 @@ export const en = {
     term: 'metadata XML',
     importTitle:
       'Import a metadata XML file exported by ArcGIS, QGIS or a data catalogue (ISO 19115, FGDC CSDGM or Dublin Core) to pre-fill the fields below',
+    sectionAria: 'Optional metadata XML import',
+    optional: 'Optional',
+    importButton: 'Import metadata XML',
+    parsed: 'Parsed as {standard}. Filled what we could; the rest is yours.',
+    notMetadata:
+      'Got an XML file but it does not look like ISO 19115, FGDC CSDGM, or Dublin Core. Skipping.',
+    readFailed: 'Could not read that file.',
+    metadataOnly:
+      'Metadata only. This does not upload the item\u2019s content. Your file stays in the browser.',
   },
   // The data_layer builder on the new item wizard.
   layerBuilder: {
@@ -300,8 +399,7 @@ export const en = {
     expandAria: 'Expand',
     allowEditing: 'Allow editing',
     allowAttachments: 'Allow attachments',
-    attachmentsSoon: '(storage soon)',
-    attachmentsTitle: 'Attachment storage is a Phase E backend change: the toggle persists so you can opt in now.',
+    attachmentsTitle: 'Lets editors attach photos and files to features in this layer. When off, attachment uploads are refused.',
     editorScope: 'Editor scope',
     editorScopeTitle: 'Limit editors to the rows they themselves created',
     allFeatures: 'All features',
@@ -380,7 +478,7 @@ export const en = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Every layer in the file is added. Creating the item, or saving the schema, loads the features. A dashboard can use the layer after that import finishes.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -411,6 +509,31 @@ export const en = {
     invalidGeoJson: 'File is not a valid GeoJSON FeatureCollection.',
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
+  },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Vector tiles',
+    intro:
+      'How this layer is cut into map tiles. Leave a box empty to keep the default.',
+    fieldsHeading: 'Fields in tiles',
+    allFields: 'All fields (default)',
+    someFields: 'Only these fields',
+    noFields: 'This layer has no fields yet.',
+    fieldsNote:
+      'Fields a map uses for its style, labels, filter or hover popup are always added back, so maps keep drawing. Other unchecked fields are left out of the tiles, so app widgets that filter the map by them in the browser will not see them. This only makes tiles smaller. It does not hide data: every field is still readable through the layer\'s features, popups and exports.',
+    minZoom: 'Min zoom',
+    maxZoom: 'Max zoom',
+    maxFeatures: 'Max features per tile',
+    cacheMaxAge: 'Browser cache (seconds)',
+    default: 'default',
+    zoomHint:
+      'Max zoom is the deepest zoom tiles are built for; maps zoomed in further keep showing those tiles, enlarged. Below min zoom the layer is not drawn. Zoom from {min} to {max}.',
+    maxFeaturesHint: 'The feature cap can only be lowered, up to {max}.',
+    cacheHint:
+      'Cache from 0 to {max} seconds. Tiles of a layer that is not public are always cached privately, in the viewer\'s browser only.',
+    labelPoints: 'Label each line and polygon once',
+    labelPointsHint:
+      'Adds one label point per line or polygon to the tiles, so a feature that crosses tile edges is not labelled once per tile. Maps then label from that point (except labels placed along lines).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
@@ -511,6 +634,17 @@ export const en = {
   exprErrorAt: '{message} (at position {pos})',
   contourSourceField: 'Source numeric field',
   pickNumericFieldOption: '(pick a numeric field)',
+  missingFieldOption: '{field} (not on this layer)',
+  measureLength: 'Length',
+  measurePerimeter: 'Perimeter',
+  measureArea: 'Area',
+  predicateIntersects: 'Intersects',
+  predicateWithin: 'Within',
+  predicateNearest: 'Nearest',
+  predicateContains: 'Contains',
+  predicateTouches: 'Touches',
+  predicateNear: 'Near',
+  loadDataLayersFailed: 'Could not load data layers',
   contourNoNumeric: 'The source layer has no numeric fields. Add one (e.g. via Calculate field) earlier in the pipeline.',
   levels: 'Levels',
   contourAuto: 'Auto: walk by interval between min / max',
@@ -776,6 +910,7 @@ export const en = {
     basemapActive: 'active',
     elevationProfileButton: 'Elevation profile',
     visibilityButton: 'Visibility',
+    measureButton: 'Measure',
     createAppButton: 'Create app',
     savingIndicator: 'Saving...',
     saveAsTitle: 'Save this map',
@@ -784,6 +919,138 @@ export const en = {
     mapNamePlaceholder: 'Map name',
     cancel: 'Cancel',
   },
+  mapMeasure: {
+    title: 'Measure',
+    closeAria: 'Close measure',
+    modeAria: 'Measure mode',
+    distance: 'Distance',
+    area: 'Area',
+    unit: 'Unit',
+    hintDistance:
+      'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
+    hintArea:
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Measure locks the map top-down so the sketch matches the scale bar.',
+    hintAreaTerrain:
+      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Measure locks the map top-down so the sketch matches the scale bar.',
+    groundArea: 'Ground area',
+    horizontalLabel: 'Horizontal',
+    surfaceLabel: 'Slope surface',
+    perimeterLabel: 'Perimeter',
+    newMeasurement: 'New measurement',
+  },
+  /** Bottom-left area square next to the distance scale bar. */
+  mapAreaScale: {
+    ariaLabel: 'Area reference at this scale',
+    title:
+      'Area at this scale. Click to cycle units (acres, hectares, m², km², mi², ft²).',
+  },
+  /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
+  editorRuntime: {
+    /** BuilderShell left-panel title on the Feature Editor configure surface. */
+    targetsPanelTitle: 'Targets',
+    printTitle: 'Print the current view',
+    printAria: 'Print',
+    formViewButton: 'Form view',
+    measure: 'Measure',
+    measureModeAria: 'Measure mode',
+    exitMeasure: 'Exit measure',
+    distance: 'Distance',
+    area: 'Area',
+    unit: 'Unit',
+    measureHintDistance:
+      'Click to add points on the map. Double-click to finish. Compare with the scale bar.',
+    measureHintArea:
+      'Click to add vertices on the map. Double-click to finish. Area is horizontal ground (geodesic) — the same basis as parcel acre fields. Measure locks the map top-down so the sketch matches the scale bar.',
+    measureHintAreaTerrain:
+      'Click to add vertices on the map. Double-click to finish. Primary number is ground (slope) area on the DEM. Horizontal planimetric area (parcel deed basis) is listed below. Measure locks the map top-down so the sketch matches the scale bar.',
+    measureGroundArea: 'Ground area',
+    measureHorizontalLabel: 'Horizontal',
+    measureSurfaceLabel: 'Slope surface',
+    measurePerimeterLabel: 'Perimeter',
+    newMeasurement: 'New measurement',
+    select: 'Select',
+    selectWithMode: 'Select ({mode})',
+    selectMode: 'Select mode',
+    selectClick: 'Click',
+    selectRectangle: 'Rectangle',
+    selectPolygon: 'Polygon',
+    selectLasso: 'Lasso',
+    editorPaneAria: 'Editor pane',
+    openEditorPane: 'Open editor pane',
+    closeEditorPane: 'Close editor pane',
+    editorPaneTitle: 'Editor',
+    editFeatureTitle: 'Edit feature',
+    editGeometryTitle: 'Edit geometry',
+    cancelAttributeEdit: 'Cancel attribute edit',
+    cancelGeometryEdit: 'Cancel geometry edit',
+    closeLayersAria: 'Close layers panel',
+    configure: 'Configure',
+    configureTitle: "Open the editor's configuration page",
+    against: 'against',
+    editableLayersCount:
+      '{count, plural, one {# editable layer} other {# editable layers}}',
+    toolAdd: 'Add',
+    toolMagic: 'Magic outline',
+    toolSnap: 'Snap',
+    toolUndo: 'Undo',
+    toolRedo: 'Redo',
+    snapStateTitle: '{label}: {state}',
+    on: 'on',
+    off: 'off',
+    stackAvailableTitle: '{label} ({count} available)',
+    toolComingSoon: '{tool} lands in a follow-up slice.',
+    editFeaturesSection: 'Edit features',
+    createFeaturesSection: 'Create features',
+    editModeTitle: 'Edit mode',
+    editModeHint:
+      'Click a feature on the map to edit its geometry or attributes.',
+    exitEditMode: 'Exit edit mode',
+    editingGeometry: 'Editing {layer} geometry',
+    featureFallback: 'feature',
+    dragPointHint: 'Drag the point to move it.',
+    dragVerticesHint:
+      'Drag vertices to move them. Click midpoints to add a vertex. Alt-click a vertex to delete it.',
+    editAttributes: 'Edit attributes',
+    saveGeometry: 'Save geometry',
+    saveFeature: 'Save feature',
+    updateFeature: 'Update feature',
+    editFeatureAttributes: 'Edit feature attributes',
+    deleteThisFeature: 'Delete this feature',
+    layerFallback: 'Layer',
+    magicNeedsImagery:
+      'Add an imagery layer to this map to outline from it.',
+    outlining: 'Outlining...',
+    magicProblem: 'The outline tool hit a problem. Try again.',
+    magicNeedsPolygon:
+      'The outline tool needs an editable polygon layer as a target. Open the editor config to add one.',
+    noEditableTargetsAdd:
+      'No editable target layers configured. Open the editor config to add one.',
+    noEditableTargetsEdit:
+      'No editable target layers. Turn on attribute or geometry editing on a target in the config.',
+    nothingToUndo: 'Nothing to undo.',
+    nothingToRedo: 'Nothing to redo.',
+    undoFailed: 'Undo failed',
+    undoFailedWithMessage: 'Undo failed: {message}',
+    redoFailed: 'Redo failed',
+    redoFailedWithMessage: 'Redo failed: {message}',
+    featureIdRecoverFailed:
+      "Couldn't recover the feature id. Refresh the page and try again.",
+    layerNotEditable: 'That layer is not editable in this editor.',
+    couldNotLoadFeature: 'Could not load the feature.',
+    networkGeometrySave: 'Network error during geometry save.',
+    networkDelete: 'Network error during delete.',
+    networkSave: 'Network error during save.',
+    missingFeatureId:
+      'Missing feature id; cannot update. Refresh the page and try again.',
+    deleteFailedStatus: 'Delete failed: {status} {detail}',
+    saveFailedStatus: 'Save failed: {status} {detail}',
+    updateFailedStatus: 'Update failed: {status} {detail}',
+    deleting: 'Deleting...',
+    deleteConfirmDescription:
+      '{summary} on {layer}. This cannot be undone from the editor runtime.',
+    noTargetsEmpty:
+      "No editable target layers configured. Open the editor's Configure page to add one.",
+  },
   mapLayerPanel: {
     /** Map layer panel chrome (#162). */
     title: 'Layers',
@@ -791,6 +1058,7 @@ export const en = {
     moreAddOptions: 'More add options',
     addGroup: 'Add group',
     emptyNoLayers: 'No layers yet.',
+    tablesHeading: 'Tables',
     emptyCanEdit: 'Add one from a URL, the portal, or the curated catalog.',
     emptyViewer: 'The owner has not added any layers.',
     newGroupDefaultTitle: 'New group',
@@ -839,6 +1107,9 @@ export const en = {
   layerActionsAria: 'Layer actions',
   menu: {
     openAttributeTable: 'Open attribute table',
+    analyzeBuffer: 'Buffer…',
+    analyzeCentroid: 'Centroids…',
+    analyzeConvexHull: 'Convex hull…',
     hideLabels: 'Hide labels',
     showLabels: 'Show labels',
     zoomToExtent: 'Zoom to layer extent',
@@ -983,22 +1254,24 @@ export const en = {
     tintWithFill: 'Tint with fill color',
     tintHint:
       'Tinting renders the icon as a signed-distance field so the fill color applies cleanly at any size. Un-tick if you want the icon to stay in its shipped color.',
+    rasterNoTint:
+      'PNG and JPEG icons keep their own colors. Tinting works only with SVG icons.',
     background: 'Background',
     shape: 'Shape',
     shapeNone: 'None',
     shapeCircle: 'Circle',
     shapeRoundedSquare: 'Rounded square',
-    roundedSquareHint:
-      'Rounded square renders as a soft pill until the sprite-bake renderer ships; appearance is close but the corners read as fully circular.',
     searchIcons: 'Search icons...',
     categoryAll: 'all',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Image',
+    uploadIconTitle: 'Upload an SVG, PNG or JPEG icon',
     uploading: 'Uploading {name}...',
     uploadFailed: 'Upload failed',
     yourUploads: 'Your uploads',
     noIconsMatch: 'No icons match.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Only the {count} features picked in the attribute table',
     /** Filter tab controls (#162). */
     clauses: 'Clauses',
     noFilter: 'No filter',
@@ -1154,29 +1427,6 @@ export const en = {
   presence: {
     youSuffix: ' (you)',
   },
-  comments: {
-    title: 'Comments',
-    showResolved: 'Show resolved',
-    startThread: 'Start a new thread...',
-    post: 'Post',
-    reply: 'Reply...',
-    resolve: 'Resolve',
-    reopen: 'Reopen',
-    threadCount:
-      '{count, plural, one {# thread} other {# threads}}',
-    noOpen:
-      'No open threads. Toggle "Show resolved" to see closed ones.',
-    noComments: 'No comments yet. Start the conversation below.',
-    signInPrompt: 'Sign in to comment on this map.',
-  },
-  markup: {
-    title: 'Markup',
-    add: 'Add markup',
-    empty:
-      'No markup yet. Add a set, then drop pins to mark up the map.',
-    dropPin: 'Drop pin at center',
-    signInPrompt: 'Sign in to add markup to this map.',
-  },
   print: {
     chooserTitle: 'Print this map',
     startSection: 'Start a new layout',
@@ -1187,6 +1437,13 @@ export const en = {
     pickSection: 'Use an existing layout',
     pickEmpty:
       'No print layouts to choose from yet. Use "Create a new print layout" above to make one.',
+    layoutPreview: 'Layout',
+    layoutPreviewHint: 'Hover a layout to preview its page structure.',
+    previewTitle: 'Preview: {title}',
+    previewFrameAria: 'PDF preview of {title}',
+    renderingPreview: 'Rendering preview…',
+    backToLayouts: 'Back to layouts',
+    downloadPdf: 'Download PDF',
   },
   errors: {
     generic: 'Something went wrong',
@@ -1269,6 +1526,115 @@ export const en = {
   folders: {
     hide: 'Hide folders',
   },
+  /** Folder item detail chrome (#162 / R14-i18n-folder-detail-chrome). */
+  folderDetail: {
+    applyFolderSharing: 'Apply folder sharing',
+    applyFolderSharingTitle:
+      "Apply this folder's sharing to every item inside it. Each item ends up with the same share rows the folder has.",
+    sortLabel: 'Sort',
+    sortAz: 'A to Z',
+    sortCustom: 'Custom',
+    sortCustomTitle: 'Your saved order. Drag rows to change it.',
+    newSubfolder: 'New subfolder',
+    newSubfolderTitle: 'Create a new subfolder inside this folder',
+    addItems: 'Add items',
+    addItemsTitle: 'Pick existing items to add to this folder',
+    applySharing: 'Apply sharing',
+    applying: 'Applying...',
+    empty:
+      'This folder is empty. Add items from the items list, or create a subfolder.',
+    emptyHidden:
+      "You can't see any of the items currently in this folder. Ask the folder author to share them with you.",
+  },
+  /** Form responses side panel chrome (#162 / R15-i18n-form-responses-chrome). */
+  formResponses: {
+    previousSubmissionAria: 'Previous submission',
+    nextSubmissionAria: 'Next submission',
+    positionOf: '{current} of {total}',
+    closeFormViewAria: 'Close form view',
+    loadingSchema: 'Loading form schema...',
+    emptySelect:
+      'Select a submission on the map or in the table to view its answers.',
+    submissionFallbackTitle: 'Submission',
+    submittedBy: 'Submitted by',
+    submittedAt: 'Submitted at',
+    attachments: 'Attachments',
+    loadingAttachments: 'Loading...',
+    noAttachments: 'No attachments',
+    entrySingular: 'entry',
+    entryPlural: 'entries',
+    noEntries: 'No entries',
+    entryNumber: 'Entry {n}',
+    noAnswer: 'No answer',
+  },
+  /** Tool recipe-editor chrome (#162 / R15-i18n-recipe-editor-chrome). */
+  recipeEditor: {
+    startFromTemplate: 'Start from a template',
+    startFromTemplateHint:
+      'Stamp out a working recipe in one click.  You can edit anything afterward.',
+    selectionCap: 'Selection cap',
+    selectionCapHint:
+      'Maximum feature ids returned per run.  The runtime banner warns the user when the limit is reached so they know the selection is incomplete.',
+    parameters: 'Parameters',
+    areaOfInterest: 'Area of interest',
+    areaOfInterestParameter: 'Area of interest parameter',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Remove parameter',
+    removeStepAria: 'Remove step',
+  },
+  /** Basemap item editor chrome (#162 / R15-i18n-basemap-editor-chrome). */
+  basemapEditor: {
+    source: 'Basemap source',
+    sourceHintEdit:
+      'Configure how this basemap is served. Maps that reference this item pull from the source below.',
+    sourceHintReadonly:
+      'You have read-only access to this basemap. The source is shown below; ask an admin or the owner to change it.',
+    /** Shared BasemapConfigSection chrome (#162 / R16). */
+    sourceHintConfig:
+      "Pick how this basemap is served. Maps that reference this basemap pull from the source you configure here. The fastest path is Probe URL: paste any tile / service URL and we'll figure out the format and fill in the fields for you.",
+    modeProbe: 'Probe URL',
+    modeFromService: 'From a service item',
+    modeXyz: 'XYZ tiles',
+    modeWms: 'WMS',
+    modeStyleUrl: 'Style URL',
+    probe: 'Probe',
+    probing: 'Probing...',
+    loadServicesHttp: 'Could not load services (HTTP {status}).',
+    loadServicesFailed: 'Could not load services.',
+    loadServiceHttp: 'Could not load service (HTTP {status}).',
+    loadServiceFailed: 'Could not load service.',
+    serviceNotBasemap:
+      "That service can't back a basemap yet (only WMS and cached ArcGIS Map services work today).",
+    noChanges: 'No changes.',
+    preview: 'Preview',
+    previewHint:
+      'Live render against the fields on the left. Pan and zoom to confirm tiles serve at the levels you need.',
+  },
+  /** Print template designer chrome (#162 / R14-i18n-print-template-chrome). */
+  printTemplate: {
+    paper: 'Paper',
+    size: 'Size',
+    orientation: 'Orientation',
+    portrait: 'Portrait',
+    landscape: 'Landscape',
+    marginInches: 'Margin (inches)',
+    zoomInAria: 'Zoom in',
+    zoomOutAria: 'Zoom out',
+    typeTextPlaceholder: 'Type text…',
+    deleteParameterAria: 'Delete parameter',
+    saving: 'Saving…',
+    saveChanges: 'Save changes',
+    saved: 'Saved',
+    /** Parameters panel + designer chrome leftovers (#162 / R16). */
+    elements: 'Elements',
+    properties: 'Properties',
+    parameters: 'Parameters',
+    parametersHint:
+      'Parameters become form fields the user fills before printing.',
+    addParameter: 'Add',
+    removeTextAria: 'Remove text',
+    removeChipAria: 'Remove chip',
+  },
   folderRail: {
     newButton: '+ New',
     collapse: 'Collapse folder',
@@ -1311,6 +1677,20 @@ export const en = {
     copyLink: 'Copy link',
     copied: 'Copied',
     openOnPhone: 'Open on a phone',
+    eyebrow: 'Content',
+    intro: 'Deployments you can open in the field, with offline cache and sync state for this device.',
+    newDeployment: 'New deployment',
+    sessionExpiredTitle: 'Your session expired',
+    sessionExpiredBody: 'Sign in again to load your field deployments. This is not an empty catalog. Features already saved on this device stay here and sync after you sign in.',
+    emptyTitle: 'No field deployments yet',
+    emptyBody: 'A field deployment points at a map and the form workers fill out when they add features.',
+    createDeployment: 'Create a deployment',
+    loadFailedTitle: 'Field deployments could not be loaded',
+    loadFailedBody: 'The catalog did not answer. This is not an empty list. Try again in a moment.',
+  },
+  buildPage: {
+    title: 'Build from a description',
+    intro: 'Describe a layer, a map, a form, or an app. A dashboard is a web-app template, not this page. Nothing is created until you choose Build it.',
   },
   // Offline queue rows the server refused for a reason a retry cannot
   // change. Shown from the field runtime header chip.
@@ -1383,6 +1763,15 @@ export const en = {
     addFeature: 'Add feature',
     addFeatureAria: 'Add feature',
     closeAria: 'Close',
+    // Runtime nav / collect-arm chrome (R12-i18n-field-runtime-nav-chrome / #162).
+    backAria: 'Back',
+    cancelCollectAria: 'Cancel',
+    noEditableLayersInMap: 'No editable layers in this map.',
+    // Line/polygon vertex progress (R12-i18n-field-vertex-progress-chrome / #162).
+    vertexCountLabel:
+      '{count, plural, one {# vertex} other {# vertices}}',
+    vertexTapFinishSuffix: ' - tap Finish',
+    vertexNeedMoreSuffix: ' - need {remaining} more',
     filterPlaceholder: 'Filter...',
     noEditableLayers: 'This deployment has no editable layers yet.',
     noTemplatesMatch: 'No templates match that filter.',
@@ -1396,6 +1785,83 @@ export const en = {
     storage: 'Storage',
     storagePersistent: 'Persistent',
     storageBestEffort: 'Best effort',
+    toggleLayersAria: 'Toggle layers',
+    searchAddressAria: 'Search address',
+    searchAddressPlaceholder: 'Search address...',
+    closeSearchAria: 'Close search',
+    clearSearchAria: 'Clear search',
+    zoomInAria: 'Zoom in',
+    zoomOutAria: 'Zoom out',
+    resetBearingAria: 'Reset bearing',
+    addAtGps: 'Add at GPS',
+    addAtCenter: 'Add at center',
+    vertexAtGps: 'Vertex at GPS',
+    vertexAtCenter: 'Vertex at center',
+    undoVertex: 'Undo',
+    undoVertexTitle: 'Remove the last vertex',
+    finishVertices: 'Finish',
+    finishVerticesTitle: 'Open the form for this feature',
+    finishNeedVertices: 'Need at least {count} vertices',
+    dropAtGpsTitle:
+      'Drop the {kind} at your current location (~{accuracy} m accuracy)',
+    dropKindVertex: 'vertex',
+    dropKindFeature: 'feature',
+    nothingToCollectTitle: 'Nothing to collect in this deployment',
+    nothingToCollectViewOnly:
+      'Its layers are set to view-only. Turn on "Editable in field deployments" for a layer on the map, and make sure editing is enabled on the data layer itself.',
+    nothingToCollectNoLayers: 'Its map has no layers you can add to.',
+    nothingToCollectSignIn: 'Sign in to add or edit features in this deployment.',
+    removeFromDevice: 'Remove from device',
+    confirmRemoveFromDevice: 'Confirm remove from device',
+    downloadLayers: 'Layers',
+    downloadFeatures: 'Features',
+    downloadForms: 'Forms',
+    downloadPickLists: 'Pick lists',
+    layersPanelAria: 'Layer visibility',
+    layersHeading: 'Layers',
+    location: 'Location',
+    notSet: 'Not set',
+    updatePoint: 'Update Point',
+    saveFeature: 'Save feature',
+    saveChanges: 'Save changes',
+    relatedUnsynced: 'unsynced',
+    relatedOpen: 'Open',
+    relatedWaitingSync:
+      'This record is waiting to sync. It will be openable once it reaches the server.',
+    relatedOpenTitle: 'Open this {layer} record',
+    relatedNotEditable:
+      'This child layer is not editable in this deployment',
+    relatedNoEditAccess: 'You do not have edit access to this layer',
+    // Feature-sheet chrome (R11-i18n-field-feature-sheet-chrome / #162).
+    sheetBackToListAria: 'Back to list',
+    sheetCollapseAria: 'Collapse sheet',
+    sheetExpandAria: 'Expand sheet',
+    sheetEdit: 'Edit',
+    sheetCopy: 'Copy',
+    sheetEditTitle: 'Edit this feature',
+    sheetCopyTitle: 'Create a new feature with these attributes',
+    sheetUnnamed: '(unnamed)',
+    sheetEmptyValue: '(empty)',
+    sheetNoAttributes: 'No attributes on this feature.',
+    sheetItemCount: '{count, plural, one {# item} other {# items}}',
+    // Layers panel basemap chip + address search + related-list
+    // chrome (R11-i18n-field-layers-search-chrome / #162).
+    basemapLabel: 'Basemap: {name}',
+    basemapDefault: 'default',
+    basemapHide: 'Hide',
+    basemapChange: 'Change',
+    noLayersInMap: 'No layers in this map.',
+    searchPlaces: 'Places',
+    searching: 'Searching...',
+    relatedRecordsHeading: 'Related records',
+    relatedAdd: 'Add',
+    relatedAddTitle: 'Add a new {layer} record under this feature',
+    relatedLoadError:
+      "Couldn't load existing {layer} records ({error}). Tap Add to create a new one.",
+    relatedLoadErrorShort: "Couldn't load {layer} records ({error}).",
+    relatedEmpty: 'No {layer} records yet.',
+    loadingEllipsis: 'Loading...',
+    relatedRowCount: '{count, plural, one {# row} other {# rows}}',
   },
   // Location permission, surfaced where a thumb can reach it. Every
   // stamped position on a deployment depends on this working, so a
@@ -1406,6 +1872,22 @@ export const en = {
       'Location is blocked. Allow it in your browser settings to capture at your position.',
     unavailable:
       'Location is unavailable on this device. Features will be placed at the map centre.',
+    showMyLocation: 'Show my location',
+    acquiringLocation: 'Acquiring location',
+    permissionDenied: 'Location permission denied',
+    locationUnavailable: 'Location unavailable',
+    following: 'Following location (tap to stop)',
+    centerOnLocation: 'Center on my location (~{accuracy} m)',
+    accuracyUnknown: 'unknown',
+    enableLocation: 'Enable location to use GPS',
+    resnapTitle: 'Re-snap to current GPS (~{accuracy} m)',
+    label: 'GPS',
+    statusDenied: 'Permission denied',
+    statusUnavailable: 'Unavailable',
+    statusAcquiring: 'Acquiring...',
+    statusError: 'Error',
+    statusWatching: 'Watching',
+    statusMeters: '{meters} m',
   },
   // Downloading a deployment for offline use, and the truth about
   // what actually landed.
@@ -1441,6 +1923,42 @@ export const en = {
       '{count, plural, one {# unsynced edit will be lost.} other {# unsynced edits will be lost.}}',
     removeWillLoseOthers:
       '{count, plural, one {# of them belongs to another account.} other {# of them belong to another account.}}',
+    downloadForOffline: 'Download for offline',
+    deviceOnlyWarning:
+      "Edits and photos stay on this device until they sync. They are not on the server and they are not in a portal backup. Discarding one, or clearing this browser's data, deletes it. Save a copy if you need the photos and the shapes before they sync.",
+    saveUnsyncedCopy: 'Save a copy of unsynced work',
+    refreshOfflineCache: 'Refresh offline cache',
+    confirmRefresh: 'Confirm refresh',
+    refreshUnsyncedWarn:
+      '{count, plural, one {# edit not yet synced. Refresh anyway?} other {# edits not yet synced. Refresh anyway?}}',
+    waitingOfflineTitle:
+      '{count, plural, one {# edit waiting to sync. Reconnect to send.} other {# edits waiting to sync. Reconnect to send.}}',
+    waitingOnlineTitle:
+      '{count, plural, one {# edit waiting to sync. Click to send now.} other {# edits waiting to sync. Click to send now.}}',
+    queuedCount: '{count} queued',
+    syncCount: 'Sync {count}',
+    syncing: 'Syncing...',
+    // Offline panel + download dialog chrome
+    // (R11-i18n-field-offline-panel-dialog / #162).
+    mapDetailToCache: 'Map detail to cache',
+    leastDetail: 'Least detail',
+    mostDetail: 'Most detail',
+    basemapUnavailableOffline: 'The basemap will not be available offline',
+    basemapUnavailableTail:
+      'Your data, forms and any self-hosted layers still download normally.',
+    tilesEstimate:
+      '~{count} tiles at the current viewport. Cap is {cap}.',
+    cachedSummary: 'Cached {when} · {size}',
+    makePersistent: 'Make persistent',
+    storageOf: 'of {quota}',
+    storageNearlyFull:
+      'Storage nearly full. Free up space before downloading more areas.',
+    mapTilesBreakdown: 'Map tiles: {count} ({size})',
+    clearTiles: 'Clear tiles',
+    downloadFailedTitle: 'Download failed',
+    readyForOfflineTitle: 'Ready for offline',
+    downloadingForOfflineTitle: 'Downloading for offline',
+    cachedSizeApprox: '~{size} cached',
   },
   // Every sentence the offline download manager and the two queue
   // drains can produce, keyed by the code they persist instead of the
@@ -1580,6 +2098,22 @@ export const en = {
       'This layer has no features with a location, so there is nothing to show on a map.',
     previewFailed: 'The preview could not be loaded',
     previewLoading: 'Loading the preview',
+    // Item page chrome (#162 / R14-i18n-item-page-chrome).
+    backToItems: 'Back to items',
+    sharingHeading: 'Sharing',
+    publicBoundaryWarning:
+      'The public geographic boundary is missing or has no geometry. Public readers see no features until you choose a boundary that still exists.',
+    shareAction: 'Share',
+    shareActionHint: 'Open sharing and access. Dependencies are listed on that tab before you publish.',
+    openForm: 'Open',
+    openFormTitle: 'Open the form to submit a response',
+    responses: 'Responses',
+    responsesTitle:
+      'Browse submitted responses on a map and through the form view',
+    printTemplateDesignerTitle: 'Print template designer',
+    printTemplateDesignerBody:
+      'Open the full-screen builder to edit the paper layout, element positions, and declared parameters.',
+    openBuilder: 'Open builder',
   },
   // #74 i18n backfill for the 2026-08-24 tabs + offline arc, which
   // shipped hardcoded English against the house rule.
@@ -1631,6 +2165,9 @@ export const en = {
     viewAction: 'Open app',
   },
   // #76: items shared with a group, on the group detail page.
+  groupDetail: {
+    rosterHidden: 'Only members of this group can see who is in it.',
+  },
   groupItems: {
     title: 'Shared with this group',
     empty: 'Nothing is shared with this group yet. Share an item to the group from its Share tab and it will show up here.',
@@ -1739,7 +2276,9 @@ export const en = {
   v3Editor: {
     structureTitle: 'Layer structure',
     structureIntro:
-      'Edit layers, fields, domains and constraints here. Saving takes effect immediately; importing and browsing rows lives on the Data tab.',
+      'Edit layers, fields, domains and constraints here. Saving stores the schema and starts a file import you just added. Browsing rows stays on the Data tab.',
+    pendingImportNote:
+      'Save schema to load the features from the file you added. Until that finishes, the layer has no rows.',
     dataTitle: 'Layer data',
     dataIntro: 'Browse the rows in each layer, add more data, or download it.',
   },
@@ -1781,29 +2320,22 @@ export const en = {
     autoZoomOff: 'Click to turn on auto-zoom (row clicks zoom to the feature). Also zooms to the current selection once.',
     useAsFilter: 'Use as filter',
     useAsFilterTitle: 'Filter the layer to only the selected features',
+    useAsFilterNoId: 'No column tells the selected rows apart from the others, so a filter would match more than the selection.',
+    useAsFilterTooMany: 'Select at most {max} rows to use them as a filter.',
+    useAsFilterNotLoaded: 'Some selected rows are not loaded in the table. Load them or narrow the selection first.',
     calculate: 'Calculate',
     calculateTitle: "Set a column's value for many rows at once from an expression",
     closeAria: 'Close',
     truncatedBanner: 'Showing 5,000+ rows{extent}. Zoom in{extentHint} or filter to see more.',
     truncatedInExtent: ' in this extent',
     truncatedEnableExtent: ', enable "In extent",',
+    showSelectedCapped: 'Showing the first {max} selected rows. Select fewer to see the rest.',
     noLayer: 'No layer selected.',
     loadingFeatures: 'Loading features...',
     loadFailed: 'Failed to load: {error}',
     noFeaturesInExtent: 'No features in this map extent.',
     noFeatures: 'No features to show.',
     sortAndCalculate: 'Click to sort, right-click to Calculate Field',
-  },
-  // Sending a portal item to a map, from its detail page and from the
-  // map builder's auto add.
-  addToMap: {
-    newMap: 'New map',
-    existingMap: 'An existing map',
-    loadingMaps: 'Loading maps...',
-    noMaps: 'No maps yet',
-    layerGone: '{item} no longer has a layer "{layerKey}".',
-    tableNoShapes:
-      '{layer} is a table with no shapes, so there is nothing to draw.',
     export: 'Export',
     exportAllRows: 'All rows ({count})',
     exportSelectedRows: 'Selected rows ({count})',
@@ -1829,6 +2361,8 @@ export const en = {
     bundleLoadingSchema: 'Loading layer schema…',
     bundleDone:
       'Done -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} attachments could not be downloaded and are not in the ZIP. Try the export again.',
     calculateModalTitle: 'Calculate Field',
     calculateUpdatesPrefix: 'Updates',
     calculateUpdatesSuffix: 'across every row in scope.',
@@ -1887,6 +2421,15 @@ export const en = {
     readOnlyHere:
       'This table is read-only here. Rows can be edited on layers you have permission to change.',
   },
+  // Sending a portal item to a map, from its detail page and from the
+  // map builder's auto add.
+  addToMap: {
+    newMap: 'New map',
+    existingMap: 'An existing map',
+    loadingMaps: 'Loading maps...',
+    noMaps: 'No maps yet',
+    layerGone: '{item} no longer has a layer "{layerKey}".',
+  },
   // Map editor: Add Layer dialog (portal / file / URL / ArcGIS / New).
   mapAddLayer: {
     title: 'Add layer',
@@ -1939,6 +2482,7 @@ export const en = {
       'No services match. Upload vector data as a feature service, or save an ArcGIS REST URL as an ArcGIS service item to pick it here.',
     portalFootnote:
       'Feature services stream from PostGIS; ArcGIS services query the origin live as you pan and zoom.',
+    listTruncated: 'Showing the first {count} of {total}. Search to narrow the list.',
     sublayerBadge: '+{count} layers',
     sublayerBadgeTitle:
       'This service exposes {count} sublayers; clicking adds them all.',
@@ -1990,6 +2534,10 @@ export const en = {
     errors: {
       newNameRequired: 'Give the new layer a name.',
       createFailed: 'The layer could not be created.',
+      addFailed: 'The layer could not be added.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'Request id: {id}',
       arcgisUrlRequired:
         'Paste an ArcGIS MapServer or FeatureServer URL.',
       arcgisProbeFailed:
@@ -2024,6 +2572,9 @@ export const en = {
   },
   // The map builder's search bar: place results from the geocoder.
   mapSearch: {
+    hiddenLayer: 'Hidden',
+    hiddenLayerHint:
+      'This layer is turned off. Picking the result turns it on.',
     geocoderUnavailable:
       'Place search is unavailable right now ({reason}). Layer results above are unaffected.',
     noPlaces:
@@ -2048,6 +2599,7 @@ export const en = {
     drawContinue:
       'Click to add points. Double-click (or press Enter) to finish.',
     drawAgain: 'Draw again',
+    emptyHint: 'Draw a line on the map to see the ground elevation along it.',
     reading: 'Reading the ground elevation...',
     fromSource: 'from {title}',
     distance: 'Distance',
@@ -2192,6 +2744,9 @@ export const en = {
     addAndPrepare: 'Add and prepare',
     saveFailed: 'Could not save the area: {status}',
     buildStartFailed: 'Could not start the build: {status}',
+    loadFailed: 'Could not load the areas. Adding and deleting are off until they load.',
+    retry: 'Try again',
+    buildNotStarted: 'The area was saved, but the build could not be started. Use Prepare now to try again.',
   },
   offlineBasemap: {
     preparedMap: 'Prepared map',
@@ -2372,6 +2927,7 @@ export const en = {
       "Anyone on the internet will be able to see the {count, plural, one {# selected item} other {# selected items}} without signing in. Use this for shareable map / viewer links. Items referenced by the selection (layers, basemaps, etc.) need to be public too; you'll be prompted to cascade after this completes.",
     geographicScope: 'Geographic scope',
     noBoundaryItems: 'No boundary items in this org yet',
+    keepScope: "Keep each item's current scope",
     noScope: 'No scope (unrestricted)',
     geoScopeHint:
       'When set, viewers reaching these items via {via} only see features inside the boundary. Enforced at the API layer.',
@@ -2396,6 +2952,9 @@ export const en = {
     summaryType: 'Type: {labels}',
     summaryTemplate: 'Template: {labels}',
     summaryArea: 'Area: {label}',
+    summaryOwner: 'Owner: {labels}',
+    summaryAccess: 'Access: {labels}',
+    summaryTags: 'Tags: {labels}',
     cardView: 'Card view',
     cards: 'Cards',
     listView: 'List view',
@@ -2445,6 +3004,9 @@ export const en = {
       'Nothing in {scope} matches "{query}". Try a different term or clear the search.',
     scopeYourItems: 'your items',
     scopeSharedWithYou: 'items shared with you',
+    folderMissingTitle: 'This folder is not available',
+    folderMissingDescription: 'It may have been deleted, or it is no longer shared with you.',
+    backToItems: 'Back to items',
     emptyFolderTitle: '{folder} is empty',
     emptyFolderDescription:
       'Add existing items, create something new, or drag items here from the all-items view.',
@@ -2483,6 +3045,7 @@ export const en = {
     moreNotShown: '+{count} more not shown.',
   },
   mapComments: {
+    loadOlder: 'Load older threads',
     title: 'Comments',
     panelAria: 'Map comments',
     closeAria: 'Close comments panel',
@@ -2490,9 +3053,10 @@ export const en = {
     emptyOpen: 'No comments yet. Start the conversation below.',
     emptyResolved: 'No open threads. Toggle "Show resolved" to see closed ones.',
     deleteAria: 'Delete comment',
-    replyPlaceholder: 'Reply...',
-    newThreadPlaceholder: 'Start a new thread...',
-    newAnchoredPlaceholder: 'Comment on the selected feature...',
+    replyPlaceholder: 'Reply… use @username to notify',
+    newThreadPlaceholder: 'Start a new thread… use @username to notify',
+    newAnchoredPlaceholder: 'Comment on the selected feature… @username to notify',
+    mentionHint: 'Type @username to email an org member who can view this map.',
     somethingWrong: 'Something went wrong',
     showResolved: 'Show resolved',
     threads: '{count, plural, one {# thread} other {# threads}}',
@@ -2576,9 +3140,28 @@ export const en = {
     subtitle: 'How this map presents itself and behaves when used.',
     viewScope: 'View scope',
     viewScopeEmpty: 'Create a boundary item to use it as a view scope.',
+    viewScopeDescLead:
+      'Clip every layer in this map to a boundary so only features inside it render.',
+    viewScopeDescNotAcl: 'Not access control:',
+    viewScopeDescNotAclBody:
+      'the underlying layers still serve their full data.',
     defaultExtent: 'Default extent',
+    defaultExtentDesc:
+      "The frame the map opens to on first load. Falls back to the map's saved camera when unset.",
     searchSource: 'Search source',
     searchSourceEmpty: 'Create a Geocoding service item to search your own data here.',
+    searchSourceDesc:
+      'Where the search bar looks up addresses and places. Default is Nominatim (OpenStreetMap). Internal geocoders search your own data.',
+    optionNoClip: '(no clip)',
+    optionUseSavedExtent: '(use saved extent)',
+    optionDefaultNominatim: 'Default (Nominatim)',
+    geocoderKindArcgis: '(ArcGIS)',
+    geocoderKindInternal: '(internal)',
+    summaryNone: 'none',
+    summarySavedCamera: 'saved camera',
+    summaryDeleted: '(deleted)',
+    summaryNominatim: 'Nominatim',
+    summarySearchLabel: 'Search',
     allowAnonymous: 'Anonymous markup',
     allowAnonymousDesc:
       'Let signed-out visitors add their own markup sets on this public map. Off by default. Promote to a data layer still requires a signed-in account.',
@@ -2628,6 +3211,12 @@ export const en = {
     clearSelection: 'Clear selection',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Custom access: each column decides what that viewer gets. Everyone else covers org members and public viewers the map is not shared with by name.",
+    everyoneElse: 'Everyone else',
+    everyoneElseType: 'org and public',
+    everyoneElseHint: 'Org members and public viewers the map is not shared with by name.',
     title: 'Layer access',
     description:
       'Refine what each shared user or group sees on this map. The matrix narrows access; a warning badge appears when a principal has no item-level access to a layer\'s source data.',
@@ -2663,6 +3252,14 @@ export const en = {
     editDescUnavailable: 'Not available: this layer has no writable source',
     editOnlyFeatureService:
       "Edit is only available for feature-service layers. Remote sources (ArcGIS REST, URL, inline) stay read-only in the matrix to avoid offering permissions that can't take effect.",
+  },
+  resumableUpload: {
+    resumingHeadline: 'Resuming upload {pct}%',
+    networkError:
+      'The connection dropped and the upload could not continue. Pick the same file again to resume where it stopped.',
+    partFailed:
+      'Storage refused part of the file. Pick the same file again to resume where it stopped.',
+    failed: 'Upload failed',
   },
   layerDataPanel: {
     tablistAria: '{label} views',
@@ -2765,6 +3362,7 @@ export const en = {
     done: 'Done',
   },
   sharing: {
+    networkError: "Could not reach the portal. Nothing was changed.",
     sharing: 'Sharing',
     dialogLabel: 'Sharing for {title}',
     whoCanSee: 'Who can see this',
@@ -2783,6 +3381,40 @@ export const en = {
       org: 'Organization',
       public: 'Public',
     },
+    /** Detail SharingPanel visibility / share-row chrome (#162 / R13). */
+    visibility: 'Visibility',
+    yourOrganization: 'Your organization',
+    accessPrivateDesc: 'Only you and people you share with below.',
+    accessOrgDescDefault:
+      'Everyone with a login in your organization can see this.',
+    accessOrgDescNamed: 'Everyone with a login at {org} can see this.',
+    accessPublicDesc: 'Anyone on the internet, no login required.',
+    orgAlreadySeesRest:
+      'can already see this item. Shares below only matter for granting edit or admin permission on top of that.',
+    publicMeansAnyoneRest:
+      'means anyone on the internet can view this. Shares below only matter for granting edit or admin permission.',
+    changePermissionAria: 'Change permission',
+    canView: 'can view',
+    canDownload: 'can download',
+    canEdit: 'can edit',
+    canAdmin: 'can admin',
+    rowScopeAria: 'Row scope',
+    rowScopeTitle: 'What can they see / edit?',
+    allFeatures: 'all features',
+    onlyTheirs: 'only theirs',
+    restrictToAreaAria: 'Restrict to area',
+    editGeoRestrictionTitle: 'Edit geographic restriction',
+    restrictGeoTitle: 'Restrict to a geographic area',
+    removeShareAria: 'Remove share',
+    searchGroupsPlaceholder: 'Search groups...',
+    searchPeoplePlaceholder: 'Search people in your org...',
+    noGroupsYet: 'No groups yet. Create one from /groups.',
+    startTypingGroups: 'Start typing to filter groups.',
+    startTypingPeople: 'Start typing a name or username.',
+    groupTab: 'Group',
+    userTab: 'User',
+    editorItemAccess: 'Editor item access',
+    checkingDependencyAccess: 'Checking dependency access...',
     permission: {
       view: 'View',
       download: 'Download',
@@ -2796,6 +3428,41 @@ export const en = {
     expiryDialogLabel: 'Share expiry',
     days: '{count, plural, one {# day} other {# days}}',
     set: 'Set',
+    /** Restrict-to-area dialog chrome (#162 / R15-i18n-share-geo-limit-chrome). */
+    geoLimit: {
+      title: 'Restrict to area',
+      description:
+        'Limit what {principal} can see on this item to features within a polygon. Items whose bbox doesn\'t intersect are also hidden. Admins are exempt.',
+      modeBoundary: 'Boundary',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Bounding box',
+      boundaryLabel: 'Boundary',
+      pickBoundary: 'Pick a boundary...',
+      noBoundaries: 'No boundaries you can see',
+      boundaryHint:
+        "The share stores a reference to the boundary item. Edits to the boundary's geometry flow through to every share that points at it without re-saving.",
+      createBoundaryLead: 'Need to draw one?',
+      createBoundaryLink: 'Create a Boundary item',
+      createBoundaryTail:
+        ". Its editor has a Draw tab that lets you trace a polygon directly on a map. Save it and it'll show up here.",
+      pasteGeojson: 'Paste GeoJSON',
+      geojsonHint:
+        'Accepts a Polygon, MultiPolygon, Feature, or FeatureCollection. EPSG:4326 coordinates (lng, lat).',
+      minLng: 'Min lng (west)',
+      minLat: 'Min lat (south)',
+      maxLng: 'Max lng (east)',
+      maxLat: 'Max lat (north)',
+      clearRestriction: 'Clear restriction',
+      needInput: 'Pick a boundary, paste a polygon, or enter a bounding box.',
+      boundaryMissing: 'Selected boundary is not in your visible library.',
+      expectedGeojson:
+        'Expected a GeoJSON Polygon, MultiPolygon, Feature, or FeatureCollection containing one.',
+      invalidJson: 'Invalid JSON: {detail}',
+      minLessThanMax: 'min must be less than max on both axes.',
+      invalidWgs84: 'Coordinates must be valid WGS84 (lon ±180, lat ±90).',
+      summaryBoundary: 'Boundary: {title}',
+      summaryRectangle: 'Rectangle · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'No matches.',
@@ -2865,10 +3532,18 @@ export const en = {
     loadSample: 'Load sample data',
     loadSampleDesc:
       'Explore a ready-made Randolph County workspace: layers, maps, a form, apps, and a field survey.',
+    loadShowcase: 'Load showcase dashboards',
+    loadShowcaseDesc:
+      'Storm events, West Virginia water quality, and Elkins in 3D. Separate from the Randolph workspace, and safe to load again.',
     loading: 'Loading sample data...',
+    loadingShowcase: 'Loading showcase dashboards...',
     loaded: '{count, plural, one {# sample item created} other {# sample items created}}',
+    loadedShowcase:
+      '{count, plural, one {# showcase item created} other {# showcase items created}}',
     allSkipped: 'Sample data is already loaded',
+    allSkippedShowcase: 'Showcase dashboards are already loaded',
     failed: 'Could not load sample data',
+    failedShowcase: 'Could not load showcase dashboards',
     dismiss: 'Dismiss welcome panel',
   },
   /**
@@ -2876,6 +3551,21 @@ export const en = {
    * anonymous and apex-domain visitors. Org title/subtitle/item
    * copy stay CMS-driven and are not catalogued here.
    */
+  /**
+   * Full `/whats-new` history page (jump-out from the landing card).
+   */
+  whatsNewPage: {
+    metaTitle: "What's new",
+    metaDescription:
+      'User-visible updates to GratisGIS, grouped by release when available.',
+    title: "What's new",
+    intro:
+      'Plain-English notes on features visitors can see and use. Grouped by release when we tag one; older notes stay under Earlier updates.',
+    backToHome: 'Back to home',
+    releaseHeading: 'Version {version}',
+    earlierHeading: 'Earlier updates',
+    empty: 'No updates published yet.',
+  },
   landing: {
     openMyItems: 'Open my items',
     publicItemsTitle: 'See it running',
@@ -2884,6 +3574,7 @@ export const en = {
     publicItemsEmpty:
       'Nothing has been shared publicly yet. If you have a portal account, sign in to see content shared with you.',
     whatsNew: "What's new",
+    whatsNewViewAll: 'View full history',
     builtOn: 'Built on',
     projectEyebrow: 'Open source GIS portal',
     projectHeadline: 'A self-hosted portal, a field PWA, and QGIS',
@@ -2921,25 +3612,34 @@ export const en = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       "Send feedback goes to the maintainer's inbox; no account required. Discussions is the GitHub place for longer threads.",
-    testingTitle:
-      'This is a public test instance. Resets to a curated golden state every day at 04:00 UTC.',
-    testingBodyBefore: 'Sign in with',
-    testingBodyOr: 'or',
-    testingBodyAfter:
-      '. Items, users, and edits you create vanish at the next reset. Found a problem? Use the Feedback button in the corner of any page. No account needed.',
-    testingSampleLead: 'New here? Open the',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'folder after signing in: a complete demo workspace with styled layers, a map, a form with responses, a field survey, and public apps, all built on one small West Virginia county.',
+    testingNotice: 'Public demo. It resets every day at 04:00 UTC.',
+    testingSignInLink: 'Test accounts are on the sign-in page.',
   },
   /** /signin redirect chrome (#162). */
   auth: {
     redirecting: 'Redirecting to sign in...',
     redirectFallback: 'If nothing happens,',
     continueToKeycloak: 'continue to Keycloak',
+    wrongHostTitle: 'Sign-in uses a different address',
+    wrongHostBody:
+      'You opened {opened}. Sign-in is configured for {canonical}, so continuing would send the browser there. Set this in the compose file, then restart:',
+    wrongHostRestart:
+      'Keep the existing volumes. The next start updates Keycloak. For Tailscale HTTPS, use the MagicDNS name with https:// and Tailscale Serve. A tailnet IP keeps http:// and the port.',
   },
   /** Admin → Sign-in (#162). */
   adminSecurity: {
+    embedTitle:
+      'Sites apps may embed',
+    embedIntro:
+      'The Embed widget in custom apps can show pages from these sites. Enter one site address per line, such as https://dashboards.example.org. Use https://*.example.org for every subdomain. Other pages of the portal still embed nothing from outside.',
+    embedSave:
+      'Save sites',
+    embedSaving:
+      'Saving…',
+    embedSaved:
+      'Saved.',
+    embedErr:
+      'Could not save the sites.',
     pageIntro:
       'Add a work account people already have, and decide whether the next sign-in must set up an authenticator.',
     errLoad: 'Could not load sign-in settings.',
@@ -3026,6 +3726,84 @@ export const en = {
     docsDesc:
       'The built-in guide covers roles, backups, branding, and housekeeping. Ten minutes now saves surprises later.',
     docsAction: 'Open the guide',
+    secondAdminTitle: 'Add a second admin',
+    secondAdminDesc:
+      '{count, plural, one {# enabled admin} other {# enabled admins}}. A second admin can recover the organization if the first one cannot sign in. The portal keeps working with a single admin, and this item cannot be checked off by hand.',
+    secondAdminAction: 'Open users',
+  },
+
+  adminAudit: {
+    title: 'Audit',
+    intro:
+      'Privileged changes in this organization: users, roles, sharing, ownership, backup, and admin settings. This is not the history of map features. Passwords and message bodies are not stored.',
+    refresh: 'Load events',
+    loading: 'Loading…',
+    loadFailed: 'Could not load the audit.',
+    empty: 'No admin events yet. Load the list, or make a privileged change and load it again.',
+    more: 'Older events',
+    when: 'When',
+    action: 'Action',
+    actor: 'Actor',
+    target: 'Target',
+    outcome: 'Outcome',
+  },
+  adminPermissions: {
+    title: 'Permissions',
+    intro:
+      'This is the current sharing snapshot: each item’s public, organization, group, and user access, the owner, and principals that no longer exist. It is not a history of past changes.',
+    refresh: 'Load snapshot',
+    loading: 'Loading…',
+    loadFailed: 'Could not load permissions.',
+    download: 'Download CSV',
+    generated: 'Snapshot taken {at}.',
+    empty: 'No items in this organization.',
+    item: 'Item',
+    access: 'Access',
+    owner: 'Owner',
+    share: 'Share',
+    missingOwner: 'Missing owner',
+    missingPrincipal: 'missing principal',
+    tierOnly: 'Access tier only',
+  },
+  adminDiagnostics: {
+    title: 'Diagnostics',
+    intro:
+      'Create a support bundle on purpose. It includes versions, whether the database answered, maintenance, and counts of import, analysis, and backup jobs. Secrets and names are removed. Nothing here runs a shell command.',
+    create: 'Create bundle',
+    working: 'Creating…',
+    failed: 'Could not create the bundle.',
+    download: 'Download JSON',
+  },
+  opsJobs: {
+    title: 'Jobs',
+    intro: 'Imports and analyses in this organization. Cancel and retry appear only when that state supports them. A retry checks the original item and requester, and keeps their permissions. Backups stay on the Backup page.',
+    refresh: 'Load jobs',
+    loading: 'Loading…',
+    loadFailed: 'Could not load jobs.',
+    actionFailed: 'That action was not accepted.',
+    empty: 'No jobs yet.',
+    kind: 'Kind',
+    source: 'Source',
+    status: 'Status',
+    error: 'Error',
+    cancel: 'Cancel',
+    retry: 'Retry',
+  },
+  opsPage: {
+    title: 'Operations',
+    intro: 'Readiness is for signed-in admins. Public health stays a database check. A failed restore stays on until a restore finishes.',
+    readiness: 'Readiness',
+    check: 'Check services',
+    maintenance: 'Maintenance',
+    maintenanceHint: 'Turning maintenance on makes the portal return 503 except for health and this control. A failed restore stays on until a restore finishes. It cannot be cleared by acknowledging it.',
+    maintenanceOn: 'Turn maintenance on',
+    maintenanceOff: 'Turn maintenance off',
+    failed: 'The request failed.',
+    operatorOnly: 'Readiness and maintenance cover the whole install, so only admins of the operator organization can use them.',
+    backupUiDisabled: 'Backup, restore and maintenance controls are turned off on this install (GRATIS_DISABLE_BACKUP_UI).',
+  },
+  opsBackup: {
+    failureBanner: 'A backup did not finish. Read the failed run below. A notice is sent once for that run when notifications are enabled.',
   },
 
   /** Settings → API keys (#162). */
@@ -3182,7 +3960,6 @@ export const en = {
     approxSuffix: 'approx',
     orphanBadge: 'orphan',
     expired: 'Expired',
-    expiryIn: 'In',
     pastDue: 'Past due',
     extendShare30Title: 'Extend by 30 days',
     extend30d: '+30d',
@@ -3200,7 +3977,7 @@ export const en = {
     scheduleIntro: 'Have the portal tidy up on its own. Off until you turn it on. Pick which kind of cleanup you want, how long something has to sit around before it gets cleaned up, and when the portal should run the cleanup. The lists below keep showing the same things you can clean up by hand whenever you want.',
     scheduleAutoTrash: 'Trash items nobody is using',
     scheduleAutoTrashBefore:
-      'Move items to the trash if no one has edited or shared them in the last',
+      'Move private items to the trash if no one has edited or shared them in the last',
     scheduleAutoTrashAfter:
       'days. They aren\'t deleted right away: trashed items stay in Recently deleted and can be put back at any time.',
     scheduleAutoDisable: 'Pause sign-in for inactive accounts',
@@ -3225,6 +4002,9 @@ export const en = {
     scheduleModeDaily: 'Every day',
     scheduleModeWeekly: 'Once a week',
     scheduleHour: 'Hour (0-23)',
+    scheduleServerTime: "server time, {zone}",
+    scheduleRunNowUnsaved:
+      "Save your changes first. Run now uses the saved settings.",
     scheduleMinute: 'Minute (0-59)',
     scheduleDayOfWeek: 'Day of week',
     daySunday: 'Sunday',
@@ -3349,14 +4129,12 @@ export const en = {
     hidePassword: 'hide',
     checkboxEnabled: 'Enabled',
     checkboxSslTls: 'SSL / TLS on connect (port 465)',
-    labelSendTestTo: 'Send test to',
-    placeholderTestEmail: 'you@example.com',
     sendTest: 'Send test',
     smtpSavedRealmWarning:
       'SMTP saved, but Keycloak realm sync failed: {warning}',
     smtpSavedOk: 'Saved. Worker will use new SMTP on next send.',
     saveFailed: 'Save failed.',
-    testEmailInvalid: 'Enter a valid email address to test.',
+    testGoesToYou: 'The test goes to your own account email.',
     testSent: 'Test sent to {email}.',
     testFailedUnclear: 'Test failed without a clear error.',
     testFailed: 'Test failed.',
@@ -3371,6 +4149,8 @@ export const en = {
     preview: 'Preview',
     defaultsFootnote:
       'Off here mutes the type platform-wide for users who haven\'t explicitly opted in. Per-user opt-ins still win. Customize rewrites the email body for your org; saved templates substitute mustache-style placeholders like {{itemTitle}} and {{baseUrl}} from the trigger payload.',
+    operatorOnlyNote:
+      'The mail server, delivery queue, recent activity and the on/off defaults apply to the whole install, so only admins of the operator organization can see or change them. Templates and previews are yours to edit.',
     previewHeading: 'Preview',
     subject: 'Subject',
     html: 'HTML',
@@ -3492,10 +4272,12 @@ export const en = {
       sendInvite: 'Send invite',
       errUsernameMin: 'Username must be at least 2 characters.',
       errEmailInvalid: 'Please enter a valid email address.',
-      errInviteFailed: 'Invite failed: {status} {detail}',
-      alertEmailFailedTitle: 'User created, email failed',
+      errDuplicate: 'An account with that username or email already exists. No address is shown here.',
+      errUpstream: 'The identity server could not create the account. Try again in a moment. If it keeps failing, check that the identity server is running. No address is shown here.',
+      errInviteFailed: 'The invite did not finish (status {status}). No account detail is shown.',
+      alertEmailFailedTitle: 'Account created, email not sent',
       alertEmailFailedMessage:
-        'User "{username}" was created, but the password-setup email could not be sent:\n\n{error}\n\nOnce SMTP is healthy, click "Reset password" on this user to re-send the email.',
+        'The account was created, but the sign-in email did not send. Open Notifications, fix SMTP, then use Reset password on the new account. This message does not include the address.',
     },
     edit: {
       title: 'Edit user',
@@ -3704,6 +4486,8 @@ export const en = {
     errors: {
       moveRepeatInAttachment: "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
       saveFailed: "Save failed.",
+      repeatGroupUnbound:
+        "Repeat group {groups} has no related table in the linked layer to save its rows into. Rebuild it with \"Start from a data layer\" from one of the layer's related tables, or remove it.",
       layerSyncFailed: "Form saved, but couldn't update the linked layer's columns: {detail}",
       invalidJson: "That file is not valid JSON.",
       questionIdUsed: "Question id \"{id}\" is already used.",
@@ -3741,7 +4525,7 @@ export const en = {
       defaultLookbackHint: "Pre-filter to N days back from now. Blank = show all.",
       hideSubmitter: "Hide submitter",
       hideSubmitterHint: "For anonymous-feedback workflows.",
-      persistNote: "Look-back and Hide submitter persist on the form schema; the runtime hooks land in a follow-up.",
+      persistNote: "Look-back and Hide submitter are not available yet. The Responses page does not read them, so it still shows every response and who submitted it.",
       tools: {
         select: "Select",
         selectHint: "Pick responses to inspect.",
@@ -3994,6 +4778,7 @@ export const en = {
         in: "contains",
         between: "between",
         matches: "matches pattern",
+        notEmpty: "is not empty",
       },
     },
     dependents: {
@@ -4062,6 +4847,8 @@ export const en = {
       matchAny: "any match",
       of: "of:",
       removeConditionAria: "Remove condition",
+      rawRule:
+        "This part of the expression can't be shown as a row. It is kept as it is when you save.",
       removeGroupAria: "Remove group",
       cancel: "Cancel",
       save: "Save",
@@ -4087,6 +4874,7 @@ export const en = {
         in: "string or list contains a value",
         between: "value falls in a range",
         matches: "regex match",
+        notEmpty: "has an answer (text, a choice or a list)",
       },
       functionsIntro:
         "Reference for the calculate / default editor. Click a signature to copy it to the clipboard. The row-based editor on the left works in field-op-value form, so functions can't be inserted into rules directly.",
@@ -4289,10 +5077,18 @@ export const en = {
     latitude: "Latitude",
     longitude: "Longitude",
     geolocationUnsupported: "Geolocation not supported on this device.",
+    mapPickerAria: "Map for choosing the location",
+    mapPickerHint: "Tap the map or drag the pin to set the location.",
+    mapPickerFailed: 'The map could not load. Use GPS or type the coordinates.',
+    signatureAria: "Signature pad",
+    signatureHint: "Sign inside the box with your finger, stylus, or mouse.",
+    signatureSigned: "Signed",
     ranked: "Ranked",
     available: "Available",
     rankingEmpty: "No items ranked yet. Tap an item below to add it.",
     removeFromRankingAria: "Remove from ranking",
+    rankUpAria: "Move up in the ranking",
+    rankDownAria: "Move down in the ranking",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",
@@ -4454,24 +5250,27 @@ export const en = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
+      exportNoFeatures: "This layer has no features to export.",
+      exportFailed: "Export failed: {message}",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
+      printSnapshotTooLarge: "The map snapshot was too large to pass to the print page, so the print shows a placeholder map. Try a smaller window.",
       savePrompt: "Save these features as a new data layer. Choose a name:",
       selectedNotInViewport: "Selected features are not in the current viewport.",
       submitFailed: "Submit failed",
@@ -4481,6 +5280,11 @@ export const en = {
     export: {
       hint: "Exports the features currently loaded for this layer (the map viewport plus its surrounding tile cache).  For a full-layer dump including related tables + attachments, use the bundle export on the data layer's detail page.",
     },
+    legend: {
+      under: "under {value}",
+      andUp: "{value} and up",
+      range: "{lo} to {hi}",
+    },
     features: {
       addingTo: "Adding to",
       clickEditable: "Click an editable feature on the map to edit it. Click here again to exit edit mode.",
@@ -4488,6 +5292,7 @@ export const en = {
       multiVertexNote: "(Note: only single-point placement is supported in this first cut; multi-vertex sketching for lines / polygons is queued as a follow-up.)",
       pickLayerToAdd: "Pick a layer to add to",
       placeOnMap: "click on the map to place the new {geometryType}.",
+      sketchUnsupported: "Adding a {geometryType} here is not supported yet: this widget can only place single points. Use the map editor to draw it.",
       reselectFeatures: "Reselect the features on the map, then try again.",
       selectOnMapFirst: "Select feature(s) on the bound map first.",
       timeTravelDisabled: "Editing is disabled while viewing a past snapshot. Reset the time slider to enable.",
@@ -4536,7 +5341,6 @@ export const en = {
       layers: "Layers",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "My Location",
       myLocationShort: "My location",
       print: "Print",
@@ -4717,6 +5521,7 @@ export const en = {
       'Creating layers requires the contributor or admin role.',
     jobStartFailed: 'The job could not be started.',
     intervalRequired: 'Enter a height between lines.',
+    intervalTooSmall: "The interval must be at least {min}.",
     zoneRequired: 'Pick a polygon data layer for the zones.',
     labelContours: 'Contour lines',
     labelSteepness: 'Steepness map',
@@ -4747,6 +5552,8 @@ export const en = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Could not reach the portal. Your uploaded images are kept; try again.",
+    errRetryHttp: "Could not retry the build (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -4805,6 +5612,17 @@ export const en = {
     modeSqlTitle: 'Edit the SQL directly',
     starterColumnProfile: 'Column profile',
     starterGeometrySummary: 'Geometry summary',
+    /** SQL-mode starter chips + DuckDB footer (#162 / R13-i18n-analyze-sql-starters). */
+    starterPreview: 'Preview',
+    starterCountBy: 'Count by {field}',
+    sqlFooterLayerAvailable: 'The layer is available as',
+    sqlFooterSpatialLead: 'Spatial SQL works on the',
+    sqlFooterSpatialMid:
+      'column for CRS-safe transforms and spheroid measures (area, length). Meter buffers need PROJ data this browser engine does not ship — use',
+    sqlFooterSpatialTail:
+      'above to create a PostGIS derived layer instead of a degree-unit trap.',
+    sqlFooterSpatialUnavailable:
+      'The spatial extension could not be loaded, so the geometry column is raw WKB and attribute SQL only for this session.',
     browserOnlyHint: 'Runs in your browser. The server never sees a query.',
     sqlAriaLabel: 'SQL query',
     run: 'Run (Ctrl+Enter)',
@@ -4865,6 +5683,364 @@ export const en = {
       'Pick a clip layer (a polygon data layer you can read).',
     clipValidateSelf:
       'Pick a different layer to clip against; a layer cannot cookie-cut itself here.',
+    eraseAction: 'Erase this layer',
+    eraseActionTitle:
+      'Create a server-side derived layer erase (PostGIS) against another data layer.',
+    eraseHeading: 'Erase this layer (server derived layer)',
+    eraseIntroBefore: 'Creates a private derived layer that runs',
+    eraseIntroAfter:
+      'on PostGIS against another data layer you can read. Same recipe as',
+    eraseHelpLink: 'Erase help',
+    eraseIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    eraseByLabel: 'Erase by data layer',
+    erasePickPlaceholder: 'Pick a layer…',
+    eraseLoadFailed: 'Could not load data layers to erase against.',
+    eraseHint:
+      'Prefer a polygon layer as the mask. You need read access to it. Open the new item to map or refresh the result.',
+    eraseValidateEmpty:
+      'Pick an erase mask (a polygon data layer you can read).',
+    eraseValidateSelf:
+      'Pick a different layer as the erase mask; a layer cannot erase itself here.',
+    centroidAction: 'Centroids for this layer',
+    centroidActionTitle:
+      'Create a server-side derived layer of geometric centroids (PostGIS ST_Centroid).',
+    centroidHeading: 'Centroids for this layer (server derived layer)',
+    centroidIntroBefore: 'Creates a private derived layer that runs',
+    centroidIntroAfter:
+      'on PostGIS for every feature. Geometric centroid only (not pole of inaccessibility). Same recipe as',
+    centroidHelpLink: 'Centroid help',
+    centroidIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    centroidHint:
+      'Geometric centroid only. Open the new item to map or refresh the result after the server job finishes.',
+
+    dissolveAction: 'Dissolve this layer',
+    dissolveActionTitle:
+      'Create a server-side derived layer dissolve (PostGIS ST_Union). Attributes are dropped.',
+    dissolveHeading: 'Dissolve this layer (server derived layer)',
+    dissolveIntroBefore: 'Creates a private derived layer that runs',
+    dissolveIntroAfter:
+      'on PostGIS into one feature and drops attributes. Same recipe as',
+    dissolveHelpLink: 'Dissolve help',
+    dissolveIntroTail:
+      '. For keyed dissolve with aggregates, use group-by. Expect a short server job, not an instant browser result.',
+    dissolveHint:
+      'Attributes are dropped. Open the new item to map or refresh the result after the server job finishes.',
+    simplifyAction: 'Simplify this layer',
+    simplifyActionTitle:
+      'Create a server-side derived layer simplify (PostGIS ST_Simplify). Meter-honest tolerance.',
+    simplifyHeading: 'Simplify this layer (server derived layer)',
+    simplifyIntroBefore: 'Creates a private derived layer that runs',
+    simplifyIntroAfter:
+      'on PostGIS with a meter-honest tolerance (Douglas–Peucker). Same recipe as',
+    simplifyHelpLink: 'Simplify help',
+    simplifyIntroTail:
+      '. Not topology-preserving. Expect a short server job, not an instant browser result.',
+    simplifyTolerance: 'Tolerance',
+    simplifyToleranceAria: 'Simplify tolerance',
+    simplifyUnit: 'Unit',
+    simplifyUnitAria: 'Simplify tolerance unit',
+    simplifyLimitHint:
+      'Up to {meters} m. Expect a short server job; open the new item to map or refresh the result.',
+    simplifyValidateUnit: 'Pick a tolerance unit.',
+    simplifyValidateEmpty: 'Enter a tolerance greater than zero.',
+    simplifyValidateMax: 'Tolerance must be at most {meters} m.',
+    densifyAction: 'Densify this layer',
+    densifyActionTitle:
+      'Create a server-side derived layer densify (PostGIS ST_Segmentize on geography). Meter-honest max segment length.',
+    densifyHeading: 'Densify this layer (server derived layer)',
+    densifyIntroBefore: 'Creates a private derived layer that runs',
+    densifyIntroAfter:
+      'on geography with a meter-honest max segment length. Same recipe as',
+    densifyHelpLink: 'Densify help',
+    densifyIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    densifyMaxSegment: 'Max segment length',
+    densifyMaxSegmentAria: 'Densify max segment length',
+    densifyUnit: 'Unit',
+    densifyUnitAria: 'Densify max segment length unit',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Expect a short server job; open the new item to map or refresh the result.',
+    densifyValidateUnit: 'Pick a segment-length unit.',
+    densifyValidateEmpty: 'Enter a max segment length greater than zero.',
+    densifyValidateMin: 'Max segment length must be at least {meters} m.',
+    densifyValidateMax: 'Max segment length must be at most {meters} m.',
+
+    qbFields: 'Fields',
+    qbFieldsNoneSelected: '(none selected = all)',
+    qbFilters: 'Filters (all must match)',
+    qbAddFilter: 'Add filter',
+    qbFilterFieldAria: 'Filter field',
+    qbFilterOpAria: 'Filter operator',
+    qbFilterValueAria: 'Filter value',
+    qbRemoveFilterAria: 'Remove filter',
+    qbPickValue: '(pick a value)',
+    qbValuePlaceholder: 'value',
+    qbGeometry: 'Geometry',
+    qbSpatialKeep: 'Keep original shapes',
+    qbSpatialCentroid: 'Centroids',
+    qbSpatialPointOnSurface: 'Points inside each shape',
+    qbSpatialConvexHull: 'Convex hulls',
+    qbSpatialEnvelope: 'Bounding boxes',
+    qbMeasureArea: 'Area (sq m)',
+    qbMeasurePerimeter: 'Perimeter (m)',
+    qbMeasureLength: 'Length (m)',
+    qbGroupBy: 'Group by',
+    qbNoGrouping: '(no grouping)',
+    qbAlso: 'Also',
+    qbCountOnly: '(count only)',
+    qbSumOf: 'sum of',
+    qbAvgOf: 'average of',
+    qbMinOf: 'min of',
+    qbMaxOf: 'max of',
+    qbPickField: '(pick a field)',
+    qbSort: 'Sort',
+    qbSortNone: '(none)',
+    qbSortCount: 'count',
+    qbAscending: 'ascending',
+    qbDescending: 'descending',
+    qbLimit: 'Limit',
+    qbOpEquals: 'equals',
+    qbOpNotEquals: 'does not equal',
+    qbOpContains: 'contains',
+    qbOpStartsWith: 'starts with',
+    qbOpEmpty: 'is empty',
+    qbOpNotEmpty: 'is not empty',
+    qbOpIsNot: 'is not',
+
+    convexHullAction: 'Convex hulls for this layer',
+    convexHullActionTitle:
+      'Create a server-side derived layer of per-feature convex hulls (PostGIS ST_ConvexHull).',
+    convexHullHeading: 'Convex hulls for this layer (server derived layer)',
+    convexHullIntroBefore: 'Creates a private derived layer that runs',
+    convexHullIntroAfter:
+      'on PostGIS for every feature (attributes kept). Not one hull for the whole layer. Same recipe as',
+    convexHullHelpLink: 'Convex hull help',
+    convexHullIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    convexHullHint:
+      'Per-feature hulls only. Open the new item to map or refresh the result after the server job finishes.',
+    bboxAction: 'Bounding boxes for this layer',
+    bboxActionTitle:
+      'Create a server-side derived layer of per-feature bounding boxes (PostGIS ST_Envelope).',
+    bboxHeading: 'Bounding boxes for this layer (server derived layer)',
+    bboxIntroBefore: 'Creates a private derived layer that runs',
+    bboxIntroAfter:
+      'on PostGIS for every feature (attributes kept). Not one envelope for the whole layer. Same recipe as',
+    bboxHelpLink: 'Bounding box help',
+    bboxIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    bboxHint:
+      'Per-feature envelopes only. Open the new item to map or refresh the result after the server job finishes.',
+    verticesAction: 'Vertices for this layer',
+    verticesActionTitle:
+      'Create a server-side derived layer of vertices (PostGIS ST_DumpPoints). Row count can grow a lot.',
+    verticesHeading: 'Vertices for this layer (server derived layer)',
+    verticesIntroBefore: 'Creates a private derived layer that runs',
+    verticesIntroAfter:
+      'on PostGIS (adds vertex_index). Row count can explode on dense shapes; MULTI* parts are dumped together. Same recipe as',
+    verticesHelpLink: 'Vertices help',
+    verticesIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    verticesHint:
+      'One point per vertex. Open the new item to map or refresh the result after the server job finishes.',
+    calcGeomAction: 'Calculate geometry for this layer',
+    calcGeomActionTitle:
+      'Create a server-side derived layer with length, perimeter, or area (PostGIS geography). Not Calculate field expressions.',
+    calcGeomHeading: 'Calculate geometry for this layer (server derived layer)',
+    calcGeomIntroBefore: 'Creates a private derived layer that runs',
+    calcGeomIntroAfter:
+      'on geography with a chosen unit into a new numeric field. Same recipe as',
+    calcGeomHelpLink: 'Calculate help',
+    calcGeomIntroTail:
+      '. Not Calculate field expressions. Expect a short server job, not an instant browser result.',
+    calcGeomMeasurementAria: 'Measurement',
+    calcGeomMeasurement_length: 'length',
+    calcGeomMeasurement_perimeter: 'perimeter',
+    calcGeomMeasurement_area: 'area',
+    calcGeomUnit: 'Unit',
+    calcGeomUnitAria: 'Measurement unit',
+    calcGeomFieldName: 'Field name',
+    calcGeomFieldNameAria: 'Output field name',
+    calcGeomHint:
+      'Geography measures in honest units. Open the new item to map or refresh the result after the server job finishes.',
+    calcGeomValidateFieldEmpty: 'Enter a field name.',
+    calcGeomValidateFieldReserved: 'Field name "{name}" is reserved.',
+    calcGeomValidateFieldFormat:
+      'Field name must start with a letter or underscore and contain only letters, numbers, and underscores.',
+    calcGeomValidateAreaUnit: 'Pick an area unit.',
+    calcGeomValidateLengthUnit: 'Pick a length unit.',
+    nnAction: 'Nearest neighbor for this layer',
+    nnActionTitle:
+      'Create a server-side derived layer that adds nearest_distance_m (same-layer geography self-join). O(N²).',
+    nnHeading: 'Nearest neighbor for this layer (server derived layer)',
+    nnIntroBefore: 'Creates a private derived layer that adds',
+    nnIntroAfter:
+      'via PostGIS geography self-join (meters to the closest other feature). Same-layer only; O(N²); a single-row layer yields NULL. Same recipe as',
+    nnHelpLink: 'Nearest neighbor help',
+    nnIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    nnHint:
+      'Same layer only. Large layers can be slow (O(N²)). Open the new item to map or refresh the result after the server job finishes.',
+    fishnetAction: 'Fishnet for this layer',
+    fishnetActionTitle:
+      'Create a server-side derived layer fishnet (PostGIS ST_SquareGrid). Polygon layers only.',
+    fishnetHeading: 'Fishnet for this layer (server derived layer)',
+    fishnetIntroBefore: 'Creates a private derived layer that runs',
+    fishnetIntroAfter:
+      'on PostGIS over this polygon layer (square cells, clipped to the source). Same recipe as',
+    fishnetHelpLink: 'Fishnet help',
+    fishnetIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    fishnetCellSize: 'Cell size',
+    fishnetCellSizeAria: 'Fishnet cell size',
+    fishnetUnit: 'Unit',
+    fishnetUnitAria: 'Fishnet cell-size unit',
+    fishnetOutput: 'Output',
+    fishnetOutputAria: 'Fishnet output mode',
+    fishnetOutput_polygons: 'polygons',
+    fishnetOutput_lines: 'lines',
+    fishnetLimitHint:
+      'Cell size {minMeters}–{maxMeters} m. Very fine grids on large extents may hit the ~{maxCells} cell save-time cap. Open the new item after the server job finishes.',
+    fishnetValidateUnit: 'Pick a cell-size unit.',
+    fishnetValidateEmpty: 'Enter a cell size greater than zero.',
+    fishnetValidateMin: 'Cell size must be at least {meters} m.',
+    fishnetValidateMax: 'Cell size must be at most {meters} m.',
+    fishnetValidateOutput: 'Pick polygons or lines output.',
+    topNAction: 'Top N for this layer',
+    topNActionTitle:
+      'Create a server-side derived layer that keeps the top N rows by a numeric field.',
+    topNHeading: 'Top N for this layer (server derived layer)',
+    topNIntroBefore:
+      'Creates a private derived layer that keeps the N rows with the highest or lowest numeric field value (NULLs last). Same recipe as',
+    topNHelpLink: 'Top N help',
+    topNIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    topNField: 'Numeric field',
+    topNFieldAria: 'Numeric field for Top N',
+    topNN: 'N',
+    topNNAria: 'Number of rows to keep',
+    topNDirection: 'Direction',
+    topNDirectionAria: 'Sort direction',
+    topNDir_desc: 'highest first',
+    topNDir_asc: 'lowest first',
+    topNPickField: 'Pick a numeric field…',
+    topNNoNumeric: 'No numeric fields on this layer',
+    topNHint:
+      'N up to {max}. NULLs sort last. Open the new item to map or refresh the result after the server job finishes.',
+    topNValidateNoNumeric: 'This layer has no numeric fields for Top N.',
+    topNValidateField: 'Pick a numeric field.',
+    topNValidateN: 'N must be a positive integer.',
+    topNValidateMax: 'N must be at most {max}.',
+    topNValidateDirection: 'Pick ascending or descending.',
+    randomSampleAction: 'Random sample for this layer',
+    randomSampleActionTitle:
+      'Create a server-side derived layer that keeps a deterministic random subset.',
+    randomSampleHeading: 'Random sample for this layer (server derived layer)',
+    randomSampleIntroBefore:
+      'Creates a private derived layer that keeps a percentage or exact count of rows, keyed by a stable seed (not Postgres random()). Same recipe as',
+    randomSampleHelpLink: 'Random sample help',
+    randomSampleIntroTail:
+      '. Expect a short server job, not an instant browser result.',
+    randomSampleMode: 'Mode',
+    randomSampleModeAria: 'Random sample mode',
+    randomSampleMode_percentage: 'percentage',
+    randomSampleMode_count: 'exact count',
+    randomSampleValuePct: 'Percent',
+    randomSampleValueCount: 'Count',
+    randomSampleValueAria: 'Sample size',
+    randomSampleSeed: 'Seed',
+    randomSampleSeedAria: 'Random sample seed',
+    randomSampleShuffle: 'Reshuffle',
+    randomSampleShuffleTitle: 'Roll a new seed (client-side only)',
+    randomSampleHint:
+      'Percentage 0–100 or count up to {max}. Same seed repeats the same sample; Reshuffle before create picks a new subset. Open the new item after the server job finishes.',
+    randomSampleValidateMode: 'Pick percentage or count mode.',
+    randomSampleValidateValue: 'Value must be a positive number.',
+    randomSampleValidatePct: 'Percentage must be at most 100.',
+    randomSampleValidateCount: 'Count must be a positive integer.',
+    randomSampleValidateMax: 'Count must be at most {max}.',
+    randomSampleValidateSeed: 'Seed must be a nonzero integer.',
+    contourAction: 'Contour for this layer',
+    contourActionTitle:
+      'Create a server-side derived layer of TIN iso-lines from a numeric field (point layers only).',
+    contourHeading: 'Contour for this layer (server derived layer)',
+    contourIntroBefore:
+      'Creates a private derived layer that builds a Delaunay TIN and emits iso-lines for an auto interval (optional min/max). Line output with a level property only — not iso-polygons. Same recipe as',
+    contourHelpLink: 'Contour help',
+    contourIntroTail:
+      '. Expect a server job; dense point sets can be slow.',
+    contourField: 'Numeric field',
+    contourFieldAria: 'Numeric field for Contour',
+    contourInterval: 'Interval',
+    contourIntervalAria: 'Contour level interval',
+    contourMin: 'Min (optional)',
+    contourMinAria: 'Optional minimum contour level',
+    contourMax: 'Max (optional)',
+    contourMaxAria: 'Optional maximum contour level',
+    contourOptional: 'auto',
+    contourPickField: 'Pick a numeric field…',
+    contourNoNumeric: 'No numeric fields on this layer',
+    contourHint:
+      'Auto levels snap to the interval across the field range (about {max} levels max). Manual level lists stay in Create → Derived layer. Open the new item after the server job finishes.',
+    contourValidateNoNumeric: 'This layer has no numeric fields for Contour.',
+    contourValidateField: 'Pick a numeric field.',
+    contourValidateInterval: 'Interval must be a positive number.',
+    contourValidateRange: 'Min must be strictly less than max when both are set.',
+    groupByAction: 'Group by for this layer',
+    groupByActionTitle:
+      'Create a server-side derived layer that rolls up rows by one key with one aggregate (ST_Union geometry).',
+    groupByHeading: 'Group by for this layer (server derived layer)',
+    groupByIntroBefore:
+      'Creates a private derived layer with one group key (or whole-layer) and one aggregate (count / sum / avg). Geometry is always ST_Union per group. Same recipe as',
+    groupByHelpLink: 'Group by help',
+    groupByIntroTail:
+      '. Multi-key / multi-agg stay in Create → Derived layer. Expect a server job.',
+    groupByKey: 'Group key',
+    groupByKeyAria: 'Field to group by (optional)',
+    groupByWholeLayer: 'Whole layer (no key)',
+    groupByOp: 'Aggregate',
+    groupByOpAria: 'Aggregate operation',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Numeric field',
+    groupByAggFieldAria: 'Numeric field for sum or avg',
+    groupByPickNumeric: 'Pick a numeric field…',
+    groupByNoNumeric: 'No numeric fields on this layer',
+    groupByOutput: 'Output name',
+    groupByOutputAria: 'Aggregate output column name',
+    groupByHint:
+      'NULL values in the group key form their own group. Large unions can be slow. Open the new item after the server job finishes.',
+    groupByValidateKey: 'Pick a group key that exists on this layer, or whole layer.',
+    groupByValidateOp: 'Pick count, sum, or avg.',
+    groupByValidateAggField: 'Pick a numeric field for sum or avg.',
+    groupByValidateOutput: 'Output name must be a letter/underscore field id.',
+    groupByValidateOutputCollision: 'Output name must not collide with the group key.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Past runs',
+    pastRunsHint:
+      'Your derived layers from this layer. Re-run posts a new private copy; Edit & re-run opens the matching guide.',
+    pastRunsLoading: 'Loading past runs…',
+    pastRunsEmpty: 'No derived layers from this layer yet.',
+    pastRunsLoadFailed: 'Could not load past runs ({status}).',
+    pastRunsRetry: 'Retry',
+    pastRunsRefresh: 'Refresh',
+    pastRunsUnknownDate: 'unknown date',
+    pastRunsRerun: 'Re-run',
+    pastRunsRerunTitleAttr:
+      'Create a new private derived layer with the same recipe',
+    pastRunsEdit: 'Edit & re-run',
+    pastRunsEditTitleAttr:
+      'Open the Analyze guide for this tool so you can change parameters',
+    pastRunsRerunTitle: '{title} (re-run)',
+    pastRunsRerunDescription:
+      'Re-run of "{title}" from the Analyze Past runs shelf.',
+    pastRunsRerunToast: 'Derived layer "{title}" created',
+    pastRunsRerunFailed:
+      'Could not re-run the derived layer ({status}): {detail}',
   },
 
   /**
@@ -4873,6 +6049,8 @@ export const en = {
    * save footer strings; leave upstream probe error payloads alone.
    */
   serviceEditors: {
+    probeSaveUrlFirst:
+      "This service needs a password, so Probe reads the saved URL. Save the new URL first, then probe again.",
     connection: 'Connection',
     serviceEndpoint: 'Service endpoint',
     probe: 'Probe',
@@ -4889,6 +6067,8 @@ export const en = {
     saving: 'Saving...',
     saved: 'Saved',
     saveFailed: 'Save failed.',
+    reprobeBeforeSave: "Probe the new URL before saving. Its layer list comes from the probe.",
+    pickAtLeastOneLayer: "Pick at least one layer before saving.",
     selectAll: 'Select all',
     selectAllShort: 'All',
     selectNoneShort: 'None',
@@ -4917,6 +6097,34 @@ export const en = {
       'Copied {inserted, plural, one {# feature} other {# features}} into a new data layer.',
     copyToDataLayerTruncated:
       'Copied {inserted, plural, one {# feature} other {# features}} (hit the {cap} feature cap). Open the new data layer, or use Admin → Migrations for a full import.',
+  },
+
+  // PWA install chrome (R12-i18n-pwa-install-chrome / #162).
+  pwaInstall: {
+    install: 'Install',
+    installTitleIos:
+      'Install GratisGIS on this device (Tap Share, then Add to Home Screen)',
+    installTitleAndroid:
+      'Install GratisGIS on this device for offline-friendly storage',
+    bannerTitle: 'Install GratisGIS for better offline support',
+    bannerIosHint: 'iOS lifts its 1 GB storage cap once installed.',
+    bannerAndroidHint:
+      'Adds an icon to your home screen and protects cached data from cleanup.',
+    dismissAria: 'Dismiss',
+    iosDialogTitle: 'Install on iOS',
+    iosStep1Before: 'Tap the ',
+    iosStep1Share: 'Share',
+    iosStep1After:
+      ' button at the bottom of Safari (the square with an up-arrow).',
+    iosStep2Before: 'Scroll down and tap ',
+    iosStep2Action: 'Add to Home Screen',
+    iosStep2After: '.',
+    iosStep3Before: 'Tap ',
+    iosStep3Action: 'Add',
+    iosStep3After: ' in the top-right corner.',
+    iosDialogDesc:
+      'Once installed, GratisGIS gets stronger storage retention and the iOS 1 GB cap on web storage no longer applies.',
+    gotIt: 'Got it',
   },
 
   /** Settings → Notification preferences (#162). */

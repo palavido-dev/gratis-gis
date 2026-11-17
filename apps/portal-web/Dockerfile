@@ -16,7 +16,7 @@
 # lines do not belong under prod, and floating tags turn upstream
 # releases into unreviewed deploys. Bump this deliberately.
 
-FROM node:24.22.1-bookworm-slim AS base
+FROM node:24.22.3-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # See apps/portal-api/Dockerfile for the rationale on this block:
@@ -77,7 +77,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # #274: NEXT_PUBLIC_* env vars must be present at build time so
 # Next.js can inline them into the client bundle. Setting them in
 # the runtime container env doesn't reach client components. The
-# canonical gratisgis.org deployment passes
+# canonical demo.gratisgis.org deployment passes
 # NEXT_PUBLIC_PROJECT_LANDING=1 as a build arg from compose so the
 # project marketing section renders below the Hero. Per-tenant
 # deployments leave it unset and the Hero stands alone.
@@ -96,6 +96,10 @@ ENV NEXT_PUBLIC_PUBLIC_TESTING=$NEXT_PUBLIC_PUBLIC_TESTING
 # Empty means a local or unscripted build; the UI renders "dev".
 ARG NEXT_PUBLIC_GG_VERSION=
 ENV NEXT_PUBLIC_GG_VERSION=$NEXT_PUBLIC_GG_VERSION
+# Canonical public origin for SEO URLs (src/lib/portal-url.ts). Empty
+# falls back to https://demo.gratisgis.org.
+ARG NEXT_PUBLIC_PORTAL_URL=
+ENV NEXT_PUBLIC_PORTAL_URL=$NEXT_PUBLIC_PORTAL_URL
 
 # Self-host the DuckDB-WASM spatial extension (#175 unit 2). The
 # browser Analyze panel loads spatial via
@@ -142,11 +146,14 @@ RUN mkdir -p apps/portal-web/public/models \
 # onnxruntime-web executes the decoder; its wasm binaries must be
 # self-hosted (prod never reaches a CDN). ort resolves them from
 # env.wasm.wasmPaths = '/models/ort/' (set in lib/sam-outline.ts).
+# The wasm copy must fail the build if the files moved; only the
+# optional .mjs copy is allowed to find nothing. (A bare `|| true` at
+# the end of the chain also swallowed a failed wasm copy.)
 RUN mkdir -p apps/portal-web/public/models/ort \
     && cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.wasm \
       apps/portal-web/public/models/ort/ \
-    && cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.mjs \
-      apps/portal-web/public/models/ort/ 2>/dev/null || true
+    && { cp node_modules/.pnpm/onnxruntime-web@*/node_modules/onnxruntime-web/dist/*.mjs \
+      apps/portal-web/public/models/ort/ 2>/dev/null || true; }
 
 # GG_DEPLOYMENT_ID feeds next.config's `deploymentId`, which appends
 # a per-deploy query param to every /_next asset URL. Required
@@ -209,9 +216,15 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG GG_VERSION=dev
+ARG GIT_SHA=
+ARG REQUIRED_COMPOSE_REV=3
+ENV GG_VERSION=$GG_VERSION \
+    GIT_SHA=$GIT_SHA \
+    REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -fsS http://localhost:3000/ || exit 1
+  CMD curl -fsS http://localhost:3000/api/healthz || exit 1
 
 # The standalone server lives at <package>/server.js relative to the
 # tracing root. Our root is the repo, so the server lands at

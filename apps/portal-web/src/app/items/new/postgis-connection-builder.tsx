@@ -22,6 +22,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, Plug, Save } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   /** Title chosen on the previous wizard step. */
@@ -91,8 +92,10 @@ export function PostgisConnectionBuilder({
         }),
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        setTestResult({ ok: false, error: body || `${res.status}` });
+        setTestResult({
+          ok: false,
+          error: await parseApiError(res, 'Connection test failed'),
+        });
         return;
       }
       const json = (await res.json()) as TestResult | TestError;
@@ -126,8 +129,7 @@ export function PostgisConnectionBuilder({
         }),
       });
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        throw new Error(body || `${res.status}`);
+        throw new Error(await parseApiError(res, 'Could not save'));
       }
       const item = (await res.json()) as { id: string };
       router.push(`/items/${item.id}`);
@@ -155,7 +157,11 @@ export function PostgisConnectionBuilder({
           <input
             type="text"
             value={host}
-            onChange={(e) => setHost(e.target.value)}
+            onChange={(e) => {
+              setHost(e.target.value);
+              // The last test was of the old details.
+              setTestResult(null);
+            }}
             placeholder="db.internal"
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
             autoComplete="off"
@@ -166,7 +172,11 @@ export function PostgisConnectionBuilder({
           <input
             type="number"
             value={port}
-            onChange={(e) => setPort(Number(e.target.value) || 5432)}
+            onChange={(e) => {
+              setPort(Number(e.target.value) || 5432);
+              // The last test was of the old details.
+              setTestResult(null);
+            }}
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
           />
         </label>
@@ -175,7 +185,11 @@ export function PostgisConnectionBuilder({
           <input
             type="text"
             value={database}
-            onChange={(e) => setDatabase(e.target.value)}
+            onChange={(e) => {
+              setDatabase(e.target.value);
+              // The last test was of the old details.
+              setTestResult(null);
+            }}
             placeholder="myorg"
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
             autoComplete="off"
@@ -186,7 +200,11 @@ export function PostgisConnectionBuilder({
           <input
             type="text"
             value={role}
-            onChange={(e) => setRole(e.target.value)}
+            onChange={(e) => {
+              setRole(e.target.value);
+              // The last test was of the old details.
+              setTestResult(null);
+            }}
             placeholder="readonly_role"
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
             autoComplete="off"
@@ -197,7 +215,11 @@ export function PostgisConnectionBuilder({
           <input
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              // The last test was of the old details.
+              setTestResult(null);
+            }}
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
             autoComplete="new-password"
           />
@@ -207,7 +229,10 @@ export function PostgisConnectionBuilder({
           <input
             type="text"
             value={defaultSchema}
-            onChange={(e) => setDefaultSchema(e.target.value)}
+            onChange={(e) => {
+              setDefaultSchema(e.target.value);
+              setTestResult(null);
+            }}
             placeholder="public"
             className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
             autoComplete="off"

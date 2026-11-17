@@ -258,6 +258,62 @@ describe('AgoClient.walkUserContent', () => {
     expect(count).toBe(225);
     expect(calls).toBe(3);
   });
+
+  it('stops when nextStart does not move forward', async () => {
+    let calls = 0;
+    globalThis.fetch = jest.fn(async () => {
+      calls += 1;
+      // A server that always points back at the start.
+      return jsonResponse({
+        username: 'alice',
+        nextStart: 1,
+        folders: [{ id: 'f1', title: 'F' }],
+        items: pageOfItems(`p${calls}`, 2),
+      });
+    });
+    const client = new AgoClient({ portalUrl: PORTAL_URL, token: 'tok' });
+    const result = await client.walkUserContent({ username: 'alice', onItem: () => undefined });
+    // Root once, the folder once.
+    expect(calls).toBe(2);
+    expect(result.total).toBe(4);
+  });
+
+  it('refuses a walk past the item ceiling', async () => {
+    let start = 1;
+    globalThis.fetch = jest.fn(async () => {
+      start += 100;
+      return jsonResponse({
+        username: 'alice',
+        nextStart: start,
+        folders: [],
+        items: pageOfItems(`p${start}`, 100),
+      });
+    });
+    const client = new AgoClient({ portalUrl: PORTAL_URL, token: 'tok' });
+    await expect(
+      client.walkUserContent({ username: 'alice', onItem: () => undefined }),
+    ).rejects.toBeInstanceOf(AgoApiError);
+  });
+});
+
+describe('AgoClient timeouts', () => {
+  it('times out a reply whose body never finishes', async () => {
+    globalThis.fetch = jest.fn(async (_url: unknown, init?: RequestInit) => {
+      // Headers arrive at once; the body only ends when the signal
+      // passed in aborts, as the real dial does.
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"a":'));
+          init?.signal?.addEventListener('abort', () =>
+            controller.error(init.signal?.reason ?? new Error('aborted')),
+          );
+        },
+      });
+      return new Response(body, { status: 200 });
+    });
+    const client = new AgoClient({ portalUrl: PORTAL_URL, token: 'tok', timeoutMs: 50 });
+    await expect(client.getItem('abc')).rejects.toThrow(/timed out/);
+  });
 });
 
 describe('AgoClient.getItem / getItemData', () => {

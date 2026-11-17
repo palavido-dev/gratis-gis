@@ -10,14 +10,26 @@ import {
   listQueued,
   queueSubmission,
   type QueuedSubmission,
+  isAnonymousSubmission,
+  updateQueuedResponse,
 } from '@/lib/form-offline';
-import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
+import { getOfflineIdentity } from '@/lib/offline-store';
+import { uploadQueuedAttachments } from '@/lib/form-attachment-upload';
 import { requestBackgroundSync } from '@/lib/offline-store';
 import { useFormat } from '@/lib/i18n/format';
+import { apiErrorMessage } from '@/lib/api-error';
 
 interface Props {
   form: FormSchema;
+  /** The form item id from the route. Responses are queued and sent
+   *  under this, not the schema's own `id`, which only matches the
+   *  item id by convention and is not enforced on save. */
+  formId: string;
   formItemTitle: string;
+  /** The signed-in account from the server render, when known. It
+   *  wins over the device identity, which the guard may not have
+   *  updated yet after an account switch. */
+  userId?: string | null;
 }
 
 /**
@@ -30,8 +42,9 @@ interface Props {
  *   2. If online, immediately attempt to drain the queue against
  *      the server. The newly-queued row goes through the same
  *      drain path as anything stale.
- *   3. If offline, leave it queued; the periodic check (or the
- *      next online event) will drain.
+ *   3. If offline, leave it queued; the next online event, the
+ *      next submit or "Try again" will drain. A submit during a
+ *      running drain makes that drain go round once more.
  *   4. Every queue write also arms the service worker's one-shot
  *      Background Sync tag, so on Chromium the row still replays if
  *      the tab closes before connectivity returns. The worker's
@@ -46,7 +59,29 @@ interface Props {
  *   { clientId, schemaVersion, response, capturedAt }
  * Idempotent on clientId at the server (a re-drained row is a no-op).
  */
-export function RespondClient({ form, formItemTitle }: Props) {
+/**
+ * The account this device belongs to (set by OfflineIdentityGuard).
+ * Queued responses are stamped with it and only this account's rows
+ * are listed or sent, so a shared device never posts one person's
+ * answers under the next person's session. Null when nobody is signed
+ * in or the offline store is unavailable.
+ */
+async function deviceIdentity(): Promise<string | null> {
+  try {
+    return await getOfflineIdentity();
+  } catch {
+    return null;
+  }
+}
+
+export function RespondClient({ form, formId, formItemTitle, userId = null }: Props) {
+  // A response is stamped with, listed for and sent as this account.
+  // With no account known it is stored as captured anonymously and
+  // held (see ANONYMOUS_SUBMISSION_OWNER in form-offline.ts).
+  const currentIdentity = useCallback(
+    async (): Promise<string | null> => userId ?? (await deviceIdentity()),
+    [userId],
+  );
   const fmt = useFormat();
   const [online, setOnline] = useState<boolean>(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -59,53 +94,69 @@ export function RespondClient({ form, formItemTitle }: Props) {
   // re-run the mount effect below, and kick off the next drain in
   // an endless loop. The state copy exists purely for the UI.
   const drainingRef = useRef(false);
+  const rerunRef = useRef(false);
 
   const refreshOutbox = useCallback(async () => {
     try {
-      const all = await listQueued();
-      setOutbox(all.filter((r) => r.formId === form.id && r.status !== 'sent'));
+      const all = await listQueued(await currentIdentity());
+      setOutbox(all.filter((r) => r.formId === formId && r.status !== 'sent'));
     } catch {
       // IndexedDB unavailable (private browsing, etc); runtime still
       // works for online-only submissions.
     }
-  }, [form.id]);
+  }, [formId, currentIdentity]);
 
   const drainOnce = useCallback(async () => {
-    if (drainingRef.current) return;
+    if (drainingRef.current) {
+      // drain works from a snapshot taken when it starts, so a row
+      // queued now would wait for some later trigger. Ask the running
+      // drain to go round once more instead.
+      rerunRef.current = true;
+      return;
+    }
     drainingRef.current = true;
     setDraining(true);
     try {
-      await drain(form.id, async (row) => {
-        // Upload any offline-captured attachments before posting (#280).
-        // The walk mutates row.response in place so a partial drain
-        // (some attachments uploaded, some still pending) doesn't have
-        // to redo successful uploads on retry. uploadPendingAttachments
-        // throws on failure; the outer drain marks the row failed and
-        // the queue will retry next online tick.
-        await uploadPendingAttachmentsInResponse(row.response);
-        const res = await fetch(
-          `/api/portal/forms/${form.id}/submissions`,
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              clientId: row.clientId,
-              schemaVersion: row.schemaVersion,
-              response: row.response,
-              capturedAt: row.capturedAt,
-            }),
-          },
-        );
-        if (!res.ok) {
-          throw new Error(`${res.status} ${await res.text().catch(() => '')}`);
-        }
-      });
+      do {
+        rerunRef.current = false;
+        await drain(formId, await currentIdentity(), async (row) => {
+          // Upload any offline-captured attachments before posting (#280).
+          // Each upload is written back to the stored row, so a retry
+          // after a partial failure reuses it instead of uploading the
+          // same bytes again. The row also keeps the bytes until the
+          // POST succeeds (see uploadQueuedAttachments). A failure
+          // throws; the outer drain marks the row failed and the queue
+          // retries on the next online tick.
+          const answers = await uploadQueuedAttachments(row.response, (stored) =>
+            updateQueuedResponse(row.clientId, stored),
+          );
+          const res = await fetch(
+            `/api/portal/forms/${formId}/submissions`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                clientId: row.clientId,
+                schemaVersion: row.schemaVersion,
+                response: answers,
+                capturedAt: row.capturedAt,
+                ...(typeof row.utcOffsetMinutes === 'number'
+                  ? { utcOffsetMinutes: row.utcOffsetMinutes }
+                  : {}),
+              }),
+            },
+          );
+          if (!res.ok) {
+            throw new Error(await apiErrorMessage(res));
+          }
+        });
+      } while (rerunRef.current);
     } finally {
       drainingRef.current = false;
       setDraining(false);
       await refreshOutbox();
     }
-  }, [form.id, refreshOutbox]);
+  }, [formId, refreshOutbox, currentIdentity]);
 
   useEffect(() => {
     const onOnline = () => {
@@ -125,8 +176,9 @@ export function RespondClient({ form, formItemTitle }: Props) {
 
   async function handleSubmit(response: Response) {
     await queueSubmission({
-      formId: form.id,
+      formId,
       schemaVersion: form.schemaVersion,
+      ownerUserId: await currentIdentity(),
       response,
     });
     // Arm background replay in case the tab closes before we get a
@@ -184,15 +236,24 @@ export function RespondClient({ form, formItemTitle }: Props) {
                   <span className="truncate">
                     {fmt.dateTime(r.capturedAt)}
                   </span>
-                  <span
-                    className={`inline-flex rounded-full px-1.5 text-2xs uppercase tracking-wide ${
-                      r.status === 'failed'
-                        ? 'bg-warn/15 text-warn'
-                        : 'bg-surface-2 text-muted'
-                    }`}
-                  >
-                    {r.status}
-                  </span>
+                  {isAnonymousSubmission(r) ? (
+                    <span
+                      className="inline-flex rounded-full bg-warn/15 px-1.5 text-2xs uppercase tracking-wide text-warn"
+                      title="Captured while no one was signed in. It is kept on this device and is not sent under another account."
+                    >
+                      held
+                    </span>
+                  ) : (
+                    <span
+                      className={`inline-flex rounded-full px-1.5 text-2xs uppercase tracking-wide ${
+                        r.status === 'failed'
+                          ? 'bg-warn/15 text-warn'
+                          : 'bg-surface-2 text-muted'
+                      }`}
+                    >
+                      {r.status}
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

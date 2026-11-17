@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
+import {
+  dateInputToExpiry,
+  expiryToDateInput,
+  localDateInputValue,
+} from '@/lib/share-expiry-date';
 
 import { useEffect, useRef, useState } from 'react';
 import { Clock, X } from 'lucide-react';
@@ -36,6 +40,7 @@ export function ShareExpiryPicker({
   variant?: 'inline' | 'full';
 }) {
   const t = useT();
+  const fmt = useFormat();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -44,7 +49,7 @@ export function ShareExpiryPicker({
   // popover opens. Outside-click / Escape closes.
   useEffect(() => {
     if (!open) return;
-    setDraft(value ? value.slice(0, 10) : '');
+    setDraft(expiryToDateInput(value));
     function onDoc(e: MouseEvent) {
       if (
         wrapperRef.current &&
@@ -68,7 +73,7 @@ export function ShareExpiryPicker({
   const expiresAt = value ? new Date(value) : null;
   const isExpired = expiresAt ? expiresAt.getTime() <= Date.now() : false;
   const subtitle = expiresAt
-    ? `${isExpired ? t('sharing.expired') : t('sharing.expires')} ${formatShortDate(expiresAt)}`
+    ? `${isExpired ? t('sharing.expired') : t('sharing.expires')} ${fmt.date(expiresAt, SHORT_DATE)}`
     : t('sharing.neverExpires');
 
   function pickPreset(days: number) {
@@ -80,10 +85,11 @@ export function ShareExpiryPicker({
   function commitCustom() {
     if (!draft) return;
     // Treat the date input as a local-time end-of-day so a
-    // "April 30" pick lasts the full day in the user's timezone.
-    const d = new Date(`${draft}T23:59:59`);
-    if (Number.isNaN(d.getTime())) return;
-    onChange(d.toISOString());
+    // "April 30" pick lasts the full day in the user's timezone. A
+    // date already past is ignored rather than saved as expired.
+    const iso = dateInputToExpiry(draft);
+    if (!iso) return;
+    onChange(iso);
     setOpen(false);
   }
   function clear() {
@@ -162,7 +168,7 @@ export function ShareExpiryPicker({
             <input
               type="date"
               value={draft}
-              min={new Date().toISOString().slice(0, 10)}
+              min={localDateInputValue(new Date())}
               onChange={(e) => setDraft(e.target.value)}
               className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-1 px-2 text-2xs"
             />
@@ -189,10 +195,9 @@ export function ShareExpiryPicker({
   );
 }
 
-function formatShortDate(d: Date): string {
-  return formatDate(d, DEFAULT_LOCALE, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
+// Short date in the active locale, not the default one.
+const SHORT_DATE: Intl.DateTimeFormatOptions = {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+};

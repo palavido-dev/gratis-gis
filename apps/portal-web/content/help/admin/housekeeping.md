@@ -14,56 +14,53 @@ related:
   - admin-roles
 ---
 
-The **Housekeeping** dashboard (admin → housekeeping) surfaces
-items and users that have gone stale, alongside one-click bulk
-actions. The goal is to keep the portal's item list current
-without manually auditing every item.
+The **Housekeeping** page (Admin -> Housekeeping) lists items and
+accounts that look like they could be reviewed or retired, with bulk
+actions. Everything it shows is a suggestion. Nothing is removed
+unless you choose to, or turn on scheduled cleanup.
 
-## What it shows
+## Review
 
-The dashboard is sectioned. Each section is one signal:
+- **Stale items.** Items with no item edits and no feature edits for
+  the stale window, and no shares. The default window is 90 days.
+  Tick items and choose **Move to trash**.
+- **Quiet users.** Accounts with no sign-in for the quiet window,
+  180 days by default. Admins are left out on purpose. Tick users
+  and choose **Disable sign-in**. When they own items, the portal
+  asks who should own them (you, by default) and moves the items
+  before it disables the accounts.
+- **Shares expiring soon** and **users auto-disabling soon**, with
+  actions to extend by 30 days, cancel, or act now.
+- **Storage usage**: host disk, the Postgres database and the object
+  store, plus the data layers with the largest feature footprint.
 
-- **Stale items.** Items not updated in N months (default: 12).
- Sorted by last-update date. Bulk action: archive or delete.
-- **Untouched items.** Items created but never edited after
- creation. Often abandoned drafts. Same bulk actions.
-- **Items with no readers.** Items whose detail page hasn't
- been opened in N months. The "is this still useful" signal.
-- **Quiet users.** Users with no sign-in in N months. Bulk
- action: disable account.
-- **Broken dependencies.** Maps referencing data layers that
- were deleted; web apps referencing maps that no longer exist.
- Bulk action: surface each on its respective detail page.
-- **Storage hogs.** Items consuming the most MinIO bytes. Sort
- by size. Useful when an org hits its storage budget.
+## Cleanup
 
-## Customizing the thresholds
+Tools to recompute item extents, build feature search indexes, and
+find broken references, orphaned uploads, unused app templates and
+themes.
 
-The dashboard's thresholds (N months) are admin-tunable at
-**admin → housekeeping → settings**. Defaults are:
+## Schedule
 
-- Stale: 12 months.
-- Untouched: 6 months.
-- No readers: 12 months.
-- Quiet user: 6 months.
+Scheduled cleanup is off until you turn it on. It can move items
+nobody has edited or shared to the trash, pause sign-in for
+inactive accounts (admins are skipped), refresh extents, and tidy
+the field device queue list. You set the number of days for each.
 
-Conservative defaults; pick what matches your org's churn.
+## Thresholds
 
-## Bulk actions
-
-Each section has a multi-select with bulk actions appropriate to
-the signal. Bulk archive moves items to an archived state where
-they're hidden from default lists but recoverable. Bulk delete is
-soft-delete by default (recoverable for 30 days); a hard-delete
-option requires an extra confirmation.
+The default windows come from the server's environment:
+`HOUSEKEEPING_STALE_ITEM_DAYS` (90) and
+`HOUSEKEEPING_STALE_USER_DAYS` (180). The schedule tab sets the
+windows the scheduled jobs use.
 
 ## Notes
 
-- **Soft delete is reversible** for 30 days. Restored items
- come back with the same id and references intact.
-- **Don't bulk-delete on first run.** The first time you open
- housekeeping on a long-running portal, the stale-items list
- can be huge. Archive first; come back to delete after a few
- weeks of confirming no one notices.
-- **Per-user views.** A regular admin sees their own org only.
- Cross-org views are restricted to super-admin.
+- **Trash is not delete.** Items moved to trash stay in Recently
+  deleted for 30 days (`RECYCLE_BIN_RETENTION_DAYS`) and can be put
+  back with the same id. After that they are purged.
+- **Disabled accounts keep their items** unless you reassign them.
+  Disabling also revokes the account's API keys and stops its
+  scheduled scripts (see Roles).
+- **One organization at a time.** An admin sees and acts on their own
+  organization only.

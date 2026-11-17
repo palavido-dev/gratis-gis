@@ -90,4 +90,16 @@ describe('readV3Layers', () => {
       }),
     ).toEqual([{ id: 'ok', geometryType: null, fields: [] }]);
   });
+  it('skips null and primitive field entries instead of throwing', () => {
+    // Item data is only checked to be an object, so an owner can save
+    // fields: [null]. A throw here broke admin maintenance for the org.
+    expect(
+      readV3Layers({
+        version: 3,
+        layers: [{ id: 'a', fields: [null, 42, 'x', { name: 'ok' }] }],
+      }),
+    ).toEqual([
+      { id: 'a', geometryType: null, fields: [{ name: 'ok', type: 'string' }] },
+    ]);
+  });
 });

@@ -48,13 +48,20 @@ import {
 } from './share-geo-limit-dialog';
 import {
   loadEditorDependencyChain,
-  principalHasItemAccess,
   type EditorDependencyNode,
 } from '@/lib/editor-dependencies';
+import {
+  fetchPrincipalAccess,
+  hasAccess as answerHasAccess,
+  withGrant,
+  type AccessAnswers,
+} from '@/lib/principal-access';
 import { getItemTypeLabel } from '@/lib/item-type-icon';
 import { ItemAccessMatrix } from '@/components/item-access-matrix';
 import { PublicCascadeDialog } from '@/components/public-cascade-dialog';
 import { PublicCascadeRevertDialog } from '@/components/public-cascade-revert-dialog';
+import { useT } from '@/lib/i18n/locale-context';
+import { parseApiError } from '@/lib/api-error';
 
 interface Props {
   itemId: string;
@@ -124,6 +131,7 @@ export function SharingPanel({
   geoBoundaryItems = [],
   orgLabel = 'Your organization',
 }: Props) {
+  const t = useT();
   const router = useRouter();
   const [access, setAccess] = useState<ItemAccess>(initialAccess);
   const [accessSaveState, setAccessSaveState] = useState<RowSaveState>('idle');
@@ -163,15 +171,15 @@ export function SharingPanel({
     const prev = access;
     setAccess(next); // optimistic
     setAccessSaveState('saving');
-    const res = await fetch(`/api/portal/items/${itemId}`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ access: next }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setAccess(prev); // revert
       setAccessSaveState('error');
-      setError(`Visibility update failed: ${res.status} ${await res.text()}`);
+      setError(res ? await parseApiError(res, 'Visibility update failed') : t('sharing.networkError'));
       return;
     }
     setAccessSaveState('saved');
@@ -221,16 +229,16 @@ export function SharingPanel({
       tier === 'public'
         ? { publicGeoBoundaryId: next }
         : { orgGeoBoundaryId: next };
-    const res = await fetch(`/api/portal/items/${itemId}`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       if (tier === 'public') setPublicBoundaryId(prev);
       else setOrgBoundaryId(prev);
       setBoundarySaveState('error');
-      setError(`Boundary update failed: ${res.status} ${await res.text()}`);
+      setError(res ? await parseApiError(res, 'Boundary update failed') : t('sharing.networkError'));
       return;
     }
     setBoundarySaveState('saved');
@@ -291,9 +299,10 @@ export function SharingPanel({
   const [depChainSnapshot, setDepChainSnapshot] = useState<
     EditorDependencyNode[] | null
   >(null);
-  const [matrixMemberships, setMatrixMemberships] = useState<
-    Record<string, string[]>
-  >({});
+  // Server answers to "can this sharee read that dependency". Item
+  // reads no longer carry other items' share rosters, so the panel
+  // cannot work this out from share rows itself.
+  const [depAccess, setDepAccess] = useState<AccessAnswers>({});
   const [matrixPrincipalNames, setMatrixPrincipalNames] = useState<
     Record<string, string>
   >({});
@@ -377,6 +386,18 @@ export function SharingPanel({
         .join(','),
     [shares],
   );
+  // Every principal, groups included. The chain's own share lists
+  // change when "Share + grant" grants a group view on the
+  // dependencies, so keying the reload on user ids alone left the gap
+  // badge counting gaps that had just been closed.
+  const allPrincipalKey = useMemo(
+    () =>
+      shares
+        .map((s) => `${s.principalType}:${s.principalId}`)
+        .sort()
+        .join(','),
+    [shares],
+  );
   useEffect(() => {
     if (itemType !== 'editor') return;
     let cancelled = false;
@@ -385,6 +406,15 @@ export function SharingPanel({
         const { nodes } = await loadEditorDependencyChain(itemId);
         if (cancelled) return;
         depChainRef.current.chain = nodes;
+        const answers = await fetchPrincipalAccess(
+          nodes.map((n) => n.id),
+          shares.map((s) => ({
+            type: s.principalType as 'user' | 'group',
+            id: s.principalId,
+          })),
+        );
+        if (cancelled) return;
+        setDepAccess(answers);
         setDepChainSnapshot(nodes);
       } catch {
         /* non-fatal: badge won't render but the panel still works */
@@ -402,26 +432,25 @@ export function SharingPanel({
               id: string;
               username: string;
               fullName: string | null;
-              groupIds?: string[];
             }>;
-            const memberships: Record<string, string[]> = {};
             const names: Record<string, string> = {};
             for (const u of rows) {
-              memberships[u.id] = u.groupIds ?? [];
               names[u.id] = u.fullName || u.username;
             }
-            setMatrixMemberships(memberships);
             setMatrixPrincipalNames((prev) => ({ ...prev, ...names }));
           }
         } catch {
-          /* non-fatal: gaps over-count when memberships missing */
+          /* non-fatal: names fall back to short ids */
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [itemId, itemType, userPrincipalKey]);
+    // `shares` is read through allPrincipalKey, which changes exactly
+    // when the principal list does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId, itemType, userPrincipalKey, allPrincipalKey]);
 
   // Pre-built principal list for the matrix. One row per share on
   // the editor; the principal's display name comes from
@@ -453,9 +482,9 @@ export function SharingPanel({
     (depItemId: string, principal: { type: 'user' | 'group'; id: string }) => {
       const node = depChainSnapshot?.find((n) => n.id === depItemId);
       if (!node) return true; // unknown dep: no badge, no fix
-      return principalHasItemAccess(node, principal, matrixMemberships);
+      return answerHasAccess(depAccess, depItemId, principal);
     },
-    [depChainSnapshot, matrixMemberships],
+    [depChainSnapshot, depAccess],
   );
 
   // Total open gaps. Drives the inline badge above the share list
@@ -466,16 +495,16 @@ export function SharingPanel({
     let total = 0;
     for (const dep of depChainSnapshot) {
       for (const p of matrixPrincipals) {
-        if (!principalHasItemAccess(dep, p, matrixMemberships)) total += 1;
+        if (!answerHasAccess(depAccess, dep.id, p)) total += 1;
       }
     }
     return total;
-  }, [depChainSnapshot, matrixPrincipals, matrixMemberships]);
+  }, [depChainSnapshot, matrixPrincipals, depAccess]);
 
   // Grant view permission on a dependency item. Used by the
   // ItemAccessMatrix's per-cell + bulk-grant actions. On success
-  // we splice the new share into the local snapshot so the cell
-  // flips to ✓ without re-fetching the whole chain.
+  // we mark the pair as granted so the cell flips to ✓ without
+  // asking the server again.
   const grantDependencyAccess = useCallback(
     async (
       depItemId: string,
@@ -495,24 +524,7 @@ export function SharingPanel({
           `${res.status} ${(await res.text()) || 'grant failed'}`,
         );
       }
-      const added = (await res.json()) as ItemShare;
-      setDepChainSnapshot((prev) => {
-        if (!prev) return prev;
-        return prev.map((node) => {
-          if (node.id !== depItemId) return node;
-          // Replace any pre-existing row for the same principal,
-          // then append. Same dedupe shape as the editor's own
-          // share-list update.
-          const filtered = node.shares.filter(
-            (s) =>
-              !(
-                s.principalType === added.principalType &&
-                s.principalId === added.principalId
-              ),
-          );
-          return { ...node, shares: [...filtered, added] };
-        });
-      });
+      setDepAccess((prev) => withGrant(prev, depItemId, principal));
     },
     [],
   );
@@ -531,7 +543,7 @@ export function SharingPanel({
         keyOf(s) === k ? { ...s, permission: nextPermission } : s,
       ),
     );
-    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -540,7 +552,7 @@ export function SharingPanel({
         permission: nextPermission,
       }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setRowState((m) => ({ ...m, [k]: 'error' }));
       // Revert optimistic change
       setShares((cur) =>
@@ -548,7 +560,7 @@ export function SharingPanel({
           keyOf(s) === k ? { ...s, permission: share.permission } : s,
         ),
       );
-      setError(`Update failed: ${res.status} ${await res.text()}`);
+      setError(res ? await parseApiError(res, 'Update failed') : t('sharing.networkError'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -582,7 +594,7 @@ export function SharingPanel({
           : s,
       ),
     );
-    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -592,7 +604,7 @@ export function SharingPanel({
         expiresAt: nextExpiresAt,
       }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setRowState((m) => ({ ...m, [k]: 'error' }));
       setShares((cur) =>
         cur.map((s) =>
@@ -601,7 +613,7 @@ export function SharingPanel({
             : s,
         ),
       );
-      setError(`Update failed: ${res.status} ${await res.text()}`);
+      setError(res ? await parseApiError(res, 'Update failed') : t('sharing.networkError'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -634,7 +646,7 @@ export function SharingPanel({
           : s,
       ),
     );
-    const res = await fetch(`/api/portal/items/${itemId}/share`, {
+    const res = await fetchOrNull(`/api/portal/items/${itemId}/share`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -644,7 +656,7 @@ export function SharingPanel({
         rowScope: nextRowScope,
       }),
     });
-    if (!res.ok) {
+    if (!res || !res.ok) {
       setRowState((m) => ({ ...m, [k]: 'error' }));
       setShares((cur) =>
         cur.map((s) =>
@@ -653,7 +665,7 @@ export function SharingPanel({
             : s,
         ),
       );
-      setError(`Update failed: ${res.status} ${await res.text()}`);
+      setError(res ? await parseApiError(res, 'Update failed') : t('sharing.networkError'));
       return;
     }
     setRowState((m) => ({ ...m, [k]: 'saved' }));
@@ -723,7 +735,7 @@ export function SharingPanel({
         }),
       });
       if (!res.ok) {
-        setError(`Could not save restriction: ${res.status} ${await res.text()}`);
+        setError(await parseApiError(res, 'Could not save restriction'));
         return;
       }
       const updated: ItemShare = await res.json();
@@ -753,7 +765,7 @@ export function SharingPanel({
       body: JSON.stringify({ principalType, principalId, permission }),
     });
     if (!res.ok) {
-      setError(`Share failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Share failed'));
       return;
     }
     const added: ItemShare = await res.json();
@@ -787,10 +799,9 @@ export function SharingPanel({
   }
 
   /**
-   * Pre-share dependency audit for editor items. Fetches the
-   * principal's group memberships (users only; groups have no
-   * memberships of their own here), runs the full chain through
-   * `principalHasItemAccess`, and either:
+   * Pre-share dependency audit for editor items. Asks the server
+   * whether the principal can read each item in the chain, and
+   * either:
    *   - opens the hard-prompt modal when there are gaps, or
    *   - falls through to addShare() when the principal already
    *     has access to every dependency.
@@ -819,31 +830,13 @@ export function SharingPanel({
         await addShare(principalType, principalId);
         return;
       }
-      let memberships: Record<string, string[]> = {};
-      if (principalType === 'user') {
-        try {
-          const r = await fetch(
-            `/api/portal/users?ids=${encodeURIComponent(principalId)}`,
-          );
-          if (r.ok) {
-            const rows = (await r.json()) as Array<{
-              id: string;
-              groupIds?: string[];
-            }>;
-            for (const u of rows) memberships[u.id] = u.groupIds ?? [];
-          }
-        } catch {
-          /* non-fatal: gap detection treats user as no-groups, which is
-             the conservative default (more gaps shown, not fewer) */
-        }
-      }
+      const principal = { type: principalType, id: principalId };
+      const answers = await fetchPrincipalAccess(
+        chain.map((n) => n.id),
+        [principal],
+      );
       const missing = chain.filter(
-        (n) =>
-          !principalHasItemAccess(
-            n,
-            { type: principalType, id: principalId },
-            memberships,
-          ),
+        (n) => !answerHasAccess(answers, n.id, principal),
       );
       if (missing.length === 0) {
         await addShare(principalType, principalId);
@@ -888,7 +881,7 @@ export function SharingPanel({
         });
         if (!res.ok) {
           throw new Error(
-            `Grant on "${dep.title}" failed: ${res.status} ${await res.text()}`,
+            await parseApiError(res, `Grant on "${dep.title}" failed`),
           );
         }
       }
@@ -969,7 +962,7 @@ export function SharingPanel({
       }),
     });
     if (!res.ok) {
-      setError(`Unshare failed: ${res.status} ${await res.text()}`);
+      setError(await parseApiError(res, 'Unshare failed'));
       return;
     }
     setShares((cur) =>
@@ -984,6 +977,10 @@ export function SharingPanel({
     startTransition(() => router.refresh());
   }
 
+  const resolvedOrgLabel =
+    orgLabel === 'Your organization'
+      ? t('sharing.yourOrganization')
+      : orgLabel;
   const visibilityOptions: Array<{
     value: ItemAccess;
     label: string;
@@ -992,23 +989,23 @@ export function SharingPanel({
   }> = [
     {
       value: 'private',
-      label: 'Private',
-      desc: 'Only you and people you share with below.',
+      label: t('sharing.access.private'),
+      desc: t('sharing.accessPrivateDesc'),
       Icon: Lock,
     },
     {
       value: 'org',
-      label: orgLabel,
+      label: resolvedOrgLabel,
       desc:
         orgLabel === 'Your organization'
-          ? 'Everyone with a login in your organization can see this.'
-          : `Everyone with a login at ${orgLabel} can see this.`,
+          ? t('sharing.accessOrgDescDefault')
+          : t('sharing.accessOrgDescNamed', { org: orgLabel }),
       Icon: Building2,
     },
     {
       value: 'public',
-      label: 'Public',
-      desc: 'Anyone on the internet, no login required.',
+      label: t('sharing.access.public'),
+      desc: t('sharing.accessPublicDesc'),
       Icon: Globe2,
     },
   ];
@@ -1080,7 +1077,7 @@ export function SharingPanel({
       <div className="border-b border-border p-4">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
-            Visibility
+            {t('sharing.visibility')}
           </h3>
           <span className="inline-flex h-5 w-5 items-center justify-center" aria-live="polite">
             {accessSaveState === 'saving' ? (
@@ -1090,7 +1087,11 @@ export function SharingPanel({
             ) : null}
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Visibility">
+        <div
+          className="grid grid-cols-3 gap-2"
+          role="radiogroup"
+          aria-label={t('sharing.visibility')}
+        >
           {visibilityOptions.map(({ value, label, desc, Icon }) => {
             const selected = access === value;
             return (
@@ -1122,8 +1123,8 @@ export function SharingPanel({
           <p className="mt-3 rounded-md border border-info/30 bg-info/10 px-3 py-2 text-xs text-ink-1">
             <strong className="font-medium">{currentOption.label}</strong>{' '}
             {access === 'org'
-              ? 'can already see this item. Shares below only matter for granting edit or admin permission on top of that.'
-              : 'means anyone on the internet can view this. Shares below only matter for granting edit or admin permission.'}
+              ? t('sharing.orgAlreadySeesRest')
+              : t('sharing.publicMeansAnyoneRest')}
           </p>
         ) : null}
         {/* #80: tier-level geographic scope. Renders only for the
@@ -1242,20 +1243,24 @@ export function SharingPanel({
                       )
                     }
                     disabled={pending}
-                    aria-label="Change permission"
+                    aria-label={t('sharing.changePermissionAria')}
                     className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                   >
-                    <option value="view">can view</option>
-                    <option value="download">can download</option>
-                    <option value="edit">can edit</option>
-                    <option value="admin">can admin</option>
+                    <option value="view">{t('sharing.canView')}</option>
+                    <option value="download">{t('sharing.canDownload')}</option>
+                    <option value="edit">{t('sharing.canEdit')}</option>
+                    <option value="admin">{t('sharing.canAdmin')}</option>
                   </select>
                   {/* Row scope (#40). Narrows the share to features
-                      the principal themselves created. Hidden for
-                      'admin' permission since admins always see
-                      everything anyway and the picker would be
-                      misleading. */}
-                  {share.permission !== 'admin' ? (
+                      the principal themselves created. Hidden for an
+                      'admin' share left at "all features", where it
+                      has nothing to say. The server still applies a
+                      stored "only theirs" to admin shares, so in that
+                      case it stays visible; otherwise raising a scoped
+                      share to Admin left a restriction nobody could
+                      see or change. */}
+                  {share.permission !== 'admin' ||
+                  (share as ItemShare & { rowScope?: 'all' | 'own' }).rowScope === 'own' ? (
                     <select
                       value={
                         (share as ItemShare & { rowScope?: 'all' | 'own' }).rowScope ?? 'all'
@@ -1267,12 +1272,12 @@ export function SharingPanel({
                         )
                       }
                       disabled={pending}
-                      aria-label="Row scope"
-                      title="What can they see / edit?"
+                      aria-label={t('sharing.rowScopeAria')}
+                      title={t('sharing.rowScopeTitle')}
                       className="h-8 rounded-md border border-border bg-surface-1 px-2 text-xs focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-50"
                     >
-                      <option value="all">all features</option>
-                      <option value="own">only theirs</option>
+                      <option value="all">{t('sharing.allFeatures')}</option>
+                      <option value="own">{t('sharing.onlyTheirs')}</option>
                     </select>
                   ) : null}
                   <span
@@ -1299,10 +1304,10 @@ export function SharingPanel({
                     disabled={pending}
                     title={
                       share.geoLimit || share.geoBoundaryId
-                        ? 'Edit geographic restriction'
-                        : 'Restrict to a geographic area'
+                        ? t('sharing.editGeoRestrictionTitle')
+                        : t('sharing.restrictGeoTitle')
                     }
-                    aria-label="Restrict to area"
+                    aria-label={t('sharing.restrictToAreaAria')}
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-md disabled:opacity-50 ${
                       share.geoLimit || share.geoBoundaryId
                         ? 'bg-accent/10 text-accent hover:bg-accent/15'
@@ -1316,7 +1321,7 @@ export function SharingPanel({
                     onClick={() => removeShare(share)}
                     disabled={pending}
                     className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
-                    aria-label="Remove share"
+                    aria-label={t('sharing.removeShareAria')}
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -1339,6 +1344,7 @@ export function SharingPanel({
           initialGeoLimit={editingGeoLimit.geoLimit ?? null}
           initialGeoBoundaryId={editingGeoLimit.geoBoundaryId ?? null}
           boundaries={boundaries}
+          boundariesLoaded={boundariesLoaded}
           saving={geoLimitSaving}
           onClose={() => setEditingGeoLimit(null)}
           onSave={(next) => saveGeoLimit(editingGeoLimit, next)}
@@ -1354,7 +1360,7 @@ export function SharingPanel({
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm ${mode === 'group' ? 'bg-accent text-accent-foreground rounded-md' : 'text-muted'}`}
             >
               <UsersIcon className="h-3.5 w-3.5" />
-              Group
+              {t('sharing.groupTab')}
             </button>
             <button
               type="button"
@@ -1362,7 +1368,7 @@ export function SharingPanel({
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm ${mode === 'user' ? 'bg-accent text-accent-foreground rounded-md' : 'text-muted'}`}
             >
               <UserIcon className="h-3.5 w-3.5" />
-              User
+              {t('sharing.userTab')}
             </button>
           </div>
 
@@ -1376,26 +1382,26 @@ export function SharingPanel({
             {mode === 'group' ? (
               <PrincipalPicker
                 key="group-picker"
-                placeholder="Search groups..."
+                placeholder={t('sharing.searchGroupsPlaceholder')}
                 search={searchGroups}
                 onPick={(opt) =>
                   void intentShare('group', opt.id, opt.title)
                 }
                 emptyInitialMessage={
                   groups.length === 0
-                    ? 'No groups yet. Create one from /groups.'
-                    : 'Start typing to filter groups.'
+                    ? t('sharing.noGroupsYet')
+                    : t('sharing.startTypingGroups')
                 }
               />
             ) : (
               <PrincipalPicker
                 key="user-picker"
-                placeholder="Search people in your org..."
+                placeholder={t('sharing.searchPeoplePlaceholder')}
                 search={searchUsers}
                 onPick={(opt) =>
                   void intentShare('user', opt.id, opt.title)
                 }
-                emptyInitialMessage="Start typing a name or username."
+                emptyInitialMessage={t('sharing.startTypingPeople')}
               />
             )}
           </div>
@@ -1405,9 +1411,9 @@ export function SharingPanel({
             onChange={(e) => setPermission(e.target.value as SharePermission)}
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
           >
-            <option value="view">can view</option>
-            <option value="edit">can edit</option>
-            <option value="admin">can admin</option>
+            <option value="view">{t('sharing.canView')}</option>
+            <option value="edit">{t('sharing.canEdit')}</option>
+            <option value="admin">{t('sharing.canAdmin')}</option>
           </select>
         </div>
         {error ? (
@@ -1418,7 +1424,7 @@ export function SharingPanel({
         {auditingPrincipal ? (
           <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted">
             <Loader2 className="h-3 w-3 animate-spin" />
-            Checking dependency access...
+            {t('sharing.checkingDependencyAccess')}
           </p>
         ) : null}
       </div>
@@ -1426,7 +1432,7 @@ export function SharingPanel({
       {itemType === 'editor' && depChainSnapshot ? (
         <ItemAccessMatrix
           open={matrixOpen}
-          title="Editor item access"
+          title={t('sharing.editorItemAccess')}
           items={depChainSnapshot.map((node) => ({
             id: node.id,
             title: node.title,
@@ -1558,4 +1564,22 @@ export function SharingPanel({
       />
     </div>
   );
+}
+
+/**
+ * fetch() that resolves null instead of rejecting when the request
+ * never got an answer (connection dropped, BFF restarting). The
+ * optimistic sharing handlers revert on null exactly as on a failed
+ * response; with a plain fetch the rejection skipped the revert and
+ * left the control on a value the server never stored.
+ */
+async function fetchOrNull(
+  input: string,
+  init?: RequestInit,
+): Promise<Response | null> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    return null;
+  }
 }

@@ -29,9 +29,10 @@ export const ORG_URL_STORAGE_KEY = 'gratisgis.ago-oauth-org-url';
 /**
  * Name of the BroadcastChannel the OAuth callback page uses to
  * deliver the captured token to the opener. Same-origin only:
- * BroadcastChannel inherently scopes to the origin, and the
- * opener verifies the state token before trusting the payload
- * anyway.
+ * BroadcastChannel inherently scopes to the origin. The popup
+ * checks the state token against the callback, and each opener tab
+ * accepts only a payload carrying the state token it stored for a
+ * sign-in it still has pending.
  *
  * BroadcastChannel survives the cross-origin navigation through
  * AGO that severs window.opener under modern COOP defaults

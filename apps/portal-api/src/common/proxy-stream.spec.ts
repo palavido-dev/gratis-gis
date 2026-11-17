@@ -131,3 +131,105 @@ describe('streamUpstreamToResponse', () => {
     );
   });
 });
+
+describe('proxied response headers', () => {
+  async function headersFor(contentType: string | null) {
+    const { res, state } = fakeRes();
+    const h: Record<string, string> = {};
+    if (contentType !== null) h['content-type'] = contentType;
+    // Bytes, not a string: a string body makes Response invent
+    // text/plain, which would hide the no-type case.
+    await streamUpstreamToResponse(upstream(new Uint8Array([120]), h), res);
+    return state.headers;
+  }
+
+  it('always sends a sandbox CSP and nosniff', async () => {
+    const h = await headersFor('image/png');
+    expect(h['content-security-policy']).toBe("sandbox; default-src 'none'");
+    expect(h['x-content-type-options']).toBe('nosniff');
+    expect(h['content-type']).toBe('image/png');
+    expect(h['content-disposition']).toBeUndefined();
+  });
+
+  it.each([
+    'text/html; charset=utf-8',
+    'application/xhtml+xml',
+    'image/svg+xml',
+    'application/xml',
+    'text/xml',
+    'application/vnd.ogc.se_xml+xml',
+    'application/pdf',
+    'multipart/x-mixed-replace; boundary=x',
+    'text/plain, text/html',
+    'application/json, text/html',
+    'application/x-unknown-thing',
+  ])('forces attachment for %s', async (type) => {
+    const h = await headersFor(type);
+    expect(h['content-disposition']).toBe('attachment');
+    expect(h['content-type']).toBe(type);
+  });
+
+  it('forces attachment when the upstream sends no type', async () => {
+    const h = await headersFor(null);
+    expect(h['content-disposition']).toBe('attachment');
+  });
+
+  it('relabels script types so nosniff refuses to run them', async () => {
+    const h = await headersFor('application/javascript');
+    expect(h['content-type']).toBe('text/plain; charset=utf-8');
+    expect(h['content-disposition']).toBe('attachment');
+  });
+
+  it('leaves JSON and tiles inline for fetch-based clients', async () => {
+    for (const type of [
+      'application/json',
+      'application/x-protobuf',
+      'application/vnd.mapbox-vector-tile',
+      'image/jpeg',
+      'image/png',
+      'text/plain; charset=utf-8',
+    ]) {
+      const h = await headersFor(type);
+      expect(h['content-disposition']).toBeUndefined();
+    }
+  });
+});
+
+describe('proxy stream encoding and disconnects', () => {
+  it('forwards Content-Encoding with the raw bytes', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const { res, state } = fakeRes();
+    await streamUpstreamToResponse(
+      upstream(gzipSync('tile'), { 'content-type': 'application/x-protobuf', 'content-encoding': 'gzip' }),
+      res,
+    );
+    expect(state.headers['content-encoding']).toBe('gzip');
+  });
+
+  it('readUpstreamText decodes a gzip body', async () => {
+    const { gzipSync } = await import('node:zlib');
+    const text = await readUpstreamText(
+      upstream(gzipSync('{"ok":true}'), { 'content-encoding': 'gzip' }),
+      1000,
+    );
+    expect(text).toBe('{"ok":true}');
+  });
+
+  it('cancels the upstream when the client leaves while the upstream is silent', async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('a'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const { res } = fakeRes();
+    const done = streamUpstreamToResponse(new Response(body), res);
+    await new Promise((r) => setImmediate(r));
+    (res as unknown as EventEmitter).emit('close');
+    await done;
+    expect(cancelled).toBe(true);
+  });
+});

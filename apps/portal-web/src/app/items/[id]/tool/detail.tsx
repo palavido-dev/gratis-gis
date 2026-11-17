@@ -2,6 +2,8 @@
 'use client';
 
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 
 /**
  * Tool item detail editor (#90).
@@ -40,11 +42,17 @@ import { OsmRelationalEditor } from './osm-relational-editor';
 interface Props {
   itemId: string;
   initial: ToolItemData | null;
+  /** The item's updatedAt at load, for the stale-save guard. */
+  updatedAt?: string | null;
   canEdit: boolean;
 }
 
-export function ToolDetail({ itemId, initial, canEdit }: Props) {
+export function ToolDetail({ itemId, initial, updatedAt, canEdit }: Props) {
   const fmt = useFormat();
+  const t = useT();
+  // Guarded: this editor PATCHes the whole data blob, so without the
+  // version check the later of two saves silently reverts the other.
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   // Normalize legacy / undefined data into a fresh blob so the
   // controlled inputs always have a defined value.  Older drafts
   // saved as `null`; new tools land via emptyToolData().
@@ -91,11 +99,11 @@ export function ToolDetail({ itemId, initial, canEdit }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
-      });
+      const res = await patchItem({ data });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const body = await res.text();
         throw new Error(body || `HTTP ${res.status}`);

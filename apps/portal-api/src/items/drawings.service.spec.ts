@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { Item, ItemShare } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PolicyService } from '../policy/policy.service.js';
 import { SharingService } from './sharing.service.js';
 import {
+  DRAWING_LIMITS,
   DrawingsService,
   type DrawingsAuthor,
 } from './drawings.service.js';
@@ -68,10 +69,12 @@ interface FakePrisma {
   user: {
     findUnique: jest.Mock;
   };
+  $queryRaw: jest.Mock;
+  $transaction: jest.Mock;
 }
 
 function makePrisma(): FakePrisma {
-  return {
+  const prisma: FakePrisma = {
     item: {
       findFirst: jest.fn(),
       update: jest.fn(),
@@ -85,7 +88,15 @@ function makePrisma(): FakePrisma {
         username: 'alice',
       }),
     },
+    // The row lock reads the same row findFirst serves, unless a test
+    // overrides it to simulate a write that landed in between.
+    $queryRaw: jest.fn(async () => {
+      const item = (await prisma.item.findFirst()) as Item | null;
+      return item ? [{ data: item.data, updated_at_ms: 0 }] : [];
+    }),
+    $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
   };
+  return prisma;
 }
 
 function makeService(prisma: FakePrisma): DrawingsService {
@@ -110,6 +121,117 @@ describe('DrawingsService', () => {
       await expect(svc.list(null, 'map-1')).rejects.toBeInstanceOf(
         NotFoundException,
       );
+    });
+  });
+
+  describe('writes under the row lock', () => {
+    it('applies a create to the data read under the lock, not the earlier read', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ ownerId: 'author-1', access: 'public', data: { drawings: [] } as never }),
+      );
+      // Another reviewer's set (and a map Save's layers) landed after
+      // the permission read.
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: {
+            layers: [{ id: 'saved-layer' }],
+            drawings: [{ id: 'other-set', authorId: 'u2', color: '#ff0000', features: [] }],
+          },
+          updated_at_ms: 0,
+        },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      await svc.create({ kind: 'user', user: makeUser() }, 'map-1', {});
+      const written = (prisma.item.update.mock.calls[0]![0] as {
+        data: { data: { layers: unknown[]; drawings: Array<{ id: string }> } };
+      }).data.data;
+      expect(written.layers).toEqual([{ id: 'saved-layer' }]);
+      expect(written.drawings.map((d) => d.id)).toContain('other-set');
+      expect(written.drawings).toHaveLength(2);
+      expect(prisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('keeps a concurrent edit to another set when updating one', async () => {
+      const prisma = makePrisma();
+      const mine = { id: 'mine', authorId: 'author-1', color: '#00ff00', title: 'Mine', features: [] };
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', data: { drawings: [mine] } as never }),
+      );
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: {
+            drawings: [mine, { id: 'theirs', authorId: 'u2', color: '#ff0000', features: [] }],
+          },
+          updated_at_ms: 0,
+        },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      await svc.update({ kind: 'user', user: makeUser() }, 'map-1', 'mine', { title: 'Renamed' });
+      const written = (prisma.item.update.mock.calls[0]![0] as {
+        data: { data: { drawings: Array<{ id: string; title?: string }> } };
+      }).data.data;
+      expect(written.drawings.map((d) => d.id)).toEqual(['mine', 'theirs']);
+      expect(written.drawings[0]!.title).toBe('Renamed');
+    });
+  });
+
+  describe('appends and the item version', () => {
+    const pin = (id: string, x: number) => ({
+      id,
+      kind: 'pin' as const,
+      geometry: { type: 'Point', coordinates: [x, 0] },
+    });
+
+    it('appends to the features stored under the lock, so a concurrent pin survives', async () => {
+      const prisma = makePrisma();
+      const mine = { id: 'mine', authorId: 'author-1', color: '#00ff00', title: 'Mine', features: [] };
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ access: 'public', data: { drawings: [mine] } as never }),
+      );
+      // Pin 1 landed between this caller's read and its write.
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: { drawings: [{ ...mine, features: [pin('p1', 1)] }] },
+          updated_at_ms: 1_700_000_000_123,
+        },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      const out = await svc.update({ kind: 'user', user: makeUser() }, 'map-1', 'mine', {
+        appendFeatures: [pin('p2', 2) as never],
+      });
+      expect(out.features.map((f) => f.id)).toEqual(['p1', 'p2']);
+      // Appending the same feature again (a retry) does not double it.
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          data: { drawings: [{ ...mine, features: out.features }] },
+          updated_at_ms: 1_700_000_000_123,
+        },
+      ]);
+      const again = await svc.update({ kind: 'user', user: makeUser() }, 'map-1', 'mine', {
+        appendFeatures: [pin('p2', 2) as never],
+      });
+      expect(again.features.map((f) => f.id)).toEqual(['p1', 'p2']);
+    });
+
+    it('writes markup without moving the item updatedAt', async () => {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ ownerId: 'author-1', access: 'public', data: { drawings: [] } as never }),
+      );
+      prisma.$queryRaw.mockResolvedValue([
+        { data: { drawings: [] }, updated_at_ms: 1_700_000_000_123 },
+      ]);
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      await svc.create({ kind: 'user', user: makeUser() }, 'map-1', {});
+      const args = prisma.item.update.mock.calls[0]![0] as {
+        data: { updatedAt?: Date };
+      };
+      expect(args.data.updatedAt).toEqual(new Date(1_700_000_000_123));
     });
   });
 
@@ -238,6 +360,65 @@ describe('DrawingsService', () => {
     });
   });
 
+  // Any reader of a public map can add markup, and the nested DTO
+  // limits never run, so the service must bound what it stores.
+  describe('feature validation', () => {
+    async function createWith(features: unknown[]) {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({ ownerId: 'author-1', access: 'public' }),
+      );
+      prisma.item.update.mockResolvedValue(makeItem());
+      const svc = makeService(prisma);
+      const author: DrawingsAuthor = { kind: 'user', user: makeUser() };
+      return svc.create(author, 'map-1', { features: features as never });
+    }
+
+    it('keeps only type and coordinates, and mints a short id and a real date', async () => {
+      const set = await createWith([
+        {
+          id: 'x'.repeat(1000),
+          kind: 'line',
+          geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]], junk: 'y' },
+          style: { dashStyle: 'z'.repeat(500) },
+          createdAt: 'not a date',
+        },
+      ]);
+      const f = set.features[0]!;
+      expect(f.geometry).toEqual({ type: 'LineString', coordinates: [[0, 0], [1, 1]] });
+      expect(f.id.length).toBeLessThanOrEqual(64);
+      expect(Number.isNaN(Date.parse(f.createdAt))).toBe(false);
+      expect(f.style?.dashStyle).toBeUndefined();
+    });
+
+    it('drops malformed coordinates and features over the vertex cap', async () => {
+      const big = Array.from(
+        { length: DRAWING_LIMITS.MAX_VERTICES_PER_FEATURE + 1 },
+        (_, i) => [i % 180, 0],
+      );
+      const set = await createWith([
+        { kind: 'pin', geometry: { type: 'Point', coordinates: ['a', 0] } },
+        { kind: 'line', geometry: { type: 'LineString', coordinates: [0, 0] } },
+        { kind: 'line', geometry: { type: 'LineString', coordinates: big } },
+        { kind: 'pin', geometry: { type: 'Point', coordinates: [1, 2] } },
+      ]);
+      expect(set.features.map((f) => f.geometry)).toEqual([
+        { type: 'Point', coordinates: [1, 2] },
+      ]);
+    });
+
+    it('refuses a set larger than the byte cap', async () => {
+      const line = Array.from({ length: 9000 }, (_, i) => [i / 7, i / 3]);
+      const features = Array.from({ length: 10 }, () => ({
+        kind: 'line',
+        geometry: { type: 'LineString', coordinates: line },
+      }));
+      await expect(createWith(features)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+  });
+
   describe('update', () => {
     it('lets the set author rename their own set', async () => {
       const prisma = makePrisma();
@@ -295,6 +476,69 @@ describe('DrawingsService', () => {
       const author: DrawingsAuthor = { kind: 'user', user: makeUser() };
       await expect(
         svc.update(author, 'map-1', 'set-1', { title: 'Mine now' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    function anonSet(token?: string) {
+      return {
+        id: 'set-a',
+        authorId: null,
+        authorDisplay: 'Anonymous 3fa9c1',
+        ...(token ? { anonymousAuthorToken: token } : {}),
+        title: 'Anon',
+        color: '#ef4444',
+        visible: true,
+        features: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    function anonPrisma(set: object) {
+      const prisma = makePrisma();
+      prisma.item.findFirst.mockResolvedValue(
+        makeItem({
+          access: 'public',
+          data: { allowAnonymousDrawings: true, drawings: [set] } as object,
+        }),
+      );
+      prisma.item.update.mockResolvedValue(makeItem());
+      return prisma;
+    }
+
+    it('lets an anonymous author edit a set whose stored token matches', async () => {
+      const prisma = anonPrisma(anonSet('3fa9c1aa-real-token'));
+      const svc = makeService(prisma);
+      const out = await svc.update(
+        {
+          kind: 'anonymous',
+          anon: { token: '3fa9c1aa-real-token', display: 'Anonymous 3fa9c1' },
+        },
+        'map-1',
+        'set-a',
+        { title: 'Renamed' },
+      );
+      expect(out.title).toBe('Renamed');
+    });
+
+    it('refuses an anonymous caller whose display matches a token-less set', async () => {
+      // The display is public and derived from 6 hex of the cookie,
+      // so it must never be enough to claim a set.
+      const prisma = anonPrisma(anonSet());
+      const svc = makeService(prisma);
+      await expect(
+        svc.update(
+          {
+            kind: 'anonymous',
+            anon: {
+              token: '3fa9c1aa-0000-4000-8000-000000000000',
+              display: 'Anonymous 3fa9c1',
+            },
+          },
+          'map-1',
+          'set-a',
+          { title: 'Mine now' },
+        ),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });

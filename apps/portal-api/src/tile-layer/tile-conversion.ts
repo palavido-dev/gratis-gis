@@ -5,11 +5,14 @@ import { mkdir, mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { Transform } from 'node:stream';
+import { Transform, Writable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { crc32, createInflateRaw } from 'node:zlib';
 
 import type { TileLayerOriginalFormat } from '@gratis-gis/shared-types';
+
+import { rasterMagicMatches } from '../ingest/gdal-open-guard.js';
+import { xyzTreeToMbtiles } from './xyz-to-mbtiles.js';
 
 /**
  * Tile container conversion pipeline (#179).
@@ -33,9 +36,10 @@ import type { TileLayerOriginalFormat } from '@gratis-gis/shared-types';
  *     pmtiles Go CLI bundled into the api image handles the
  *     SQLite read + PMTiles directory build.
  *   - .zip (XYZ tile directory): extracted in-process (see
- *     `extractZipToDir`) into a temp dir, then
- *     `pmtiles convert <tile-dir> out.pmtiles`. The CLI walks
- *     {z}/{x}/{y}.{ext} structure and builds a PMTiles archive.
+ *     `extractZipToDir`) into a temp dir, packed into an MBTiles
+ *     in process (`xyzTreeToMbtiles`), then
+ *     `pmtiles convert tiles.mbtiles out.pmtiles`. The CLI does not
+ *     read tile directories.
  *   - .tif / .tiff / .geotiff / .cog : `gdalwarp -t_srs EPSG:3857
  *     -of COG ...` reprojects (if needed) and emits a COG.
  *   - .jp2 : same as GeoTIFF, GDAL's JP2OpenJPEG driver reads it.
@@ -190,6 +194,24 @@ export async function convertUpload(
 ): Promise<ConversionResult> {
   const originalFormat = detectOriginalFormat(fileName);
   const workDir = await mkdtemp(join(tmpdir(), 'tile-conv-'));
+  // The work dir is handed to the caller only on success. On any
+  // failure (download, extract, gdalwarp, pmtiles) nobody else holds
+  // it, and a failed multi-GB conversion used to stay on the API's
+  // disk; repeating the same finalize leaked another copy each time.
+  try {
+    return await convertUploadIn(download, fileName, originalFormat, workDir);
+  } catch (err) {
+    await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function convertUploadIn(
+  download: TileSourceDownloader,
+  fileName: string,
+  originalFormat: TileLayerOriginalFormat,
+  workDir: string,
+): Promise<ConversionResult> {
 
   // Raw-raster branch.  Dispatch to the COG converter; the rest
   // of this function handles pre-tiled inputs (PMTiles / MBTiles
@@ -223,11 +245,9 @@ export async function convertUpload(
 
   let outputPath = join(workDir, 'out.pmtiles');
   if (originalFormat === 'xyz-zip') {
-    // Extract into a tile-dir subdirectory first. The pmtiles CLI
-    // walks the tree expecting {z}/{x}/{y}.{ext} layout (or
-    // {z}/{x}/{y}.pbf for vector). Some zips wrap the tree in
-    // an extra root directory; pmtiles handles either shape
-    // because it scans for the {z} integer pattern.
+    // Extract into a tile-dir subdirectory first. The tree is
+    // {z}/{x}/{y}.{ext} (or .pbf for vector), possibly wrapped in
+    // an extra root directory; xyzTreeToMbtiles handles either.
     //
     // In-process extraction rather than spawning Info-ZIP: the
     // prod api image ships no unzip binary (the advertised format
@@ -237,38 +257,19 @@ export async function convertUpload(
     const tileDir = join(workDir, 'tiles');
     await mkdir(tileDir, { recursive: true });
     await extractZipToDir(inputPath, tileDir);
-    // The pmtiles convert CLI for directory input requires a
-    // metadata.json at the tile-dir root; if the zip doesn't
-    // include one we synthesize a minimal placeholder. The
-    // header bbox / center will come from the tile pyramid
-    // bounds at runtime.
-    //
-    // Use writeFile with the 'wx' flag (O_CREAT | O_EXCL) so the
-    // create-if-missing is atomic. The stat-then-write pattern
-    // CodeQL flagged as js/file-system-race had a TOCTOU window
-    // where another process could create the file between the
-    // check and the write; the wx flag closes that window and
-    // EEXIST means the zip already shipped a metadata.json (which
-    // is what we wanted -- treat as success).
-    const metaPath = join(tileDir, 'metadata.json');
-    try {
-      await writeFile(
-        metaPath,
-        JSON.stringify({
-          name: fileName.replace(/\.zip$/i, ''),
-          format: 'png',
-          minzoom: 0,
-          maxzoom: 22,
-        }),
-        { flag: 'wx' },
-      );
-    } catch (err) {
-      // EEXIST is the expected race-free signal that the zip
-      // already supplied metadata.json; anything else is real.
-      const code = (err as NodeJS.ErrnoException | undefined)?.code;
-      if (code !== 'EEXIST') throw err;
-    }
-    await runCommand('pmtiles', ['convert', tileDir, outputPath]);
+    // go-pmtiles converts MBTiles archives, not tile directories
+    // (20-8; pyramid.worker.ts hit the same limit), so pack the tree
+    // into an MBTiles first and convert that.
+    const mbtilesPath = join(workDir, 'tiles.mbtiles');
+    await xyzTreeToMbtiles(
+      tileDir,
+      mbtilesPath,
+      fileName.replace(/\.zip$/i, ''),
+    );
+    // The extracted tree can be up to 10 GiB; drop it before the
+    // convert writes a second copy of the same tiles.
+    await rm(tileDir, { recursive: true, force: true });
+    await runCommand('pmtiles', ['convert', mbtilesPath, outputPath]);
   } else if (originalFormat === 'mbtiles') {
     await runCommand('pmtiles', ['convert', inputPath, outputPath]);
   } else {
@@ -316,6 +317,18 @@ export const convertToPmtiles = convertUpload;
  * imagery can re-encode later; v1 picks the safe choice rather
  * than trying to guess from band structure.
  */
+/** First `n` bytes of a file (fewer when the file is shorter). */
+async function readFileHead(path: string, n: number): Promise<Buffer> {
+  const fh = await open(path, 'r');
+  try {
+    const buf = Buffer.alloc(n);
+    const { bytesRead } = await fh.read(buf, 0, n, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+}
+
 async function runCogConversion(
   download: TileSourceDownloader,
   fileName: string,
@@ -326,6 +339,21 @@ async function runCogConversion(
 
   const inputPath = join(workDir, sanitizeFileName(fileName));
   await download(inputPath);
+
+  // The name says GeoTIFF or JPEG 2000; make the bytes agree, and pin
+  // GDAL to that one driver. GDAL picks a driver from content, so a
+  // VRT saved as x.tif opened as VRT and fetched whatever its sources
+  // named (internal URLs, other stored objects).
+  const magic = originalFormat === 'jp2' ? 'jp2' : 'tiff';
+  const head = await readFileHead(inputPath, 16);
+  if (!rasterMagicMatches(magic, head)) {
+    throw new Error(
+      magic === 'jp2'
+        ? 'This file is not a JPEG 2000 image.'
+        : 'This file is not a GeoTIFF. Upload a real .tif file.',
+    );
+  }
+  const inputDriver = ['-if', magic === 'jp2' ? 'JP2OpenJPEG' : 'GTiff'];
 
   let outputPath = join(workDir, 'out.tif');
 
@@ -338,7 +366,7 @@ async function runCogConversion(
   // the check cannot false-positive on a plain tiled GTiff.
   let passthroughCog = false;
   try {
-    const preInfo = await runCommandCapture('gdalinfo', ['-json', inputPath]);
+    const preInfo = await runCommandCapture('gdalinfo', [...inputDriver, '-json', inputPath]);
     const pre = JSON.parse(preInfo) as GdalInfoJson;
     const wkt = pre.coordinateSystem?.wkt ?? '';
     if (
@@ -363,6 +391,7 @@ async function runCogConversion(
     //   -co BIGTIFF=IF_SAFER    auto-promote to BigTIFF if >4GB
     //   -co RESAMPLING=BILINEAR pyramid overviews use bilinear
     await runCommand('gdalwarp', [
+      ...inputDriver,
       '-t_srs', 'EPSG:3857',
       '-of', 'COG',
       '-co', 'COMPRESS=DEFLATE',
@@ -385,7 +414,7 @@ async function runCogConversion(
   let maxZoom: number | undefined;
   let bandCount: number | undefined;
   try {
-    const info = await runCommandCapture('gdalinfo', ['-json', outputPath]);
+    const info = await runCommandCapture('gdalinfo', ['-if', 'GTiff', '-json', outputPath]);
     const parsed = JSON.parse(info) as GdalInfoJson;
     if (parsed.wgs84Extent?.coordinates?.[0]) {
       const ring = parsed.wgs84Extent.coordinates[0];
@@ -550,12 +579,16 @@ interface ZipEntry {
  * this function never takes a user-tainted path string — that is
  * what keeps CodeQL js/path-injection quiet. Same entry /
  * uncompressed ceilings as `extractZipToDir`.
+ *
+ * Returns the member names so a KMZ can be opened at its `.kml`
+ * entry without a second walk of the central directory.
  */
 export async function assertZipExpansionBudget(
   fh: FileHandle,
-): Promise<void> {
+): Promise<string[]> {
   const { size: fileSize } = await fh.stat();
-  await assertCentralDirectoryBudget(fh, fileSize);
+  const entries = await assertCentralDirectoryBudget(fh, fileSize);
+  return entries.map((entry) => entry.name);
 }
 
 export async function extractZipToDir(
@@ -575,6 +608,87 @@ export async function extractZipToDir(
   } finally {
     await fh.close();
   }
+}
+
+/**
+ * Read one member of an already-opened zip into memory, inflating at
+ * most `maxBytes`. Same guards as extractEntry: the central directory
+ * budget, no encrypted members, stored or deflate only, the byte cap
+ * enforced while inflating, and the CRC checked. Returns null when the
+ * archive has no member by that name, or when the member is larger
+ * than `maxBytes` (the caller decides what a too-large member means).
+ * Used to read the KML document out of a KMZ.
+ */
+export async function readZipMember(
+  fh: FileHandle,
+  memberName: string,
+  maxBytes: number,
+): Promise<Buffer | null> {
+  const { size: fileSize } = await fh.stat();
+  const entries = await assertCentralDirectoryBudget(fh, fileSize);
+  const entry = entries.find((e) => e.name === memberName);
+  if (!entry) return null;
+  if (entry.uncompressedSize > maxBytes) return null;
+  if ((entry.flags & 0x0001) !== 0) {
+    throw new Error(`Zip entry is encrypted: ${entry.name}`);
+  }
+  if (entry.method !== 0 && entry.method !== 8) {
+    throw new Error(
+      `Unsupported zip compression method ${entry.method} for ${entry.name}`,
+    );
+  }
+  if (entry.method === 0 && entry.compressedSize !== entry.uncompressedSize) {
+    throw new Error(`Corrupt zip: stored entry size mismatch on ${entry.name}`);
+  }
+  if (entry.compressedSize === 0) return Buffer.alloc(0);
+  if (entry.localHeaderOffset + 30 > fileSize) {
+    throw new Error(`Corrupt zip: local header out of range for ${entry.name}`);
+  }
+  const loc = await readExact(fh, entry.localHeaderOffset, 30);
+  if (loc.readUInt32LE(0) !== LOC_SIG) {
+    throw new Error(`Corrupt zip: bad local header for ${entry.name}`);
+  }
+  const dataStart =
+    entry.localHeaderOffset + 30 + loc.readUInt16LE(26) + loc.readUInt16LE(28);
+  if (dataStart + entry.compressedSize > fileSize) {
+    throw new Error(
+      `Corrupt zip: entry data extends past end of file for ${entry.name}`,
+    );
+  }
+  const chunks: Buffer[] = [];
+  let written = 0;
+  let crc = 0;
+  const collect = new Writable({
+    write(chunk: Buffer, _enc, cb) {
+      written += chunk.length;
+      if (written > entry.uncompressedSize || written > maxBytes) {
+        cb(new Error(`Zip entry inflated past its declared size: ${entry.name}`));
+        return;
+      }
+      crc = crc32(chunk, crc);
+      chunks.push(chunk);
+      cb();
+    },
+  });
+  const source = fh.createReadStream({
+    start: dataStart,
+    end: dataStart + entry.compressedSize - 1,
+    autoClose: false,
+  });
+  if (entry.method === 8) {
+    await pipeline(source, createInflateRaw(), collect);
+  } else {
+    await pipeline(source, collect);
+  }
+  if (written !== entry.uncompressedSize) {
+    throw new Error(
+      `Corrupt zip: ${entry.name} inflated to ${written} bytes, expected ${entry.uncompressedSize}`,
+    );
+  }
+  if ((crc >>> 0) !== entry.crc) {
+    throw new Error(`Corrupt zip: CRC mismatch on ${entry.name}`);
+  }
+  return Buffer.concat(chunks, written);
 }
 
 /** Parse the central directory and refuse bombs by declared size /
@@ -961,7 +1075,7 @@ function toSafeNumber(value: bigint, what: string): number {
 function sanitizeFileName(name: string): string {
   const fileOnly = basename(name);
   let base = fileOnly.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
-  base = base.replace(/^\.+/, '_').replace(/\.+$/, '_');
+  base = base.replace(/^\.+/, '_').replace(/(?<!\.)\.+$/, '_');
   return base.length > 0 && base !== '_' ? base : 'upload.bin';
 }
 
@@ -972,9 +1086,23 @@ function sanitizeFileName(name: string): string {
  * said. stdout is discarded (the CLIs we run produce progress on
  * stderr and silence on stdout, or write to disk directly).
  */
+/**
+ * Wall-clock limit for one conversion tool run. A county ortho can
+ * take tens of minutes; nothing legitimate takes this long, and
+ * without a limit a stuck gdalwarp held the API's CPU and disk for
+ * good.
+ */
+export const CONVERSION_COMMAND_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+
 function runCommand(cmd: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${cmd} did not finish within the time limit.`));
+    }, CONVERSION_COMMAND_TIMEOUT_MS);
+    timer.unref();
+    child.on('close', () => clearTimeout(timer));
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
@@ -1009,6 +1137,12 @@ function runCommand(cmd: string, args: string[]): Promise<void> {
 function runCommandCapture(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${cmd} did not finish within the time limit.`));
+    }, CONVERSION_COMMAND_TIMEOUT_MS);
+    timer.unref();
+    child.on('close', () => clearTimeout(timer));
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => {

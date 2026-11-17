@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { Mail, Loader2 } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
+import { apiErrorMessage } from '@/lib/api-error';
 
 interface PreferenceState {
   enabled: boolean;
@@ -47,7 +48,11 @@ export function NotificationPreferencesForm({ initial }: Props) {
     editor: t('settingsNotifications.categoryEditor'),
   };
   const [types, setTypes] = useState(initial.types);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
+  // A set, not one key: two toggles can be in flight at once, and
+  // finishing one must not re-enable the other's switch.
+  const [savingKeys, setSavingKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [errorByKey, setErrorByKey] = useState<Record<string, string>>({});
 
   // Group the catalog by category so we can render section headers
@@ -69,8 +74,10 @@ export function NotificationPreferencesForm({ initial }: Props) {
     nextEnabled: boolean,
   ) {
     const key = `${type}|${channel}`;
-    // Optimistic local update so the toggle feels instant.
-    const prevTypes = types;
+    // Optimistic local update so the toggle feels instant. Keep only
+    // this (type, channel)'s previous value: reverting a whole-list
+    // snapshot would also undo any toggle that finished meanwhile.
+    const prevPref = types.find((x) => x.type === type)?.preferences[channel];
     setTypes((cur) =>
       cur.map((t) =>
         t.type === type
@@ -92,7 +99,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
           : t,
       ),
     );
-    setSavingKey(key);
+    setSavingKeys((cur) => new Set(cur).add(key));
     setErrorByKey((prev) => {
       if (!(key in prev)) return prev;
       const next = { ...prev };
@@ -109,7 +116,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
         },
       );
       if (!res.ok) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
       const body = (await res.json()) as PreferenceState;
       // Replace with server-confirmed state (which may flip
@@ -127,7 +134,15 @@ export function NotificationPreferencesForm({ initial }: Props) {
       );
     } catch (err) {
       // Revert on failure so the UI matches reality.
-      setTypes(prevTypes);
+      if (prevPref) {
+        setTypes((cur) =>
+          cur.map((x) =>
+            x.type === type
+              ? { ...x, preferences: { ...x.preferences, [channel]: prevPref } }
+              : x,
+          ),
+        );
+      }
       setErrorByKey((prev) => ({
         ...prev,
         [key]:
@@ -136,7 +151,11 @@ export function NotificationPreferencesForm({ initial }: Props) {
             : t('settingsNotifications.errSaveChange'),
       }));
     } finally {
-      setSavingKey(null);
+      setSavingKeys((cur) => {
+        const next = new Set(cur);
+        next.delete(key);
+        return next;
+      });
     }
   }
 
@@ -166,7 +185,7 @@ export function NotificationPreferencesForm({ initial }: Props) {
                     {item.channels.map((channel) => {
                       const pref = item.preferences[channel];
                       const key = `${item.type}|${channel}`;
-                      const saving = savingKey === key;
+                      const saving = savingKeys.has(key);
                       return (
                         <div
                           key={channel}

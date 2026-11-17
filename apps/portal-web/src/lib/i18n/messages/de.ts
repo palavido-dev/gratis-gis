@@ -16,6 +16,8 @@ import type { CatalogShape } from '../locales';
 
 export const de: Partial<CatalogShape> = {
   common: {
+    itemChangedElsewhere:
+      'Jemand anderes hat dieses Element gespeichert, nachdem Sie es geöffnet haben. Ihre Änderungen wurden daher nicht gespeichert, sind aber noch sichtbar. Laden Sie die Seite neu, um die aktuelle Version zu sehen, und nehmen Sie Ihre Änderungen erneut vor.',
     save: 'Speichern',
     cancel: 'Abbrechen',
     delete: 'Löschen',
@@ -25,6 +27,48 @@ export const de: Partial<CatalogShape> = {
     backToItems: 'Zurück zu Elementen',
     settings: 'Einstellungen',
     language: 'Sprache',
+    geolocationInsecure:
+      'Der Browser gibt den GPS-Standort über diese reine HTTP-Adresse nicht frei. Die Adresssuche nutzt kein GPS. Für „Mein Standort“ das Portal über HTTPS öffnen. Auf einem NAS ist das Tailscale Serve mit dem MagicDNS-Namen. localhost ist ebenfalls erlaubt.',
+  },
+  /** Shared BuilderShell chrome (#162 / R13-i18n-builder-viewer-editor-titles). */
+  builderShell: {
+    backToItem: 'Zurück zum Element',
+    closePanel: 'Panel schließen',
+    pinPanel: 'Panel anheften',
+    unpinPanel: 'Panel lösen',
+    pinPanelTitle: 'Panel geöffnet anheften',
+    unpinPanelTitle: 'Lösen (auf Symbol reduzieren)',
+    openLeftPanel: 'Linkes Panel öffnen',
+    openRightPanel: 'Rechtes Panel öffnen',
+  },
+  editorDetail: {
+    unsavedChanges: 'Ungespeicherte Änderungen',
+    saved: 'Gespeichert',
+    openInWorkspace: 'Im Arbeitsbereich öffnen',
+    openInWorkspaceTitle: 'Diesen Editor in einem neuen Tab öffnen',
+    openEditorNewTab: 'Editor in einem neuen Tab öffnen',
+    discard: 'Verwerfen',
+    addFromMap: 'Aus Karte hinzufügen',
+    addFromMapTitle: 'Bearbeitbare Layer aus einer Karte importieren',
+    addTarget: 'Ziel hinzufügen',
+    clearReferenceMapAria: 'Referenzkarte entfernen',
+    configurationTitle: 'Editor-Konfiguration',
+    removeTargetAria: 'Ziel entfernen',
+    removeTemplateAria: 'Vorlage entfernen',
+  },
+  viewerDetail: {
+    unsavedChanges: 'Ungespeicherte Änderungen',
+    saved: 'Gespeichert',
+    openViewer: 'Viewer öffnen',
+    openViewerTitle: 'Diesen Viewer in einem neuen Tab öffnen',
+    openViewerNewTab: 'Viewer in einem neuen Tab öffnen',
+    discard: 'Verwerfen',
+    addFromMap: 'Aus Karte hinzufügen',
+    addFromMapTitle: 'Layer aus einer Karte importieren',
+    addLayer: 'Layer hinzufügen',
+    clearReferenceMapAria: 'Referenzkarte entfernen',
+    configurationTitle: 'Viewer-Konfiguration',
+    removeLayerAria: 'Layer entfernen',
   },
   nav: {
     items: 'Elemente',
@@ -44,11 +88,40 @@ export const de: Partial<CatalogShape> = {
     notifications: 'Benachrichtigungen',
     ai: 'KI',
     build: 'Erstellen',
+    buildHint: 'Layer, Karte, Formular oder App beschreiben',
     security: 'Anmeldung',
     fieldQueues: 'Feld-Warteschlangen',
     migrations: 'Migrationen',
     feedback: 'Feedback',
     gettingStarted: 'Erste Schritte',
+    audit: 'Protokoll',
+    permissions: 'Berechtigungen',
+    diagnostics: 'Diagnose',
+    jobs: 'Aufträge',
+    operations: 'Betrieb',
+    updates: 'Aktualisierungen',
+  },
+  updates: {
+    title: 'Updates',
+    intro: 'This page only tells you what is new. It does not change the install. Take a backup, then follow the steps for this machine.',
+    back: 'Back to portal',
+    current: 'This install',
+    latest: 'Available',
+    channel: 'Channel',
+    install: 'Install',
+    changelog: 'Changelog',
+    offline: 'Could not reach GitHub. The versions above are what this install already knows.',
+    banner: 'An update is available.',
+    createBackup: 'Create backup',
+    backupWorking: 'Starting backup...',
+    downloadBackup: 'Download backup',
+    backupPage: 'Open the backup page',
+    backupFailed: 'Could not start a backup',
+    loadFailed: 'Could not load update information',
+    nasCompose: 'Copy the new compose file for this channel:',
+    nasComposePaste: 'In TrueNAS, edit the app and paste the file, then Save. In Dockge, open the stack, paste the file, and Save. Keep GRATIS_HTTP_PORT if you changed it.',
+    nasImages: 'The compose file is current. In TrueNAS, Stop the app and then Start it, or use Update. In Dockge, click Update. The stack pulls the new edge or latest images.',
+    dev: 'Pull the newest checkout and restart pnpm dev.',
   },
   shell: {
     notificationsLabel: 'Benachrichtigungen',
@@ -57,8 +130,9 @@ export const de: Partial<CatalogShape> = {
     closeNavigation: 'Navigation schließen',
   },
   search: {
-    placeholder: 'Elemente suchen...',
+    placeholder: 'Nur Elemente suchen',
     label: 'Elemente suchen',
+    scopeHint: 'Sucht Titel, Beschreibungen und Schlagwörter von Elementen. Personen und Gruppen sind nicht enthalten.',
   },
   help: {
     buttonTitle: 'Hilfe (jederzeit ? drücken)',
@@ -119,6 +193,9 @@ export const de: Partial<CatalogShape> = {
     viewerBlocked:
       'Ihr Konto hat die Rolle Betrachter. Damit können Sie Elemente öffnen und herunterladen, aber nicht erstellen. Eine Organisationsadministratorin kann Ihre Rolle ändern oder Ihnen allein die Veröffentlichungsberechtigung erteilen.',
     changeType: 'Typ ändern',
+    taskIntro: 'Beginnen Sie mit einem Upload, einer Karte oder einem Formular. Weitere Typen stehen unter Mehr, und ein Link mit Typ öffnet ihn weiter.',
+    moreTypes: 'Weitere Elementtypen',
+    fewerTypes: 'Weniger Elementtypen',
     detailsEyebrow: 'Neues {type}',
     detailsEyebrowFallback: 'Element',
     titleLabel: 'Titel',
@@ -200,7 +277,7 @@ export const de: Partial<CatalogShape> = {
   },
   custom: {
     label: 'Web app',
-    desc: 'Drag-drop layout of map + tool widgets, sidebar, header, foldable groups. Pick a starter template (Sidebar Explorer, Showcase Map, Editor, Viewer, etc.) on the next screen, or start blank and build the layout from scratch.',
+    desc: 'Web-App aus Karte und Widgets. Ein Dashboard ist eine Vorlage dieses Typs, kein eigenes Element. Wählen Sie danach eine Vorlage oder beginnen Sie leer.',
   },
   theme: {
     label: 'Theme',
@@ -242,6 +319,13 @@ export const de: Partial<CatalogShape> = {
     term: 'Metadaten-XML',
     importTitle:
       'Eine von ArcGIS, QGIS oder einem Datenkatalog exportierte Metadaten-XML-Datei (ISO 19115, FGDC CSDGM oder Dublin Core) importieren, um die Felder unten vorzubelegen',
+    sectionAria: 'Optionaler Metadaten-XML-Import',
+    optional: 'Optional',
+    importButton: 'Metadaten-XML importieren',
+    parsed: 'Als {standard} gelesen. Ausgefüllt, was möglich war; der Rest liegt bei Ihnen.',
+    notMetadata: 'Die XML-Datei sieht nicht nach ISO 19115, FGDC CSDGM oder Dublin Core aus. Sie wird übersprungen.',
+    readFailed: 'Die Datei konnte nicht gelesen werden.',
+    metadataOnly: 'Nur Metadaten. Der Inhalt des Elements wird nicht hochgeladen. Ihre Datei bleibt im Browser.',
   },
   layerBuilder: {
     tableName: 'Tabellenname',
@@ -269,8 +353,7 @@ export const de: Partial<CatalogShape> = {
     expandAria: 'Expand',
     allowEditing: 'Allow editing',
     allowAttachments: 'Allow attachments',
-    attachmentsSoon: '(storage soon)',
-    attachmentsTitle: 'Attachment storage is a Phase E backend change: the toggle persists so you can opt in now.',
+    attachmentsTitle: 'Lets editors attach photos and files to features in this layer. When off, attachment uploads are refused.',
     editorScope: 'Editor scope',
     editorScopeTitle: 'Limit editors to the rows they themselves created',
     allFeatures: 'All features',
@@ -349,7 +432,7 @@ export const de: Partial<CatalogShape> = {
       'Add a spatial layer above first to link this table to.',
     importPanelTitle: 'Import from file',
     importSchemaHint:
-      'All layers in the file will attach automatically. Schema lands on Create item; load feature rows per layer afterwards from the detail page.',
+      'Jede Ebene in der Datei wird hinzugefügt. Beim Anlegen des Elements oder beim Speichern des Schemas werden die Objekte geladen. Ein Dashboard kann die Ebene danach verwenden.',
     pickListOptionsTitle: '{label} options',
     fieldTypeText: 'Text',
     fieldTypeNumber: 'Number',
@@ -380,6 +463,31 @@ export const de: Partial<CatalogShape> = {
     invalidGeoJson: 'File is not a valid GeoJSON FeatureCollection.',
     parseFileFailed: 'Failed to parse file.',
     probeFailed: 'Probe failed.',
+  },
+  /** Per-layer vector tile settings in the layer builder. */
+  tileSettings: {
+    heading: 'Vektorkacheln',
+    intro:
+      'Wie dieser Layer in Kartenkacheln zerlegt wird. Lassen Sie ein Feld leer, um den Standard zu behalten.',
+    fieldsHeading: 'Felder in den Kacheln',
+    allFields: 'Alle Felder (Standard)',
+    someFields: 'Nur diese Felder',
+    noFields: 'Dieser Layer hat noch keine Felder.',
+    fieldsNote:
+      'Felder, die eine Karte für Stil, Beschriftungen, Filter oder Hover-Popup nutzt, werden immer wieder hinzugefügt, damit Karten weiter zeichnen. Andere nicht angehakte Felder fehlen in den Kacheln, sodass App-Widgets, die die Karte im Browser danach filtern, sie nicht sehen. Das macht Kacheln nur kleiner. Es verbirgt keine Daten: Jedes Feld bleibt über die Features, Popups und Exporte des Layers lesbar.',
+    minZoom: 'Min. Zoom',
+    maxZoom: 'Max. Zoom',
+    maxFeatures: 'Max. Features pro Kachel',
+    cacheMaxAge: 'Browser-Cache (Sekunden)',
+    default: 'Standard',
+    zoomHint:
+      'Max. Zoom ist die tiefste Zoomstufe, für die Kacheln erzeugt werden; weiter hineingezoomte Karten zeigen diese Kacheln vergrößert weiter an. Unterhalb des min. Zooms wird der Layer nicht gezeichnet. Zoom von {min} bis {max}.',
+    maxFeaturesHint: 'Die Feature-Obergrenze kann nur gesenkt werden, bis {max}.',
+    cacheHint:
+      'Cache von 0 bis {max} Sekunden. Kacheln eines nicht öffentlichen Layers werden immer nur privat im Browser des Betrachters zwischengespeichert.',
+    labelPoints: 'Jede Linie und jedes Polygon nur einmal beschriften',
+    labelPointsHint:
+      'Fügt den Kacheln einen Beschriftungspunkt pro Linie oder Polygon hinzu, damit ein Feature, das Kachelgrenzen kreuzt, nicht in jeder Kachel beschriftet wird. Karten beschriften dann an diesem Punkt (außer Beschriftungen entlang von Linien).',
   },
   // Derived layer recipe builder (#162).
   derivedLayerBuilder: {
@@ -480,6 +588,17 @@ export const de: Partial<CatalogShape> = {
   exprErrorAt: '{message} (at position {pos})',
   contourSourceField: 'Source numeric field',
   pickNumericFieldOption: '(pick a numeric field)',
+  missingFieldOption: '{field} (nicht in dieser Ebene)',
+  measureLength: 'Länge',
+  measurePerimeter: 'Umfang',
+  measureArea: 'Fläche',
+  predicateIntersects: 'Schneidet',
+  predicateWithin: 'Innerhalb',
+  predicateNearest: 'Nächstes',
+  predicateContains: 'Enthält',
+  predicateTouches: 'Berührt',
+  predicateNear: 'In der Nähe',
+  loadDataLayersFailed: 'Datenebenen konnten nicht geladen werden',
   contourNoNumeric: 'The source layer has no numeric fields. Add one (e.g. via Calculate field) earlier in the pipeline.',
   levels: 'Levels',
   contourAuto: 'Auto: walk by interval between min / max',
@@ -745,6 +864,7 @@ export const de: Partial<CatalogShape> = {
     basemapActive: 'aktiv',
     elevationProfileButton: 'Höhenprofil',
     visibilityButton: 'Sichtbarkeit',
+    measureButton: 'Messen',
     createAppButton: 'App erstellen',
     savingIndicator: 'Wird gespeichert...',
     saveAsTitle: 'Diese Karte speichern',
@@ -753,6 +873,137 @@ export const de: Partial<CatalogShape> = {
     mapNamePlaceholder: 'Kartenname',
     cancel: 'Abbrechen',
   },
+  mapMeasure: {
+    title: 'Messen',
+    closeAria: 'Messen schließen',
+    modeAria: 'Messmodus',
+    distance: 'Entfernung',
+    area: 'Fläche',
+    unit: 'Einheit',
+    hintDistance:
+      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
+    hintArea:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Messen sperrt die Karte in die Draufsicht, damit die Skizze zum Maßstab passt.',
+    hintAreaTerrain:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Messen sperrt die Karte in die Draufsicht, damit die Skizze zum Maßstab passt.',
+    groundArea: 'Geländefläche',
+    horizontalLabel: 'Horizontal',
+    surfaceLabel: 'Hangfläche',
+    perimeterLabel: 'Umfang',
+    newMeasurement: 'Neue Messung',
+  },
+  mapAreaScale: {
+    ariaLabel: 'Flächenreferenz bei diesem Maßstab',
+    title:
+      'Fläche bei diesem Maßstab. Klicken, um die Einheit zu wechseln (Acre, Hektar, m², km², mi², ft²).',
+  },
+  /** Feature Editor / Viewer runtime chrome (#162 / R13-i18n-editor-runtime-chrome). */
+  editorRuntime: {
+    targetsPanelTitle: 'Ziele',
+    printTitle: 'Aktuelle Ansicht drucken',
+    printAria: 'Drucken',
+    formViewButton: 'Formularansicht',
+    measure: 'Messen',
+    measureModeAria: 'Messmodus',
+    exitMeasure: 'Messen beenden',
+    distance: 'Entfernung',
+    area: 'Fläche',
+    unit: 'Einheit',
+    measureHintDistance:
+      'Klicken Sie, um Punkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Mit dem Maßstab vergleichen.',
+    measureHintArea:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Fläche ist horizontal (geodätisch) — dieselbe Basis wie Flurstücks-Acre-Felder. Messen sperrt die Karte in die Draufsicht, damit die Skizze zum Maßstab passt.',
+    measureHintAreaTerrain:
+      'Klicken Sie, um Stützpunkte auf der Karte hinzuzufügen. Doppelklicken zum Abschließen. Die Hauptzahl ist die Geländefläche (Hang) auf dem DGM. Die horizontale planimetrische Fläche (Urkundenbasis) steht darunter. Messen sperrt die Karte in die Draufsicht, damit die Skizze zum Maßstab passt.',
+    measureGroundArea: 'Geländefläche',
+    measureHorizontalLabel: 'Horizontal',
+    measureSurfaceLabel: 'Hangfläche',
+    measurePerimeterLabel: 'Umfang',
+    newMeasurement: 'Neue Messung',
+    select: 'Auswählen',
+    selectWithMode: 'Auswählen ({mode})',
+    selectMode: 'Auswahlmodus',
+    selectClick: 'Klick',
+    selectRectangle: 'Rechteck',
+    selectPolygon: 'Polygon',
+    selectLasso: 'Lasso',
+    editorPaneAria: 'Editor-Bereich',
+    openEditorPane: 'Editor-Bereich öffnen',
+    closeEditorPane: 'Editor-Bereich schließen',
+    editorPaneTitle: 'Editor',
+    editFeatureTitle: 'Feature bearbeiten',
+    editGeometryTitle: 'Geometrie bearbeiten',
+    cancelAttributeEdit: 'Attributbearbeitung abbrechen',
+    cancelGeometryEdit: 'Geometriebearbeitung abbrechen',
+    closeLayersAria: 'Ebenenbereich schließen',
+    configure: 'Konfigurieren',
+    configureTitle: 'Konfigurationsseite des Editors öffnen',
+    against: 'gegen',
+    editableLayersCount:
+      '{count, plural, one {# bearbeitbare Ebene} other {# bearbeitbare Ebenen}}',
+    toolAdd: 'Hinzufügen',
+    toolMagic: 'Magic outline',
+    toolSnap: 'Fangen',
+    toolUndo: 'Rückgängig',
+    toolRedo: 'Wiederholen',
+    snapStateTitle: '{label}: {state}',
+    on: 'an',
+    off: 'aus',
+    stackAvailableTitle: '{label} ({count} verfügbar)',
+    toolComingSoon: '{tool} kommt in einer späteren Lieferung.',
+    editFeaturesSection: 'Features bearbeiten',
+    createFeaturesSection: 'Features erstellen',
+    editModeTitle: 'Bearbeitungsmodus',
+    editModeHint:
+      'Klicken Sie ein Feature auf der Karte, um Geometrie oder Attribute zu bearbeiten.',
+    exitEditMode: 'Bearbeitungsmodus beenden',
+    editingGeometry: 'Geometrie von {layer} bearbeiten',
+    featureFallback: 'Feature',
+    dragPointHint: 'Ziehen Sie den Punkt, um ihn zu verschieben.',
+    dragVerticesHint:
+      'Ziehen Sie Stützpunkte zum Verschieben. Klicken Sie Mittelpunkte, um einen Stützpunkt hinzuzufügen. Alt-Klick löscht einen Stützpunkt.',
+    editAttributes: 'Attribute bearbeiten',
+    saveGeometry: 'Geometrie speichern',
+    saveFeature: 'Feature speichern',
+    updateFeature: 'Feature aktualisieren',
+    editFeatureAttributes: 'Feature-Attribute bearbeiten',
+    deleteThisFeature: 'Dieses Feature löschen',
+    layerFallback: 'Ebene',
+    magicNeedsImagery:
+      'Fügen Sie diesem Kartenbild eine Imagery-Ebene hinzu, um Magic Outline zu nutzen.',
+    outlining: 'Umriss wird erstellt...',
+    magicProblem:
+      'Das Magic-Outline-Werkzeug hatte ein Problem. Bitte erneut versuchen.',
+    magicNeedsPolygon:
+      'Das Magic-Outline-Werkzeug braucht eine bearbeitbare Polygon-Ebene als Ziel. Öffnen Sie die Editor-Konfiguration, um eine hinzuzufügen.',
+    noEditableTargetsAdd:
+      'Keine bearbeitbaren Ziel-Ebenen konfiguriert. Öffnen Sie die Editor-Konfiguration, um eine hinzuzufügen.',
+    noEditableTargetsEdit:
+      'Keine bearbeitbaren Ziel-Ebenen. Aktivieren Sie Attribut- oder Geometriebearbeitung für ein Ziel in der Konfiguration.',
+    nothingToUndo: 'Nichts rückgängig zu machen.',
+    nothingToRedo: 'Nichts zu wiederholen.',
+    undoFailed: 'Rückgängig fehlgeschlagen',
+    undoFailedWithMessage: 'Rückgängig fehlgeschlagen: {message}',
+    redoFailed: 'Wiederholen fehlgeschlagen',
+    redoFailedWithMessage: 'Wiederholen fehlgeschlagen: {message}',
+    featureIdRecoverFailed:
+      'Feature-ID konnte nicht ermittelt werden. Seite aktualisieren und erneut versuchen.',
+    layerNotEditable: 'Diese Ebene ist in diesem Editor nicht bearbeitbar.',
+    couldNotLoadFeature: 'Feature konnte nicht geladen werden.',
+    networkGeometrySave: 'Netzwerkfehler beim Speichern der Geometrie.',
+    networkDelete: 'Netzwerkfehler beim Löschen.',
+    networkSave: 'Netzwerkfehler beim Speichern.',
+    missingFeatureId:
+      'Feature-ID fehlt; Aktualisierung nicht möglich. Seite aktualisieren und erneut versuchen.',
+    deleteFailedStatus: 'Löschen fehlgeschlagen: {status} {detail}',
+    saveFailedStatus: 'Speichern fehlgeschlagen: {status} {detail}',
+    updateFailedStatus: 'Aktualisierung fehlgeschlagen: {status} {detail}',
+    deleting: 'Wird gelöscht...',
+    deleteConfirmDescription:
+      '{summary} auf {layer}. Dies kann im Editor-Runtime nicht rückgängig gemacht werden.',
+    noTargetsEmpty:
+      'Keine bearbeitbaren Ziel-Ebenen konfiguriert. Öffnen Sie die Konfigurieren-Seite des Editors, um eine hinzuzufügen.',
+  },
   mapLayerPanel: {
     /** Map layer panel chrome (#162). */
     title: 'Ebenen',
@@ -760,6 +1011,7 @@ export const de: Partial<CatalogShape> = {
     moreAddOptions: 'Weitere Hinzufügen-Optionen',
     addGroup: 'Gruppe hinzufügen',
     emptyNoLayers: 'Noch keine Ebenen.',
+    tablesHeading: 'Tabellen',
     emptyCanEdit: 'Fügen Sie eine per URL, Portal oder Katalog hinzu.',
     emptyViewer: 'Der Eigentümer hat keine Ebenen hinzugefügt.',
     newGroupDefaultTitle: 'Neue Gruppe',
@@ -808,6 +1060,9 @@ export const de: Partial<CatalogShape> = {
   layerActionsAria: 'Ebenenaktionen',
   menu: {
     openAttributeTable: 'Attributtabelle öffnen',
+    analyzeBuffer: 'Puffer…',
+    analyzeCentroid: 'Schwerpunkte…',
+    analyzeConvexHull: 'Konvexe Hülle…',
     hideLabels: 'Beschriftungen ausblenden',
     showLabels: 'Beschriftungen einblenden',
     zoomToExtent: 'Auf Ebenenausdehnung zoomen',
@@ -951,22 +1206,24 @@ export const de: Partial<CatalogShape> = {
     tintWithFill: 'Mit Füllfarbe einfärben',
     tintHint:
       'Einfärben rendert das Symbol als Signed-Distance-Feld, damit die Füllfarbe in jeder Größe sauber wirkt. Abwählen, wenn das Symbol seine Auslieferungsfarbe behalten soll.',
+    rasterNoTint:
+      'PNG- und JPEG-Symbole behalten ihre eigenen Farben. Einfärben funktioniert nur mit SVG-Symbolen.',
     background: 'Hintergrund',
     shape: 'Form',
     shapeNone: 'Keine',
     shapeCircle: 'Kreis',
     shapeRoundedSquare: 'Abgerundetes Quadrat',
-    roundedSquareHint:
-      'Abgerundetes Quadrat wird als weiche Pille gerendert, bis der Sprite-Bake-Renderer kommt; das Aussehen ist ähnlich, aber die Ecken wirken vollständig rund.',
     searchIcons: 'Symbole suchen...',
     categoryAll: 'alle',
-    uploadSvg: '+ SVG',
+    uploadIcon: '+ Bild',
+    uploadIconTitle: 'SVG-, PNG- oder JPEG-Symbol hochladen',
     uploading: '{name} wird hochgeladen...',
     uploadFailed: 'Upload fehlgeschlagen',
     yourUploads: 'Ihre Uploads',
     noIconsMatch: 'Keine Symbole passen.',
   },
   mapFilterEditor: {
+    selectedFeatures: 'Nur die {count} in der Attributtabelle gewählten Features',
     clauses: 'Klauseln',
     noFilter: 'Kein Filter',
     matchAll: 'ALLE erfüllen',
@@ -1119,30 +1376,6 @@ export const de: Partial<CatalogShape> = {
   presence: {
     youSuffix: ' (Sie)',
   },
-  comments: {
-    title: 'Kommentare',
-    showResolved: 'Gelöste anzeigen',
-    startThread: 'Neuen Thread starten...',
-    post: 'Veröffentlichen',
-    reply: 'Antworten...',
-    resolve: 'Lösen',
-    reopen: 'Wieder öffnen',
-    threadCount: '{count, plural, one {# Thread} other {# Threads}}',
-    noOpen:
-      'Keine offenen Threads. Aktivieren Sie „Gelöste anzeigen", um geschlossene zu sehen.',
-    noComments:
-      'Noch keine Kommentare. Starten Sie die Unterhaltung unten.',
-    signInPrompt: 'Melden Sie sich an, um diese Karte zu kommentieren.',
-  },
-  markup: {
-    title: 'Markierungen',
-    add: 'Markierung hinzufügen',
-    empty:
-      'Noch keine Markierungen. Fügen Sie einen Satz hinzu und setzen Sie dann Pins, um die Karte zu markieren.',
-    dropPin: 'Pin in der Mitte setzen',
-    signInPrompt:
-      'Melden Sie sich an, um Markierungen zu dieser Karte hinzuzufügen.',
-  },
   print: {
     chooserTitle: 'Diese Karte drucken',
     startSection: 'Neues Layout erstellen',
@@ -1153,6 +1386,14 @@ export const de: Partial<CatalogShape> = {
     pickSection: 'Vorhandenes Layout verwenden',
     pickEmpty:
       'Noch keine Drucklayouts verfügbar. Verwenden Sie oben „Neues Layout erstellen", um eins zu erstellen.',
+    layoutPreview: 'Layout',
+    layoutPreviewHint:
+      'Fahren Sie mit der Maus über ein Layout, um die Seitenstruktur zu sehen.',
+    previewTitle: 'Vorschau: {title}',
+    previewFrameAria: 'PDF-Vorschau von {title}',
+    renderingPreview: 'Vorschau wird erstellt…',
+    backToLayouts: 'Zurück zu Layouts',
+    downloadPdf: 'PDF herunterladen',
   },
   errors: {
     generic: 'Etwas ist schiefgelaufen',
@@ -1234,6 +1475,108 @@ export const de: Partial<CatalogShape> = {
   folders: {
     hide: 'Ordner ausblenden',
   },
+  folderDetail: {
+    applyFolderSharing: 'Ordnerfreigabe anwenden',
+    applyFolderSharingTitle:
+      'Wendet die Freigabe dieses Ordners auf jedes Element darin an. Jedes Element erhält dieselben Freigabezeilen wie der Ordner.',
+    sortLabel: 'Sortierung',
+    sortAz: 'A bis Z',
+    sortCustom: 'Eigene',
+    sortCustomTitle: 'Ihre gespeicherte Reihenfolge. Ziehen Sie Zeilen, um sie zu ändern.',
+    newSubfolder: 'Neuer Unterordner',
+    newSubfolderTitle: 'Einen neuen Unterordner in diesem Ordner erstellen',
+    addItems: 'Elemente hinzufügen',
+    addItemsTitle: 'Vorhandene Elemente auswählen, um sie diesem Ordner hinzuzufügen',
+    applySharing: 'Freigabe anwenden',
+    applying: 'Wird angewendet...',
+    empty:
+      'Dieser Ordner ist leer. Fügen Sie Elemente aus der Elementliste hinzu, oder erstellen Sie einen Unterordner.',
+    emptyHidden:
+      'Sie können keines der Elemente in diesem Ordner sehen. Bitten Sie den Ordnerautor, sie mit Ihnen zu teilen.',
+  },
+  formResponses: {
+    previousSubmissionAria: 'Vorherige Einsendung',
+    nextSubmissionAria: 'Nächste Einsendung',
+    positionOf: '{current} von {total}',
+    closeFormViewAria: 'Formularansicht schließen',
+    loadingSchema: 'Formulaschema wird geladen...',
+    emptySelect:
+      'Wählen Sie eine Einsendung auf der Karte oder in der Tabelle, um die Antworten zu sehen.',
+    submissionFallbackTitle: 'Einsendung',
+    submittedBy: 'Eingereicht von',
+    submittedAt: 'Eingereicht am',
+    attachments: 'Anhänge',
+    loadingAttachments: 'Wird geladen...',
+    noAttachments: 'Keine Anhänge',
+    entrySingular: 'Eintrag',
+    entryPlural: 'Einträge',
+    noEntries: 'Keine Einträge',
+    entryNumber: 'Eintrag {n}',
+    noAnswer: 'Keine Antwort',
+  },
+  recipeEditor: {
+    startFromTemplate: 'Von einer Vorlage starten',
+    startFromTemplateHint:
+      'Erzeugen Sie mit einem Klick eine funktionierende Rezeptur. Sie können danach alles bearbeiten.',
+    selectionCap: 'Auswahlobergrenze',
+    selectionCapHint:
+      'Maximale Feature-IDs pro Lauf. Die Laufzeit-Banner warnt, wenn das Limit erreicht ist, damit klar ist, dass die Auswahl unvollständig ist.',
+    parameters: 'Parameter',
+    areaOfInterest: 'Interessensgebiet',
+    areaOfInterestParameter: 'Interessensgebiet-Parameter',
+    pipeline: 'Pipeline',
+    removeParameterAria: 'Parameter entfernen',
+    removeStepAria: 'Schritt entfernen',
+  },
+  basemapEditor: {
+    source: 'Basemap-Quelle',
+    sourceHintEdit:
+      'Konfigurieren Sie, wie diese Basemap bereitgestellt wird. Karten, die auf dieses Element verweisen, nutzen die Quelle unten.',
+    sourceHintReadonly:
+      'Sie haben Nur-Lesezugriff auf diese Basemap. Die Quelle wird unten angezeigt; bitten Sie einen Administrator oder den Eigentümer, sie zu ändern.',
+    sourceHintConfig:
+      'Wählen Sie, wie diese Basemap bereitgestellt wird. Karten, die darauf verweisen, nutzen die hier konfigurierte Quelle. Am schnellsten: Probe-URL — fügen Sie eine Kachel-/Dienst-URL ein, und wir erkennen das Format und füllen die Felder.',
+    modeProbe: 'Probe-URL',
+    modeFromService: 'Aus einem Dienstelement',
+    modeXyz: 'XYZ-Kacheln',
+    modeWms: 'WMS',
+    modeStyleUrl: 'Style-URL',
+    probe: 'Prüfen',
+    probing: 'Wird geprüft...',
+    loadServicesHttp: 'Dienste konnten nicht geladen werden (HTTP {status}).',
+    loadServicesFailed: 'Dienste konnten nicht geladen werden.',
+    loadServiceHttp: 'Dienst konnte nicht geladen werden (HTTP {status}).',
+    loadServiceFailed: 'Dienst konnte nicht geladen werden.',
+    serviceNotBasemap:
+      'Dieser Dienst kann noch keine Basemap speisen (heute nur WMS und zwischengespeicherte ArcGIS-Map-Dienste).',
+    noChanges: 'Keine Änderungen.',
+    preview: 'Vorschau',
+    previewHint:
+      'Live-Darstellung anhand der Felder links. Schwenken und zoomen Sie, um zu prüfen, dass Kacheln auf den benötigten Stufen geliefert werden.',
+  },
+  printTemplate: {
+    paper: 'Papier',
+    size: 'Format',
+    orientation: 'Ausrichtung',
+    portrait: 'Hochformat',
+    landscape: 'Querformat',
+    marginInches: 'Rand (Zoll)',
+    zoomInAria: 'Vergrößern',
+    zoomOutAria: 'Verkleinern',
+    typeTextPlaceholder: 'Text eingeben…',
+    deleteParameterAria: 'Parameter löschen',
+    saving: 'Wird gespeichert…',
+    saveChanges: 'Änderungen speichern',
+    saved: 'Gespeichert',
+    elements: 'Elemente',
+    properties: 'Eigenschaften',
+    parameters: 'Parameter',
+    parametersHint:
+      'Parameter werden zu Formularfeldern, die der Nutzer vor dem Drucken ausfüllt.',
+    addParameter: 'Hinzufügen',
+    removeTextAria: 'Text entfernen',
+    removeChipAria: 'Chip entfernen',
+  },
   folderRail: {
     newButton: '+ Neu',
     collapse: 'Ordner einklappen',
@@ -1275,6 +1618,20 @@ export const de: Partial<CatalogShape> = {
     copyLink: 'Link kopieren',
     copied: 'Kopiert',
     openOnPhone: 'Auf dem Handy öffnen',
+    eyebrow: 'Inhalt',
+    intro: 'Einsätze für das Feld, mit Offline-Cache und Synchronisationsstatus dieses Geräts.',
+    newDeployment: 'Neuer Einsatz',
+    sessionExpiredTitle: 'Sitzung abgelaufen',
+    sessionExpiredBody: 'Melden Sie sich erneut an, um die Einsätze zu laden. Das ist kein leerer Katalog. Auf diesem Gerät gespeicherte Daten bleiben und werden nach der Anmeldung synchronisiert.',
+    emptyTitle: 'Noch keine Feldeinsätze',
+    emptyBody: 'Ein Einsatz zeigt auf eine Karte und das Formular, das beim Hinzufügen von Objekten ausgefüllt wird.',
+    createDeployment: 'Einsatz erstellen',
+    loadFailedTitle: 'Feldeinsätze konnten nicht geladen werden',
+    loadFailedBody: 'Der Katalog hat nicht geantwortet. Das ist keine leere Liste. Versuchen Sie es gleich noch einmal.',
+  },
+  buildPage: {
+    title: 'Aus einer Beschreibung erstellen',
+    intro: 'Beschreiben Sie einen Layer, eine Karte, ein Formular oder eine App. Ein Dashboard ist eine Web-App-Vorlage, nicht diese Seite. Es wird nichts erstellt, bis Sie das auswählen.',
   },
   fieldQueue: {
     rejectedChip:
@@ -1339,6 +1696,13 @@ export const de: Partial<CatalogShape> = {
     addFeature: "Feature hinzufügen",
     addFeatureAria: "Feature hinzufügen",
     closeAria: "Schließen",
+    backAria: 'Zurück',
+    cancelCollectAria: 'Abbrechen',
+    noEditableLayersInMap: 'Keine bearbeitbaren Ebenen in dieser Karte.',
+    vertexCountLabel:
+      '{count, plural, one {# Stützpunkt} other {# Stützpunkte}}',
+    vertexTapFinishSuffix: ' - Fertig tippen',
+    vertexNeedMoreSuffix: ' - noch {remaining} nötig',
     filterPlaceholder: "Filtern...",
     noEditableLayers: "Diese Bereitstellung hat noch keine bearbeitbaren Ebenen.",
     noTemplatesMatch: "Keine Vorlage entspricht diesem Filter.",
@@ -1352,6 +1716,81 @@ export const de: Partial<CatalogShape> = {
     storage: "Speicher",
     storagePersistent: "Dauerhaft",
     storageBestEffort: "Best effort",
+    toggleLayersAria: "Ebenen ein- oder ausblenden",
+    searchAddressAria: "Adresse suchen",
+    searchAddressPlaceholder: "Adresse suchen...",
+    closeSearchAria: "Suche schließen",
+    clearSearchAria: "Suche löschen",
+    zoomInAria: "Vergrößern",
+    zoomOutAria: "Verkleinern",
+    resetBearingAria: "Ausrichtung zurücksetzen",
+    addAtGps: "Am GPS hinzufügen",
+    addAtCenter: "In der Mitte hinzufügen",
+    vertexAtGps: "Stützpunkt am GPS",
+    vertexAtCenter: "Stützpunkt in der Mitte",
+    undoVertex: "Rückgängig",
+    undoVertexTitle: "Letzten Stützpunkt entfernen",
+    finishVertices: "Fertig",
+    finishVerticesTitle: "Formular für dieses Feature öffnen",
+    finishNeedVertices: "Mindestens {count} Stützpunkte nötig",
+    dropAtGpsTitle:
+      "{kind} an Ihrem aktuellen Standort ablegen (~{accuracy} m Genauigkeit)",
+    dropKindVertex: "Stützpunkt",
+    dropKindFeature: "Feature",
+    nothingToCollectTitle: "In dieser Bereitstellung nichts zu erfassen",
+    nothingToCollectViewOnly:
+      'Ihre Ebenen sind schreibgeschützt. Aktivieren Sie „In Feldeinsätzen bearbeitbar“ für eine Kartenebene und stellen Sie sicher, dass die Bearbeitung auf der Datenebene selbst aktiviert ist.',
+    nothingToCollectNoLayers:
+      "Ihre Karte hat keine Ebenen, zu denen Sie hinzufügen können.",
+    nothingToCollectSignIn: 'Melden Sie sich an, um in dieser Bereitstellung Objekte hinzuzufügen oder zu bearbeiten.',
+    removeFromDevice: "Vom Gerät entfernen",
+    confirmRemoveFromDevice: "Entfernen vom Gerät bestätigen",
+    downloadLayers: "Ebenen",
+    downloadFeatures: "Features",
+    downloadForms: "Formulare",
+    downloadPickLists: "Auswahllisten",
+    layersPanelAria: 'Ebenensichtbarkeit',
+    layersHeading: 'Ebenen',
+    location: 'Standort',
+    notSet: 'Nicht gesetzt',
+    updatePoint: 'Punkt aktualisieren',
+    saveFeature: 'Feature speichern',
+    saveChanges: 'Änderungen speichern',
+    relatedUnsynced: 'nicht synchronisiert',
+    relatedOpen: 'Öffnen',
+    relatedWaitingSync:
+      'Dieser Datensatz wartet auf die Synchronisierung. Er lässt sich öffnen, sobald er den Server erreicht.',
+    relatedOpenTitle: 'Diesen {layer}-Datensatz öffnen',
+    relatedNotEditable:
+      'Diese untergeordnete Ebene ist in dieser Bereitstellung nicht bearbeitbar',
+    relatedNoEditAccess: 'Sie haben keinen Schreibzugriff auf diese Ebene',
+    sheetBackToListAria: 'Zurück zur Liste',
+    sheetCollapseAria: 'Bereich einklappen',
+    sheetExpandAria: 'Bereich erweitern',
+    sheetEdit: 'Bearbeiten',
+    sheetCopy: 'Kopieren',
+    sheetEditTitle: 'Dieses Feature bearbeiten',
+    sheetCopyTitle: 'Neues Feature mit diesen Attributen erstellen',
+    sheetUnnamed: '(unbenannt)',
+    sheetEmptyValue: '(leer)',
+    sheetNoAttributes: 'Keine Attribute an diesem Feature.',
+    sheetItemCount: '{count, plural, one {# Element} other {# Elemente}}',
+    basemapLabel: 'Basiskarte: {name}',
+    basemapDefault: 'Standard',
+    basemapHide: 'Ausblenden',
+    basemapChange: 'Ändern',
+    noLayersInMap: 'Keine Layer in dieser Karte.',
+    searchPlaces: 'Orte',
+    searching: 'Suche...',
+    relatedRecordsHeading: 'Verwandte Datensätze',
+    relatedAdd: 'Hinzufügen',
+    relatedAddTitle: 'Neuen {layer}-Datensatz unter diesem Feature hinzufügen',
+    relatedLoadError:
+      'Vorhandene {layer}-Datensätze konnten nicht geladen werden ({error}). Tippen Sie auf Hinzufügen, um einen neuen zu erstellen.',
+    relatedLoadErrorShort: '{layer}-Datensätze konnten nicht geladen werden ({error}).',
+    relatedEmpty: 'Noch keine {layer}-Datensätze.',
+    loadingEllipsis: 'Laden...',
+    relatedRowCount: '{count, plural, one {# Zeile} other {# Zeilen}}',
   },
   fieldGps: {
     accuracy: 'GPS-Genauigkeit {meters} m',
@@ -1359,6 +1798,22 @@ export const de: Partial<CatalogShape> = {
       'Der Standortzugriff ist blockiert. Erlauben Sie ihn in den Browsereinstellungen, um an Ihrer Position zu erfassen.',
     unavailable:
       'Der Standort ist auf diesem Gerät nicht verfügbar. Features werden in der Kartenmitte platziert.',
+    showMyLocation: 'Meinen Standort anzeigen',
+    acquiringLocation: 'Standort wird ermittelt',
+    permissionDenied: 'Standortberechtigung verweigert',
+    locationUnavailable: 'Standort nicht verfügbar',
+    following: 'Standort wird verfolgt (tippen zum Beenden)',
+    centerOnLocation: 'Auf meinen Standort zentrieren (~{accuracy} m)',
+    accuracyUnknown: 'unbekannt',
+    enableLocation: 'Standort aktivieren, um GPS zu nutzen',
+    resnapTitle: 'Auf aktuelles GPS neu ausrichten (~{accuracy} m)',
+    label: 'GPS',
+    statusDenied: 'Berechtigung verweigert',
+    statusUnavailable: 'Nicht verfügbar',
+    statusAcquiring: 'Wird ermittelt...',
+    statusError: 'Fehler',
+    statusWatching: 'Aktiv',
+    statusMeters: '{meters} m',
   },
   fieldOffline: {
     partial: 'Unvollständig. Nicht heruntergeladen: {missing}.',
@@ -1385,6 +1840,40 @@ export const de: Partial<CatalogShape> = {
       '{count, plural, one {# nicht synchronisierte Bearbeitung geht verloren.} other {# nicht synchronisierte Bearbeitungen gehen verloren.}}',
     removeWillLoseOthers:
       '{count, plural, one {# davon gehört einem anderen Konto.} other {# davon gehören einem anderen Konto.}}',
+    downloadForOffline: 'Für Offline herunterladen',
+    deviceOnlyWarning:
+      'Bearbeitungen und Fotos bleiben auf diesem Gerät, bis sie synchronisiert werden. Sie liegen nicht auf dem Server und nicht in einer Portal-Sicherung. Eine verwerfen oder die Daten dieses Browsers löschen entfernt sie. Speichern Sie eine Kopie, wenn Sie die Fotos und die Formen vor der Synchronisierung brauchen.',
+    saveUnsyncedCopy: 'Kopie der nicht synchronisierten Arbeit speichern',
+    refreshOfflineCache: 'Offline-Cache aktualisieren',
+    confirmRefresh: 'Aktualisierung bestätigen',
+    refreshUnsyncedWarn:
+      '{count, plural, one {# Bearbeitung noch nicht synchronisiert. Trotzdem aktualisieren?} other {# Bearbeitungen noch nicht synchronisiert. Trotzdem aktualisieren?}}',
+    waitingOfflineTitle:
+      '{count, plural, one {# Bearbeitung wartet auf Synchronisierung. Neu verbinden zum Senden.} other {# Bearbeitungen warten auf Synchronisierung. Neu verbinden zum Senden.}}',
+    waitingOnlineTitle:
+      '{count, plural, one {# Bearbeitung wartet auf Synchronisierung. Tippen zum Sofort-Senden.} other {# Bearbeitungen warten auf Synchronisierung. Tippen zum Sofort-Senden.}}',
+    queuedCount: '{count} in Warteschlange',
+    syncCount: '{count} synchronisieren',
+    syncing: 'Synchronisiere...',
+    mapDetailToCache: 'Kartendetail für den Cache',
+    leastDetail: 'Wenig Detail',
+    mostDetail: 'Viel Detail',
+    basemapUnavailableOffline: 'Die Basiskarte ist offline nicht verfügbar',
+    basemapUnavailableTail:
+      'Ihre Daten, Formulare und selbst gehosteten Layer werden weiterhin normal heruntergeladen.',
+    tilesEstimate:
+      '~{count} Kacheln für den aktuellen Ausschnitt. Obergrenze {cap}.',
+    cachedSummary: 'Zwischengespeichert {when} · {size}',
+    makePersistent: 'Persistent machen',
+    storageOf: 'von {quota}',
+    storageNearlyFull:
+      'Speicher fast voll. Geben Sie Speicher frei, bevor Sie weitere Gebiete herunterladen.',
+    mapTilesBreakdown: 'Kartenkacheln: {count} ({size})',
+    clearTiles: 'Kacheln löschen',
+    downloadFailedTitle: 'Download fehlgeschlagen',
+    readyForOfflineTitle: 'Bereit für Offline',
+    downloadingForOfflineTitle: 'Download für Offline',
+    cachedSizeApprox: '~{size} zwischengespeichert',
   },
   offlineMessage: {
     unknown:
@@ -1507,6 +1996,21 @@ export const de: Partial<CatalogShape> = {
       'Dieser Layer hat keine Features mit Standort, daher gibt es auf einer Karte nichts zu zeigen.',
     previewFailed: 'Die Vorschau konnte nicht geladen werden',
     previewLoading: 'Vorschau wird geladen',
+    backToItems: 'Zurück zu Elementen',
+    sharingHeading: 'Freigabe',
+    publicBoundaryWarning:
+      'Die öffentliche geografische Grenze fehlt oder hat keine Geometrie. Öffentliche Leser sehen keine Objekte, bis eine vorhandene Grenze gewählt ist.',
+    shareAction: 'Freigeben',
+    shareActionHint: 'Öffnet Freigabe und Zugriff. Abhängigkeiten stehen in diesem Tab, bevor Sie veröffentlichen.',
+    openForm: 'Öffnen',
+    openFormTitle: 'Formular öffnen, um eine Antwort zu senden',
+    responses: 'Antworten',
+    responsesTitle:
+      'Eingereichte Antworten auf einer Karte und in der Formularansicht durchsuchen',
+    printTemplateDesignerTitle: 'Druckvorlagen-Designer',
+    printTemplateDesignerBody:
+      'Öffnen Sie den Vollbild-Builder, um Papierlayout, Elementpositionen und deklarierte Parameter zu bearbeiten.',
+    openBuilder: 'Builder öffnen',
   },
   itemTabs: {
     overview: 'Übersicht',
@@ -1535,6 +2039,9 @@ export const de: Partial<CatalogShape> = {
     viewTitle: 'Web-App',
     viewBody: 'Öffnen Sie diese App und verwenden Sie sie so, wie ihre Leser sie sehen.',
     viewAction: 'App öffnen',
+  },
+  groupDetail: {
+    rosterHidden: 'Nur Mitglieder dieser Gruppe können sehen, wer dazugehört.',
   },
   groupItems: {
     title: 'Mit dieser Gruppe geteilt',
@@ -1634,7 +2141,9 @@ export const de: Partial<CatalogShape> = {
   v3Editor: {
     structureTitle: 'Layer-Struktur',
     structureIntro:
-      'Bearbeiten Sie hier Layer, Felder, Domänen und Einschränkungen. Speichern wirkt sofort; Importieren und Durchsuchen von Zeilen finden Sie auf dem Tab Daten.',
+      'Bearbeiten Sie hier Layer, Felder, Domänen und Einschränkungen. Speichern sichert das Schema und startet den Import der gerade hinzugefügten Datei. Zeilen bleiben auf dem Tab Daten.',
+    pendingImportNote:
+      'Speichern Sie das Schema, um die Objekte aus der Datei zu laden. Bis dahin hat der Layer keine Zeilen.',
     dataTitle: 'Layer-Daten',
     dataIntro:
       'Durchsuchen Sie die Zeilen jedes Layers, fügen Sie Daten hinzu oder laden Sie sie herunter.',
@@ -1674,27 +2183,22 @@ export const de: Partial<CatalogShape> = {
     autoZoomOff: 'Klicken zum Einschalten des Auto-Zooms (Zeilenklicks zoomen zum Feature). Zoomer auch einmal zur aktuellen Auswahl.',
     useAsFilter: 'Als Filter verwenden',
     useAsFilterTitle: 'Ebene nur auf die ausgewählten Features filtern',
+    useAsFilterNoId: 'Keine Spalte unterscheidet die ausgewählten Zeilen von den anderen, ein Filter würde mehr als die Auswahl treffen.',
+    useAsFilterTooMany: 'Wählen Sie höchstens {max} Zeilen aus, um sie als Filter zu verwenden.',
+    useAsFilterNotLoaded: 'Einige ausgewählte Zeilen sind nicht in der Tabelle geladen. Laden Sie sie oder verkleinern Sie zuerst die Auswahl.',
     calculate: 'Berechnen',
     calculateTitle: 'Spaltenwert für viele Zeilen auf einmal aus einem Ausdruck setzen',
     closeAria: 'Schließen',
     truncatedBanner: 'Es werden 5.000+ Zeilen{extent} angezeigt. Zoomen Sie hinein{extentHint} oder filtern Sie, um mehr zu sehen.',
     truncatedInExtent: ' in diesem Ausschnitt',
     truncatedEnableExtent: ', aktivieren Sie „Im Ausschnitt“,',
+    showSelectedCapped: 'Es werden die ersten {max} ausgewählten Zeilen angezeigt. Wählen Sie weniger aus, um den Rest zu sehen.',
     noLayer: 'Keine Ebene ausgewählt.',
     loadingFeatures: 'Features werden geladen...',
     loadFailed: 'Laden fehlgeschlagen: {error}',
     noFeaturesInExtent: 'Keine Features in diesem Kartenausschnitt.',
     noFeatures: 'Keine Features zum Anzeigen.',
     sortAndCalculate: 'Klicken zum Sortieren, Rechtsklick für Feld berechnen',
-  },
-  addToMap: {
-    newMap: 'Neue Karte',
-    existingMap: 'Eine vorhandene Karte',
-    loadingMaps: 'Karten werden geladen...',
-    noMaps: 'Noch keine Karten',
-    layerGone: '{item} hat keinen Layer "{layerKey}" mehr.',
-    tableNoShapes:
-      '{layer} ist eine Tabelle ohne Geometrien, daher gibt es nichts zu zeichnen.',
     export: 'Exportieren',
     exportAllRows: 'Alle Zeilen ({count})',
     exportSelectedRows: 'Ausgewählte Zeilen ({count})',
@@ -1720,6 +2224,8 @@ export const de: Partial<CatalogShape> = {
     bundleLoadingSchema: 'Ebenenschema wird geladen…',
     bundleDone:
       'Fertig -- {layers} · {features} · {attachments} · {mb} MB',
+    bundleAttachmentsMissing:
+      '{count} Anhänge konnten nicht heruntergeladen werden und fehlen in der ZIP-Datei. Exportieren Sie erneut.',
     calculateModalTitle: 'Feld berechnen',
     calculateUpdatesPrefix: 'Aktualisiert',
     calculateUpdatesSuffix: 'über alle Zeilen im Umfang.',
@@ -1778,6 +2284,13 @@ export const de: Partial<CatalogShape> = {
     readOnlyHere:
       'Diese Tabelle ist hier schreibgeschützt. Zeilen können auf Ebenen bearbeitet werden, für die Sie Änderungsrechte haben.',
   },
+  addToMap: {
+    newMap: 'Neue Karte',
+    existingMap: 'Eine vorhandene Karte',
+    loadingMaps: 'Karten werden geladen...',
+    noMaps: 'Noch keine Karten',
+    layerGone: '{item} hat keinen Layer "{layerKey}" mehr.',
+  },
   mapAddLayer: {
     title: 'Ebene hinzufügen',
     description:
@@ -1829,6 +2342,7 @@ export const de: Partial<CatalogShape> = {
       'Keine passenden Dienste. Laden Sie Vektordaten als Feature-Service hoch oder speichern Sie eine ArcGIS-REST-URL als ArcGIS-Service-Element, um sie hier zu wählen.',
     portalFootnote:
       'Feature-Services streamen aus PostGIS; ArcGIS-Dienste fragen die Quelle live ab, wenn Sie schwenken und zoomen.',
+    listTruncated: 'Es werden die ersten {count} von {total} angezeigt. Suchen Sie, um die Liste einzugrenzen.',
     sublayerBadge: '+{count} Ebenen',
     sublayerBadgeTitle:
       'Dieser Dienst stellt {count} Unterebenen bereit; ein Klick fügt alle hinzu.',
@@ -1879,6 +2393,10 @@ export const de: Partial<CatalogShape> = {
     errors: {
       newNameRequired: 'Geben Sie der neuen Ebene einen Namen.',
       createFailed: 'Die Ebene konnte nicht erstellt werden.',
+      addFailed: 'Die Ebene konnte nicht hinzugefügt werden.',
+      errorStatus: 'HTTP {status}',
+      errorStatusCode: 'HTTP {status} ({code})',
+      requestId: 'Anfrage-ID: {id}',
       arcgisUrlRequired:
         'Fügen Sie eine ArcGIS-MapServer- oder FeatureServer-URL ein.',
       arcgisProbeFailed:
@@ -1913,6 +2431,9 @@ export const de: Partial<CatalogShape> = {
     },
   },
   mapSearch: {
+    hiddenLayer: 'Ausgeblendet',
+    hiddenLayerHint:
+      'Diese Ebene ist ausgeblendet. Die Auswahl des Treffers blendet sie ein.',
     geocoderUnavailable:
       'Die Ortssuche ist gerade nicht verfügbar ({reason}). Die Layer-Ergebnisse oben sind davon nicht betroffen.',
     noPlaces:
@@ -1937,6 +2458,7 @@ export const de: Partial<CatalogShape> = {
     drawContinue:
       'Klicken Sie, um Punkte hinzuzufügen. Doppelklick (oder Enter) zum Beenden.',
     drawAgain: 'Erneut zeichnen',
+    emptyHint: 'Zeichnen Sie eine Linie auf der Karte, um die Geländehöhe entlang der Linie zu sehen.',
     reading: 'Geländehöhe wird gelesen...',
     fromSource: 'von {title}',
     distance: 'Distanz',
@@ -2080,6 +2602,9 @@ export const de: Partial<CatalogShape> = {
     addAndPrepare: 'Hinzufügen und vorbereiten',
     saveFailed: 'Gebiet konnte nicht gespeichert werden: {status}',
     buildStartFailed: 'Erstellung konnte nicht gestartet werden: {status}',
+    loadFailed: 'Die Gebiete konnten nicht geladen werden. Hinzufügen und Löschen sind gesperrt, bis sie geladen sind.',
+    retry: 'Erneut versuchen',
+    buildNotStarted: 'Das Gebiet wurde gespeichert, aber die Erstellung konnte nicht gestartet werden. Mit Jetzt vorbereiten erneut versuchen.',
   },
   offlineBasemap: {
     preparedMap: 'Vorbereitete Karte',
@@ -2285,6 +2810,7 @@ export const de: Partial<CatalogShape> = {
       'Jeder im Internet kann die {count} ausgewählten Elemente ohne Anmeldung sehen. Verwenden Sie dies für teilbare Karten- / Viewer-Links. Von der Auswahl referenzierte Elemente (Layer, Grundkarten usw.) müssen ebenfalls öffentlich sein; Sie werden nach Abschluss zur Kaskadierung aufgefordert.',
     geographicScope: 'Geografischer Geltungsbereich',
     noBoundaryItems: 'Noch keine Grenzelemente in dieser Organisation',
+    keepScope: 'Aktuellen Geltungsbereich jedes Elements beibehalten',
     noScope: 'Kein Geltungsbereich (uneingeschränkt)',
     geoScopeHint:
       'Wenn gesetzt, sehen Betrachter, die über {via} auf diese Elemente zugreifen, nur Features innerhalb der Grenze. Wird auf API-Ebene durchgesetzt.',
@@ -2309,6 +2835,9 @@ export const de: Partial<CatalogShape> = {
     summaryType: 'Typ: {labels}',
     summaryTemplate: 'Vorlage: {labels}',
     summaryArea: 'Gebiet: {label}',
+    summaryOwner: 'Besitzer: {labels}',
+    summaryAccess: 'Zugriff: {labels}',
+    summaryTags: 'Tags: {labels}',
     cardView: 'Kartenansicht',
     cards: 'Karten',
     listView: 'Listenansicht',
@@ -2354,6 +2883,9 @@ export const de: Partial<CatalogShape> = {
       'Nichts in {scope} entspricht "{query}". Versuchen Sie einen anderen Begriff oder löschen Sie die Suche.',
     scopeYourItems: 'Ihren Elementen',
     scopeSharedWithYou: 'den mit Ihnen geteilten Elementen',
+    folderMissingTitle: 'Dieser Ordner ist nicht verfügbar',
+    folderMissingDescription: 'Er wurde vielleicht gelöscht oder ist nicht mehr für Sie freigegeben.',
+    backToItems: 'Zurück zu den Elementen',
     emptyFolderTitle: '{folder} ist leer',
     emptyFolderDescription:
       'Fügen Sie vorhandene Elemente hinzu, erstellen Sie etwas Neues oder ziehen Sie Elemente aus der Ansicht aller Elemente hierher.',
@@ -2393,6 +2925,7 @@ export const de: Partial<CatalogShape> = {
     moreNotShown: '+{count} weitere nicht angezeigt.',
   },
   mapComments: {
+    loadOlder: 'Ältere Threads laden',
     title: 'Kommentare',
     panelAria: 'Kartenkommentare',
     closeAria: 'Kommentarfenster schließen',
@@ -2412,7 +2945,9 @@ export const de: Partial<CatalogShape> = {
     threadOpened: 'Thread geöffnet {when}',
     resolvedSuffix: ' • Erledigt',
     editedSuffix: ' (bearbeitet)',
-    newAnchoredPlaceholder: 'Kommentar zur Auswahl…',
+    newAnchoredPlaceholder: 'Kommentar zur Auswahl… @Benutzer benachrichtigen',
+    mentionHint:
+      'Tippen Sie @Benutzer, um ein E-Mail an ein Organisationsmitglied zu senden, das diese Karte sehen kann.',
     composeHint:
       'Wählen Sie ein Objekt auf der Karte, um einen Thread zu verankern, oder posten Sie kartenweit.',
     composeOn: 'Zu {label}',
@@ -2488,9 +3023,28 @@ export const de: Partial<CatalogShape> = {
     subtitle: 'Wie sich diese Karte darstellt und beim Gebrauch verhält.',
     viewScope: 'Ansichtsbereich',
     viewScopeEmpty: 'Erstellen Sie ein Grenzelement, um es als Ansichtsbereich zu nutzen.',
+    viewScopeDescLead:
+      'Schneiden Sie jede Ebene dieser Karte auf eine Grenze zu, sodass nur Features innerhalb gerendert werden.',
+    viewScopeDescNotAcl: 'Keine Zugriffskontrolle:',
+    viewScopeDescNotAclBody:
+      'die zugrunde liegenden Ebenen liefern weiterhin ihre vollständigen Daten.',
     defaultExtent: 'Standardausdehnung',
+    defaultExtentDesc:
+      'Der Ausschnitt, mit dem die Karte beim ersten Laden öffnet. Ohne Wert gilt die gespeicherte Kameraposition der Karte.',
     searchSource: 'Suchquelle',
     searchSourceEmpty: 'Erstellen Sie ein Geokodierungs-Service-Element, um hier Ihre eigenen Daten zu suchen.',
+    searchSourceDesc:
+      'Wo die Suchleiste Adressen und Orte nachschlägt. Standard ist Nominatim (OpenStreetMap). Interne Geocoder durchsuchen Ihre eigenen Daten.',
+    optionNoClip: '(kein Zuschnitt)',
+    optionUseSavedExtent: '(gespeicherte Ausdehnung verwenden)',
+    optionDefaultNominatim: 'Standard (Nominatim)',
+    geocoderKindArcgis: '(ArcGIS)',
+    geocoderKindInternal: '(intern)',
+    summaryNone: 'keine',
+    summarySavedCamera: 'gespeicherte Kamera',
+    summaryDeleted: '(gelöscht)',
+    summaryNominatim: 'Nominatim',
+    summarySearchLabel: 'Suche',
     allowAnonymous: 'Anonyme Markierungen',
     allowAnonymousDesc:
       'Abgemeldete Besucher dürfen eigene Markierungssätze auf dieser öffentlichen Karte hinzufügen. Standardmäßig aus. Hochstufen in einen Datenlayer erfordert weiterhin eine Anmeldung.',
@@ -2540,6 +3094,12 @@ export const de: Partial<CatalogShape> = {
     clearSelection: 'Auswahl löschen',
   },
   mapLayerAccess: {
+    resetToInherit: "Reset to inherit",
+    customOnlyListed:
+      "Custom access: each column decides what that viewer gets. Everyone else covers org members and public viewers the map is not shared with by name.",
+    everyoneElse: 'Alle anderen',
+    everyoneElseType: 'Organisation und öffentlich',
+    everyoneElseHint: 'Organisationsmitglieder und öffentliche Betrachter, für die die Karte nicht namentlich freigegeben ist.',
     title: 'Ebenenzugriff',
     description:
       'Legen Sie fest, was jeder freigegebene Benutzer oder jede Gruppe auf dieser Karte sieht. Die Matrix schränkt den Zugriff ein; ein Warnabzeichen erscheint, wenn ein Principal keinen Elementzugriff auf die Quelldaten einer Ebene hat.',
@@ -2575,6 +3135,14 @@ export const de: Partial<CatalogShape> = {
     editDescUnavailable: 'Nicht verfügbar: diese Ebene hat keine schreibbare Quelle',
     editOnlyFeatureService:
       'Bearbeiten ist nur für Feature-Service-Ebenen verfügbar. Remote-Quellen (ArcGIS REST, URL, inline) bleiben in der Matrix schreibgeschützt, damit keine wirkungslosen Berechtigungen angeboten werden.',
+  },
+  resumableUpload: {
+    resumingHeadline: 'Upload wird fortgesetzt {pct}%',
+    networkError:
+      'Die Verbindung wurde unterbrochen und der Upload konnte nicht fortgesetzt werden. Wählen Sie dieselbe Datei erneut, um dort weiterzumachen, wo er aufgehört hat.',
+    partFailed:
+      'Der Speicher hat einen Teil der Datei abgelehnt. Wählen Sie dieselbe Datei erneut, um dort weiterzumachen, wo der Upload aufgehört hat.',
+    failed: 'Upload fehlgeschlagen',
   },
   layerDataPanel: {
     tablistAria: 'Ansichten von {label}',
@@ -2677,6 +3245,7 @@ export const de: Partial<CatalogShape> = {
     done: 'Fertig',
   },
   sharing: {
+    networkError: "Das Portal war nicht erreichbar. Es wurde nichts geändert.",
     sharing: 'Freigabe',
     dialogLabel: 'Freigabe für {title}',
     whoCanSee: 'Wer kann das sehen',
@@ -2695,6 +3264,42 @@ export const de: Partial<CatalogShape> = {
       org: 'Organisation',
       public: 'Öffentlich',
     },
+    /** Detail SharingPanel visibility / share-row chrome (#162 / R13). */
+    visibility: 'Sichtbarkeit',
+    yourOrganization: 'Ihre Organisation',
+    accessPrivateDesc:
+      'Nur Sie und Personen, mit denen Sie unten teilen.',
+    accessOrgDescDefault:
+      'Jeder mit Anmeldung in Ihrer Organisation kann dies sehen.',
+    accessOrgDescNamed:
+      'Jeder mit Anmeldung bei {org} kann dies sehen.',
+    accessPublicDesc: 'Jeder im Internet, ohne Anmeldung.',
+    orgAlreadySeesRest:
+      'kann dieses Element bereits sehen. Freigaben unten dienen nur dazu, Bearbeiten oder Verwalten zusätzlich zu gewähren.',
+    publicMeansAnyoneRest:
+      'bedeutet, dass jeder im Internet dies ansehen kann. Freigaben unten dienen nur dazu, Bearbeiten oder Verwalten zu gewähren.',
+    changePermissionAria: 'Berechtigung ändern',
+    canView: 'kann ansehen',
+    canDownload: 'kann herunterladen',
+    canEdit: 'kann bearbeiten',
+    canAdmin: 'kann verwalten',
+    rowScopeAria: 'Zeilenbereich',
+    rowScopeTitle: 'Was können sie sehen / bearbeiten?',
+    allFeatures: 'alle Features',
+    onlyTheirs: 'nur ihre eigenen',
+    restrictToAreaAria: 'Auf Gebiet beschränken',
+    editGeoRestrictionTitle: 'Geografische Einschränkung bearbeiten',
+    restrictGeoTitle: 'Auf ein geografisches Gebiet beschränken',
+    removeShareAria: 'Freigabe entfernen',
+    searchGroupsPlaceholder: 'Gruppen suchen...',
+    searchPeoplePlaceholder: 'Personen in Ihrer Org. suchen...',
+    noGroupsYet: 'Noch keine Gruppen. Erstellen Sie eine unter /groups.',
+    startTypingGroups: 'Tippen Sie, um Gruppen zu filtern.',
+    startTypingPeople: 'Tippen Sie einen Namen oder Benutzernamen.',
+    groupTab: 'Gruppe',
+    userTab: 'Benutzer',
+    editorItemAccess: 'Editor-Elementzugriff',
+    checkingDependencyAccess: 'Abhängigkeitszugriff wird geprüft...',
     permission: {
       view: 'Ansehen',
       download: 'Herunterladen',
@@ -2708,6 +3313,40 @@ export const de: Partial<CatalogShape> = {
     expiryDialogLabel: 'Ablauf der Freigabe',
     days: '{count, plural, one {# Tag} other {# Tage}}',
     set: 'Festlegen',
+    geoLimit: {
+      title: 'Auf Gebiet beschränken',
+      description:
+        'Beschränken Sie, was {principal} an diesem Element sehen kann, auf Features innerhalb eines Polygons. Elemente, deren bbox nicht schneidet, werden ebenfalls ausgeblendet. Admins sind ausgenommen.',
+      modeBoundary: 'Grenze',
+      modeGeojson: 'GeoJSON',
+      modeBbox: 'Begrenzungsrahmen',
+      boundaryLabel: 'Grenze',
+      pickBoundary: 'Grenze wählen...',
+      noBoundaries: 'Keine Grenzen sichtbar für Sie',
+      boundaryHint:
+        'Die Freigabe speichert eine Referenz auf das Grenzenelement. Geometrieänderungen wirken auf alle Freigaben, die darauf zeigen, ohne erneutes Speichern.',
+      createBoundaryLead: 'Eine zeichnen?',
+      createBoundaryLink: 'Boundary-Element erstellen',
+      createBoundaryTail:
+        '. Der Editor hat einen Zeichen-Tab zum Nachzeichnen eines Polygons auf der Karte. Speichern Sie es, dann erscheint es hier.',
+      pasteGeojson: 'GeoJSON einfügen',
+      geojsonHint:
+        'Akzeptiert Polygon, MultiPolygon, Feature oder FeatureCollection. EPSG:4326-Koordinaten (lng, lat).',
+      minLng: 'Min. Lng (West)',
+      minLat: 'Min. Lat (Süd)',
+      maxLng: 'Max. Lng (Ost)',
+      maxLat: 'Max. Lat (Nord)',
+      clearRestriction: 'Beschränkung entfernen',
+      needInput: 'Wählen Sie eine Grenze, fügen Sie ein Polygon ein oder geben Sie einen Begrenzungsrahmen ein.',
+      boundaryMissing: 'Die ausgewählte Grenze ist nicht in Ihrer sichtbaren Bibliothek.',
+      expectedGeojson:
+        'Erwartet wurde ein GeoJSON-Polygon, MultiPolygon, Feature oder FeatureCollection mit einem davon.',
+      invalidJson: 'Ungültiges JSON: {detail}',
+      minLessThanMax: 'min muss auf beiden Achsen kleiner als max sein.',
+      invalidWgs84: 'Koordinaten müssen gültiges WGS84 sein (lon ±180, lat ±90).',
+      summaryBoundary: 'Grenze: {title}',
+      summaryRectangle: 'Rechteck · {width}° × {height}°',
+    },
   },
   picker: {
     noMatches: 'Keine Treffer.',
@@ -2780,11 +3419,31 @@ export const de: Partial<CatalogShape> = {
     loadSample: 'Beispieldaten laden',
     loadSampleDesc:
       'Erkunden Sie einen fertigen Randolph-County-Arbeitsbereich: Layer, Karten, ein Formular, Apps und eine Felderhebung.',
+    loadShowcase: 'Showcase-Dashboards laden',
+    loadShowcaseDesc:
+      'Sturmereignisse, Wasserqualität in West Virginia und Elkins in 3D. Getrennt vom Randolph-Arbeitsbereich, und erneut ladbar.',
     loading: 'Beispieldaten werden geladen...',
+    loadingShowcase: 'Showcase-Dashboards werden geladen...',
     loaded: '{count, plural, one {# Beispielelement erstellt} other {# Beispielelemente erstellt}}',
+    loadedShowcase:
+      '{count, plural, one {# Showcase-Element erstellt} other {# Showcase-Elemente erstellt}}',
     allSkipped: 'Beispieldaten sind bereits geladen',
+    allSkippedShowcase: 'Showcase-Dashboards sind bereits geladen',
     failed: 'Beispieldaten konnten nicht geladen werden',
+    failedShowcase: 'Showcase-Dashboards konnten nicht geladen werden',
     dismiss: 'Willkommensbereich ausblenden',
+  },
+  whatsNewPage: {
+    metaTitle: 'Neuigkeiten',
+    metaDescription:
+      'Sichtbare Updates von GratisGIS, nach Version gruppiert wenn vorhanden.',
+    title: 'Neuigkeiten',
+    intro:
+      'Klartext-Notizen zu Funktionen, die Besucher sehen und nutzen können. Nach Version gruppiert, wenn wir eine taggen; ältere Notizen bleiben unter Frühere Updates.',
+    backToHome: 'Zurück zur Startseite',
+    releaseHeading: 'Version {version}',
+    earlierHeading: 'Frühere Updates',
+    empty: 'Noch keine Updates veröffentlicht.',
   },
   landing: {
     openMyItems: 'Meine Elemente öffnen',
@@ -2794,6 +3453,7 @@ export const de: Partial<CatalogShape> = {
     publicItemsEmpty:
       'Noch nichts öffentlich freigegeben. Wenn Sie ein Portal-Konto haben, melden Sie sich an, um mit Ihnen geteilte Inhalte zu sehen.',
     whatsNew: 'Neuigkeiten',
+    whatsNewViewAll: 'Gesamte Historie anzeigen',
     builtOn: 'Aufgebaut auf',
     projectEyebrow: 'Open-Source-GIS-Portal',
     projectHeadline: 'Ein selbst gehostetes Portal, eine Field-PWA und QGIS',
@@ -2831,23 +3491,32 @@ export const de: Partial<CatalogShape> = {
     ctaDiscussions: 'Discussions',
     ctaHint:
       'Feedback senden geht in den Posteingang des Maintainers; kein Konto nötig. Discussions ist der GitHub-Ort für längere Threads.',
-    testingTitle:
-      'Dies ist eine öffentliche Testinstanz. Sie wird jeden Tag um 04:00 UTC auf einen kuratierten Ausgangszustand zurückgesetzt.',
-    testingBodyBefore: 'Melden Sie sich an mit',
-    testingBodyOr: 'oder',
-    testingBodyAfter:
-      '. Elemente, Benutzer und Bearbeitungen, die Sie anlegen, verschwinden beim nächsten Reset. Problem gefunden? Nutzen Sie die Feedback-Schaltfläche in der Ecke jeder Seite. Kein Konto nötig.',
-    testingSampleLead: 'Neu hier? Öffnen Sie den Ordner',
-    testingSampleName: 'Sample: Randolph County',
-    testingSampleTail:
-      'nach dem Anmelden: ein vollständiger Demo-Arbeitsbereich mit gestylten Layern, einer Karte, einem Formular mit Antworten, einer Felderhebung und öffentlichen Apps, alles rund um einen kleinen County in West Virginia.',
+    testingNotice: 'Öffentliche Demo. Sie wird jeden Tag um 04:00 UTC zurückgesetzt.',
+    testingSignInLink: 'Die Testkonten stehen auf der Anmeldeseite.',
   },
   auth: {
     redirecting: 'Weiterleitung zur Anmeldung...',
     redirectFallback: 'Wenn nichts passiert,',
     continueToKeycloak: 'weiter zu Keycloak',
+    wrongHostTitle: 'Die Anmeldung nutzt eine andere Adresse',
+    wrongHostBody:
+      'Sie haben {opened} geöffnet. Die Anmeldung ist für {canonical} konfiguriert, daher würde der Browser dorthin geschickt. Setzen Sie dies in der Compose-Datei und starten Sie neu:',
+    wrongHostRestart:
+      'Behalten Sie die Volumes. Der nächste Start aktualisiert Keycloak. Für Tailscale-HTTPS nutzen Sie den MagicDNS-Namen mit https:// und Tailscale Serve. Eine Tailnet-IP bleibt bei http:// mit Port.',
   },
   adminSecurity: {
+    embedTitle:
+      'Websites, die Apps einbetten dürfen',
+    embedIntro:
+      'Das Einbetten-Widget in eigenen Apps kann Seiten dieser Websites anzeigen. Geben Sie pro Zeile eine Adresse ein, z. B. https://dashboards.example.org. Mit https://*.example.org sind alle Subdomains erlaubt. Andere Seiten des Portals betten weiterhin nichts von außen ein.',
+    embedSave:
+      'Websites speichern',
+    embedSaving:
+      'Wird gespeichert…',
+    embedSaved:
+      'Gespeichert.',
+    embedErr:
+      'Die Websites konnten nicht gespeichert werden.',
     pageIntro:
       'Fügen Sie ein Arbeitskonto hinzu, das die Nutzer bereits haben, und legen Sie fest, ob bei der nächsten Anmeldung ein Authenticator eingerichtet werden muss.',
     errLoad: 'Anmeldeeinstellungen konnten nicht geladen werden.',
@@ -2932,6 +3601,83 @@ export const de: Partial<CatalogShape> = {
     docsDesc:
       'Der eingebaute Leitfaden deckt Rollen, Backups, Branding und Wartung ab. Zehn Minuten jetzt vermeiden später Überraschungen.',
     docsAction: 'Leitfaden öffnen',
+    secondAdminTitle: 'Zweiten Admin hinzufügen',
+    secondAdminDesc:
+      '{count, plural, one {# aktiver Admin} other {# aktive Admins}}. Ein zweiter Admin kann die Organisation übernehmen, wenn der erste sich nicht anmelden kann. Das Portal läuft auch mit einem Admin weiter, und dieser Punkt lässt sich nicht von Hand abhaken.',
+    secondAdminAction: 'Benutzer öffnen',
+  },
+  adminAudit: {
+    title: 'Protokoll',
+    intro:
+      'Privilegierte Änderungen dieser Organisation: Benutzer, Rollen, Freigaben, Besitz, Sicherung und Admin-Einstellungen. Das ist nicht die Historie der Kartenobjekte. Passwörter und Nachrichtentexte werden nicht gespeichert.',
+    refresh: 'Ereignisse laden',
+    loading: 'Wird geladen…',
+    loadFailed: 'Das Protokoll konnte nicht geladen werden.',
+    empty: 'Noch keine Ereignisse. Liste laden oder eine privilegierte Änderung vornehmen und erneut laden.',
+    more: 'Ältere Ereignisse',
+    when: 'Wann',
+    action: 'Aktion',
+    actor: 'Akteur',
+    target: 'Ziel',
+    outcome: 'Ergebnis',
+  },
+  adminPermissions: {
+    title: 'Berechtigungen',
+    intro:
+      'Aktuelle Freigabe: öffentlicher, Organisations-, Gruppen- und Benutzerzugriff, Eigentümer und fehlende Prinzipale. Keine erfundene Änderungshistorie.',
+    refresh: 'Stand laden',
+    loading: 'Wird geladen…',
+    loadFailed: 'Berechtigungen konnten nicht geladen werden.',
+    download: 'CSV herunterladen',
+    generated: 'Stand von {at}.',
+    empty: 'Keine Elemente in dieser Organisation.',
+    item: 'Element',
+    access: 'Zugriff',
+    owner: 'Eigentümer',
+    share: 'Freigabe',
+    missingOwner: 'Eigentümer fehlt',
+    missingPrincipal: 'Principal fehlt',
+    tierOnly: 'Nur Zugriffsstufe',
+  },
+  adminDiagnostics: {
+    title: 'Diagnose',
+    intro:
+      'Erstellen Sie bewusst ein Support-Paket. Es enthält Versionen, ob die Datenbank antwortete, Wartung und Zähler für Import-, Analyse- und Sicherungsaufträge. Geheimnisse und Namen werden entfernt. Es wird kein Shell-Befehl ausgeführt.',
+    create: 'Paket erstellen',
+    working: 'Wird erstellt…',
+    failed: 'Das Paket konnte nicht erstellt werden.',
+    download: 'JSON herunterladen',
+  },
+  opsJobs: {
+    title: 'Aufträge',
+    intro: 'Importe und Analysen dieser Organisation. Abbrechen und erneut starten erscheinen nur, wenn der Zustand das erlaubt. Ein Neustart prüft das Element und die ursprüngliche Person und behält deren Rechte. Sicherungen bleiben auf der Sicherungsseite.',
+    refresh: 'Aufträge laden',
+    loading: 'Wird geladen…',
+    loadFailed: 'Aufträge konnten nicht geladen werden.',
+    actionFailed: 'Die Aktion wurde nicht angenommen.',
+    empty: 'Noch keine Aufträge.',
+    kind: 'Art',
+    source: 'Quelle',
+    status: 'Status',
+    error: 'Fehler',
+    cancel: 'Abbrechen',
+    retry: 'Erneut',
+  },
+  opsPage: {
+    title: 'Betrieb',
+    intro: 'Die Bereitschaft ist für Admins. Die öffentliche Gesundheit bleibt die Datenbank. Eine fehlgeschlagene Wiederherstellung bleibt an, bis eine Wiederherstellung fertig ist.',
+    readiness: 'Bereitschaft',
+    check: 'Dienste prüfen',
+    maintenance: 'Wartung',
+    maintenanceHint: 'Wartung an lässt das Portal mit 503 antworten, außer Gesundheit und dieser Schalter. Eine fehlgeschlagene Wiederherstellung bleibt an, bis eine Wiederherstellung fertig ist. Bestätigen nimmt sie nicht weg.',
+    maintenanceOn: 'Wartung einschalten',
+    maintenanceOff: 'Wartung ausschalten',
+    failed: 'Die Anfrage ist fehlgeschlagen.',
+    operatorOnly: 'Bereitschaft und Wartung betreffen die gesamte Installation. Nur Admins der Betreiberorganisation können sie verwenden.',
+    backupUiDisabled: 'Sicherung, Wiederherstellung und Wartung sind in dieser Installation ausgeschaltet (GRATIS_DISABLE_BACKUP_UI).',
+  },
+  opsBackup: {
+    failureBanner: 'Eine Sicherung ist nicht fertig geworden. Lesen Sie den fehlgeschlagenen Lauf. Eine Meldung geht genau einmal raus, wenn Benachrichtigungen an sind.',
   },
   apiKeys: {
     copyTitle: 'Kopieren Sie Ihren Schlüssel jetzt',
@@ -3085,7 +3831,6 @@ export const de: Partial<CatalogShape> = {
     approxSuffix: 'approx',
     orphanBadge: 'orphan',
     expired: 'Expired',
-    expiryIn: 'In',
     pastDue: 'Past due',
     extendShare30Title: 'Extend by 30 days',
     extend30d: '+30d',
@@ -3103,7 +3848,7 @@ export const de: Partial<CatalogShape> = {
     scheduleIntro: 'Have the portal tidy up on its own. Off until you turn it on. Pick which kind of cleanup you want, how long something has to sit around before it gets cleaned up, and when the portal should run the cleanup. The lists below keep showing the same things you can clean up by hand whenever you want.',
     scheduleAutoTrash: 'Trash items nobody is using',
     scheduleAutoTrashBefore:
-      'Move items to the trash if no one has edited or shared them in the last',
+      'Move private items to the trash if no one has edited or shared them in the last',
     scheduleAutoTrashAfter:
       'days. They aren\'t deleted right away: trashed items stay in Recently deleted and can be put back at any time.',
     scheduleAutoDisable: 'Pause sign-in for inactive accounts',
@@ -3128,6 +3873,9 @@ export const de: Partial<CatalogShape> = {
     scheduleModeDaily: 'Every day',
     scheduleModeWeekly: 'Once a week',
     scheduleHour: 'Hour (0-23)',
+    scheduleServerTime: "Serverzeit, {zone}",
+    scheduleRunNowUnsaved:
+      "Speichern Sie zuerst Ihre Änderungen. Der sofortige Lauf verwendet die gespeicherten Einstellungen.",
     scheduleMinute: 'Minute (0-59)',
     scheduleDayOfWeek: 'Day of week',
     daySunday: 'Sunday',
@@ -3252,14 +4000,12 @@ export const de: Partial<CatalogShape> = {
     hidePassword: 'ausblenden',
     checkboxEnabled: 'Aktiviert',
     checkboxSslTls: 'SSL / TLS beim Verbinden (Port 465)',
-    labelSendTestTo: 'Test senden an',
-    placeholderTestEmail: 'sie@beispiel.com',
     sendTest: 'Test senden',
     smtpSavedRealmWarning:
       'SMTP gespeichert, aber Keycloak-Realm-Sync fehlgeschlagen: {warning}',
     smtpSavedOk: 'Gespeichert. Der Worker nutzt beim nächsten Versand das neue SMTP.',
     saveFailed: 'Speichern fehlgeschlagen.',
-    testEmailInvalid: 'Geben Sie eine gültige E-Mail-Adresse für den Test ein.',
+    testGoesToYou: 'Der Test geht an die E-Mail-Adresse Ihres eigenen Kontos.',
     testSent: 'Test gesendet an {email}.',
     testFailedUnclear: 'Test fehlgeschlagen ohne klare Fehlermeldung.',
     testFailed: 'Test fehlgeschlagen.',
@@ -3274,6 +4020,8 @@ export const de: Partial<CatalogShape> = {
     preview: 'Vorschau',
     defaultsFootnote:
       'Aus hier schaltet den Typ plattformweit für Nutzer ab, die sich nicht explizit angemeldet haben. Nutzer-Einstellungen haben Vorrang. Anpassen überschreibt den E-Mail-Text Ihrer Organisation; gespeicherte Vorlagen ersetzen Mustache-Platzhalter wie {{itemTitle}} und {{baseUrl}} aus dem Trigger-Payload.',
+    operatorOnlyNote:
+      'Mailserver, Versandwarteschlange, letzte Aktivität und die Standardeinstellungen gelten für die gesamte Installation, daher können nur Admins der Betreiberorganisation sie sehen oder ändern. Vorlagen und Vorschauen können Sie selbst bearbeiten.',
     previewHeading: 'Vorschau',
     subject: 'Betreff',
     html: 'HTML',
@@ -3395,10 +4143,12 @@ export const de: Partial<CatalogShape> = {
       sendInvite: 'Einladung senden',
       errUsernameMin: 'Der Benutzername muss mindestens 2 Zeichen haben.',
       errEmailInvalid: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.',
-      errInviteFailed: 'Einladung fehlgeschlagen: {status} {detail}',
-      alertEmailFailedTitle: 'Benutzer erstellt, E-Mail fehlgeschlagen',
+      errDuplicate: 'Ein Konto mit diesem Namen oder dieser Adresse existiert bereits. Die Adresse wird hier nicht angezeigt.',
+      errUpstream: 'Der Identitätsserver konnte das Konto nicht erstellen. Versuchen Sie es gleich noch einmal. Wenn es weiterhin fehlschlägt, prüfen Sie, ob der Identitätsserver läuft. Die Adresse wird hier nicht angezeigt.',
+      errInviteFailed: 'Die Einladung wurde nicht abgeschlossen (Status {status}). Es werden keine Kontodetails angezeigt.',
+      alertEmailFailedTitle: 'Konto erstellt, E-Mail nicht gesendet',
       alertEmailFailedMessage:
-        'Benutzer „{username}“ wurde erstellt, aber die E-Mail zur Passworteinrichtung konnte nicht gesendet werden:\n\n{error}\n\nSobald SMTP funktioniert, klicken Sie bei diesem Benutzer auf „Passwort zurücksetzen“, um die E-Mail erneut zu senden.',
+        'Das Konto wurde erstellt, aber die Anmelde-E-Mail wurde nicht gesendet. Öffnen Sie Benachrichtigungen, korrigieren Sie SMTP und nutzen Sie Passwort zurücksetzen beim neuen Konto. Diese Meldung enthält keine Adresse.',
     },
     edit: {
       title: 'Benutzer bearbeiten',
@@ -3606,6 +4356,8 @@ export const de: Partial<CatalogShape> = {
     errors: {
       moveRepeatInAttachment: "Can't move a repeating group inside an attachment group. Each attachment is already one repeat instance, so a nested repeat here would mean attachment-of-attachment, which the data model doesn't support.",
       saveFailed: "Save failed.",
+      repeatGroupUnbound:
+        "Repeat group {groups} has no related table in the linked layer to save its rows into. Rebuild it with \"Start from a data layer\" from one of the layer's related tables, or remove it.",
       layerSyncFailed: "Form saved, but couldn't update the linked layer's columns: {detail}",
       invalidJson: "That file is not valid JSON.",
       questionIdUsed: "Question id \"{id}\" is already used.",
@@ -3643,7 +4395,7 @@ export const de: Partial<CatalogShape> = {
       defaultLookbackHint: "Pre-filter to N days back from now. Blank = show all.",
       hideSubmitter: "Hide submitter",
       hideSubmitterHint: "For anonymous-feedback workflows.",
-      persistNote: "Look-back and Hide submitter persist on the form schema; the runtime hooks land in a follow-up.",
+      persistNote: "Look-back and Hide submitter are not available yet. The Responses page does not read them, so it still shows every response and who submitted it.",
       tools: {
         select: "Select",
         selectHint: "Pick responses to inspect.",
@@ -3896,6 +4648,7 @@ export const de: Partial<CatalogShape> = {
         in: "contains",
         between: "between",
         matches: "matches pattern",
+        notEmpty: "is not empty",
       },
     },
     dependents: {
@@ -3964,6 +4717,8 @@ export const de: Partial<CatalogShape> = {
       matchAny: "any match",
       of: "of:",
       removeConditionAria: "Remove condition",
+      rawRule:
+        "This part of the expression can't be shown as a row. It is kept as it is when you save.",
       removeGroupAria: "Remove group",
       cancel: "Cancel",
       save: "Save",
@@ -3989,6 +4744,7 @@ export const de: Partial<CatalogShape> = {
         in: "string or list contains a value",
         between: "value falls in a range",
         matches: "regex match",
+        notEmpty: "has an answer (text, a choice or a list)",
       },
       functionsIntro:
         "Reference for the calculate / default editor. Click a signature to copy it to the clipboard. The row-based editor on the left works in field-op-value form, so functions can't be inserted into rules directly.",
@@ -4191,10 +4947,18 @@ export const de: Partial<CatalogShape> = {
     latitude: "Breitengrad",
     longitude: "Längengrad",
     geolocationUnsupported: "Geolokalisierung wird auf diesem Gerät nicht unterstützt.",
+    mapPickerAria: "Karte zur Auswahl des Standorts",
+    mapPickerHint: "Tippe auf die Karte oder ziehe die Markierung, um den Standort festzulegen.",
+    mapPickerFailed: 'Die Karte konnte nicht geladen werden. Nutzen Sie GPS oder geben Sie die Koordinaten ein.',
+    signatureAria: "Unterschriftenfeld",
+    signatureHint: "Unterschreibe im Feld mit Finger, Stift oder Maus.",
+    signatureSigned: "Unterschrieben",
     ranked: "Rangfolge",
     available: "Verfügbar",
     rankingEmpty: "Noch keine Einträge in der Rangfolge. Tippen Sie unten auf einen Eintrag.",
     removeFromRankingAria: "Aus der Rangfolge entfernen",
+    rankUpAria: "In der Rangfolge nach oben",
+    rankDownAria: "In der Rangfolge nach unten",
     placeholders: {
       signature: "Signature pad",
       photo: "Photo capture",
@@ -4356,24 +5120,27 @@ export const de: Partial<CatalogShape> = {
       nothingVisibleDescribe: "Nothing visible to describe.",
     },
     errors: {
-      clickToOutline: "Click a building, pond, or lot to outline-solid it.",
+      clickToOutline: "Click a building, pond, or lot to outline it.",
       couldNotGetLocation: "Could not get location.",
       couldNotLoadData: "Could not load data.",
       couldNotLoadValues: "Could not load values.",
       geolocationUnavailable: "Geolocation is not available in this browser.",
       loadSchemaFailed: "Failed to load schema",
       moveCursorOverMap: "Move cursor over the bound map",
-      needImageryLayer: "Add an imagery layer to this map to outline-solid from it.",
+      needImageryLayer: "Add an imagery layer to this map to outline from it.",
       noBoundMapTarget: "No bound map / target.",
       noEditableLayer: "No editable layer set. Add one in the app settings.",
       noFeaturesInViewport: "No features in the current viewport.",
+      exportNoFeatures: "This layer has no features to export.",
+      exportFailed: "Export failed: {message}",
       noFeaturesSelected: "No features selected on the bound map.",
       outlineAdded: "Outline added.",
       outlineReview: "Review the outline, then Save or Discard.",
-      outlineToolProblem: "The outline-solid tool hit a problem.",
+      outlineToolProblem: "The outline tool hit a problem.",
       outlining: "Outlining...",
       pickNumberField: "Pick a number field to {aggregate}.",
       printPopupBlocked: "Could not open the print preview window.  Allow popups for this site and try again.",
+      printSnapshotTooLarge: "The map snapshot was too large to pass to the print page, so the print shows a placeholder map. Try a smaller window.",
       savePrompt: "Save these features as a new data layer. Choose a name:",
       selectedNotInViewport: "Selected features are not in the current viewport.",
       submitFailed: "Submit failed",
@@ -4383,6 +5150,11 @@ export const de: Partial<CatalogShape> = {
     export: {
       hint: "Exports the features currently loaded for this layer (the map viewport plus its surrounding tile cache).  For a full-layer dump including related tables + attachments, use the bundle export on the data layer's detail page.",
     },
+    legend: {
+      under: "under {value}",
+      andUp: "{value} and up",
+      range: "{lo} to {hi}",
+    },
     features: {
       addingTo: "Adding to",
       clickEditable: "Click an editable feature on the map to edit it. Click here again to exit edit mode.",
@@ -4390,6 +5162,7 @@ export const de: Partial<CatalogShape> = {
       multiVertexNote: "(Note: only single-point placement is supported in this first cut; multi-vertex sketching for lines / polygons is queued as a follow-up.)",
       pickLayerToAdd: "Pick a layer to add to",
       placeOnMap: "click on the map to place the new {geometryType}.",
+      sketchUnsupported: "Adding a {geometryType} here is not supported yet: this widget can only place single points. Use the map editor to draw it.",
       reselectFeatures: "Reselect the features on the map, then try again.",
       selectOnMapFirst: "Select feature(s) on the bound map first.",
       timeTravelDisabled: "Editing is disabled while viewing a past snapshot. Reset the time slider to enable.",
@@ -4438,7 +5211,6 @@ export const de: Partial<CatalogShape> = {
       layers: "Ebenen",
       legend: "Legend",
       magicOutline: "Magic outline",
-      magicOutlineSolid: "Magic outline-solid",
       myLocation: "My Location",
       myLocationShort: "My location",
       print: "Drucken",
@@ -4616,6 +5388,7 @@ export const de: Partial<CatalogShape> = {
       'Layer erstellen erfordert die Rolle Mitwirkender oder Administrator.',
     jobStartFailed: 'Der Auftrag konnte nicht gestartet werden.',
     intervalRequired: 'Geben Sie eine Hoehe zwischen den Linien ein.',
+    intervalTooSmall: "Der Abstand muss mindestens {min} betragen.",
     zoneRequired: 'Waehlen Sie einen Polygon-Datenlayer fuer die Zonen.',
     labelContours: 'Hoehenlinien',
     labelSteepness: 'Steilheitskarte',
@@ -4646,6 +5419,8 @@ export const de: Partial<CatalogShape> = {
       'That is {tiles} images totalling {bytes}. Building the mosaic would take {duration}, beyond what this server allows in one job. Split it into smaller mosaics.',
     errPartialUpload:
       '{failed} of {total} images did not upload ({names}).',
+    errNetwork: "Das Portal war nicht erreichbar. Ihre hochgeladenen Bilder bleiben erhalten; versuchen Sie es erneut.",
+    errRetryHttp: "Der Build konnte nicht erneut gestartet werden (HTTP {status}).",
     errMosaicStartHttp:
       'Could not start the mosaic build (HTTP {status}).',
     progressUploadingImages: 'Uploading {count} images...',
@@ -4701,6 +5476,16 @@ export const de: Partial<CatalogShape> = {
     modeSqlTitle: "SQL direkt bearbeiten",
     starterColumnProfile: "Spaltenprofil",
     starterGeometrySummary: "Geometrie-Zusammenfassung",
+    starterPreview: "Vorschau",
+    starterCountBy: "Zählen nach {field}",
+    sqlFooterLayerAvailable: "Die Ebene ist verfügbar als",
+    sqlFooterSpatialLead: "Räumliches SQL funktioniert auf der",
+    sqlFooterSpatialMid:
+      "Spalte für CRS-sichere Transformationen und Sphäroidmaße (Fläche, Länge). Meterpuffer brauchen PROJ-Daten, die diese Browser-Engine nicht mitliefert — nutzen Sie",
+    sqlFooterSpatialTail:
+      "oben, um eine PostGIS-abgeleitete Ebene zu erstellen statt einer Grad-Einheiten-Falle.",
+    sqlFooterSpatialUnavailable:
+      "Die Spatial-Erweiterung konnte nicht geladen werden, daher ist die geometry-Spalte rohes WKB und für diese Sitzung nur Attribut-SQL verfügbar.",
     browserOnlyHint: "Läuft in Ihrem Browser. Der Server sieht keine Abfrage.",
     sqlAriaLabel: "SQL-Abfrage",
     run: "Ausführen (Strg+Enter)",
@@ -4746,9 +5531,377 @@ export const de: Partial<CatalogShape> = {
     clipHint: "Bevorzugen Sie eine Polygon-Ebene als Ausstecher. Leserecht erforderlich. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren.",
     clipValidateEmpty: "Wählen Sie eine Clip-Ebene (eine lesbare Polygon-Datenebene).",
     clipValidateSelf: "Wählen Sie eine andere Ebene; eine Ebene kann sich hier nicht selbst ausschneiden.",
+    eraseAction: "Diese Ebene löschen (Erase)",
+    eraseActionTitle:
+      "Serverseitigen Derived-Layer-Erase (PostGIS) gegen eine andere Datenebene erstellen.",
+    eraseHeading: "Diese Ebene löschen (serverseitiger Derived Layer)",
+    eraseIntroBefore: "Erstellt einen privaten Derived Layer, der",
+    eraseIntroAfter:
+      "auf PostGIS gegen eine lesbare Datenebene ausführt. Gleiches Rezept wie",
+    eraseHelpLink: "Erase-Hilfe",
+    eraseIntroTail:
+      ". Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.",
+    eraseByLabel: "Löschen mit Datenebene",
+    erasePickPlaceholder: "Ebene wählen…",
+    eraseLoadFailed: "Datenebenen zum Löschen konnten nicht geladen werden.",
+    eraseHint:
+      "Bevorzugen Sie eine Polygon-Ebene als Maske. Leserecht erforderlich. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren.",
+    eraseValidateEmpty:
+      "Wählen Sie eine Erase-Maske (eine lesbare Polygon-Datenebene).",
+    eraseValidateSelf:
+      "Wählen Sie eine andere Ebene als Maske; eine Ebene kann sich hier nicht selbst löschen.",
+    centroidAction: "Schwerpunkte dieser Ebene",
+    centroidActionTitle:
+      "Serverseitigen Derived Layer mit geometrischen Schwerpunkten erstellen (PostGIS ST_Centroid).",
+    centroidHeading: "Schwerpunkte dieser Ebene (serverseitiger Derived Layer)",
+    centroidIntroBefore: "Erstellt einen privaten Derived Layer, der",
+    centroidIntroAfter:
+      "auf PostGIS für jedes Feature ausführt. Nur geometrischer Schwerpunkt (kein Pol der Unzugänglichkeit). Gleiches Rezept wie",
+    centroidHelpLink: "Centroid-Hilfe",
+    centroidIntroTail:
+      ". Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.",
+    centroidHint:
+      "Nur geometrischer Schwerpunkt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.",
+
+    dissolveAction: 'Diese Ebene auflösen',
+    dissolveActionTitle:
+      'Serverseitigen Derived-Layer-Dissolve erstellen (PostGIS ST_Union). Attribute werden verworfen.',
+    dissolveHeading: 'Diese Ebene auflösen (serverseitiger Derived Layer)',
+    dissolveIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    dissolveIntroAfter:
+      'auf PostGIS zu einem Feature ausführt und Attribute verwirft. Gleiches Rezept wie',
+    dissolveHelpLink: 'Dissolve-Hilfe',
+    dissolveIntroTail:
+      '. Für schlüsselbasiertes Dissolve mit Aggregaten Group by nutzen. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    dissolveHint:
+      'Attribute werden verworfen. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    simplifyAction: 'Diese Ebene vereinfachen',
+    simplifyActionTitle:
+      'Serverseitigen Derived-Layer-Simplify erstellen (PostGIS ST_Simplify). Meter-ehrliche Toleranz.',
+    simplifyHeading: 'Diese Ebene vereinfachen (serverseitiger Derived Layer)',
+    simplifyIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    simplifyIntroAfter:
+      'auf PostGIS mit meter-ehrlicher Toleranz ausführt (Douglas–Peucker). Gleiches Rezept wie',
+    simplifyHelpLink: 'Simplify-Hilfe',
+    simplifyIntroTail:
+      '. Nicht topologieerhaltend. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    simplifyTolerance: 'Toleranz',
+    simplifyToleranceAria: 'Vereinfachungstoleranz',
+    simplifyUnit: 'Einheit',
+    simplifyUnitAria: 'Einheit der Vereinfachungstoleranz',
+    simplifyLimitHint:
+      'Bis zu {meters} m. Erwarten Sie einen kurzen Server-Job; öffnen Sie das neue Element zum Kartieren oder Aktualisieren.',
+    simplifyValidateUnit: 'Wählen Sie eine Toleranzeinheit.',
+    simplifyValidateEmpty: 'Geben Sie eine Toleranz größer als null ein.',
+    simplifyValidateMax: 'Die Toleranz darf höchstens {meters} m betragen.',
+    densifyAction: 'Diese Ebene verdichten',
+    densifyActionTitle:
+      'Serverseitigen Derived Layer verdichten (PostGIS ST_Segmentize auf geography). Meter-ehrliche max. Segmentlänge.',
+    densifyHeading: 'Diese Ebene verdichten (serverseitiger Derived Layer)',
+    densifyIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    densifyIntroAfter:
+      'auf geography mit meter-ehrlicher max. Segmentlänge ausführt. Gleiches Rezept wie',
+    densifyHelpLink: 'Densify-Hilfe',
+    densifyIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    densifyMaxSegment: 'Max. Segmentlänge',
+    densifyMaxSegmentAria: 'Maximale Segmentlänge für Densify',
+    densifyUnit: 'Einheit',
+    densifyUnitAria: 'Einheit der max. Segmentlänge',
+    densifyLimitHint:
+      '{minMeters}–{maxMeters} m. Erwarten Sie einen kurzen Server-Job; öffnen Sie das neue Element zum Kartieren oder Aktualisieren.',
+    densifyValidateUnit: 'Wählen Sie eine Einheit für die Segmentlänge.',
+    densifyValidateEmpty:
+      'Geben Sie eine max. Segmentlänge größer als null ein.',
+    densifyValidateMin:
+      'Die max. Segmentlänge muss mindestens {meters} m betragen.',
+    densifyValidateMax:
+      'Die max. Segmentlänge darf höchstens {meters} m betragen.',
+
+    qbFields: 'Felder',
+    qbFieldsNoneSelected: '(keine Auswahl = alle)',
+    qbFilters: 'Filter (alle müssen zutreffen)',
+    qbAddFilter: 'Filter hinzufügen',
+    qbFilterFieldAria: 'Filterfeld',
+    qbFilterOpAria: 'Filteroperator',
+    qbFilterValueAria: 'Filterwert',
+    qbRemoveFilterAria: 'Filter entfernen',
+    qbPickValue: '(Wert wählen)',
+    qbValuePlaceholder: 'Wert',
+    qbGeometry: 'Geometrie',
+    qbSpatialKeep: 'Originalformen behalten',
+    qbSpatialCentroid: 'Schwerpunkte',
+    qbSpatialPointOnSurface: 'Punkte in jeder Form',
+    qbSpatialConvexHull: 'Konvexe Hüllen',
+    qbSpatialEnvelope: 'Begrenzungsrahmen',
+    qbMeasureArea: 'Fläche (m²)',
+    qbMeasurePerimeter: 'Umfang (m)',
+    qbMeasureLength: 'Länge (m)',
+    qbGroupBy: 'Gruppieren nach',
+    qbNoGrouping: '(keine Gruppierung)',
+    qbAlso: 'Auch',
+    qbCountOnly: '(nur Anzahl)',
+    qbSumOf: 'Summe von',
+    qbAvgOf: 'Durchschnitt von',
+    qbMinOf: 'Min. von',
+    qbMaxOf: 'Max. von',
+    qbPickField: '(Feld wählen)',
+    qbSort: 'Sortieren',
+    qbSortNone: '(keine)',
+    qbSortCount: 'Anzahl',
+    qbAscending: 'aufsteigend',
+    qbDescending: 'absteigend',
+    qbLimit: 'Limit',
+    qbOpEquals: 'gleich',
+    qbOpNotEquals: 'ungleich',
+    qbOpContains: 'enthält',
+    qbOpStartsWith: 'beginnt mit',
+    qbOpEmpty: 'ist leer',
+    qbOpNotEmpty: 'ist nicht leer',
+    qbOpIsNot: 'ist nicht',
+
+    convexHullAction: 'Konvexe Hüllen für diese Ebene',
+    convexHullActionTitle:
+      'Serverseitigen Derived Layer mit konvexen Hüllen pro Feature erstellen (PostGIS ST_ConvexHull).',
+    convexHullHeading:
+      'Konvexe Hüllen für diese Ebene (serverseitiger Derived Layer)',
+    convexHullIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    convexHullIntroAfter:
+      'auf PostGIS für jedes Feature ausführt (Attribute bleiben). Keine einzelne Hülle für die ganze Ebene. Gleiches Rezept wie',
+    convexHullHelpLink: 'Hilfe Konvexe Hülle',
+    convexHullIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    convexHullHint:
+      'Nur Hüllen pro Feature. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    bboxAction: 'Begrenzungsrahmen für diese Ebene',
+    bboxActionTitle:
+      'Serverseitigen Derived Layer mit Begrenzungsrahmen pro Feature erstellen (PostGIS ST_Envelope).',
+    bboxHeading:
+      'Begrenzungsrahmen für diese Ebene (serverseitiger Derived Layer)',
+    bboxIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    bboxIntroAfter:
+      'auf PostGIS für jedes Feature ausführt (Attribute bleiben). Kein einzelner Rahmen für die ganze Ebene. Gleiches Rezept wie',
+    bboxHelpLink: 'Hilfe Begrenzungsrahmen',
+    bboxIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    bboxHint:
+      'Nur Rahmen pro Feature. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    verticesAction: 'Stützpunkte für diese Ebene',
+    verticesActionTitle:
+      'Serverseitigen Derived Layer mit Stützpunkten erstellen (PostGIS ST_DumpPoints). Die Zeilenzahl kann stark wachsen.',
+    verticesHeading:
+      'Stützpunkte für diese Ebene (serverseitiger Derived Layer)',
+    verticesIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    verticesIntroAfter:
+      'auf PostGIS ausführt (fügt vertex_index hinzu). Die Zeilenzahl kann bei dichten Formen explodieren; MULTI*-Teile werden zusammen ausgegeben. Gleiches Rezept wie',
+    verticesHelpLink: 'Hilfe Stützpunkte',
+    verticesIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    verticesHint:
+      'Ein Punkt pro Stützpunkt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    calcGeomAction: 'Geometrie für diese Ebene berechnen',
+    calcGeomActionTitle:
+      'Serverseitigen Derived Layer mit Länge, Umfang oder Fläche erstellen (PostGIS-Geographie). Keine Calculate-field-Ausdrücke.',
+    calcGeomHeading:
+      'Geometrie für diese Ebene berechnen (serverseitiger Derived Layer)',
+    calcGeomIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    calcGeomIntroAfter:
+      'auf geography mit gewählter Einheit in ein neues Zahlenfeld ausführt. Gleiches Rezept wie',
+    calcGeomHelpLink: 'Hilfe Berechnen',
+    calcGeomIntroTail:
+      '. Keine Calculate-field-Ausdrücke. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    calcGeomMeasurementAria: 'Messung',
+    calcGeomMeasurement_length: 'Länge',
+    calcGeomMeasurement_perimeter: 'Umfang',
+    calcGeomMeasurement_area: 'Fläche',
+    calcGeomUnit: 'Einheit',
+    calcGeomUnitAria: 'Maßeinheit',
+    calcGeomFieldName: 'Feldname',
+    calcGeomFieldNameAria: 'Name des Ausgabefelds',
+    calcGeomHint:
+      'Geography-Maße in ehrlichen Einheiten. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    calcGeomValidateFieldEmpty: 'Geben Sie einen Feldnamen ein.',
+    calcGeomValidateFieldReserved: 'Feldname „{name}“ ist reserviert.',
+    calcGeomValidateFieldFormat:
+      'Der Name muss mit einem Buchstaben oder Unterstrich beginnen und darf nur Buchstaben, Ziffern und Unterstriche enthalten.',
+    calcGeomValidateAreaUnit: 'Wählen Sie eine Flächeneinheit.',
+    calcGeomValidateLengthUnit: 'Wählen Sie eine Längeneinheit.',
+    nnAction: 'Nächster Nachbar für diese Ebene',
+    nnActionTitle:
+      'Serverseitigen Derived Layer erstellen, der nearest_distance_m hinzufügt (geographischer Self-Join derselben Ebene). O(N²).',
+    nnHeading:
+      'Nächster Nachbar für diese Ebene (serverseitiger Derived Layer)',
+    nnIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    nnIntroAfter:
+      'über einen PostGIS-Geographie-Self-Join hinzufügt (Meter zum nächsten anderen Feature). Nur dieselbe Ebene; O(N²); eine einzeilige Ebene ergibt NULL. Gleiches Rezept wie',
+    nnHelpLink: 'Hilfe Nächster Nachbar',
+    nnIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    nnHint:
+      'Nur dieselbe Ebene. Große Ebenen können langsam sein (O(N²)). Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    fishnetAction: 'Fishnet für diese Ebene',
+    fishnetActionTitle:
+      'Serverseitigen Derived-Layer-Fishnet erstellen (PostGIS ST_SquareGrid). Nur Polygon-Ebenen.',
+    fishnetHeading: 'Fishnet für diese Ebene (serverseitiger Derived Layer)',
+    fishnetIntroBefore: 'Erstellt einen privaten Derived Layer, der',
+    fishnetIntroAfter:
+      'auf PostGIS über diese Polygon-Ebene ausführt (quadratische Zellen, an die Quelle geclippt). Gleiches Rezept wie',
+    fishnetHelpLink: 'Hilfe Fishnet',
+    fishnetIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    fishnetCellSize: 'Zellgröße',
+    fishnetCellSizeAria: 'Fishnet-Zellgröße',
+    fishnetUnit: 'Einheit',
+    fishnetUnitAria: 'Einheit der Fishnet-Zellgröße',
+    fishnetOutput: 'Ausgabe',
+    fishnetOutputAria: 'Fishnet-Ausgabemodus',
+    fishnetOutput_polygons: 'Polygone',
+    fishnetOutput_lines: 'Linien',
+    fishnetLimitHint:
+      'Zellgröße {minMeters}–{maxMeters} m. Sehr feine Gitter auf großen Ausdehnungen können die Speicher-Obergrenze von ~{maxCells} Zellen treffen. Öffnen Sie das neue Element, wenn der Server-Job fertig ist.',
+    fishnetValidateUnit: 'Wählen Sie eine Einheit für die Zellgröße.',
+    fishnetValidateEmpty: 'Geben Sie eine Zellgröße größer als null ein.',
+    fishnetValidateMin: 'Die Zellgröße muss mindestens {meters} m betragen.',
+    fishnetValidateMax: 'Die Zellgröße darf höchstens {meters} m betragen.',
+    fishnetValidateOutput: 'Wählen Sie Polygon- oder Linienausgabe.',
+    topNAction: 'Top N für diese Ebene',
+    topNActionTitle:
+      'Serverseitigen Derived Layer erstellen, der die Top-N-Zeilen nach einem Zahlenfeld behält.',
+    topNHeading: 'Top N für diese Ebene (serverseitiger Derived Layer)',
+    topNIntroBefore:
+      'Erstellt einen privaten Derived Layer, der die N Zeilen mit dem höchsten oder niedrigsten Zahlenfeldwert behält (NULLs zuletzt). Gleiches Rezept wie',
+    topNHelpLink: 'Hilfe Top N',
+    topNIntroTail:
+      '. Erwarten Sie einen kurzen Server-Job, kein Sofortergebnis im Browser.',
+    topNField: 'Zahlenfeld',
+    topNFieldAria: 'Zahlenfeld für Top N',
+    topNN: 'N',
+    topNNAria: 'Anzahl der zu behaltenden Zeilen',
+    topNDirection: 'Richtung',
+    topNDirectionAria: 'Sortierrichtung',
+    topNDir_desc: 'höchste zuerst',
+    topNDir_asc: 'niedrigste zuerst',
+    topNPickField: 'Zahlenfeld wählen…',
+    topNNoNumeric: 'Keine Zahlenfelder auf dieser Ebene',
+    topNHint:
+      'N bis {max}. NULLs sortieren zuletzt. Öffnen Sie das neue Element zum Kartieren oder Aktualisieren, wenn der Server-Job fertig ist.',
+    topNValidateNoNumeric: 'Diese Ebene hat keine Zahlenfelder für Top N.',
+    topNValidateField: 'Wählen Sie ein Zahlenfeld.',
+    topNValidateN: 'N muss eine positive ganze Zahl sein.',
+    topNValidateMax: 'N darf höchstens {max} sein.',
+    topNValidateDirection: 'Wählen Sie aufsteigend oder absteigend.',
+    randomSampleAction: 'Zufallsstichprobe für diese Layer',
+    randomSampleActionTitle:
+      'Erstellt einen serverseitigen abgeleiteten Layer mit einer deterministischen Zufallsstichprobe.',
+    randomSampleHeading: 'Zufallsstichprobe für diese Layer (abgeleiteter Server-Layer)',
+    randomSampleIntroBefore:
+      'Erstellt einen privaten abgeleiteten Layer, der einen Prozentsatz oder eine genaue Anzahl Zeilen behält, mit stabilem Seed (nicht Postgres random()). Gleiches Rezept wie',
+    randomSampleHelpLink: 'Hilfe Zufallsstichprobe',
+    randomSampleIntroTail:
+      '. Erwarten Sie einen kurzen Serverjob, kein sofortiges Browserergebnis.',
+    randomSampleMode: 'Modus',
+    randomSampleModeAria: 'Zufallsstichproben-Modus',
+    randomSampleMode_percentage: 'Prozent',
+    randomSampleMode_count: 'genaue Anzahl',
+    randomSampleValuePct: 'Prozent',
+    randomSampleValueCount: 'Anzahl',
+    randomSampleValueAria: 'Stichprobengröße',
+    randomSampleSeed: 'Seed',
+    randomSampleSeedAria: 'Zufallsstichproben-Seed',
+    randomSampleShuffle: 'Neu mischen',
+    randomSampleShuffleTitle: 'Neuen Seed würfeln (nur clientseitig)',
+    randomSampleHint:
+      'Prozent 0–100 oder Anzahl bis {max}. Gleicher Seed wiederholt die gleiche Stichprobe; Neu mischen vor dem Erstellen wählt eine neue. Öffnen Sie das neue Element nach dem Serverjob.',
+    randomSampleValidateMode: 'Wählen Sie Prozent- oder Anzahlmodus.',
+    randomSampleValidateValue: 'Wert muss eine positive Zahl sein.',
+    randomSampleValidatePct: 'Prozent darf höchstens 100 sein.',
+    randomSampleValidateCount: 'Anzahl muss eine positive ganze Zahl sein.',
+    randomSampleValidateMax: 'Anzahl darf höchstens {max} sein.',
+    randomSampleValidateSeed: 'Seed muss eine von Null verschiedene ganze Zahl sein.',
+    contourAction: 'Höhenlinien für diese Layer',
+    contourActionTitle:
+      'Server-seitige abgeleitete Layer mit TIN-Isolinien aus einem numerischen Feld erstellen (nur Punktlayer).',
+    contourHeading: 'Höhenlinien für diese Layer (server-seitige abgeleitete Layer)',
+    contourIntroBefore:
+      'Erstellt eine private abgeleitete Layer, die ein Delaunay-TIN baut und Isolinien mit Auto-Intervall (optional min/max) ausgibt. Nur Linien mit level-Eigenschaft — keine Iso-Polygone. Gleiches Rezept wie',
+    contourHelpLink: 'Hilfe zu Höhenlinien',
+    contourIntroTail:
+      '. Erwarten Sie einen Server-Job; dichte Punktmengen können langsam sein.',
+    contourField: 'Numerisches Feld',
+    contourFieldAria: 'Numerisches Feld für Höhenlinien',
+    contourInterval: 'Intervall',
+    contourIntervalAria: 'Höhenlinien-Intervall',
+    contourMin: 'Min (optional)',
+    contourMinAria: 'Optionales Mindestniveau',
+    contourMax: 'Max (optional)',
+    contourMaxAria: 'Optionales Höchstniveau',
+    contourOptional: 'auto',
+    contourPickField: 'Numerisches Feld wählen…',
+    contourNoNumeric: 'Keine numerischen Felder auf diesem Layer',
+    contourHint:
+      'Auto-Niveaus rasten am Intervall im Feldbereich ein (etwa {max} Niveaus max). Manuelle Listen bleiben unter Erstellen → Abgeleitete Layer. Öffnen Sie das neue Element nach dem Server-Job.',
+    contourValidateNoNumeric: 'Dieser Layer hat keine numerischen Felder für Höhenlinien.',
+    contourValidateField: 'Wählen Sie ein numerisches Feld.',
+    contourValidateInterval: 'Intervall muss eine positive Zahl sein.',
+    contourValidateRange: 'Min muss streng kleiner als Max sein, wenn beide gesetzt sind.',
+    groupByAction: 'Gruppieren für diese Layer',
+    groupByActionTitle:
+      'Server-seitige abgeleitete Layer erstellen, die Zeilen nach einem Schlüssel mit einem Aggregat zusammenfasst (ST_Union-Geometrie).',
+    groupByHeading: 'Gruppieren für diese Layer (server-seitige abgeleitete Layer)',
+    groupByIntroBefore:
+      'Erstellt eine private abgeleitete Layer mit einem Gruppenschlüssel (oder ganzer Layer) und einem Aggregat (count / sum / avg). Geometrie ist immer ST_Union pro Gruppe. Gleiches Rezept wie',
+    groupByHelpLink: 'Hilfe zu Gruppieren',
+    groupByIntroTail:
+      '. Mehrere Schlüssel / Aggregate bleiben unter Erstellen → Abgeleitete Layer. Erwarten Sie einen Server-Job.',
+    groupByKey: 'Gruppenschlüssel',
+    groupByKeyAria: 'Feld zum Gruppieren (optional)',
+    groupByWholeLayer: 'Ganze Layer (kein Schlüssel)',
+    groupByOp: 'Aggregat',
+    groupByOpAria: 'Aggregatoperation',
+    groupByOp_count: 'count',
+    groupByOp_sum: 'sum',
+    groupByOp_avg: 'avg',
+    groupByAggField: 'Numerisches Feld',
+    groupByAggFieldAria: 'Numerisches Feld für sum oder avg',
+    groupByPickNumeric: 'Numerisches Feld wählen…',
+    groupByNoNumeric: 'Keine numerischen Felder auf diesem Layer',
+    groupByOutput: 'Ausgabename',
+    groupByOutputAria: 'Spaltenname des Aggregats',
+    groupByHint:
+      'NULL-Werte im Gruppenschlüssel bilden eine eigene Gruppe. Große Unions können langsam sein. Öffnen Sie das neue Element nach dem Server-Job.',
+    groupByValidateKey: 'Wählen Sie einen Schlüssel auf diesem Layer oder die ganze Layer.',
+    groupByValidateOp: 'Wählen Sie count, sum oder avg.',
+    groupByValidateAggField: 'Wählen Sie ein numerisches Feld für sum oder avg.',
+    groupByValidateOutput: 'Ausgabename muss eine Feld-ID mit Buchstabe/Unterstrich sein.',
+    groupByValidateOutputCollision: 'Ausgabename darf nicht mit dem Gruppenschlüssel kollidieren.',
+
+    /** Past runs shelf (analyze-run-history). */
+    pastRunsHeading: 'Frühere Läufe',
+    pastRunsHint:
+      'Ihre Derived Layers aus dieser Ebene. Erneut ausführen legt eine neue private Kopie an; Bearbeiten und erneut ausführen öffnet die passende Anleitung.',
+    pastRunsLoading: 'Frühere Läufe werden geladen…',
+    pastRunsEmpty: 'Noch keine Derived Layers aus dieser Ebene.',
+    pastRunsLoadFailed: 'Frühere Läufe konnten nicht geladen werden ({status}).',
+    pastRunsRetry: 'Erneut versuchen',
+    pastRunsRefresh: 'Aktualisieren',
+    pastRunsUnknownDate: 'unbekanntes Datum',
+    pastRunsRerun: 'Erneut ausführen',
+    pastRunsRerunTitleAttr:
+      'Neuen privaten Derived Layer mit demselben Rezept erstellen',
+    pastRunsEdit: 'Bearbeiten und erneut ausführen',
+    pastRunsEditTitleAttr:
+      'Analyze-Anleitung für dieses Werkzeug öffnen, um Parameter zu ändern',
+    pastRunsRerunTitle: '{title} (erneut)',
+    pastRunsRerunDescription:
+      'Erneuter Lauf von „{title}“ aus dem Analyze-Regal Frühere Läufe.',
+    pastRunsRerunToast: 'Derived Layer „{title}“ erstellt',
+    pastRunsRerunFailed:
+      'Derived Layer konnte nicht erneut ausgeführt werden ({status}): {detail}',
   },
 
   serviceEditors: {
+    probeSaveUrlFirst:
+      "Dieser Dienst braucht ein Passwort, daher liest Prüfen die gespeicherte URL. Speichern Sie zuerst die neue URL und prüfen Sie dann erneut.",
     connection: "Verbindung",
     serviceEndpoint: "Dienst-Endpunkt",
     probe: "Prüfen",
@@ -4765,6 +5918,8 @@ export const de: Partial<CatalogShape> = {
     saving: "Wird gespeichert...",
     saved: "Gespeichert",
     saveFailed: "Speichern fehlgeschlagen.",
+    reprobeBeforeSave: "Prüfen Sie die neue URL vor dem Speichern. Die Layer-Liste stammt aus der Prüfung.",
+    pickAtLeastOneLayer: "Wählen Sie vor dem Speichern mindestens einen Layer aus.",
     selectAll: "Alle auswählen",
     selectAllShort: "Alle",
     selectNoneShort: "Keine",
@@ -4795,6 +5950,33 @@ export const de: Partial<CatalogShape> = {
       '{inserted, plural, one {# Feature} other {# Features}} kopiert (Limit von {cap} erreicht). Öffnen Sie die neue Datenebene, oder nutzen Sie Admin → Migrationen für einen vollständigen Import.',
   },
 
+
+  pwaInstall: {
+    install: 'Installieren',
+    installTitleIos:
+      'GratisGIS auf diesem Gerät installieren (Teilen tippen, dann Zum Home-Bildschirm)',
+    installTitleAndroid:
+      'GratisGIS auf diesem Gerät für offlinefreundlichen Speicher installieren',
+    bannerTitle: 'GratisGIS für besseren Offline-Support installieren',
+    bannerIosHint:
+      'iOS hebt die 1-GB-Speichergrenze nach der Installation auf.',
+    bannerAndroidHint:
+      'Fügt ein Symbol zum Home-Bildschirm hinzu und schützt zwischengespeicherte Daten vor dem Aufräumen.',
+    dismissAria: 'Schließen',
+    iosDialogTitle: 'Unter iOS installieren',
+    iosStep1Before: 'Tippen Sie unten in Safari auf ',
+    iosStep1Share: 'Teilen',
+    iosStep1After: ' (das Quadrat mit dem Pfeil nach oben).',
+    iosStep2Before: 'Scrollen Sie nach unten und tippen Sie auf ',
+    iosStep2Action: 'Zum Home-Bildschirm',
+    iosStep2After: '.',
+    iosStep3Before: 'Tippen Sie oben rechts auf ',
+    iosStep3Action: 'Hinzufügen',
+    iosStep3After: '.',
+    iosDialogDesc:
+      'Nach der Installation behält GratisGIS Speicher zuverlässiger, und die iOS-Grenze von 1 GB für Webspeicher gilt nicht mehr.',
+    gotIt: 'Verstanden',
+  },
 
   settingsNotifications: {
     backToProfile: 'Zurück zum Profil',

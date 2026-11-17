@@ -99,6 +99,11 @@ export function MapSettingsSection({
     availableGeocoders,
     viewScopeLabel: t('mapSettings.viewScope'),
     defaultExtentLabel: t('mapSettings.defaultExtent'),
+    summaryNone: t('mapSettings.summaryNone'),
+    summarySavedCamera: t('mapSettings.summarySavedCamera'),
+    summaryDeleted: t('mapSettings.summaryDeleted'),
+    summaryNominatim: t('mapSettings.summaryNominatim'),
+    summarySearchLabel: t('mapSettings.summarySearchLabel'),
   });
 
   return (
@@ -136,10 +141,9 @@ export function MapSettingsSection({
             label={t('mapSettings.viewScope')}
             description={
               <>
-                Clip every layer in this map to a boundary so only
-                features inside it render.{' '}
-                <strong>Not access control:</strong> the underlying
-                layers still serve their full data.
+                {t('mapSettings.viewScopeDescLead')}{' '}
+                <strong>{t('mapSettings.viewScopeDescNotAcl')}</strong>{' '}
+                {t('mapSettings.viewScopeDescNotAclBody')}
               </>
             }
             footerHint={
@@ -154,7 +158,7 @@ export function MapSettingsSection({
               onChange={(e) => setClipBoundaryId(e.target.value)}
               className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="">(no clip)</option>
+              <option value="">{t('mapSettings.optionNoClip')}</option>
               {geoBoundaries.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.title}
@@ -165,12 +169,7 @@ export function MapSettingsSection({
 
           <SettingRow
             label={t('mapSettings.defaultExtent')}
-            description={
-              <>
-                The frame the map opens to on first load. Falls back
-                to the map&rsquo;s saved camera when unset.
-              </>
-            }
+            description={t('mapSettings.defaultExtentDesc')}
           >
             <select
               value={extentValue}
@@ -178,7 +177,7 @@ export function MapSettingsSection({
               onChange={(e) => setDefaultExtentBoundaryId(e.target.value)}
               className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="">(use saved extent)</option>
+              <option value="">{t('mapSettings.optionUseSavedExtent')}</option>
               {geoBoundaries.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.title}
@@ -189,13 +188,7 @@ export function MapSettingsSection({
 
           <SettingRow
             label={t('mapSettings.searchSource')}
-            description={
-              <>
-                Where the search bar looks up addresses and places.
-                Default is Nominatim (OpenStreetMap). Internal
-                geocoders search your own data.
-              </>
-            }
+            description={t('mapSettings.searchSourceDesc')}
             footerHint={
               availableGeocoders.length === 0
                 ? t('mapSettings.searchSourceEmpty')
@@ -208,10 +201,13 @@ export function MapSettingsSection({
               onChange={(e) => setGeocoderId(e.target.value || null)}
               className="h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm text-ink-1 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="">Default (Nominatim)</option>
+              <option value="">{t('mapSettings.optionDefaultNominatim')}</option>
               {availableGeocoders.map((g) => (
                 <option key={g.id} value={g.id}>
-                  {g.title} {g.kind === 'arcgis' ? '(ArcGIS)' : '(internal)'}
+                  {g.title}{' '}
+                  {g.kind === 'arcgis'
+                    ? t('mapSettings.geocoderKindArcgis')
+                    : t('mapSettings.geocoderKindInternal')}
                 </option>
               ))}
             </select>
@@ -292,29 +288,39 @@ function composeSummary({
   availableGeocoders,
   viewScopeLabel,
   defaultExtentLabel,
+  summaryNone,
+  summarySavedCamera,
+  summaryDeleted,
+  summaryNominatim,
+  summarySearchLabel,
 }: {
   map: MapData;
   geoBoundaries: Array<{ id: string; title: string }>;
   availableGeocoders: Array<{ id: string; title: string }>;
   viewScopeLabel: string;
   defaultExtentLabel: string;
+  summaryNone: string;
+  summarySavedCamera: string;
+  summaryDeleted: string;
+  summaryNominatim: string;
+  summarySearchLabel: string;
 }): string {
   const parts: string[] = [];
   const clipId = map.clipBoundaryId;
   const clipTitle = clipId
-    ? (geoBoundaries.find((g) => g.id === clipId)?.title ?? '(deleted)')
-    : 'none';
+    ? (geoBoundaries.find((g) => g.id === clipId)?.title ?? summaryDeleted)
+    : summaryNone;
   parts.push(`${viewScopeLabel}: ${clipTitle}`);
   const extentId = map.defaultExtentBoundaryId;
   const extentTitle = extentId
-    ? (geoBoundaries.find((g) => g.id === extentId)?.title ?? '(deleted)')
-    : 'saved camera';
+    ? (geoBoundaries.find((g) => g.id === extentId)?.title ?? summaryDeleted)
+    : summarySavedCamera;
   parts.push(`${defaultExtentLabel}: ${extentTitle}`);
   const geocoderId = map.search?.geocoderId;
   const geocoderTitle = geocoderId
     ? (availableGeocoders.find((g) => g.id === geocoderId)?.title ??
-      '(deleted)')
-    : 'Nominatim';
-  parts.push(`Search: ${geocoderTitle}`);
+      summaryDeleted)
+    : summaryNominatim;
+  parts.push(`${summarySearchLabel}: ${geocoderTitle}`);
   return parts.join(' · ');
 }

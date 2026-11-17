@@ -20,8 +20,15 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import {
+  answerPrintRequest,
+  createPrintFetchBudget,
+  createPrintRequestFilter,
+} from './print-request-filter.js';
 import { ItemsService } from '../items/items.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
+import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
+import { printReadItemIds } from './print-read-scope.js';
 
 export interface RenderJobBundle {
   userId: string;
@@ -40,6 +47,13 @@ export interface RenderJobBundle {
    * cases so the print still produces a sensible page.
    */
   basemap: BasemapData | null;
+  /**
+   * Per-job print read credential for this user (see
+   * print-read-credential.ts). The preview page sends it on its layer
+   * data fetches so layers that are not public still print. Reads
+   * only the ids printReadItemIds finds in the map, for one minute.
+   */
+  readCredential: string;
 }
 
 /**
@@ -51,7 +65,8 @@ export interface RenderJobBundle {
  * template's paper size, returns the PDF bytes.
  *
  * Authentication for the preview route: portal-api mints a
- * single-use token, stores it in-memory with a 60-second TTL,
+ * single-use token, stores it as a PrintRenderToken row with a
+ * 60-second TTL,
  * and hands the chromium sidecar a URL with `?renderToken=...`.
  * The preview route on portal-web validates the token against
  * a portal-api callback before rendering, so the public can't
@@ -60,17 +75,25 @@ export interface RenderJobBundle {
  */
 const TOKEN_TTL_MS = 60_000;
 
+/** Renders one API process runs at once (two Chromium sidecars, three sessions each). */
+const MAX_CONCURRENT_RENDERS = 4;
+
 @Injectable()
 export class PrintRenderService {
+  /** Renders running in this process; see MAX_CONCURRENT_RENDERS. */
+  private activeRenders = 0;
+
   private readonly log = new Logger(PrintRenderService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly items: ItemsService,
+    private readonly authSync: AuthSyncService,
+    private readonly printRead: PrintReadCredentialService,
   ) {}
 
   /**
-   * Validate a render token against the server's in-memory map.
+   * Validate a render token against its PrintRenderToken row.
    * Used by the preview route's "is this caller legit?" callback.
    * Tokens are single-use: a successful validation consumes the
    * entry.
@@ -108,24 +131,16 @@ export class PrintRenderService {
   async loadJobByToken(token: string): Promise<RenderJobBundle | null> {
     const claims = await this.consumeToken(token);
     if (!claims) return null;
+    // The same principal every other server-side path builds: null for
+    // a deleted user, real org slug, groups in the trash excluded, real
+    // capabilities. A hand-rolled copy here had drifted on all four.
+    const authUser = await this.authSync.principalForUserId(claims.userId);
+    if (!authUser) return null;
     const user = await this.prisma.user.findUnique({
       where: { id: claims.userId },
+      select: { id: true, fullName: true, username: true },
     });
     if (!user) return null;
-    // Build a minimal AuthUser-like shape for the items service.
-    // We don't have access to the full Keycloak claims here, but
-    // ItemsService.get only consumes id / orgId / orgRole / shares
-    // for permission checks, all of which we have on the user row.
-    const authUser = {
-      id: user.id,
-      orgId: user.orgId,
-      orgSlug: user.orgId,
-      username: user.username,
-      email: user.email ?? '',
-      orgRole: user.orgRole,
-      groupIds: await this.loadGroupIds(user.id),
-      capabilities: new Set<never>(),
-    } as unknown as AuthUser;
     const [template, map] = await Promise.all([
       this.items.get(authUser, claims.templateId),
       this.items.get(authUser, claims.mapId),
@@ -173,15 +188,11 @@ export class PrintRenderService {
         data: map.data,
       },
       basemap,
+      readCredential: this.printRead.mint(
+        user.id,
+        printReadItemIds(map.data as MapData | null),
+      ),
     };
-  }
-
-  private async loadGroupIds(userId: string): Promise<string[]> {
-    const rows = await this.prisma.groupMember.findMany({
-      where: { userId },
-      select: { groupId: true },
-    });
-    return rows.map((r: { groupId: string }) => r.groupId);
   }
 
   async render(
@@ -190,6 +201,9 @@ export class PrintRenderService {
       templateId: string;
       mapId: string;
       parameterValues?: Record<string, string>;
+      /** Requester's IANA time zone and locale, for date tokens. */
+      timeZone?: string;
+      locale?: string;
     },
   ): Promise<Buffer> {
     // 1. Load + permission-check both items via the items service.
@@ -255,14 +269,47 @@ export class PrintRenderService {
       `${previewBase}/print-preview/${encodeURIComponent(args.templateId)}` +
       `?map=${encodeURIComponent(args.mapId)}` +
       `&renderToken=${encodeURIComponent(token)}` +
-      `&p=${paramsBlob}`;
+      `&p=${paramsBlob}` +
+      (args.timeZone ? `&tz=${encodeURIComponent(args.timeZone)}` : '') +
+      (args.locale ? `&lc=${encodeURIComponent(args.locale)}` : '');
 
     // 5. Connect, navigate, page.pdf, return bytes.
+    // Renders hold a Chromium page for up to 45 s and buffer the
+    // page's third-party resources in this process, so a replica runs
+    // only a few at once and turns the rest away.
+    if (this.activeRenders >= MAX_CONCURRENT_RENDERS) {
+      throw new ServiceUnavailableException(
+        'The print service is busy. Try again in a minute.',
+      );
+    }
+    this.activeRenders += 1;
+    const renderDone = new AbortController();
+    const budget = createPrintFetchBudget(renderDone.signal);
     const inches = resolvePaperInches(paper);
-    const browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
+    let browser: Awaited<ReturnType<typeof puppeteer.connect>>;
+    try {
+      browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
+    } catch (err) {
+      this.activeRenders -= 1;
+      throw err;
+    }
     try {
       const page = await browser.newPage();
       try {
+        // Every request the page makes goes through the filter, so a
+        // user-authored URL cannot reach an internal host from here.
+        // Third-party URLs are fetched by portal-api through safeFetch
+        // and answered with respond(), so Chromium never resolves a
+        // name the check did not see.
+        const decide = createPrintRequestFilter([
+          previewBase,
+          process.env.PUBLIC_URL,
+          process.env.PORTAL_BASE_URL,
+        ]);
+        await page.setRequestInterception(true);
+        page.on('request', (request) => {
+          void answerPrintRequest(request, decide, undefined, budget);
+        });
         await page.setViewport({
           width: Math.round(inches.w * 96),
           height: Math.round(inches.h * 96),
@@ -271,13 +318,11 @@ export class PrintRenderService {
           waitUntil: 'networkidle0',
           timeout: 30_000,
         });
-        // #159 Phase 2.2: the inline MapLibre snapshot signals
-        // readiness by setting body[data-map-ready="true"] once
-        // tiles + layers settle. Wait up to 15s so the captured
-        // PDF contains the rendered map rather than a blank
-        // canvas. Templates without a Map element resolve this
-        // check from the MapSnapshot's 12s hard-ceiling fallback,
-        // which is harmless when no map is rendered.
+        // The preview page sets body[data-map-ready="true"] once
+        // every map snapshot on the sheet has settled, and at once
+        // for a template with no Map element. Wait up to 15s so the
+        // captured PDF contains the rendered map rather than a
+        // blank canvas; each snapshot reports by 12s at the latest.
         try {
           await page.waitForSelector('body[data-map-ready="true"]', {
             timeout: 15_000,
@@ -288,25 +333,29 @@ export class PrintRenderService {
             `Map-ready signal timed out for template ${args.templateId}; capturing anyway`,
           );
         }
+        // Margins stay at 0: starter (and designer) layouts already
+        // inset elements by paper.marginIn inside the full-page
+        // canvas. Applying marginIn again here shrunk the content
+        // area and could push the whole sheet off the captured page
+        // for landscape templates, producing blank PDFs.
         const pdf = await page.pdf({
           printBackground: true,
           preferCSSPageSize: false,
           width: `${inches.w}in`,
           height: `${inches.h}in`,
-          margin: {
-            top: `${paper.marginIn}in`,
-            right: `${paper.marginIn}in`,
-            bottom: `${paper.marginIn}in`,
-            left: `${paper.marginIn}in`,
-          },
+          margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
         });
         // puppeteer.page.pdf returns Uint8Array on recent versions;
         // wrap as a Buffer so the controller can stream it.
         return Buffer.from(pdf);
       } finally {
         await page.close().catch(() => undefined);
+        // Stop every third-party fetch this page started.
+        renderDone.abort();
+        for (const wake of budget.waiting.splice(0)) wake();
       }
     } finally {
+      this.activeRenders -= 1;
       await browser.disconnect();
     }
   }

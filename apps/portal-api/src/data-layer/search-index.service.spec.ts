@@ -10,6 +10,8 @@
 
 import {
   DataLayerSearchIndexService,
+  MAX_INDEXED_FIELDS_PER_LAYER,
+  MAX_INDEXED_FIELDS_PER_ORG,
 } from './search-index.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { DataLayerLayerShape } from './tables.service.js';
@@ -38,14 +40,25 @@ function makePrisma(state: {
   invalid?: string[];
   allGgs?: string[];
   items?: Array<{ id: string; data: unknown }>;
+  /** Throw from any statement containing this text. */
+  failOn?: string;
 }) {
   const executed: string[] = [];
+  // The interactive transaction's client: the same stub.
+  let tx: unknown;
   const prisma = {
     executed,
     $executeRawUnsafe: jest.fn(async (sql: string) => {
-      executed.push(sql);
+      if (state.failOn && sql.includes(state.failOn)) {
+        throw new Error('canceling statement due to statement timeout');
+      }
+      // The per-build timeout is not part of the DDL contract.
+      if (!sql.startsWith('SET LOCAL')) executed.push(sql);
       return 0;
     }),
+    $transaction: jest.fn(
+      async (fn: (tx: unknown) => Promise<unknown>): Promise<unknown> => fn(tx),
+    ),
     $queryRaw: jest.fn(
       async (strings: TemplateStringsArray, ...values: unknown[]) => {
         const text = strings.join('$');
@@ -73,6 +86,7 @@ function makePrisma(state: {
       findMany: jest.fn(async () => state.items ?? []),
     },
   };
+  tx = prisma;
   return prisma as unknown as PrismaService & typeof prisma;
 }
 
@@ -287,6 +301,35 @@ describe('reconcileItem', () => {
   });
 });
 
+describe('index build failures', () => {
+  it('reports a failed build and still builds the other fields', async () => {
+    // One build cancelled by the timeout used to abort the whole pass.
+    const prisma = makePrisma({ existing: [], failOn: "'OWNER'" });
+    const svc = new DataLayerSearchIndexService(prisma);
+    const res = await svc.reconcileItem(ITEM_ID, [
+      layer([
+        { name: 'OWNER', searchable: true },
+        { name: 'APN', searchable: true },
+      ]),
+    ]);
+    expect(res.created).toEqual([`idx_ggs_${SCOPE_HASH}_${APN_HASH}`]);
+    expect(res.skippedFields).toEqual([
+      expect.objectContaining({ scope: SCOPE, field: 'OWNER' }),
+    ]);
+    expect(res.skippedFields[0]!.reason).toMatch(/statement timeout/);
+  });
+
+  it('runs each build with its own statement timeout', async () => {
+    const prisma = makePrisma({ existing: [] });
+    const svc = new DataLayerSearchIndexService(prisma);
+    await svc.reconcileItem(ITEM_ID, [layer([{ name: 'OWNER', searchable: true }])]);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRawUnsafe).toHaveBeenCalledWith(
+      expect.stringMatching(/^SET LOCAL statement_timeout = \d+$/),
+    );
+  });
+});
+
 describe('buildForOrg orphan sweep', () => {
   it('drops idx_ggs indexes whose scope hash matches no known layer, keeps the rest', async () => {
     const knownIdx = `idx_ggs_${SCOPE_HASH}_${OWNER_HASH}`;
@@ -318,5 +361,58 @@ describe('buildForOrg orphan sweep', () => {
     ]);
     expect(res.scannedItems).toBe(1);
     expect(res.indexedLayers).toBe(1);
+  });
+});
+
+describe('searchable field caps (06-5)', () => {
+  it('indexes at most the per-layer cap and reports the rest as skipped', async () => {
+    const prisma = makePrisma({ existing: [] });
+    const svc = new DataLayerSearchIndexService(prisma);
+    const n = MAX_INDEXED_FIELDS_PER_LAYER + 3;
+    const res = await svc.reconcileItem(ITEM_ID, [
+      layer(
+        Array.from({ length: n }, (_, i) => ({
+          name: `F${i}`,
+          searchable: true,
+        })),
+      ),
+    ]);
+    expect(res.created).toHaveLength(MAX_INDEXED_FIELDS_PER_LAYER);
+    expect(res.skippedFields.map((f) => f.field)).toEqual([
+      `F${n - 3}`,
+      `F${n - 2}`,
+      `F${n - 1}`,
+    ]);
+    expect(res.skippedFields[0]!.reason).toMatch(/per layer/);
+  });
+
+  it('stops at the per-org cap across the items of one pass', async () => {
+    const perItem = MAX_INDEXED_FIELDS_PER_LAYER;
+    const itemCount = Math.ceil(MAX_INDEXED_FIELDS_PER_ORG / perItem) + 1;
+    const items = Array.from({ length: itemCount }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      data: {
+        version: 3,
+        layers: [
+          {
+            id: 'l',
+            geometryType: 'point',
+            fields: Array.from({ length: perItem }, (_, j) => ({
+              name: `F${j}`,
+              type: 'string',
+              searchable: true,
+            })),
+          },
+        ],
+      },
+    }));
+    const prisma = makePrisma({ existing: [], items });
+    const svc = new DataLayerSearchIndexService(prisma);
+    const res = await svc.buildForOrg('org-1');
+    expect(res.created).toHaveLength(MAX_INDEXED_FIELDS_PER_ORG);
+    const orgSkips = res.skippedFields.filter((f) =>
+      /per organization/.test(f.reason),
+    );
+    expect(orgSkips).toHaveLength(itemCount * perItem - MAX_INDEXED_FIELDS_PER_ORG);
   });
 });

@@ -1,0 +1,184 @@
+{
+  "cycle": 8,
+  "researchedAt": "2026-10-28T02:23:29Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-7; R7 ship-without-input drained on origin/main through #396 (dissolve/fishnet/contour honesty #388-#390, Erase/Centroid i18n #392, docs-every-commit #393, Dissolve #394, Simplify #395, recipe AOI honesty #396). Open issues still only #162/#183. Security Sentinel this cycle: clean on diff gate (no new @Public / BFF allowlist / throttle regressions); deep-dive SEC-* remain shipped (#376-#383); outbound user URLs still on safeFetch; zip/GDAL budgets and otherSource ACL intact. Honesty scan: spatial-join.md and group-by.md still oversell predicates / cardinality / geometry strategies the generators do not implement; calculate.md and expression-language.md advertise area_m2 / length_m / centroid_* helpers the expression dialect does not evaluate (calculate-geometry is a separate tool); Analyze query-builder chrome still hard-coded English after guide i18n; no Analyze / help pages for convex-hull or densify; point-cloud item-types blurb oversells streaming comfort with no size-tier honesty (#183). Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, and keyed dissolve-on-dissolve generator rejected.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T02:22:00Z",
+    "result": "clean",
+    "notes": "No new @Public routes or BFF anonymous allowlist entries since #383. Global ThrottlerGuard 300/min still covers Public controllers that lack a tighter decorator (tools run, feedback, comments list, STAC, OGC Features/Tiles); Records stay at 60/min + bbox scan cap. User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; Keycloak admin and env-configured basemap HEAD probes stay operator-trusted. Zip central-directory budget and assertSafeGdalOpenPath still guard /vsizip/; derived-layer otherSource canRead checks remain. No High/Medium hardening queued this cycle; optional follow-up would be a tighter @Throttle on POST /api/tools/:id/run if Overpass egress abuse shows up in logs."
+  },
+  "proposals": [
+    {
+      "id": "R8-spatial-join-help-honesty",
+      "title": "Honest spatial-join help matching within / intersects / nearest",
+      "summary": "analysis/spatial-join.md still documents Contains, Within distance, one-to-many cardinality, and default all-fields joins. spatialJoinGenerator only accepts predicate within|intersects|nearest (optional nearestMaxMeters), attributeStrategy count|first, attrsToKeep (required for first), and attrPrefix; comments explicitly refuse cartesian one-to-many. Rewrite help to match the generator and builder SpatialJoinStepEditor.",
+      "rationale": "Same class of analysis help lie as dissolve/fishnet/contour in cycle 7. Demo authors reading help will configure options that do not exist.",
+      "risk": "Do not invent contains or cartesian join in this PR. Document count vs first attribute strategies; point near-distance filtering at spatial-filter when needed; CHANGELOG docs note; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about what we are not. Prefer documented PostGIS join shapes over fake Esri Spatial Join parity.",
+      "sources": [
+        "apps/portal-web/content/help/analysis/spatial-join.md",
+        "apps/portal-api/src/derived-layers/tools/spatial-join.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Rewrite spatial-join.md Inputs/Output/Examples to within|intersects|nearest + count|first attrs; remove Contains / Within distance / one-to-many claims; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R8-groupby-help-honesty",
+      "title": "Honest group-by help matching aggregate ST_Union + ops",
+      "summary": "analysis/group-by.md advertises geometry strategies Drop / Bounding box / Convex hull / First / Dissolve and aggregates last / collect_into_array. The shipped tool is aggregate: groupBy + aggs (count|sum|avg|min|max|first only) with geometry always ST_Union per group. Builder label is Group by + aggregate. Align help with aggregateGenerator and AggregateStepEditor.",
+      "rationale": "Highest-visibility remaining analysis help oversell after spatial-join. Authors who pick Drop or collect_into_array from the page will not find those controls.",
+      "risk": "Keep keyed dissolve redirect from dissolve.md accurate. Do not invent geometry-strategy params; say output geometry is always the union of each group; CHANGELOG docs note.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Docs match the free PostGIS group-by you actually get. No fake ModelBuilder aggregate palette.",
+      "sources": [
+        "apps/portal-web/content/help/analysis/group-by.md",
+        "apps/portal-api/src/derived-layers/tools/aggregate.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts"
+      ],
+      "suggestedFirstPR": "Rewrite group-by.md Inputs/Output to groupBy + count/sum/avg/min/max/first and ST_Union geometry; drop strategy / last / collect_into_array claims; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R8-calculate-help-honesty",
+      "title": "Honest Calculate help: expression dialect vs calculate-geometry",
+      "summary": "analysis/calculate.md and reference/expression-language.md Geometry helpers (area_m2, length_m, centroid_*, bbox_*) claim Calculate-step support. packages/shared-types expression FUNCTIONS has no those names; area/length/perimeter live on calculate-geometry as measurement + unit + fieldName. Rewrite Calculate help to {{field}} expressions only and point geometry measures at the Calculate geometry step (and optional Analyze follow-up later).",
+      "rationale": "Third honesty bug in the same sweep. Expression docs that invent helpers burn support when authors paste area_m2() into calculate-field.",
+      "risk": "Keep filter / calculate-field vocabulary accurate; explicitly say geometry helpers are not in the expression dialect; cross-link calculate-geometry; CHANGELOG docs note; skip What's new.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about the free expression dialect and the separate PostGIS geometry measure tool.",
+      "sources": [
+        "apps/portal-web/content/help/analysis/calculate.md",
+        "apps/portal-web/content/help/reference/expression-language.md",
+        "packages/shared-types/src/expression.ts",
+        "apps/portal-api/src/derived-layers/tools/calculate-field.ts",
+        "apps/portal-api/src/derived-layers/tools/calculate-geometry.ts"
+      ],
+      "suggestedFirstPR": "Strip geometry-helper sections from calculate.md and expression-language.md; document calculate-geometry measurement/unit/fieldName; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R8-i18n-analyze-query-builder",
+      "title": "Continue #162 i18n on Analyze query-builder chrome",
+      "summary": "Buffer/Clip/Erase/Centroid/Dissolve/Simplify guides and layer-analyze-panel went through locale catalogs. analyze-query-builder.tsx still hard-codes English section labels and options (Filters (all must match), Geometry, Group by, Also, Sort, Limit, sum of / average of, ascending / descending, pick a value). Extract into analyzeWorkbench catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Only two open issues; #162 remains the finishable cross-cutting slice. The Builder mode on Analyze is the largest English-only surface left after the guided shortcuts.",
+      "risk": "Keep SQL / field names / operator symbols as-is. Reuse existing analyzeWorkbench keys where possible; machine-translate non-en with the Phase 1.1 pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free analysis chrome. No Contour brand kit.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-query-builder.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/372"
+      ],
+      "suggestedFirstPR": "Extract query-builder chrome into en/es/fr/de/pt-BR analyzeWorkbench.* catalogs with t() calls; What's new optional (i18n-only can skip).",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R8-analyze-convex-hull-shortcut",
+      "title": "Guided Convex hull shortcut that creates a derived-layer recipe",
+      "summary": "convexHullGenerator is no-param like centroid. Analyze has no Convex hull for this layer control and help has no convex-hull.md. Mirror AnalyzeCentroidGuide: POST a single-step convex-hull derived_layer, label as server job, add help/analysis/convex-hull.md.",
+      "rationale": "Cheap Analyze honesty win after Simplify. Esri Minimum Bounding Geometry / Convex Hull seat pain maps onto free PostGIS ST_ConvexHull without a second layer picker.",
+      "risk": "Users may expect one hull for the whole layer. Generator is per-feature hull with attributes unchanged; say so in UI and help. Reuse existing worker path and i18n pattern from Centroid.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free-at-point-of-use analysis on your hardware. Guided PostGIS over proprietary geoprocessing seats.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/convex-hull.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-centroid-guide.tsx",
+        "apps/portal-web/src/lib/analyze-centroid-derived.ts",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Add analyze-convex-hull-guide POSTing single-step convex-hull derived_layer; add help/analysis/convex-hull.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R8-analyze-densify-shortcut",
+      "title": "Guided Densify shortcut that creates a derived-layer recipe",
+      "summary": "densifyGenerator already takes maxSegmentLength + unit (Simplify/Buffer-shaped). Analyze has no Densify this layer control and help has no densify.md. Mirror AnalyzeSimplifyGuide: short form, POST single-step densify derived_layer, label as server job.",
+      "rationale": "Next parameterized Analyze shortcut after Simplify. Meter-honest densify on PostGIS without a desktop seat; pairs with simplify for generalize workflows Felt/AGO charge for.",
+      "risk": "Tolerance unit confusion (degrees vs meters). Reuse Buffer/Simplify unit conversion honesty and generator max segment meters; document ST_Segmentize on geography.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free densify on your PostGIS. Prefer honest meter units over degree traps.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/densify.ts",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-simplify-guide.tsx",
+        "apps/portal-web/src/lib/analyze-buffer-derived.ts",
+        "apps/portal-web/content/help/analysis/simplify.md"
+      ],
+      "suggestedFirstPR": "Add analyze-densify-guide + help/analysis/densify.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R8-point-cloud-streaming-honesty",
+      "title": "Honest point-cloud help and viewer copy for size-aware streaming tiers",
+      "summary": "item-types.md says point clouds stream only the part in view with no caveat. Size-aware tiers (default / huge / ultra budgets, debounce, picking off) and deferLidarUpdatesWhileMoving already ship as local mitigations under #183; help never names them. Add a short help page (or tile-layer / item-types section) plus a one-line viewer note when huge/ultra tiers engage. Do not claim Tile3D / SSE LOD / incremental nodes; do not close #183.",
+      "rationale": "Playbook allows incremental #183 progress that stays honest. Docs that promise Potree-smooth streaming on 200M COPC set false expectations after the WV hang write-up.",
+      "risk": "Keep tone mitigation-not-fix. Do not bump maplibre-gl-lidar or rewrite the renderer. No Tile3D conversion path. What's new only if the viewer chip is user-visible.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about what we are not (not Potree/Cesium yet). Local knobs stay labeled as density/responsiveness tradeoffs.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/183",
+        "docs/research/maplibre-gl-lidar-incremental-append-2026-10-27.md",
+        "apps/portal-web/src/lib/point-cloud-streaming.ts",
+        "apps/portal-web/src/lib/defer-lidar-updates.ts",
+        "apps/portal-web/content/help/reference/item-types.md"
+      ],
+      "suggestedFirstPR": "Document default/huge/ultra streaming tiers and picking/debounce tradeoffs in help; surface a muted viewer note when tier != default; CHANGELOG docs note; leave #183 open.",
+      "relatedIssues": [183]
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R8-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer Analyze Convex hull / Densify shortcuts and help honesty."
+    },
+    {
+      "id": "R8-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Fails playbook brand test. Print markup honesty already shipped."
+    },
+    {
+      "id": "R8-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R8-reject-recipe-materialize-sinks",
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks",
+      "reason": "Honesty PR #386 already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a first PR."
+    },
+    {
+      "id": "R8-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild as closing #183",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer. R8-point-cloud-streaming-honesty is docs/UI honesty only."
+    },
+    {
+      "id": "R8-reject-dissolve-groupby-feature",
+      "title": "Reject implementing dissolve groupBy / aggregates now",
+      "reason": "Honesty rewrite + Analyze no-param shortcut already shipped. Keyed dissolve with aggregates already exists as group-by with ST_Union geometry; inventing a second path is scope creep."
+    },
+    {
+      "id": "R8-reject-weblate-hosting",
+      "title": "Reject choosing Weblate vs Crowdin vs Tolgee",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction only."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ]
+}

@@ -25,7 +25,7 @@
 #     layer chain)
 #   - MinIO data (same)
 #   - Backup archives (those have their own retention via the
-#     backup module's `retentionDays` config)
+#     backup module's retention count, default 7)
 #   - Container logs (Docker's json-file driver rotates these;
 #     don't fight it)
 #   - Anything under /opt/gratis-gis (the repo + node_modules

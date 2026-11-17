@@ -1,65 +1,79 @@
 ---
 id: widget-measure
-title: Measure widget
-summary: A toolbar tool that lets viewers measure distances, areas, and coordinates on the map.
+title: Measure
+summary: Draw a line or polygon on a map to read geodesic distance or area. Ships as a Viewer, Editor, and map-builder tool, not a Custom Web App widget.
 category: web-apps/widgets
 order: 70
 complexity: basic
 tags:
-  - widget
   - measure
+  - map
+  - viewer
+  - editor
 related:
+  - items-map
   - items-web-app
 ---
 
-The **Measure** widget adds a small toolbar with measure tools:
-distance (along a drawn line), area (within a drawn polygon),
-and a "what's the coordinate of this point" lookup.
+**Measure** is a map toolbar tool for temporary distance and area
+sketches. It ships on:
 
-## What it shows
+- **Web map builder** (map item configure view)
+- **Viewer** apps (when the author enables the Measure tool)
+- **Feature Editor** apps (when the author enables Measure)
 
-A toolbar with three modes:
+It is **not** a Custom Web App page widget. `CustomWidgetKind` has
+no `measure` kind, and the Custom Web App builder does not offer a
+Measure tile. Use a Viewer or the map builder when you need
+measure on a published map experience.
 
-- **Distance**. The user clicks to start a line; subsequent
- clicks add vertices. Live readout shows total length. Double-
- click to finish.
-- **Area**. The user clicks to draw a polygon; live readout
- shows area and perimeter. Double-click to close.
-- **Coordinate**. Single click on the map; readout shows lat/lon
- in the configured format.
+## Modes
 
-## Widget config
+- **Distance**. Click to start a line; add vertices; finish the
+  sketch. Readout shows geodesic length.
+- **Area**. Click to draw a polygon; finish to close. Readout
+  shows geodesic area and perimeter. When the map has an active
+  elevation / DEM layer, the primary area number is **ground**
+  (slope / surface) area; **horizontal** (planimetric / deed)
+  area stays available as a secondary line.
 
-- **Default units**:
-  - Distance: meters, feet, miles, kilometers, nautical miles.
-  - Area: m^2, ft^2, acres, hectares, mi^2.
-- **Show secondary unit** (default: off). When on, the readout
- shows both meters and feet (or whichever pair).
-- **Coordinate format**:
-  - Decimal degrees.
-  - Degrees-minutes-seconds.
-  - UTM (configurable zone or auto-detected).
-  - MGRS.
-- **Snap to features** (default: off). When on, line/polygon
- vertices snap to the nearest visible feature vertex within
- a few pixels.
+There is no separate "coordinate lookup" mode and no MGRS / UTM
+format picker on this tool.
 
-## Geodesic vs. planar
+## Units
 
-Measurements are **geodesic** by default: the portal computes
-on the curved earth surface, so a 1km measurement at the
-equator and one at 60° latitude are both 1km on the ground.
+Authors and viewers pick units on the tool itself:
 
-The widget config has a "Planar" mode for when the user
-explicitly wants pixel-distance measurements (useful for
-small-extent maps where the difference doesn't matter and
-geodesic adds a small computational cost).
+- Distance: meters, feet, miles, kilometers, and related length
+  units exposed in the control.
+- Area: square meters, square feet, acres, hectares, and related
+  area units.
+
+Measurements are **geodesic** (on the ellipsoid / spheroid path
+the map math uses). There is no planar / pixel-distance mode
+toggle.
+
+## Camera while measuring
+
+If the map is pitched into 3D when Measure opens, the tool
+**flattens pitch** immediately and locks max pitch at 0 for the
+life of the tool so the sketch matches the scale bar and ground
+/ deed acres. Closing Measure restores the previous pitch.
+
+## Snapping
+
+Measure sketches do **not** snap to feature vertices. Editor
+snapping (when enabled) is a separate Feature Editor setting and
+does not drive the Measure overlay.
 
 ## Notes
 
-- **Measurements aren't saved.** They're ephemeral overlays;
- closing the tool clears them. For a permanent measured
- polygon, draw it as a feature in a data layer instead.
-- **Precision**. Distances are reported to 1m / 1ft; areas to
- 1m^2 / 1ft^2. Increase precision in the widget settings if
- you need finer.
+- **Measurements aren't saved.** They are ephemeral overlays;
+  closing the tool clears them. For a permanent measured polygon,
+  draw it as a feature in a data layer instead.
+- **Not Experience Builder parity.** Do not expect a Custom Web
+  App Measure widget, secondary dual-unit config panel, or
+  coordinate / MGRS / UTM modes that some other builders advertise.
+- **Elevation optional.** Ground (surface) area appears only when
+  terrain elevation is available on the map; otherwise you get
+  horizontal area alone.

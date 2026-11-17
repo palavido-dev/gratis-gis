@@ -13,16 +13,26 @@ describe('DataLayerTablesService.stampFeatureCounts', () => {
   function service(overrides: {
     data: unknown;
     counts?: Record<string, number>;
+    /** What the row holds by the time the locked re-read runs. */
+    lockedData?: unknown;
   }) {
     const updates: unknown[] = [];
+    const item = {
+      findUnique: jest.fn().mockResolvedValue({ data: overrides.data }),
+      update: jest.fn().mockImplementation((args: unknown) => {
+        updates.push(args);
+        return Promise.resolve({});
+      }),
+    };
+    const tx = {
+      item,
+      $queryRaw: jest.fn().mockResolvedValue([
+        { data: 'lockedData' in overrides ? overrides.lockedData : overrides.data },
+      ]),
+    };
     const prisma = {
-      item: {
-        findUnique: jest.fn().mockResolvedValue({ data: overrides.data }),
-        update: jest.fn().mockImplementation((args: unknown) => {
-          updates.push(args);
-          return Promise.resolve({});
-        }),
-      },
+      item,
+      $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
       $queryRawUnsafe: jest.fn().mockImplementation((_sql: string, scope: string) => {
         const layerId = String(scope).split(':')[2] ?? '';
         const count = overrides.counts?.[layerId] ?? 0;
@@ -85,5 +95,91 @@ describe('DataLayerTablesService.stampFeatureCounts', () => {
       .data.data.layers;
     expect(written[0]).toEqual({ geometryType: 'polygon' });
     expect(written[1]?.featureCount).toBe(3);
+  });
+
+  it('keeps a syncVersion bumped while it was counting', async () => {
+    const { svc, updates } = service({
+      data: {
+        version: 3,
+        layers: [{ id: 'parcels', geometryType: 'polygon', syncVersion: 4 }],
+      },
+      lockedData: {
+        version: 3,
+        layers: [{ id: 'parcels', geometryType: 'polygon', syncVersion: 5 }],
+      },
+      counts: { parcels: 9 },
+    });
+    expect(await svc.stampFeatureCounts('item-1')).toBe(true);
+    const written = (updates[0] as { data: { data: { layers: Array<Record<string, unknown>> } } })
+      .data.data.layers;
+    expect(written[0]).toMatchObject({ syncVersion: 5, featureCount: 9 });
+  });
+
+  it('keeps the last known count when the count query fails', async () => {
+    // A timed-out count used to be stored as featureCount 0.
+    const { svc, prisma } = service({
+      data: {
+        version: 3,
+        layers: [{ id: 'parcels', geometryType: 'polygon', featureCount: 1400000 }],
+      },
+    });
+    prisma.$queryRawUnsafe.mockRejectedValue(new Error('statement timeout'));
+    expect(await svc.stampFeatureCounts('item-1')).toBe(false);
+    expect(prisma.item.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('DataLayerTablesService.aggregateBbox', () => {
+  it('throws when the extent read fails instead of reporting no extent', async () => {
+    // null means "no features" and is stored as bbox []. A failed read
+    // must not look like that.
+    const prisma = {
+      $queryRawUnsafe: jest.fn().mockRejectedValue(new Error('statement timeout')),
+    };
+    const svc = new DataLayerTablesService(prisma as never);
+    await expect(
+      svc.aggregateBbox('item-1', [{ id: 'a', geometryType: 'point', fields: [] }]),
+    ).rejects.toThrow('statement timeout');
+  });
+});
+
+/**
+ * truncateLayer deleted a layer's whole observation scope with no
+ * tombstones and no syncVersion bump, so a delta client would keep
+ * every row the server no longer had. Nothing called it any more
+ * (replace imports go through CopyWriter.deleteScope and
+ * commitCopiedLayer), so it is gone rather than left for a future
+ * caller to wire back in.
+ */
+describe('DataLayerTablesService scope wipe', () => {
+  it('has no method that deletes a scope behind the sync cursor', () => {
+    expect(
+      (DataLayerTablesService.prototype as unknown as Record<string, unknown>)
+        .truncateLayer,
+    ).toBeUndefined();
+  });
+});
+
+// A failed extent query used to read as "no features", and callers
+// then wrote `bbox = []` over a good stored extent.
+describe('DataLayerTablesService.aggregateBbox', () => {
+  const layers = [{ id: 'L1', geometryType: 'Point' }] as never;
+
+  it('throws when the extent query fails', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest.fn().mockRejectedValue(new Error('timeout')),
+    };
+    const svc = new DataLayerTablesService(prisma as never);
+    await expect(svc.aggregateBbox('item-1', layers)).rejects.toThrow('timeout');
+  });
+
+  it('returns null for a layer that has no features', async () => {
+    const prisma = {
+      $queryRawUnsafe: jest
+        .fn()
+        .mockResolvedValue([{ minx: null, miny: null, maxx: null, maxy: null }]),
+    };
+    const svc = new DataLayerTablesService(prisma as never);
+    await expect(svc.aggregateBbox('item-1', layers)).resolves.toBeNull();
   });
 });

@@ -105,7 +105,8 @@ export class AdminThemesController {
     );
 
     const adminRow = await this.prisma.user.findFirst({
-      where: { orgId: user.orgId, orgRole: 'admin' },
+      // A removed or disabled admin keeps orgRole 'admin'; skip them.
+      where: { orgId: user.orgId, orgRole: 'admin', deletedAt: null, disabledAt: null },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });

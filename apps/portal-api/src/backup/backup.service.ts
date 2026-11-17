@@ -12,16 +12,21 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { validateCronExpression } from 'cron';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { BackupFailureNotice } from './backup-failure-notice.js';
+import { MaintenanceModeService } from './maintenance-mode.service.js';
 import { writeTarGz, type TarEntry } from './tar-pack.js';
 
 /**
@@ -139,8 +144,14 @@ interface BackupManifest {
   createdAt: string;
   /** 'manual' or 'scheduled'. */
   trigger: string;
-  /** Portal app version from package.json (best-effort). */
+  /** Portal release (GG_VERSION in the image, else the package
+   *  version when started through npm). */
   portalVersion: string | null;
+  /** Names of the Prisma migrations applied to the dumped database,
+   *  sorted. Restore refuses an archive whose list differs from the
+   *  running portal's, because pg_restore cannot convert one schema
+   *  into another. Absent on archives made before this field. */
+  appliedMigrations?: string[] | undefined;
   /** Database URL with password redacted. */
   databaseUrl: string;
   /** Names of the dumped databases, in archive order. */
@@ -174,6 +185,28 @@ interface BackupManifest {
  *   - Incremental / differential backups: out of scope. Full dump
  *     every run keeps restore simple; retention handles the space.
  */
+/** Archive member with per-object metadata, written after the objects. */
+export const MINIO_META_MEMBER = 'minio-meta.json';
+
+export interface MinioArchiveMeta {
+  version: 1;
+  /** Object key to its stored Content-Type. */
+  contentTypes: Record<string, string>;
+  /** Keys in the listing that were deleted before they were read. */
+  skipped: string[];
+}
+
+/** S3 says the object is gone (deleted after the listing). */
+export function isNoSuchKey(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { name?: unknown; Code?: unknown; $metadata?: { httpStatusCode?: unknown } };
+  return (
+    e.name === 'NoSuchKey' ||
+    e.Code === 'NoSuchKey' ||
+    e.$metadata?.httpStatusCode === 404
+  );
+}
+
 @Injectable()
 export class BackupService implements OnModuleInit {
   private readonly log = new Logger(BackupService.name);
@@ -183,6 +216,8 @@ export class BackupService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cfg: ConfigService,
+    @Optional() private readonly failureNotice?: BackupFailureNotice,
+    @Optional() private readonly maintenance?: MaintenanceModeService,
   ) {
     // Reuse the same MinIO creds StorageService uses: if one works
     // the other does, which keeps the admin "backup failed" surface
@@ -288,9 +323,11 @@ export class BackupService implements OnModuleInit {
    */
   async updateConfig(patch: BackupConfigPatch, updatedBy: string | null) {
     // Validate before we touch the DB: nothing worse than committing
-    // half a change and then bailing.
+    // half a change and then bailing. Every refusal here is the
+    // admin's input, so it is a 400 with the sentence shown in the
+    // form, not a plain Error that Nest reports as a 500.
     if (patch.scheduleMode && !this.isScheduleMode(patch.scheduleMode)) {
-      throw new Error(`Unknown scheduleMode: ${patch.scheduleMode}`);
+      throw new BadRequestException(`Unknown scheduleMode: ${patch.scheduleMode}`);
     }
     if (patch.scheduleHour !== undefined) {
       this.requireRange('scheduleHour', patch.scheduleHour, 0, 23);
@@ -311,13 +348,39 @@ export class BackupService implements OnModuleInit {
       // Bare minimum shape check; the cron library is authoritative.
       // We just want to reject obviously-wrong input before saving.
       if (!/^(\S+\s+){4}\S+$/.test(patch.customCron.trim())) {
-        throw new Error(
+        throw new BadRequestException(
           'Custom schedule must be a 5-field cron expression (e.g. "0 2 * * *")',
+        );
+      }
+      // The scheduler builds a CronJob from it later and only logs a
+      // rejection, so a bad value was saved and shown as active while
+      // nothing ever ran. Ask the same library now.
+      const check = validateCronExpression(patch.customCron.trim());
+      if (!check.valid) {
+        throw new BadRequestException(
+          `Custom schedule is not a valid cron expression: ${check.error?.message ?? 'rejected by the scheduler'}`,
         );
       }
     }
 
+    if (typeof patch.archiveDirectory === 'string' && patch.archiveDirectory.trim()) {
+      patch = {
+        ...patch,
+        archiveDirectory: this.allowedArchiveDirectory(patch.archiveDirectory.trim()),
+      };
+    }
+
     const row = await this.ensureConfigRow();
+    // Custom mode with no expression saved fine and then scheduled
+    // nothing, so automatic backups silently stopped. Check the mode
+    // and expression the row will end up with, not just the patch.
+    const nextMode = patch.scheduleMode ?? row.scheduleMode;
+    const nextCron = patch.customCron !== undefined ? patch.customCron : row.customCron;
+    if (nextMode === 'custom' && !nextCron?.trim()) {
+      throw new BadRequestException(
+        'Custom schedule must be a 5-field cron expression (e.g. "0 2 * * *")',
+      );
+    }
     const updated = await this.prisma.backupConfig.update({
       where: { id: row.id },
       data: {
@@ -385,9 +448,25 @@ export class BackupService implements OnModuleInit {
    * place has to know that this table has at most one row.
    */
   private async ensureConfigRow() {
+    // The unique `singleton` column keeps this table at one row, so
+    // findFirst cannot pick between duplicates any more.
     const existing = await this.prisma.backupConfig.findFirst();
     if (existing) return existing;
-    return this.prisma.backupConfig.create({ data: {} });
+    try {
+      return await this.prisma.backupConfig.create({ data: {} });
+    } catch (e) {
+      // Both replicas create on the first boot against an empty table.
+      // The unique `singleton` column lets exactly one insert win; the
+      // loser reads the winner's row.
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002'
+      ) {
+        const row = await this.prisma.backupConfig.findFirst();
+        if (row) return row;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -459,8 +538,39 @@ export class BackupService implements OnModuleInit {
 
   private requireRange(field: string, v: number, lo: number, hi: number) {
     if (!Number.isInteger(v) || v < lo || v > hi) {
-      throw new Error(`${field} must be an integer between ${lo} and ${hi}`);
+      throw new BadRequestException(`${field} must be an integer between ${lo} and ${hi}`);
     }
+  }
+
+  /**
+   * The archive directory an admin may pick: BACKUP_DIR or a folder
+   * inside it, or inside one of BACKUP_ALLOWED_DIRS (a list separated
+   * by the platform's path delimiter, for an operator who mounts a
+   * second volume). Backups create, fill and prune whatever folder is
+   * set here, so it cannot be an arbitrary path in the container.
+   * Returns the resolved absolute path.
+   */
+  private allowedArchiveDirectory(raw: string): string {
+    const roots = [
+      this.envBackupDir(),
+      ...(this.cfg.get<string>('BACKUP_ALLOWED_DIRS', '') ?? '')
+        .split(path.delimiter)
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .map((d) => path.resolve(d)),
+    ];
+    const dir = path.resolve(raw);
+    const inside = roots.some((root) => {
+      const rel = path.relative(root, dir);
+      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    });
+    if (!inside) {
+      throw new BadRequestException(
+        `Backups can only be saved in ${roots.join(' or ')}, or a folder inside it. ` +
+          'Ask whoever runs the server to add another location with BACKUP_ALLOWED_DIRS.',
+      );
+    }
+    return dir;
   }
 
   private envBackupDir(): string {
@@ -502,21 +612,40 @@ export class BackupService implements OnModuleInit {
    */
   async listRunsWithArchiveState(limit = 50) {
     const runs = await this.listRuns(limit);
-    let names: Set<string> | null = null;
-    try {
-      const { archiveDirectory } = await this.getConfig();
-      names = new Set(await fs.readdir(archiveDirectory));
-    } catch {
-      // Unknown beats wrong; the download endpoint reports the miss
-      // with a proper message if it comes to that.
+    // One readdir per folder: runs written before a change of the
+    // archive directory live in the old one.
+    const listings = new Map<string, Set<string> | null>();
+    const out = [];
+    for (const r of runs) {
+      let archiveOnDisk: boolean | null = null;
+      if (r.status === 'succeeded' && r.filename) {
+        const dir = await this.runDirectory(r);
+        if (!listings.has(dir)) {
+          try {
+            listings.set(dir, new Set(await fs.readdir(dir)));
+          } catch {
+            // Unknown beats wrong; the download endpoint reports the
+            // miss with a proper message if it comes to that.
+            listings.set(dir, null);
+          }
+        }
+        const names = listings.get(dir);
+        archiveOnDisk = names ? names.has(r.filename) : null;
+      }
+      out.push({ ...r, archiveOnDisk });
     }
-    return runs.map((r) => ({
-      ...r,
-      archiveOnDisk:
-        r.status === 'succeeded' && r.filename && names
-          ? names.has(r.filename)
-          : null,
-    }));
+    return out;
+  }
+
+  /**
+   * The folder a run's archive lives in: the one recorded on the row,
+   * or the current setting for rows from before that column.
+   */
+  private async runDirectory(run: {
+    archiveDirectory?: string | null;
+  }): Promise<string> {
+    if (run.archiveDirectory) return run.archiveDirectory;
+    return (await this.getConfig()).archiveDirectory;
   }
 
   async getRun(id: string) {
@@ -557,13 +686,12 @@ export class BackupService implements OnModuleInit {
   async reclaimStaleRuns(): Promise<number> {
     const stale = await this.prisma.backupRun.findMany({
       where: this.deadRunningWhere(),
-      select: { id: true, startedAt: true, heartbeatAt: true },
+      select: { id: true, startedAt: true, heartbeatAt: true, archiveDirectory: true },
     });
     if (stale.length === 0) return 0;
 
-    const { archiveDirectory: backupDir } = await this.getConfig();
     for (const run of stale) {
-      await this.reclaimDeadRun(run, backupDir);
+      await this.reclaimDeadRun(run, await this.runDirectory(run));
     }
     return stale.length;
   }
@@ -624,6 +752,7 @@ export class BackupService implements OnModuleInit {
           'closed out automatically. No archive was produced.',
       },
     });
+    await this.failureNotice?.announce(run.id);
     // Failing to sweep must not fail the reclaim: the row flip is what
     // unblocks the admin and the guard; stranded bytes are a warning.
     const sweep = (p: string, recursive: boolean) =>
@@ -660,6 +789,15 @@ export class BackupService implements OnModuleInit {
     trigger: 'manual' | 'scheduled',
     startedBy: string | null,
   ) {
+    // A backup taken during maintenance would dump a database that a
+    // restore is rewriting, or one a failed restore left half applied.
+    // Recording that as `succeeded` lets retention evict the last good
+    // archives, so refuse outright. Scheduled runs log and skip.
+    if (this.maintenance?.isActive()) {
+      throw new ConflictException(
+        'The portal is in maintenance mode (a restore is running or did not finish). Backups are paused until it ends.',
+      );
+    }
     // Close out dead rows first, then refuse only if a LIVE run
     // remains. Two replicas share one archive volume and
     // `POST /admin/backup/runs` carries only AdminGuard, so nothing
@@ -694,11 +832,15 @@ export class BackupService implements OnModuleInit {
       );
     }
 
+    // The folder is recorded on the row so the archive stays reachable
+    // if the setting changes later.
+    const { archiveDirectory: runDirectory } = await this.getConfig();
     let run;
     try {
       run = await this.prisma.backupRun.create({
         data: {
           trigger,
+          archiveDirectory: runDirectory,
           // First beat at birth, so the liveness window never has to
           // special-case the gap before the poll timer's first tick.
           heartbeatAt: new Date(),
@@ -793,7 +935,7 @@ export class BackupService implements OnModuleInit {
       if (abort.signal.aborted) throw new BackupCancelledError();
     };
 
-    const { archiveDirectory: backupDir } = await this.getConfig();
+    const backupDir = await this.runDirectory(run);
     const timestamp = run.startedAt
       .toISOString()
       .replace(/[:.]/g, '-')
@@ -880,6 +1022,11 @@ export class BackupService implements OnModuleInit {
           totalBytes: plan.totalBytes,
         },
         gitSha: this.cfg.get<string>('GIT_SHA') || null,
+        // Best effort: restore falls back to reading the list from
+        // the dump itself when the manifest has none.
+        appliedMigrations: await this.appliedMigrations().catch(
+          () => undefined,
+        ),
       };
 
       // 4. Seal, streaming object bodies straight from S3 into the
@@ -962,7 +1109,11 @@ export class BackupService implements OnModuleInit {
               dbErr instanceof Error ? dbErr.message : dbErr
             }). Original failure above.`,
           );
+          return null;
         });
+      if (!wasCancelled) {
+        await this.failureNotice?.announce(run.id);
+      }
     } finally {
       // First, always. A leaked interval would keep querying for a run
       // that finished, once every couple of seconds, forever.
@@ -1090,14 +1241,33 @@ export class BackupService implements OnModuleInit {
       open: () => createReadStream(dumpPath),
     };
 
+    // Per-object metadata the tar member cannot carry. Restore puts
+    // each object back with its Content-Type; without it every file
+    // came back as application/octet-stream.
+    const contentTypes: Record<string, string> = {};
+    const skipped: string[] = [];
     for (const { key } of keys) {
       // Clean exit point between members. A cancel landing mid-body is
       // handled by the signal itself, which aborts the in-flight GET.
       checkCancelled();
-      const get = await this.s3.send(
-        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-        { abortSignal: signal },
-      );
+      let get;
+      try {
+        get = await this.s3.send(
+          new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+          { abortSignal: signal },
+        );
+      } catch (err) {
+        // The portal keeps serving while a backup runs, so an object
+        // listed at the start can be deleted before its turn. That is
+        // not a reason to lose the whole night's backup: leave it out
+        // and say so. Every other error still fails the run.
+        if (isNoSuchKey(err)) {
+          skipped.push(key);
+          continue;
+        }
+        throw err;
+      }
+      if (get.ContentType) contentTypes[key] = get.ContentType;
       const body = get.Body;
       if (!body) {
         // Previously a bare `continue`, which dropped the object from
@@ -1119,6 +1289,23 @@ export class BackupService implements OnModuleInit {
           body instanceof Readable ? body : Readable.fromWeb(body as never),
       };
     }
+
+    if (skipped.length > 0) {
+      this.log.warn(
+        `Backup left out ${skipped.length} object(s) deleted while it ran: ${skipped
+          .slice(0, 20)
+          .join(', ')}${skipped.length > 20 ? ', ...' : ''}`,
+      );
+    }
+    // Last, because it is only known once every GET has answered. The
+    // manifest's counts were taken from the listing before that, so
+    // the skipped keys are recorded here as well.
+    const meta: MinioArchiveMeta = { version: 1, contentTypes, skipped };
+    yield {
+      kind: 'buffer',
+      name: MINIO_META_MEMBER,
+      body: Buffer.from(JSON.stringify(meta), 'utf8'),
+    };
   }
 
   // ---------------------------------------------------------------
@@ -1135,8 +1322,7 @@ export class BackupService implements OnModuleInit {
     if (run.status !== 'succeeded' || !run.filename) {
       throw new NotFoundException('Backup archive is not available');
     }
-    const { archiveDirectory } = await this.getConfig();
-    const p = path.join(archiveDirectory, run.filename);
+    const p = path.join(await this.runDirectory(run), run.filename);
     try {
       await fs.access(p);
     } catch {
@@ -1176,8 +1362,7 @@ export class BackupService implements OnModuleInit {
       // run is gone. Setting the flag anyway would leave the admin
       // staring at "In progress" while nothing polls it (the exact
       // phantom of 2026-08-19), so close the run out here and say so.
-      const { archiveDirectory } = await this.getConfig();
-      await this.reclaimDeadRun(run, archiveDirectory);
+      await this.reclaimDeadRun(run, await this.runDirectory(run));
       this.log.warn(
         `Backup ${run.id}: cancel requested on a dead run; closed out as failed.`,
       );
@@ -1225,14 +1410,21 @@ export class BackupService implements OnModuleInit {
         if (!newest || st.mtime > newest) newest = st.mtime;
       }
     } catch (err) {
+      // The raw error names the path and tells "missing" from "no
+      // permission", which turns this into a probe of the server's
+      // file system. The detail goes to the log only.
+      this.log.warn(
+        `Backup health could not read ${cfg.archiveDirectory}: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
       return {
         lastArchiveAt: null,
         ageHours: null,
         archiveCount: 0,
         overdue: true,
-        reason: `Could not read the archive directory: ${
-          err instanceof Error ? err.message : err
-        }`,
+        reason:
+          'Could not read the archive directory. Check that it exists and the portal can read it; the server log has the details.',
       };
     }
     if (!newest) {
@@ -1284,12 +1476,12 @@ export class BackupService implements OnModuleInit {
           'That backup is still running. Stop it first, then delete it.',
         );
       }
-      const { archiveDirectory } = await this.getConfig();
-      await this.reclaimDeadRun(run, archiveDirectory);
+      await this.reclaimDeadRun(run, await this.runDirectory(run));
     }
     if (run.filename) {
-      const { archiveDirectory } = await this.getConfig();
-      const p = path.join(archiveDirectory, run.filename);
+      // The run's own folder, so retention also clears archives left
+      // in a folder the setting no longer names.
+      const p = path.join(await this.runDirectory(run), run.filename);
       await fs.rm(p, { force: true });
     }
     await this.prisma.backupRun.delete({ where: { id: run.id } });
@@ -1525,10 +1717,40 @@ export class BackupService implements OnModuleInit {
   }
 
   private readPortalVersion(): string | null {
-    // npm / pnpm exposes the running package's version via env at
-    // spawn time. If unset (e.g. the process was started by
-    // `node dist/main.js` directly), we just record null: this
-    // field is informational on the manifest and not load-bearing.
-    return process.env.npm_package_version ?? null;
+    // The image starts `node dist/main.js` directly, so npm's
+    // npm_package_version is unset there. GG_VERSION is baked into
+    // the image (updates.service.ts reads the same variable).
+    return (
+      process.env.GG_VERSION || process.env.npm_package_version || null
+    );
+  }
+
+  /**
+   * Sorted names of the Prisma migrations applied to the portal
+   * database, finished and not rolled back. Restore compares the
+   * archive's list with this one.
+   */
+  async appliedMigrations(): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ migration_name: string }[]>`
+      SELECT migration_name FROM _prisma_migrations
+      WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+      ORDER BY migration_name`;
+    return rows.map((r) => r.migration_name);
+  }
+
+  /** A `running` row whose process is still beating. */
+  async liveRun(): Promise<{ id: string; startedAt: Date } | null> {
+    const liveCutoff = new Date(Date.now() - STALE_HEARTBEAT_MS);
+    return this.prisma.backupRun.findFirst({
+      where: {
+        status: 'running',
+        OR: [
+          { heartbeatAt: { gte: liveCutoff } },
+          { heartbeatAt: null, startedAt: { gte: liveCutoff } },
+        ],
+      },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true, startedAt: true },
+    });
   }
 }

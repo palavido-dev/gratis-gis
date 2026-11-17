@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import {
   IsEmail,
@@ -74,8 +75,14 @@ export class FeedbackController {
    * notification email went out is deliberately not reflected in the
    * response: the row is durable either way, and telling the reporter
    * "something failed" would only produce a duplicate.
+   *
+   * Rate limit is tighter than the global 300/min default (matches
+   * anonymous drawings writes / Public tools run): optional
+   * screenshots make this an easy bandwidth burn if left at the
+   * global ceiling. Honeypot behaviour is unchanged.
    */
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Post()
   @HttpCode(200)
   @UseInterceptors(
@@ -171,15 +178,14 @@ export class FeedbackController {
  * real peer to whatever X-Forwarded-For the client sent, so a client
  * that sends `X-Forwarded-For: 9.9.9.9` makes the leftmost value 9.9.9.9
  * and gets a fresh rate-limit budget per request, plus poisons every
- * stored hash. Confirmed on the box: the Caddyfile sets no
- * trusted_proxies and no XFF handling, so it appends rather than
+ * stored hash. The Caddyfile trusts no upstream proxy (Caddy's
+ * default) and has no XFF handling, so it appends rather than
  * replaces.
  *
  * Caddy is the single edge proxy (it binds :443 directly), so it appends
  * exactly one hop: the true client. The RIGHTMOST entry is therefore the
  * real immediate peer and cannot be forged by the client, whatever it
- * stuffs to the left. Caddy's trusted_proxies is also set now as
- * defence-in-depth, but reading from the right is the property that does
+ * stuffs to the left. Reading from the right is the property that does
  * not depend on proxy config.
  */
 export function clientIp(req: Request): string {

@@ -27,7 +27,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { parseIntEnv } from '../common/env.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  type FeatureScopeFilter,
+} from '../items/sharing.service.js';
 import { DerivedLayerCacheRefreshService } from '../derived-layers/cache-refresh.service.js';
 import {
   ItemBboxRefreshService,
@@ -41,8 +44,6 @@ import {
   type DeltaChange,
   type TileResult,
 } from '../engine/data-layer.js';
-import { syncVersionSource } from './layer-delta.js';
-
 /**
  * A relate as the engine takes it: the parent layer's identity plus
  * the parent's own scope, already authorized by whichever controller
@@ -178,6 +179,21 @@ interface LayerSchemaMemo {
  * stale copy into `attrs` and shadow the live values next time.
  * Applied to every property bag about to be persisted on an update.
  */
+/**
+ * Read the `at` query value as a Date. An unparseable value used to
+ * reach the engine as an Invalid Date and answer 500, or (on the
+ * CSV export) a header-only file that read as "empty at that time".
+ */
+export function parseAsOf(at: string): Date {
+  const d = new Date(at);
+  if (!Number.isFinite(d.getTime())) {
+    throw new BadRequestException(
+      'at must be an RFC 3339 timestamp, e.g. 2026-08-01T00:00:00Z.',
+    );
+  }
+  return d;
+}
+
 function stripUnderscoreKeys(
   props: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -227,55 +243,6 @@ export class DataLayerFeaturesService {
    */
   private scheduleBboxRefresh(itemId: string, notice: FeatureWriteNotice): void {
     this.bboxRefresh.noteFeatureWrite(itemId, notice);
-  }
-
-  /**
-   * Atomically bump `data.layers[i].syncVersion` and return the new
-   * value. Optimistic on `item.updatedAt` so concurrent writers retry
-   * instead of clobbering each other. Used by write paths that stamp
-   * the version onto observation.source.details before insert.
-   */
-  async bumpLayerSyncVersion(
-    itemId: string,
-    layerId: string,
-  ): Promise<number> {
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const row = await this.prisma.item.findUnique({
-        where: { id: itemId },
-        select: { data: true, updatedAt: true },
-      });
-      if (!row) throw new NotFoundException('Item not found');
-      const data = row.data as {
-        version?: number;
-        layers?: Array<Record<string, unknown>>;
-      } | null;
-      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
-        throw new BadRequestException(
-          'syncVersion is only defined on v3 data_layer items.',
-        );
-      }
-      const idx = data.layers.findIndex((l) => l.id === layerId);
-      if (idx < 0) throw new NotFoundException('Layer not found');
-      const current = data.layers[idx]!;
-      const prev =
-        typeof current.syncVersion === 'number' &&
-        Number.isFinite(current.syncVersion)
-          ? Math.max(0, Math.floor(current.syncVersion))
-          : 0;
-      const next = prev + 1;
-      const nextLayers = data.layers.slice();
-      nextLayers[idx] = { ...current, syncVersion: next };
-      const updated = await this.prisma.item.updateMany({
-        where: { id: itemId, updatedAt: row.updatedAt },
-        data: {
-          data: { ...(data as object), layers: nextLayers } as never,
-        },
-      });
-      if (updated.count === 1) return next;
-    }
-    throw new ConflictException(
-      'Could not bump layer syncVersion; try the write again.',
-    );
   }
 
   /** Current syncVersion for a v3 layer, or 0 when absent. */
@@ -563,6 +530,7 @@ export class DataLayerFeaturesService {
    *   responses view renders that id as a person's name. `submitted_at`
    *   is NOT overwritten: capture time is client-authoritative (offline
    *   is the only place that knows it) and is only filled when absent.
+   *   On a patch `submitted_by` is dropped, so the stored value stays.
    *
    * - Undeclared keys are logged once per distinct set per layer. The
    *   validator preserves them (rejecting would break the form runtime,
@@ -606,6 +574,15 @@ export class DataLayerFeaturesService {
         if (declaresSubmittedAt && isBlankStamp(properties.submitted_at)) {
           properties.submitted_at = new Date().toISOString();
         }
+      }
+      // On a patch the submitter never changes. The merge in
+      // updateFeature keeps the stored value when the key is absent,
+      // so dropping it here stops an editor from naming someone else
+      // as the submitter.
+      if (mode === 'patch' && declaresSubmittedBy && 'submitted_by' in properties) {
+        const { submitted_by: _ignored, ...rest } = properties;
+        void _ignored;
+        properties = rest;
       }
       const result = validateFeatureProperties(fields, properties, {
         mode,
@@ -662,10 +639,17 @@ export class DataLayerFeaturesService {
       limit?: number;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: DataLayerFeatureOut[] }> {
+    // The engine casts entity to uuid, so a sequential id such as "4"
+    // from a source without stable ids would be a 500, not a 400.
+    if (opts.entity !== undefined && !isUuid(opts.entity)) {
+      throw new BadRequestException(
+        'That selection does not match a saved feature. Reselect the feature on the map and try again.',
+      );
+    }
     const result = await this.dataLayer.listFeatures({
       itemId,
       layerId,
-      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.at !== undefined ? { asOf: parseAsOf(opts.at) } : {}),
       ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.geoLimit !== undefined
         ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
@@ -715,7 +699,7 @@ export class DataLayerFeaturesService {
     yield* this.dataLayer.iterateFeatures({
       itemId,
       layerId,
-      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.at !== undefined ? { asOf: parseAsOf(opts.at) } : {}),
       ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.geoLimit !== undefined
         ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
@@ -765,7 +749,7 @@ export class DataLayerFeaturesService {
     return this.dataLayer.readFeaturePage({
       itemId,
       layerId,
-      ...(opts.at !== undefined ? { asOf: new Date(opts.at) } : {}),
+      ...(opts.at !== undefined ? { asOf: parseAsOf(opts.at) } : {}),
       ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.geoLimit !== undefined
         ? { geoLimit: opts.geoLimit as GeoJsonGeometry }
@@ -821,9 +805,16 @@ export class DataLayerFeaturesService {
     inputs: DataLayerFeatureInsert[],
     user: AuthUser,
     _opts: { isTable?: boolean } = {},
-  ): Promise<{ inserted: number; deduplicated: number; globalIds: string[] }> {
+  ): Promise<{
+    inserted: number;
+    deduplicated: number;
+    globalIds: string[];
+    /** Request indices of the rows actually written (not deduplicated),
+     *  for callers that act per new feature. Not part of the HTTP reply. */
+    insertedIndices: number[];
+  }> {
     if (inputs.length === 0) {
-      return { inserted: 0, deduplicated: 0, globalIds: [] };
+      return { inserted: 0, deduplicated: 0, globalIds: [], insertedIndices: [] };
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
@@ -831,21 +822,27 @@ export class DataLayerFeaturesService {
     // required field the caller omitted entirely is caught here rather
     // than surfacing later as an empty column nobody can explain.
     const validated = await this.validateAll(itemId, layerId, inputs, 'create', user);
-    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
-    const source = syncVersionSource(syncVersion);
-    const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
+    const committed = await this.dataLayer.commitLayerSync(
       itemId,
       layerId,
-      principal,
-      source,
-      ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
-      ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
-      ...(f.geometry !== undefined
-        ? { geometry: f.geometry as GeoJsonGeometry | null }
-        : {}),
-    }));
-
-    const written = await this.dataLayer.writeFeaturesCreateIdempotent(args);
+      async ({ tx, source }) => {
+        const args: CreateFeatureArgs[] = inputs.map((f, i) => ({
+          itemId,
+          layerId,
+          principal,
+          source,
+          ...(f.globalId !== undefined ? { globalId: f.globalId } : {}),
+          ...(validated[i] !== undefined ? { properties: validated[i] } : {}),
+          ...(f.geometry !== undefined
+            ? { geometry: f.geometry as GeoJsonGeometry | null }
+            : {}),
+        }));
+        const written = await this.dataLayer.writeFeaturesCreateIdempotent(args, tx);
+        const inserted = written.filter((w) => !w.deduplicated).length;
+        return { wrote: inserted > 0, value: written };
+      },
+    );
+    const written = committed.value;
     const inserted = written.filter((w) => !w.deduplicated).length;
     const deduplicated = written.length - inserted;
     this.log.log(
@@ -866,9 +863,9 @@ export class DataLayerFeaturesService {
       // actually inserted can have grown the extent.
       this.scheduleBboxRefresh(itemId, {
         kind: 'insert',
-        geometries: args
+        geometries: inputs
           .filter((_, i) => written[i]?.deduplicated !== true)
-          .map((a) => a.geometry ?? null),
+          .map((f) => f.geometry ?? null),
       });
     }
 
@@ -876,6 +873,7 @@ export class DataLayerFeaturesService {
       inserted,
       deduplicated,
       globalIds: written.map((w) => w.globalId),
+      insertedIndices: written.flatMap((w, i) => (w.deduplicated ? [] : [i])),
     };
   }
 
@@ -897,6 +895,11 @@ export class DataLayerFeaturesService {
    * import transaction. Load it once with `loadLayerSchema` before the
    * loop. Left optional so a caller that forgets is still validated,
    * just more slowly.
+   *
+   * The rows are stamped by `commitCopiedLayer` on this same
+   * connection after `sealCopy` and before `commit`. This method
+   * does not bump the cursor itself: an abort, or a load that
+   * leaves no rows, must not move it.
    */
   async bulkInsertFeatures(
     itemId: string,
@@ -928,7 +931,31 @@ export class DataLayerFeaturesService {
     }));
 
     const written = await this.dataLayer.copyFeaturesCreate(args, writer);
+    // Imports are where large distance values usually arrive. A
+    // buffer-by-field cap also clamps each row's buffer in SQL, so a
+    // stale cap shrinks imported halos. The cap only ever grows, so
+    // growing it from a batch that later rolls back is harmless.
+    if (written.length > 0) {
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, validated);
+    }
     return { inserted: written.length };
+  }
+
+  /**
+   * Finish a sealed COPY on the writer's connection. See
+   * `DataLayerEngine.commitCopiedLayer`. The caller commits.
+   */
+  commitCopiedLayer(
+    writer: import('../engine/copy-writer.js').CopyWriter,
+    args: {
+      itemId: string;
+      layerId: string;
+      removedEntityIds: readonly string[];
+      authorSub: string;
+      replace?: boolean;
+    },
+  ) {
+    return this.dataLayer.commitCopiedLayer(writer, args);
   }
 
   /**
@@ -1225,8 +1252,24 @@ export class DataLayerFeaturesService {
        */
       where?: MapLayerFilter;
       via?: AggregateVia;
+      /** From the layer's tile settings; see data-layer/tile-settings.ts. */
+      maxFeaturesPerTile?: number;
+      /** From the layer's tile settings: emit the `labels` layer. */
+      labelPoints?: boolean;
+      /**
+       * From the layer's tile settings. A tile outside the range is
+       * answered empty without touching the database or the cache, the
+       * same empty body a table sublayer gets.
+       */
+      zoomRange?: { min: number; max: number };
     } = {},
   ): Promise<TileResult> {
+    if (
+      opts.zoomRange !== undefined &&
+      (z < opts.zoomRange.min || z > opts.zoomRange.max)
+    ) {
+      return { mvt: Buffer.alloc(0), etag: '"empty-zoom"' };
+    }
     return this.dataLayer.mvtTile({
       itemId,
       layerId,
@@ -1246,6 +1289,10 @@ export class DataLayerFeaturesService {
       ...(opts.fields ? { fields: opts.fields } : {}),
       ...(opts.where !== undefined ? { where: opts.where } : {}),
       ...(opts.via !== undefined ? { via: opts.via } : {}),
+      ...(opts.maxFeaturesPerTile !== undefined
+        ? { maxFeaturesPerTile: opts.maxFeaturesPerTile }
+        : {}),
+      ...(opts.labelPoints === true ? { labelPoints: true } : {}),
     });
   }
 
@@ -1271,7 +1318,10 @@ export class DataLayerFeaturesService {
     patch: { geometry?: unknown; properties?: Record<string, unknown> },
     user: AuthUser,
     opts: {
-      ownRowsOnly?: boolean;
+      /** The caller's write scope from SharingService.featureScopeFor.
+       *  A feature outside it (another user's row under own-rows, or
+       *  a row outside the geo limit) reads as not found. */
+      shareScope?: FeatureScopeFilter;
       isTable?: boolean;
       baseObservationId?: string;
       checkOnly?: boolean;
@@ -1282,148 +1332,173 @@ export class DataLayerFeaturesService {
   > {
     const isTable = opts.isTable === true;
 
-    // Look up the current state. The candidate-entities CTE inside
-    // listFeatures filters by created_by when ownRowsOnly is set, so
-    // a feature that exists but was created by someone else will
-    // come back empty here; we surface that as NotFound to match the
-    // pre-engine "don't leak existence" pattern.
-    const current = await this.dataLayer.listFeatures({
-      itemId,
-      layerId,
-      entity: featureId,
-      ...(opts.ownRowsOnly === true
-        ? { ownRowsOnly: { userId: user.id } }
-        : {}),
-      ...(isTable ? { isTable: true } : {}),
-    });
-    if (current.features.length === 0) {
-      throw new NotFoundException('Feature not found');
-    }
-    const existing = current.features[0]!;
-
-    // MERGE the patch over the current values. This is what the
-    // docblock above has always promised and what every caller
-    // assumed; the code used to replace the whole bag instead, so a
-    // client that sent only the keys it changed silently cleared every
-    // other column. The field runtime's edit path sends only the
-    // form's own keys, which on a paired submissions layer meant an
-    // edit wiped `submitted_at` and `submitted_by`.
-    //
-    // Merging is also what makes 'patch' mode validation exact: a key
-    // the caller did not mention keeps its value, so "not mentioned"
-    // and "cleared" are different things, and only the second can
-    // violate a required field. Under replace semantics they were the
-    // same write and the validator had to pick a side.
-    //
-    // Underscore keys are stripped from BOTH sides: the read path
-    // inlines them and a client that echoes them back would otherwise
-    // freeze a stale `_created_at` into attrs.
-    const base = stripUnderscoreKeys(existing.properties);
-    const nextProps =
-      patch.properties !== undefined
-        ? {
-            ...base,
-            ...stripUnderscoreKeys(
-              (await this.validateProperties(
-                itemId,
-                layerId,
-                patch.properties,
-                'patch',
-                user,
-              )) ?? patch.properties,
-            ),
-          }
-        : base;
-
-    const nextGeometry: GeoJsonGeometry | null = isTable
-      ? null
-      : patch.geometry !== undefined
-        ? (patch.geometry as GeoJsonGeometry | null)
-        : existing.geometry;
-
-    const losingSide: DataLayerFeatureOut = {
-      type: 'Feature',
-      id: featureId,
-      geometry: nextGeometry,
-      properties: nextProps,
-    };
-
-    if (
-      opts.baseObservationId !== undefined &&
-      existing.properties._observation_id !== opts.baseObservationId
-    ) {
-      throw await this.raiseFeatureConflict({
+    const implicitBase = opts.baseObservationId === undefined;
+    for (let attempt = 1; ; attempt += 1) {
+      // Look up the current state. The candidate-entities CTE inside
+      // listFeatures filters by created_by when ownRowsOnly is set, so
+      // a feature that exists but was created by someone else will
+      // come back empty here; we surface that as NotFound to match the
+      // pre-engine "don't leak existence" pattern.
+      const current = await this.dataLayer.listFeatures({
         itemId,
         layerId,
-        featureId,
-        op: 'update',
-        current: existing,
-        losingSide,
-        baseObservationId: opts.baseObservationId,
+        entity: featureId,
+        ...(opts.shareScope ?? {}),
+        ...(isTable ? { isTable: true } : {}),
       });
-    }
+      if (current.features.length === 0) {
+        throw new NotFoundException('Feature not found');
+      }
+      const existing = current.features[0]!;
 
-    if (opts.checkOnly === true) {
-      const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
-      const head = existing.properties._observation_id;
-      return {
-        ok: true,
-        headObservationId: typeof head === 'string' ? head : null,
-        syncVersion,
+      // MERGE the patch over the current values. This is what the
+      // docblock above has always promised and what every caller
+      // assumed; the code used to replace the whole bag instead, so a
+      // client that sent only the keys it changed silently cleared every
+      // other column. The field runtime's edit path sends only the
+      // form's own keys, which on a paired submissions layer meant an
+      // edit wiped `submitted_at` and `submitted_by`.
+      //
+      // Merging is also what makes 'patch' mode validation exact: a key
+      // the caller did not mention keeps its value, so "not mentioned"
+      // and "cleared" are different things, and only the second can
+      // violate a required field. Under replace semantics they were the
+      // same write and the validator had to pick a side.
+      //
+      // Underscore keys are stripped from BOTH sides: the read path
+      // inlines them and a client that echoes them back would otherwise
+      // freeze a stale `_created_at` into attrs.
+      const base = stripUnderscoreKeys(existing.properties);
+      const nextProps =
+        patch.properties !== undefined
+          ? {
+              ...base,
+              ...stripUnderscoreKeys(
+                (await this.validateProperties(
+                  itemId,
+                  layerId,
+                  patch.properties,
+                  'patch',
+                  user,
+                )) ?? patch.properties,
+              ),
+            }
+          : base;
+
+      const nextGeometry: GeoJsonGeometry | null = isTable
+        ? null
+        : patch.geometry !== undefined
+          ? (patch.geometry as GeoJsonGeometry | null)
+          : existing.geometry;
+
+      const losingSide: DataLayerFeatureOut = {
+        type: 'Feature',
+        id: featureId,
+        geometry: nextGeometry,
+        properties: nextProps,
       };
-    }
 
-    const principal = { sub: user.id, displayName: user.username ?? '' };
-    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
-    const written = await this.dataLayer.writeFeatureUpdate({
-      itemId,
-      layerId,
-      globalId: featureId,
-      principal,
-      source: syncVersionSource(syncVersion),
-      properties: nextProps,
-      geometry: nextGeometry,
-      ...(opts.baseObservationId !== undefined
-        ? { expectedHeadObservationId: opts.baseObservationId }
-        : {}),
-    });
+      if (
+        opts.baseObservationId !== undefined &&
+        existing.properties._observation_id !== opts.baseObservationId
+      ) {
+        throw await this.raiseFeatureConflict({
+          itemId,
+          layerId,
+          featureId,
+          op: 'update',
+          current: existing,
+          losingSide,
+          baseObservationId: opts.baseObservationId,
+        });
+      }
 
-    const refreshed = await this.dataLayer.listFeatures({
-      itemId,
-      layerId,
-      entity: featureId,
-      ...(isTable ? { isTable: true } : {}),
-    });
-    if ('conflict' in written) {
-      // Somebody landed between our read and our write. Report what is
-      // there now; the read-back is the head the guard refused against.
-      throw await this.raiseFeatureConflict({
+      if (opts.checkOnly === true) {
+        const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+        const head = existing.properties._observation_id;
+        return {
+          ok: true,
+          headObservationId: typeof head === 'string' ? head : null,
+          syncVersion,
+        };
+      }
+
+      // Without a base from the caller, the head we merged onto is the
+      // expected head. The write runs under the entity lock, so a
+      // concurrent edit to another field is caught there instead of
+      // being reverted by this write's whole property bag.
+      const head = existing.properties._observation_id;
+      const expectedHead =
+        opts.baseObservationId ?? (typeof head === 'string' ? head : undefined);
+      const principal = { sub: user.id, displayName: user.username ?? '' };
+      const committed = await this.dataLayer.commitLayerSync(
         itemId,
         layerId,
-        featureId,
-        op: 'update',
-        current: refreshed.features[0] ?? null,
-        losingSide,
-        ...(opts.baseObservationId !== undefined
-          ? { baseObservationId: opts.baseObservationId }
-          : {}),
-      });
-    }
-    const result = refreshed.features[0];
-    if (result === undefined) {
-      // Defensive: writeFeatureUpdate succeeded but the read came
-      // back empty. Treat as 500-equivalent rather than masquerading
-      // as 404; this should not happen.
-      throw new Error('Feature update succeeded but read-back returned no rows');
-    }
+        async ({ tx, source }) => {
+          const written = await this.dataLayer.writeFeatureUpdate(
+            {
+              itemId,
+              layerId,
+              globalId: featureId,
+              principal,
+              source,
+              properties: nextProps,
+              geometry: nextGeometry,
+              ...(expectedHead !== undefined
+                ? { expectedHeadObservationId: expectedHead }
+                : {}),
+            },
+            tx,
+          );
+          return { wrote: !('conflict' in written), value: written };
+        },
+      );
+      const written = committed.value;
 
-    void this.cacheRefresh.notifySourceWrite(itemId, layerId, [nextProps]);
-    this.scheduleBboxRefresh(itemId, {
-      kind: 'update',
-      before: [existing.geometry],
-      after: [nextGeometry],
-    });
-    return result;
+      const refreshed = await this.dataLayer.listFeatures({
+        itemId,
+        layerId,
+        entity: featureId,
+        ...(opts.shareScope ?? {}),
+        ...(isTable ? { isTable: true } : {}),
+      });
+      if ('conflict' in written && implicitBase && attempt < 2) {
+        // Another edit landed between our read and our write. The caller
+        // did not claim a base, so this is not their conflict to see:
+        // read again and merge their patch over the new head.
+        continue;
+      }
+      if ('conflict' in written) {
+        // Somebody landed between our read and our write. Report what is
+        // there now; the read-back is the head the guard refused against.
+        throw await this.raiseFeatureConflict({
+          itemId,
+          layerId,
+          featureId,
+          op: 'update',
+          current: refreshed.features[0] ?? null,
+          losingSide,
+          ...(opts.baseObservationId !== undefined
+            ? { baseObservationId: opts.baseObservationId }
+            : {}),
+        });
+      }
+      const result = refreshed.features[0];
+      if (result === undefined) {
+        // Defensive: writeFeatureUpdate succeeded but the read came
+        // back empty. Treat as 500-equivalent rather than masquerading
+        // as 404; this should not happen.
+        throw new Error('Feature update succeeded but read-back returned no rows');
+      }
+
+      void this.cacheRefresh.notifySourceWrite(itemId, layerId, [nextProps]);
+      this.scheduleBboxRefresh(itemId, {
+        kind: 'update',
+        before: [existing.geometry],
+        after: [nextGeometry],
+      });
+      return result;
+    }
   }
 
   /** Soft-delete a feature by appending a `kind: 'delete'`
@@ -1436,7 +1511,10 @@ export class DataLayerFeaturesService {
     featureId: string,
     user: AuthUser,
     opts: {
-      ownRowsOnly?: boolean;
+      /** Same contract as updateFeature's `shareScope`. */
+      shareScope?: FeatureScopeFilter;
+      /** Table sublayer: the geo limit has no geometry to clip. */
+      isTable?: boolean;
       baseObservationId?: string;
       checkOnly?: boolean;
     } = {},
@@ -1445,9 +1523,8 @@ export class DataLayerFeaturesService {
       itemId,
       layerId,
       entity: featureId,
-      ...(opts.ownRowsOnly === true
-        ? { ownRowsOnly: { userId: user.id } }
-        : {}),
+      ...(opts.shareScope ?? {}),
+      ...(opts.isTable === true ? { isTable: true } : {}),
     });
     if (current.features.length === 0) {
       throw new NotFoundException('Feature not found');
@@ -1479,19 +1556,35 @@ export class DataLayerFeaturesService {
     }
 
     const principal = { sub: user.id, displayName: user.username ?? '' };
-    const syncVersion = await this.bumpLayerSyncVersion(itemId, layerId);
-    const written = await this.dataLayer.writeFeatureDelete({
+    const committed = await this.dataLayer.commitLayerSync(
       itemId,
       layerId,
-      globalId: featureId,
-      principal,
-      source: syncVersionSource(syncVersion),
-      ...(opts.baseObservationId !== undefined
-        ? { expectedHeadObservationId: opts.baseObservationId }
-        : {}),
-    });
+      async ({ tx, source }) => {
+        const written = await this.dataLayer.writeFeatureDelete(
+          {
+            itemId,
+            layerId,
+            globalId: featureId,
+            principal,
+            source,
+            ...(opts.baseObservationId !== undefined
+              ? { expectedHeadObservationId: opts.baseObservationId }
+              : {}),
+          },
+          tx,
+        );
+        return { wrote: !('conflict' in written), value: written };
+      },
+    );
+    const written = committed.value;
     if ('conflict' in written) {
-      const now = await this.dataLayer.listFeatures({ itemId, layerId, entity: featureId });
+      const now = await this.dataLayer.listFeatures({
+        itemId,
+        layerId,
+        entity: featureId,
+        ...(opts.shareScope ?? {}),
+        ...(opts.isTable === true ? { isTable: true } : {}),
+      });
       throw await this.raiseFeatureConflict({
         itemId,
         layerId,
@@ -1550,8 +1643,8 @@ export class DataLayerFeaturesService {
       ...(args.baseObservationId !== undefined
         ? { baseObservationId: args.baseObservationId }
         : {}),
-      losingSide: args.losingSide,
-      current: args.current,
+      losingSide: boundConflictSide(args.losingSide),
+      current: boundConflictSide(args.current),
     };
     try {
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -1573,7 +1666,7 @@ export class DataLayerFeaturesService {
         const prev = Array.isArray(layer.syncConflicts)
           ? (layer.syncConflicts as unknown[])
           : [];
-        const nextConflicts = [...prev, entry].slice(-MAX_SYNC_CONFLICTS);
+        const nextConflicts = trimConflictRing([...prev, entry].slice(-MAX_SYNC_CONFLICTS));
         const nextLayers = data.layers.slice();
         nextLayers[idx] = { ...layer, syncConflicts: nextConflicts };
         const updated = await this.prisma.item.updateMany({
@@ -1682,7 +1775,9 @@ export class DataLayerFeaturesService {
     selectedIds?: string[];
     dryRun: boolean;
     user: AuthUser;
-    ownRowsOnly?: boolean;
+    /** The caller's write scope. Rows outside it are neither
+     *  counted, previewed nor written. */
+    shareScope?: FeatureScopeFilter;
     isTable?: boolean;
   }): Promise<{
     totalRows: number;
@@ -1693,6 +1788,7 @@ export class DataLayerFeaturesService {
       newValue: unknown;
     }>;
     errors: number;
+    conflicts: number;
   }> {
     if (!FIELD_NAME_RE.test(args.outputName)) {
       throw new BadRequestException(
@@ -1741,16 +1837,18 @@ export class DataLayerFeaturesService {
 
     // Fetch the affected entities.  In 'selection' mode we limit
     // to selectedIds; otherwise we pull every entity in the
-    // sublayer.  ownRowsOnly + isTable mirror the regular update
-    // path so per-share row scoping is respected.
+    // sublayer.  The scope (own rows and geo limit) + isTable mirror
+    // the regular update path so share limits are respected.
     const features = await this.dataLayer.listFeatures({
       itemId: args.itemId,
       layerId: args.layerId,
       ...(selectionIds !== undefined ? { entityIds: selectionIds } : {}),
-      ...(args.ownRowsOnly === true
-        ? { ownRowsOnly: { userId: args.user.id } }
-        : {}),
+      ...(args.shareScope ?? {}),
       ...(args.isTable === true ? { isTable: true } : {}),
+      // Enforce the cap in SQL. Without a limit the engine default of
+      // 100,000 full features (geometry included) was loaded before
+      // the cap below was checked, enough to exhaust a replica.
+      limit: MAX_CALC_FIELD_ROWS + 1,
     });
 
     const total = features.features.length;
@@ -1856,53 +1954,105 @@ export class DataLayerFeaturesService {
       });
     }
 
-    if (args.dryRun) {
-      return { totalRows: total, appliedRows: 0, sample, errors };
+    if (args.dryRun || updates.length === 0) {
+      return { totalRows: total, appliedRows: 0, sample, errors, conflicts: 0 };
     }
 
     const principal = {
       sub: args.user.id,
       displayName: args.user.username ?? '',
     };
-    const syncVersion = await this.bumpLayerSyncVersion(
-      args.itemId,
-      args.layerId,
-    );
-    const source = syncVersionSource(syncVersion);
-    await this.dataLayer.writeFeaturesUpdate(
-      updates.map((u) => ({
+    // One lookup table instead of a scan of every feature per update,
+    // which was quadratic (about 10^8 comparisons at the row cap) on
+    // the event loop.
+    const headById = new Map<string, unknown>();
+    for (const f of features.features) {
+      headById.set(String(f.id), f.properties._observation_id);
+    }
+    const missingHead = updates.filter((u) => {
+      const head = headById.get(u.id);
+      return typeof head !== 'string';
+    });
+    const fenced = updates.flatMap((u) => {
+      const head = headById.get(u.id);
+      if (typeof head !== 'string') return [];
+      return [{
         itemId: args.itemId,
         layerId: args.layerId,
         globalId: u.id,
         principal,
-        source,
+        source: { kind: 'data_layer:write', details: { syncVersion: 0 } },
         properties: u.newProperties,
         geometry: u.geometry,
-      })),
-    );
-
-    void this.cacheRefresh.notifySourceWrite(
+        expectedHeadObservationId: head,
+      }];
+    });
+    const committed = await this.dataLayer.commitLayerSync(
       args.itemId,
       args.layerId,
-      updates.map((u) => u.newProperties),
+      async ({ tx, source }) => {
+        const written = await this.dataLayer.writeFeaturesUpdate(
+          fenced.map((row) => ({ ...row, source })),
+          tx,
+        );
+        return { wrote: written.applied.length > 0, value: written };
+      },
     );
-    // Attribute only: every row keeps its geometry, and the service
-    // recognises an unchanged envelope as extent neutral.
-    const geometries = updates.map((u) => u.geometry);
-    this.scheduleBboxRefresh(args.itemId, {
-      kind: 'update',
-      before: geometries,
-      after: geometries,
-    });
+    for (const conflict of committed.value.conflicts) {
+      const current = features.features.find((f) => String(f.id) === conflict.globalId);
+      await this.recordSyncConflict({
+        itemId: args.itemId,
+        layerId: args.layerId,
+        featureId: conflict.globalId,
+        op: 'update',
+        current: current ?? null,
+        losingSide: null,
+        ...(conflict.headObservationId
+          ? { baseObservationId: conflict.headObservationId }
+          : {}),
+      });
+    }
+    const appliedRows = committed.value.applied.length;
+    const conflictIds = new Set([
+      ...missingHead.map((u) => u.id),
+      ...committed.value.conflicts.map((c) => c.globalId),
+    ]);
 
-    return { totalRows: total, appliedRows: updates.length, sample, errors };
+    if (appliedRows > 0) {
+      void this.cacheRefresh.notifySourceWrite(
+        args.itemId,
+        args.layerId,
+        updates
+          .filter((u) => !conflictIds.has(u.id))
+          .map((u) => u.newProperties),
+      );
+      const geometries = updates
+        .filter((u) => !conflictIds.has(u.id))
+        .map((u) => u.geometry);
+      this.scheduleBboxRefresh(args.itemId, {
+        kind: 'update',
+        before: geometries,
+        after: geometries,
+      });
+    }
+
+    return {
+      totalRows: total,
+      appliedRows,
+      sample,
+      errors,
+      conflicts: conflictIds.size,
+    };
   }
 
   /**
-   * Delta pull for field / QGIS sync. Returns observation rows with
-   * syncVersion > `since`, under the same geo / own-rows clips the
-   * caller already resolved. `syncVersion` in the response is the
-   * layer's current counter (what the client should store next).
+   * Delta pull for field / QGIS sync. Returns observation rows after
+   * the cursor `(since, after)`, under the same geo / own-rows clips
+   * the caller already resolved. `syncVersion` in the response is the
+   * layer's current counter (what the client should store once a walk
+   * finishes). When `truncated` is true, `nextSince` and `nextAfter`
+   * name the last row returned; send them back as `since` and `after`
+   * to get the next page. See docs/sync-protocol.md.
    */
   async listDelta(
     itemId: string,
@@ -1910,7 +2060,10 @@ export class DataLayerFeaturesService {
     since: number,
     opts: {
       limit?: number;
+      after?: string;
       geoLimit?: GeoJsonGeometry;
+      /** WGS84 [w, s, e, n] area the client caches; see listDeltaSince. */
+      bbox?: [number, number, number, number];
       ownRowsOnly?: boolean;
       isTable?: boolean;
       userId?: string;
@@ -1920,14 +2073,30 @@ export class DataLayerFeaturesService {
     since: number;
     changes: DeltaChange[];
     truncated: boolean;
+    nextSince?: number;
+    nextAfter?: string;
   }> {
     const limit = opts.limit ?? 1000;
+    // Read the cursor before the changes. Read after, a write that
+    // commits between the two statements would advance syncVersion
+    // without appearing in `changes`, and the client would skip it for
+    // good. Read before, that write is sent again next time, which is
+    // harmless because applying a change is idempotent.
+    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
+    // Nothing changed since the client's cursor. The delta query has
+    // no index on the stamped version and reads the whole scope, so
+    // a device polling an idle large layer paid a full scan per poll.
+    if (opts.after === undefined && since >= syncVersion) {
+      return { syncVersion, since, changes: [], truncated: false };
+    }
     const changes = await this.dataLayer.listDeltaSince({
       itemId,
       layerId,
       since,
+      ...(opts.after !== undefined ? { after: opts.after } : {}),
       limit: limit + 1, // probe one past so we can set truncated
       ...(opts.geoLimit !== undefined ? { geoLimit: opts.geoLimit } : {}),
+      ...(opts.bbox !== undefined ? { bbox: opts.bbox } : {}),
       ...(opts.ownRowsOnly === true && opts.userId
         ? { ownRowsOnly: { userId: opts.userId } }
         : {}),
@@ -1935,8 +2104,18 @@ export class DataLayerFeaturesService {
     });
     const truncated = changes.length > limit;
     const page = truncated ? changes.slice(0, limit) : changes;
-    const syncVersion = await this.readLayerSyncVersion(itemId, layerId);
-    return { syncVersion, since, changes: page, truncated };
+    if (!truncated) return { syncVersion, since, changes: page, truncated };
+    // The page can end inside one syncVersion (a 25k-row import is one
+    // version). The next page resumes strictly after this row.
+    const last = page[page.length - 1]!;
+    return {
+      syncVersion,
+      since,
+      changes: page,
+      truncated,
+      nextSince: last.syncVersion,
+      nextAfter: last.observationId,
+    };
   }
 }
 
@@ -1957,3 +2136,44 @@ function coerceOutputValue(
   }
   return String(raw);
 }
+
+/** Largest copy of one side of a sync conflict kept on the item. */
+export const SYNC_CONFLICT_SIDE_MAX_BYTES = 16 * 1024;
+/** Largest the whole conflict list of one layer may grow. */
+export const SYNC_CONFLICT_RING_MAX_BYTES = 512 * 1024;
+
+/**
+ * The conflict list lives inside item.data, which every item read
+ * loads. Each entry copied both versions of the feature whole, and an
+ * editor controls one of them: about twenty 9 MB edits left a 170 MB
+ * item row and took the API past its heap. A side larger than
+ * SYNC_CONFLICT_SIDE_MAX_BYTES keeps its id and attributes when they
+ * fit, or only a note that it was too large; the feature history still
+ * holds every version.
+ */
+export function boundConflictSide<T>(side: T): T | { truncated: true; bytes: number; id?: unknown; properties?: unknown } {
+  if (side === null || side === undefined) return side;
+  const bytes = Buffer.byteLength(JSON.stringify(side), 'utf8');
+  if (bytes <= SYNC_CONFLICT_SIDE_MAX_BYTES) return side;
+  const s = side as { id?: unknown; properties?: unknown };
+  const props = s.properties;
+  const propsBytes = props === undefined ? 0 : Buffer.byteLength(JSON.stringify(props), 'utf8');
+  return {
+    truncated: true,
+    bytes,
+    ...(s.id !== undefined ? { id: s.id } : {}),
+    ...(props !== undefined && propsBytes <= SYNC_CONFLICT_SIDE_MAX_BYTES ? { properties: props } : {}),
+  };
+}
+
+/** Drop the oldest conflicts until the list fits its byte budget. */
+export function trimConflictRing<T>(ring: T[]): T[] {
+  const out = ring.slice();
+  let total = Buffer.byteLength(JSON.stringify(out), 'utf8');
+  while (out.length > 1 && total > SYNC_CONFLICT_RING_MAX_BYTES) {
+    const dropped = out.shift();
+    total -= Buffer.byteLength(JSON.stringify(dropped), 'utf8') + 1;
+  }
+  return out;
+}
+

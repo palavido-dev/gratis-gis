@@ -105,9 +105,17 @@ psql_val() {
 
 # Guard: no sample set means nothing to hand out. Warn and succeed so
 # an unseeded demo doesn't fail the nightly reset.
-SAMPLE_COUNT="$(psql_val \
-  "SELECT count(*) FROM item WHERE deleted_at IS NULL AND seed_kind LIKE 'sample:%'" \
-  || echo 0)"
+# Trashed samples count too: a visitor can trash them, and the revert
+# must still hand them back before the purge. In revert mode a failed
+# query stops the snapshot instead of reading as "no samples".
+if [[ "$MODE" == revert ]]; then
+  SAMPLE_COUNT="$(psql_val "SELECT count(*) FROM item WHERE seed_kind LIKE 'sample:%'")" \
+    || { echo "ERROR: could not count sample items; refusing to snapshot." >&2; exit 1; }
+else
+  SAMPLE_COUNT="$(psql_val \
+    "SELECT count(*) FROM item WHERE deleted_at IS NULL AND seed_kind LIKE 'sample:%'" \
+    || echo 0)"
+fi
 if [[ "${SAMPLE_COUNT:-0}" -eq 0 ]]; then
   echo "WARN: no sample:* items in $PG_DB; nothing to $MODE." >&2
   echo "      Run infra/seed-sample-content.mjs inside the portal-api" >&2
@@ -149,15 +157,32 @@ WHERE owner_id IN (
     seed_kind LIKE 'sample:%'
     OR (
       type = 'data-layer'
-      AND title = (
-        SELECT title || ' - Submissions' FROM item
-        WHERE seed_kind = 'sample:form-issue-report' AND deleted_at IS NULL
+      -- By the id the form links to: a title match missed the layer
+      -- once a visitor renamed or trashed the form.
+      AND id = (
+        SELECT (data_json->>'linkedLayerId')::uuid FROM item
+        WHERE seed_kind = 'sample:form-issue-report'
+          AND data_json->>'linkedLayerId' ~* '^[0-9a-f-]{36}$'
+        LIMIT 1
       )
     )
   );
 
 COMMIT;
 SQL
+  # Fail closed: a sample item still owned by a tester would be purged
+  # and lost from the golden snapshot.
+  LEFT_OVER="$(psql_val "SELECT count(*) FROM item i JOIN \"user\" u ON u.id = i.owner_id
+    WHERE u.username IN ('tester-admin', 'tester-contributor', 'tester-viewer')
+      AND (i.seed_kind LIKE 'sample:%' OR i.id = (
+        SELECT (data_json->>'linkedLayerId')::uuid FROM item
+        WHERE seed_kind = 'sample:form-issue-report'
+          AND data_json->>'linkedLayerId' ~* '^[0-9a-f-]{36}\$' LIMIT 1))")" \
+    || { echo "ERROR: could not check the revert; refusing to snapshot." >&2; exit 1; }
+  if [[ "${LEFT_OVER:-1}" -ne 0 ]]; then
+    echo "ERROR: ${LEFT_OVER} sample item(s) are still owned by a tester account; refusing to snapshot." >&2
+    exit 1
+  fi
   echo
   psql_do -c "
 SELECT u.username AS owner, count(*) AS sample_items
@@ -202,9 +227,13 @@ WHERE deleted_at IS NULL
     seed_kind IN ('sample:collection-trail-survey', 'sample:form-issue-report')
     OR (
       type = 'data-layer'
-      AND title = (
-        SELECT title || ' - Submissions' FROM item
-        WHERE seed_kind = 'sample:form-issue-report' AND deleted_at IS NULL
+      -- By the id the form links to: a title match missed the layer
+      -- once a visitor renamed or trashed the form.
+      AND id = (
+        SELECT (data_json->>'linkedLayerId')::uuid FROM item
+        WHERE seed_kind = 'sample:form-issue-report'
+          AND data_json->>'linkedLayerId' ~* '^[0-9a-f-]{36}$'
+        LIMIT 1
       )
       -- Owner scoping: the real paired layer is admin-owned right
       -- after a restore (or contrib-owned on a re-run). A visitor
@@ -282,9 +311,11 @@ WHERE i.deleted_at IS NULL
     -- visitor item with a coincidental title must not get shared.
     OR (
       i.type = 'data-layer'
-      AND i.title = (
-        SELECT title || ' - Submissions' FROM item
-        WHERE seed_kind = 'sample:form-issue-report' AND deleted_at IS NULL
+      AND i.id = (
+        SELECT (data_json->>'linkedLayerId')::uuid FROM item
+        WHERE seed_kind = 'sample:form-issue-report'
+          AND data_json->>'linkedLayerId' ~* '^[0-9a-f-]{36}$'
+        LIMIT 1
       )
       AND i.owner_id = (SELECT contrib_id FROM ids)
     )

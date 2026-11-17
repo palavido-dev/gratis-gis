@@ -2,7 +2,9 @@
 import type { OrgRole } from '@prisma/client';
 import {
   CAPABILITY_KEYS,
+  ENFORCED_CAPABILITY_KEYS,
   isCapabilityKey,
+  isEnforcedCapability,
   type CapabilityKey,
 } from '@gratis-gis/shared-types';
 
@@ -16,7 +18,13 @@ import type { AuthUser } from './auth-sync.service.js';
  * API keep one import site. Baselines and override merging stay in
  * this file: they depend on the Prisma `OrgRole` enum.
  */
-export { CAPABILITY_KEYS, isCapabilityKey, type CapabilityKey };
+export {
+  CAPABILITY_KEYS,
+  ENFORCED_CAPABILITY_KEYS,
+  isCapabilityKey,
+  isEnforcedCapability,
+  type CapabilityKey,
+};
 
 /**
  * Each role's baseline capability set. Per-user overrides (stored in

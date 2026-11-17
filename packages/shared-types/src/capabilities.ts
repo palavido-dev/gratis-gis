@@ -39,3 +39,23 @@ export function isCapabilityKey(value: unknown): value is CapabilityKey {
     (CAPABILITY_KEYS as readonly string[]).includes(value)
   );
 }
+
+/**
+ * Capabilities the API actually checks today. The rest are in the
+ * catalog for the role baselines but no route reads them yet, so an
+ * override on one would change nothing. The admin override API
+ * refuses to set those and the web hides them, rather than offering
+ * a switch that does nothing. Add a key here in the same change that
+ * adds its check.
+ */
+export const ENFORCED_CAPABILITY_KEYS: readonly CapabilityKey[] = [
+  'can_publish_items',
+  'can_share_items',
+];
+
+export function isEnforcedCapability(value: unknown): value is CapabilityKey {
+  return (
+    isCapabilityKey(value) &&
+    (ENFORCED_CAPABILITY_KEYS as readonly string[]).includes(value)
+  );
+}

@@ -26,6 +26,12 @@ import {
 } from '@gratis-gis/shared-types';
 import type { FeatureField, PickListData } from '@gratis-gis/shared-types';
 import type { FormSchema } from '@gratis-gis/form-schema';
+import { clientUuid } from './uuid';
+import {
+  countForeignSubmissions,
+  countUnsentSubmissions,
+  removeForeignSubmissions,
+} from './form-offline';
 
 /** Database name for the portal-web origin. One DB across all
  *  deployments cached on this device; the store keys carry the
@@ -94,6 +100,11 @@ interface OfflineIdentityRow {
    *  stamps into `submitted_by`). */
   userId: string;
   updatedAt: string;
+  /** Set when the identity changed from another account and that
+   *  account's cached reads have not been purged yet. Written in the
+   *  same put as the new identity and cleared only after the purge, so
+   *  a purge that fails is run again on the next load. */
+  purgePending?: boolean;
 }
 
 /** Cached feature row stored in the `features` object store. */
@@ -144,6 +155,19 @@ export interface CachedLayerSchema {
    * a full pull once, then start tracking.
    */
   syncVersion?: number;
+  /**
+   * The area `syncVersion` is good for: [west, south, east, north],
+   * or null for the whole layer. The delta endpoint has no area
+   * filter, so a cursor only says "every feature inside this area is
+   * cached as of version N". A refresh for an area outside it has to
+   * pull those features in full first. Absent on caches written
+   * before this field; those fall back to the manifest's `bbox`.
+   */
+  syncBbox?: [number, number, number, number] | null;
+  /** Approximate bytes of this layer's cached features, carried from
+   *  run to run so an incremental refresh does not report only the
+   *  size of the changes it fetched. */
+  bytes?: number;
 }
 
 /** Top-level manifest entry for one cached deployment. */
@@ -272,6 +296,28 @@ export interface QueueRecord {
    * see `isQueueRowOwnedBy`. Every row `enqueueEdit` writes carries it.
    */
   ownerUserId?: string;
+  /**
+   * The server observation this update or delete was made against:
+   * the cached feature's `_observation_id` when the edit was queued.
+   * Replay sends it as `baseObservationId` on both the checkOnly dry
+   * run and the real write, so the server answers 409 when someone
+   * else changed the feature meanwhile instead of silently taking the
+   * last writer. A folded chain keeps the first row's base. Absent on
+   * inserts, on rows written before this field existed, and when the
+   * cached row had no token; those replay unguarded, as before.
+   * docs/sync-protocol.md.
+   */
+  baseObservationId?: string;
+  /**
+   * Set once a drain has claimed this row, and when the online submit
+   * fell back to the queue after its request was sent. Either way the
+   * server may already hold this edit. Such a row is never folded
+   * into: an insert that landed would be re-sent, deduplicated by the
+   * server's idempotent create, and the folded correction thrown away
+   * (and an insert plus delete would annihilate a feature the server
+   * keeps). A later edit becomes its own row behind this one.
+   */
+  mayHaveReachedServer?: boolean;
 }
 
 /**
@@ -446,11 +492,32 @@ export function openOfflineDb(): Promise<IDBDatabase> {
         }
       }
     };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
+    // Set once the caller has been answered, so a success that arrives
+    // after a blocked rejection closes its connection instead of
+    // leaking it.
+    let settled = false;
+    req.onsuccess = () => {
+      const db = req.result;
+      if (settled) {
+        db.close();
+        return;
+      }
+      settled = true;
+      // A newer build opening a higher version sends versionchange to
+      // every open connection and waits until they close. Without this
+      // a backgrounded tab on the old build blocks the upgrade, and
+      // every offline read and write in the new build fails.
+      db.onversionchange = () => db.close();
+      resolve(db);
+    };
+    req.onerror = () => {
+      settled = true;
+      reject(req.error ?? new Error('IndexedDB open failed'));
+    };
     req.onblocked = () => {
       // Another tab is holding an old version. Surface a recoverable
       // error rather than hanging.
+      settled = true;
       reject(
         new Error(
           'Offline cache is in use by another tab; close other tabs and retry.',
@@ -530,15 +597,33 @@ async function withStore<T>(
   fn: (store: IDBObjectStore) => T | Promise<T>,
 ): Promise<T> {
   const db = await openOfflineDb();
+  // Each call opens its own connection, so each call closes it once
+  // its transaction is over. An open connection that nobody closes
+  // holds the database at this version until it is garbage
+  // collected, which blocks the next schema upgrade.
   return new Promise<T>((resolve, reject) => {
-    const tx = db.transaction(storeName, mode);
+    let tx: IDBTransaction;
+    try {
+      tx = db.transaction(storeName, mode);
+    } catch (err) {
+      db.close();
+      reject(err);
+      return;
+    }
     const store = tx.objectStore(storeName);
     const result = Promise.resolve(fn(store));
     tx.oncomplete = () => {
+      db.close();
       void result.then(resolve).catch(reject);
     };
-    tx.onerror = () => reject(tx.error ?? new Error('IDB transaction failed'));
-    tx.onabort = () => reject(tx.error ?? new Error('IDB transaction aborted'));
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error ?? new Error('IDB transaction failed'));
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error ?? new Error('IDB transaction aborted'));
+    };
   });
 }
 
@@ -622,6 +707,37 @@ export async function purgeCachedReadData(): Promise<void> {
   await clearStore(STORES.features);
   await clearStore(STORES.forms);
   await clearStore(STORES.pickLists);
+  await forgetFeatureCursors();
+}
+
+/**
+ * Drop every manifest's per-layer sync cursor, in step with emptying
+ * the features store. A cursor means "the features store already holds
+ * this layer as of version N"; left behind after a purge, the next
+ * refresh fetched only the changes since N and reported a nearly
+ * empty cache as ready. Without a cursor that refresh does a full pull.
+ */
+async function forgetFeatureCursors(): Promise<void> {
+  await withStore(STORES.deployments, 'readwrite', async (s) => {
+    const rows =
+      ((await reqAsPromise(s.getAll())) as CachedDeployment[] | undefined) ?? [];
+    for (const row of rows) {
+      const layerSchemas: Record<string, CachedLayerSchema> = {};
+      for (const [key, schema] of Object.entries(row.layerSchemas ?? {})) {
+        const {
+          syncVersion: _cursor,
+          syncBbox: _area,
+          bytes: _bytes,
+          ...rest
+        } = schema;
+        void _cursor;
+        void _area;
+        void _bytes;
+        layerSchemas[key] = rest;
+      }
+      s.put({ ...row, layerSchemas });
+    }
+  });
 }
 
 /** Empty one store, tolerating a database that does not exist yet. */
@@ -654,7 +770,11 @@ export async function countUnsyncedEdits(
     const rows = (r as PendingBlob[] | undefined) ?? [];
     return rows.filter((row) => isQueueRowOwnedBy(row, currentUserId)).length;
   });
-  return edits + files;
+  // Form responses captured offline live in their own database
+  // (form-offline.ts) and are just as unsynced. Unreadable means none
+  // to warn about, never a blocked sign-out.
+  const submissions = await countUnsentSubmissions(currentUserId).catch(() => 0);
+  return edits + files + submissions;
 }
 
 // ---------------------------------------------------------------------------
@@ -674,11 +794,32 @@ export async function getOfflineIdentity(): Promise<string | null> {
   });
 }
 
-export async function setOfflineIdentity(userId: string): Promise<void> {
+/** The device identity and whether a purge of the previous account's
+ *  cached reads is still owed. */
+export async function getOfflineIdentityState(): Promise<{
+  userId: string | null;
+  purgePending: boolean;
+}> {
+  return withStore(STORES.meta, 'readonly', async (s) => {
+    const r = (await reqAsPromise(s.get(OFFLINE_IDENTITY_KEY))) as
+      | OfflineIdentityRow
+      | undefined;
+    return {
+      userId: typeof r?.userId === 'string' && r.userId ? r.userId : null,
+      purgePending: r?.purgePending === true,
+    };
+  });
+}
+
+export async function setOfflineIdentity(
+  userId: string,
+  opts: { purgePending?: boolean } = {},
+): Promise<void> {
   const row: OfflineIdentityRow = {
     key: OFFLINE_IDENTITY_KEY,
     userId,
     updatedAt: new Date().toISOString(),
+    ...(opts.purgePending ? { purgePending: true } : {}),
   };
   await withStore(STORES.meta, 'readwrite', (s) => {
     s.put(row);
@@ -731,12 +872,13 @@ export async function describeForeignOfflineData(
     const rows = (r as PendingBlob[] | undefined) ?? [];
     return rows.filter((row) => isForeignRow(row, currentUserId)).length;
   });
-  return { records, files };
+  const submissions = await countForeignSubmissions(currentUserId).catch(() => 0);
+  return { records: records + submissions, files };
 }
 
 /**
- * Delete every queue row and pending file that belongs to an account
- * other than `currentUserId`. Rows owned by the current account and
+ * Delete every queue row, pending file and queued form response that
+ * belongs to an account other than `currentUserId`. Rows owned by the current account and
  * legacy rows with no owner are untouched. Only ever called after the
  * person has chosen "Remove them from this device" in the identity
  * dialog: this destroys captures that exist nowhere else.
@@ -750,7 +892,8 @@ export async function removeForeignOfflineData(
   const files = await deleteWhere(STORES.blobs, (row) =>
     isForeignRow(row as PendingBlob, currentUserId),
   );
-  return { records, files };
+  const submissions = await removeForeignSubmissions(currentUserId).catch(() => 0);
+  return { records: records + submissions, files };
 }
 
 /** Cursor a whole store and delete the rows a predicate picks. Returns
@@ -857,6 +1000,19 @@ export async function deleteFeatures(
     for (const globalId of globalIds) {
       s.delete([dataCollectionId, dataLayerId, layerKey, globalId]);
     }
+  });
+}
+
+/** One cached feature row, or null when it is not on the device. */
+export async function getCachedFeature(
+  dataCollectionId: string,
+  dataLayerId: string,
+  layerKey: string,
+  globalId: string,
+): Promise<CachedFeature | null> {
+  return withStore(STORES.features, 'readonly', async (s) => {
+    const r = await reqAsPromise(s.get([dataCollectionId, dataLayerId, layerKey, globalId]));
+    return (r as CachedFeature | undefined) ?? null;
   });
 }
 
@@ -971,22 +1127,11 @@ export function requestBackgroundSync(): void {
 /**
  * Generate a v4 UUID. Used for both operation ids and the client-side
  * globalId on a queued insert, so the two share one generator.
+ * Delegates to clientUuid, which still works when the page is opened
+ * as http://<lan-ip> and crypto.randomUUID is missing.
  */
 export function newUuid(): string {
-  if (
-    typeof crypto !== 'undefined' &&
-    typeof crypto.randomUUID === 'function'
-  ) {
-    return crypto.randomUUID();
-  }
-  // RFC 4122 v4 shape. Not cryptographically strong; only reached on
-  // browsers without crypto.randomUUID, and on a non-secure origin,
-  // where the whole offline arc is unavailable anyway.
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return clientUuid();
 }
 
 /** One field edit, as the runtime hands it over. The store assigns the
@@ -1004,6 +1149,12 @@ export interface FeatureEditInput {
    *  today with no owner would be indistinguishable from a legacy one
    *  and drain under anybody. */
   ownerUserId: string;
+  /** For update / delete: the edited feature's cached
+   *  `_observation_id`. See QueueRecord.baseObservationId. */
+  baseObservationId?: string;
+  /** The online submit sent this edit before falling back to the
+   *  queue. See QueueRecord.mayHaveReachedServer. */
+  mayHaveReachedServer?: boolean;
 }
 
 /**
@@ -1027,6 +1178,7 @@ export type EnqueueResult =
 function isFoldable(row: QueueRecord, ownerUserId: string): boolean {
   return (
     (row.syncStatus === 'pending' || row.syncStatus === 'failed') &&
+    row.mayHaveReachedServer !== true &&
     isQueueRowOwnedBy(row, ownerUserId)
   );
 }
@@ -1091,6 +1243,10 @@ export async function enqueueEdit(
         schemaHash: edit.schemaHash,
         syncStatus: 'pending',
         ownerUserId: edit.ownerUserId,
+        ...(edit.op !== 'insert' && edit.baseObservationId
+          ? { baseObservationId: edit.baseObservationId }
+          : {}),
+        ...(edit.mayHaveReachedServer ? { mayHaveReachedServer: true } : {}),
       };
       store.put(record);
       return { kind: 'queued', record } as EnqueueResult;
@@ -1154,6 +1310,13 @@ export async function enqueueEdit(
       // bytes it now carries were authored by this account, so this is
       // the account that must send them.
       ownerUserId: edit.ownerUserId,
+      // The chain was authored against what the server held when the
+      // FIRST row was queued, so that row's base is the guard. A
+      // first row with no base (an insert, or a legacy row) falls back
+      // to the incoming edit's base when the fold is not an insert.
+      ...(folded.edit.op !== 'insert' && (keep.baseObservationId ?? edit.baseObservationId)
+        ? { baseObservationId: (keep.baseObservationId ?? edit.baseObservationId)! }
+        : {}),
     };
     store.put(record);
     return {
@@ -1268,6 +1431,9 @@ export async function claimQueueRow(
       ...existing,
       syncStatus: 'syncing',
       lastAttemptAt: new Date().toISOString(),
+      // From here on the request may reach the server. Kept on every
+      // write-back so a later edit is never folded into it.
+      mayHaveReachedServer: true,
     };
     store.put(claimed);
     return claimed;
@@ -1277,6 +1443,74 @@ export async function claimQueueRow(
 export async function updateQueueRecord(record: QueueRecord): Promise<void> {
   await withStore(STORES.queue, 'readwrite', (s) => {
     s.put(record);
+  });
+}
+
+/**
+ * After the queued update `landed` reached the server with head
+ * `observationId`, move the guard forward for what this device wrote
+ * on top of it:
+ *
+ * - Other pending / failed rows of the same feature, owned by the
+ *   SAME account and queued AFTER `landed`. Those were authored on top
+ *   of this edit, so without the move they would 409 against the
+ *   device's own write. A row another account queued on a shared
+ *   device, or one queued earlier, was authored against something
+ *   else; moving its base would let it overwrite this write with no
+ *   conflict, so it keeps its own base.
+ * - The cached feature's `_observation_id`, but only while it still
+ *   holds the base `landed` was made against (or none). A newer token
+ *   that already arrived by delta is never moved backwards.
+ */
+export async function rebaseFeatureHead(
+  landed: Pick<
+    QueueRecord,
+    | 'id'
+    | 'dataCollectionId'
+    | 'dataLayerId'
+    | 'layerKey'
+    | 'globalId'
+    | 'queuedAt'
+    | 'ownerUserId'
+    | 'baseObservationId'
+  >,
+  observationId: string,
+): Promise<void> {
+  await withStore(STORES.queue, 'readwrite', async (store) => {
+    const idx = store.index('by_deployment');
+    const rows =
+      ((await reqAsPromise(
+        idx.getAll(IDBKeyRange.only(landed.dataCollectionId)),
+      )) as QueueRecord[] | undefined) ?? [];
+    for (const row of rows) {
+      if (
+        row.id !== landed.id &&
+        row.globalId === landed.globalId &&
+        row.dataLayerId === landed.dataLayerId &&
+        row.layerKey === landed.layerKey &&
+        landed.ownerUserId !== undefined &&
+        row.ownerUserId === landed.ownerUserId &&
+        row.queuedAt > landed.queuedAt &&
+        row.baseObservationId !== undefined &&
+        (row.syncStatus === 'pending' || row.syncStatus === 'failed')
+      ) {
+        store.put({ ...row, baseObservationId: observationId });
+      }
+    }
+  });
+  await withStore(STORES.features, 'readwrite', async (store) => {
+    const key = [landed.dataCollectionId, landed.dataLayerId, landed.layerKey, landed.globalId];
+    const row = (await reqAsPromise(store.get(key))) as CachedFeature | undefined;
+    if (!row) return;
+    const cached = (row.feature.properties ?? {})._observation_id;
+    if (cached !== undefined && cached !== landed.baseObservationId) return;
+    store.put({
+      ...row,
+      feature: {
+        ...row.feature,
+        properties: { ...(row.feature.properties ?? {}), _observation_id: observationId },
+      },
+    });
   });
 }
 
@@ -1470,7 +1704,7 @@ export function deploymentSlug(title: string): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/^-+|(?<!-)-+$/g, '')
     .slice(0, 60);
   return slug || 'deployment';
 }

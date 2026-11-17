@@ -11,6 +11,10 @@ import { HelpDrawerProvider } from '@/components/help-drawer';
 import { SessionExpiredNotice } from '@/components/session-expired-notice';
 import { LocaleProvider } from '@/lib/i18n/locale-context';
 import type { SupportedLocale } from '@/lib/i18n/locales';
+import { installApiPathGuard } from '@/lib/api-path-guard';
+
+// Before any component can fetch. See lib/api-path-guard.ts.
+installApiPathGuard();
 
 export function Providers({
   children,

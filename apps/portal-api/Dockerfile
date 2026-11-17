@@ -16,7 +16,7 @@
 # a release with a fetch regression and broke prod writes). Bump
 # deliberately, both Dockerfiles together.
 
-FROM node:24.22.1-bookworm-slim AS base
+FROM node:24.22.3-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 # Three things in one RUN to keep the layer count tight:
@@ -42,6 +42,18 @@ RUN npm install -g pnpm@9.12.0 \
 
 FROM base AS build
 WORKDIR /repo
+# gdal-async 3.12.3 falls back to a source build during `pnpm fetch`.
+# Its node-gyp after_build step runs `npm` to emit lib/index.d.ts.
+# The base stage deletes npm so the runtime image does not ship the
+# vulnerable bundled copy. This stage is not that image. Put the same
+# pinned Node image's npm back here, and only here. The runtime stage
+# is `FROM base`, so this copy does not land in the final image.
+COPY --from=node:24.22.2-bookworm-slim /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+# The image's npm and npx entries are symlinks into that directory.
+# COPY follows the link and writes a regular file, whose relative
+# require then misses lib/cli.js. Recreate the links.
+RUN ln -sfn ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sfn ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 # Build deps: gdal-async, prisma, and the @nestjs/cli all need build
 # tools at install/generate time. Removed in the runtime stage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -68,6 +80,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # manifest is read.
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
+# Fail here, before the fetch, if the npm copy above did not resolve.
+# gdal-async's makefile calls `npm` with no path of its own.
+RUN npm --version
 RUN pnpm fetch
 
 # Manifests + sources come in only after the store is warm. pnpm's
@@ -129,21 +144,25 @@ ARG PMTILES_VERSION=1.30.3
 # up on its own, and the assertion at the end of this stage is an
 # EXACT match on purpose (it is there to catch a downgrade), so the
 # recorded version has to be what actually lands in the binary.
-# Floored at 0.41.0 for earlier CVEs; 0.42.0 is what golang.org/x/net
-# v0.60.0 pulls in, so assert the version that actually lands.
-ARG PMTILES_XTEXT_VERSION=0.42.0
+# Floored at 0.41.0 for earlier CVEs; 0.43.0 is what golang.org/x/net
+# v0.62.0 pulls in, so assert the version that actually lands.
+ARG PMTILES_XTEXT_VERSION=0.43.0
 # CVE-2026-46600, HIGH: go-pmtiles pulls golang.org/x/net v0.52.0, which
 # bumping PMTILES_VERSION does not clear. Fixed upstream in x/net 0.56.0.
 # CVE-2026-78669, HIGH: HTTP/2 SETTINGS-frame CPU DoS. Fixed in 0.60.0.
-# Pin exact so the post-build `go version -m` assertion catches a
-# downgrade. Watch for go-pmtiles adopting >=0.60.0 itself, at which
-# point this pin can drop. Applied LAST in the go-get chain because
-# google.golang.org/grpc@1.83.2 otherwise downgrades it to 0.58.0.
-ARG PMTILES_XNET_VERSION=0.60.0
+# CVE-2026-78661, HIGH: html text-node coalescing DoS. Fixed in 0.62.0.
+# The 2026-11-08 Trivy DB started rating v0.60.0 HIGH, which failed the
+# portal-api and script-runner image scans (script-runner is FROM
+# portal-api, so it ships the same binary). Pin exact so the post-build
+# `go version -m` assertion catches a downgrade. Watch for go-pmtiles
+# adopting >=0.62.0 itself, at which point this pin can drop. Applied
+# LAST in the go-get chain because google.golang.org/grpc@1.83.2
+# otherwise downgrades it to 0.58.0.
+ARG PMTILES_XNET_VERSION=0.62.0
 # CVE-2026-56854, CRITICAL: go-pmtiles pulls golang.org/x/crypto
-# v0.53.0. Fixed upstream in 0.55.0. 0.57.0 is what x/net v0.60.0
+# v0.53.0. Fixed upstream in 0.55.0. 0.58.0 is what x/net v0.62.0
 # pulls; assert that so the pin and the binary agree.
-ARG PMTILES_XCRYPTO_VERSION=0.57.0
+ARG PMTILES_XCRYPTO_VERSION=0.58.0
 # CVE-2026-84304, HIGH: google.golang.org/grpc v1.79.3 arrives through
 # gocloud.dev, which go-pmtiles uses for its remote-bucket support.
 # Fixed upstream in 1.83.1.
@@ -155,6 +174,11 @@ ARG PMTILES_XCRYPTO_VERSION=0.57.0
 # once the next one lands. Nothing here runs an xDS server, so it was
 # not reachable, but the pin has to move for the scan to agree.
 ARG PMTILES_GRPC_VERSION=1.83.2
+# CVE-2026-116587, HIGH: go-pmtiles pulls github.com/go-jose/go-jose/v4
+# v4.1.4 (RSA JWK parse DoS). Fixed upstream in 4.1.6. Offline tile
+# conversion does not parse attacker JWKs, but Trivy gates HIGH on the
+# image and cannot see that. Pin + assert like the other forced deps.
+ARG PMTILES_GOJOSE_VERSION=4.1.6
 # GOTOOLCHAIN=auto (the default) lets Go honour go-pmtiles' go.mod
 # directive and pull the matching toolchain if the image's Go is
 # older than declared. CGO=0 produces a static binary that runs on
@@ -166,7 +190,7 @@ ENV CGO_ENABLED=0
 # main package from inside a module we control picks up our upgraded
 # x/text. Keep the two `go get` lines in this order: the second one
 # only sticks once go-pmtiles is in the graph.
-# The five `go get` lines are retried as a group because they are the
+# The go get lines are retried as a group because they are the
 # only network step here and sum.golang.org fails intermittently: on
 # 2026-09-09 both the build and the workflow's own retry died on
 # "reading https://sum.golang.org/tile/8/0/x016/711: stream error ...
@@ -174,13 +198,14 @@ ENV CGO_ENABLED=0
 # clean the day before. The backoff spans a longer window than two
 # back-to-back job attempts do. Checksum verification stays ON: the
 # fix for a flaky checksum server is to ask it again, never GONOSUMDB.
-# The build and the four assertions sit outside the loop on purpose,
+# The build and the assertions sit outside the loop on purpose,
 # because a retry around an assertion could paper over a real
 # downgrade instead of failing on it.
 # Order matters: google.golang.org/grpc@1.83.2 pulls golang.org/x/net
 # v0.58.0 and will silently downgrade a earlier x/net pin (that is what
-# broke the v0.60.0 assertion for CVE-2026-78669). Pin text/crypto/grpc
-# first, then x/net last so the floor sticks through to `go build`.
+# broke the v0.62.0 assertion for CVE-2026-78661). Pin text/crypto/grpc
+# /go-jose first, then x/net last so the floor sticks through to
+# `go build`.
 RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go mod init pmtiles-build \
     && for attempt in 1 2 3 4 5; do \
@@ -188,6 +213,7 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
             && go get "golang.org/x/text@v${PMTILES_XTEXT_VERSION}" \
             && go get "golang.org/x/crypto@v${PMTILES_XCRYPTO_VERSION}" \
             && go get "google.golang.org/grpc@v${PMTILES_GRPC_VERSION}" \
+            && go get "github.com/go-jose/go-jose/v4@v${PMTILES_GOJOSE_VERSION}" \
             && go get "golang.org/x/net@v${PMTILES_XNET_VERSION}"; then \
            break; \
          fi; \
@@ -202,7 +228,8 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/text[[:space:]]*v${PMTILES_XTEXT_VERSION}" \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/net[[:space:]]*v${PMTILES_XNET_VERSION}" \
     && go version -m /go/bin/go-pmtiles | grep -q "golang.org/x/crypto[[:space:]]*v${PMTILES_XCRYPTO_VERSION}" \
-    && go version -m /go/bin/go-pmtiles | grep -q "google.golang.org/grpc[[:space:]]*v${PMTILES_GRPC_VERSION}"
+    && go version -m /go/bin/go-pmtiles | grep -q "google.golang.org/grpc[[:space:]]*v${PMTILES_GRPC_VERSION}" \
+    && go version -m /go/bin/go-pmtiles | grep -q "github.com/go-jose/go-jose/v4[[:space:]]*v${PMTILES_GOJOSE_VERSION}"
 
 FROM base AS runtime
 WORKDIR /app
@@ -262,7 +289,7 @@ RUN rm -rf /pnpm /usr/local/lib/node_modules/pnpm \
 # embeds a patched stdlib version into the binary so the alerts
 # resolve at the source rather than via .trivyignore. The same stage
 # upgrades golang.org/x/text past CVE-2026-56852 and golang.org/x/net
-# past CVE-2026-46600 for the same reason.
+# past CVE-2026-46600 and CVE-2026-78661 for the same reason.
 ARG PMTILES_VERSION=1.30.3
 COPY --from=pmtiles-build /go/bin/go-pmtiles /usr/local/bin/pmtiles
 RUN /usr/local/bin/pmtiles version
@@ -329,7 +356,13 @@ RUN node -e "require('/app/dist/ingest/parquet-reader.js').bakeSpatialExtension(
 # IngestStagingService can mkdir under it as the non-root `app` user.
 # Without this pre-create, the volume mount lands as root:root and
 # every `/ingest/stage` POST hits EACCES.
-RUN mkdir -p /app/backups /app/data /var/lib/gg-staging && chown -R app:app /app/backups /app/data /var/lib/gg-staging
+#
+# /var/cache/gg-tiles is where both compose stacks mount the `tile-cache`
+# volume for the optional disk tier of the tile cache (TILE_CACHE_DIR).
+# Same trick again: owned by `app` so the volume is writable on first
+# attach.
+RUN mkdir -p /app/backups /app/data /var/lib/gg-staging /var/cache/gg-tiles \
+  && chown -R app:app /app/backups /app/data /var/lib/gg-staging /var/cache/gg-tiles
 
 # Entrypoint: apply migrations, then start. Idempotent on a current
 # DB (no-op when nothing pending). Surfaces migration errors as exit
@@ -337,10 +370,25 @@ RUN mkdir -p /app/backups /app/data /var/lib/gg-staging && chown -R app:app /app
 COPY --chown=app:app apps/portal-api/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# npm is restored only in the build stage. This image is FROM base,
+# which deletes it. Fail the build if a later change brings it back.
+RUN if [ -e /usr/local/bin/npm ] || [ -e /usr/local/bin/npx ] || [ -d /usr/local/lib/node_modules/npm ]; then \
+      echo 'runtime image must not contain npm' >&2; \
+      exit 1; \
+    fi
+
 USER app
 EXPOSE 4000
 ENV NODE_ENV=production
 ENV PORT=4000
+# Build identity. publish-images.yml passes git describe and the commit.
+# REQUIRED_COMPOSE_REV must match GRATIS_COMPOSE_REV in the NAS file.
+ARG GG_VERSION=dev
+ARG GIT_SHA=
+ARG REQUIRED_COMPOSE_REV=3
+ENV GG_VERSION=$GG_VERSION \
+    GIT_SHA=$GIT_SHA \
+    REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD curl -fsS http://localhost:4000/health || exit 1

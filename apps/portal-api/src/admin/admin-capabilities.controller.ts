@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   BadRequestException,
+  ForbiddenException,
   Body,
   Controller,
   Delete,
   Get,
   NotFoundException,
   Param,
+  Optional,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -20,9 +22,11 @@ import {
   ROLE_BASELINES,
   effectiveCapabilities,
   isCapabilityKey,
+  isEnforcedCapability,
   type CapabilityKey,
 } from '../auth/capabilities.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 
@@ -38,6 +42,9 @@ interface CapabilityRow {
   baseline: boolean;
   /** Effective value the user actually has right now. */
   effective: boolean;
+  /** False when no route checks this capability yet. Overrides on it
+   *  are refused; an old one can still be removed. */
+  enforced: boolean;
   /** Override row, if present. Null means no deviation from baseline. */
   override: {
     enabled: boolean;
@@ -62,6 +69,7 @@ export class AdminCapabilitiesController {
     private readonly prisma: PrismaService,
     private readonly kc: KeycloakAdminService,
     private readonly authSync: AuthSyncService,
+    @Optional() private readonly audit?: AdminAuditService,
   ) {}
 
   /**
@@ -79,12 +87,24 @@ export class AdminCapabilitiesController {
     }
     const user = await this.prisma.user.findUnique({
       where: { username: kcUser.username },
-      select: { id: true, orgId: true, orgRole: true },
+      select: { id: true, orgId: true, orgRole: true, isProtected: true },
     });
     if (!user || user.orgId !== actorOrgId) {
       throw new NotFoundException('User not found in your organization.');
     }
     return user;
+  }
+
+  /**
+   * The protected (master) account takes no change through the API
+   * from anyone else, the same rule admin-users.controller applies.
+   * Without it a shared admin could switch off the master admin's
+   * publish or share capability.
+   */
+  private assertNotProtected(user: { id: string; isProtected: boolean }, actor: AuthUser): void {
+    if (user.isProtected && user.id !== actor.id) {
+      throw new ForbiddenException('This account is protected and cannot be changed here.');
+    }
   }
 
   @Get()
@@ -119,6 +139,7 @@ export class AdminCapabilitiesController {
         capability: cap,
         baseline: baseline.has(cap),
         effective: effective.has(cap),
+        enforced: isEnforcedCapability(cap),
         override: o
           ? {
               enabled: o.enabled,
@@ -144,7 +165,13 @@ export class AdminCapabilitiesController {
         `Unknown capability "${body.capability}".`,
       );
     }
+    if (!isEnforcedCapability(body.capability)) {
+      throw new BadRequestException(
+        `"${body.capability}" is not checked anywhere yet, so an override would have no effect.`,
+      );
+    }
     const user = await this.resolveLocalUser(userId, actor.orgId);
+    this.assertNotProtected(user, actor);
 
     await this.prisma.userCapabilityOverride.upsert({
       where: {
@@ -165,6 +192,15 @@ export class AdminCapabilitiesController {
       },
     });
     this.authSync.invalidate(user.id);
+    void this.audit?.record({
+      orgId: actor.orgId,
+      actorUserId: actor.id,
+      action: 'user.capability',
+      targetType: 'user',
+      targetId: user.id,
+      outcome: 'succeeded',
+      detail: { capability: body.capability, enabled: body.enabled },
+    });
 
     return this.list(userId, actor);
   }
@@ -179,6 +215,7 @@ export class AdminCapabilitiesController {
       throw new BadRequestException(`Unknown capability "${capability}".`);
     }
     const user = await this.resolveLocalUser(userId, actor.orgId);
+    this.assertNotProtected(user, actor);
 
     await this.prisma.userCapabilityOverride
       .delete({
@@ -191,6 +228,15 @@ export class AdminCapabilitiesController {
         // tolerant of a stale list.
       });
     this.authSync.invalidate(user.id);
+    void this.audit?.record({
+      orgId: actor.orgId,
+      actorUserId: actor.id,
+      action: 'user.capability',
+      targetType: 'user',
+      targetId: user.id,
+      outcome: 'succeeded',
+      detail: { capability, enabled: false, removed: true },
+    });
 
     return this.list(userId, actor);
   }

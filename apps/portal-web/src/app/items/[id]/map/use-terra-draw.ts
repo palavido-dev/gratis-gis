@@ -44,6 +44,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type * as maplibregl from 'maplibre-gl';
 import type { TerraDraw } from 'terra-draw';
+import { clientUuid } from '@/lib/uuid';
 
 /**
  * Decimal places terra-draw enforces on every coordinate. Has to match
@@ -213,10 +214,7 @@ export function useTerraDraw(
           isValidId: (id) =>
             (typeof id === 'string' && id.length > 0) ||
             typeof id === 'number',
-          getId: () =>
-            typeof crypto !== 'undefined' && 'randomUUID' in crypto
-              ? crypto.randomUUID()
-              : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
+          getId: () => clientUuid(),
         },
         modes: [
           new td.TerraDrawPointMode(),

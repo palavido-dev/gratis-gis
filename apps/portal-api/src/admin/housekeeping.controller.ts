@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Optional,
   Patch,
   Post,
   Query,
@@ -19,9 +20,12 @@ import {
 } from 'class-validator';
 
 import { AdminGuard } from './admin.guard.js';
+import { AdminAuditService } from './admin-audit.service.js';
+import { OperatorOrgGuard } from '../backup/operator-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { HousekeepingService } from './housekeeping.service.js';
+import { KeycloakAdminService } from './keycloak-admin.service.js';
 import {
   HousekeepingScheduleService,
   type HousekeepingScheduleMode,
@@ -52,6 +56,12 @@ class HousekeepingConfigDto {
  * actions scoped there means the audit log and permissions model
  * work the same way whether the admin reached the item from this
  * page or anywhere else.
+ *
+ * Routes that take a user act on that user's organization. The
+ * routes marked with OperatorOrgGuard act on the whole install (the
+ * schedule config and its runs touch every organization, storage and
+ * table sizes are cluster-wide, orphaned uploads share one bucket),
+ * so only admins of the operator organization may call them.
  */
 @ApiTags('admin', 'housekeeping')
 @ApiBearerAuth()
@@ -61,7 +71,31 @@ export class HousekeepingController {
   constructor(
     private readonly housekeeping: HousekeepingService,
     private readonly schedule: HousekeepingScheduleService,
+    @Optional() private readonly audit?: AdminAuditService,
+    @Optional() private readonly keycloak?: KeycloakAdminService,
   ) {}
+
+  /**
+   * Add each user's Keycloak id. The rows carry the portal's own id,
+   * which is what `items?ownerId=` needs, but PATCH /admin/users/:id
+   * takes the Keycloak id, and the two differ for seeded accounts
+   * and for a username re-created in Keycloak. Looked up by username,
+   * as the scheduled auto-disable does. Falls back to the local id
+   * when Keycloak is not set up or the lookup fails.
+   */
+  private async withKeycloakIds<T extends { id: string; username: string }>(
+    rows: T[],
+  ): Promise<Array<T & { keycloakId: string }>> {
+    const kc = this.keycloak;
+    if (!kc?.isConfigured()) return rows.map((r) => ({ ...r, keycloakId: r.id }));
+    return Promise.all(
+      rows.map(async (r) => ({
+        ...r,
+        keycloakId:
+          (await kc.findUserIdByUsername(r.username).catch(() => null)) ?? r.id,
+      })),
+    );
+  }
 
   @Get('summary')
   summary(@CurrentUser() user: AuthUser) {
@@ -84,8 +118,8 @@ export class HousekeepingController {
   }
 
   @Get('stale-users')
-  staleUsers(@CurrentUser() user: AuthUser) {
-    return this.housekeeping.staleUsers(user.orgId);
+  async staleUsers(@CurrentUser() user: AuthUser) {
+    return this.withKeycloakIds(await this.housekeeping.staleUsers(user.orgId));
   }
 
   @Get('large-items')
@@ -100,6 +134,7 @@ export class HousekeepingController {
    * and not as part of the lighter `summary` cards.
    */
   @Get('storage')
+  @UseGuards(OperatorOrgGuard)
   storage() {
     return this.housekeeping.storageMetrics();
   }
@@ -110,6 +145,7 @@ export class HousekeepingController {
    * name / total / table / index bytes plus a row estimate.
    */
   @Get('largest-tables')
+  @UseGuards(OperatorOrgGuard)
   largestTables() {
     return this.housekeeping.largestTables();
   }
@@ -121,8 +157,13 @@ export class HousekeepingController {
    * handful of monthly partitions and stops being useful for
    * "which dataset is eating disk?". This drills down to
    * data_layer:itemId:layerId.
+   *
+   * The scope list is install-wide (top 50 over the whole observation
+   * table), so it is an operator view like its two neighbours. An
+   * admin of another org saw other orgs' layer ids and row counts.
    */
   @Get('largest-data-layers')
+  @UseGuards(OperatorOrgGuard)
   largestDataLayers(@CurrentUser() user: AuthUser) {
     return this.housekeeping.largestDataLayers(user.orgId);
   }
@@ -149,12 +190,14 @@ export class HousekeepingController {
    * before the schedule fires.
    */
   @Get('expiring-users')
-  expiringUsers(
+  async expiringUsers(
     @CurrentUser() user: AuthUser,
     @Query('within') within?: string,
   ) {
     const days = parseWithin(within, 30);
-    return this.housekeeping.expiringUsers(user.orgId, days);
+    return this.withKeycloakIds(
+      await this.housekeeping.expiringUsers(user.orgId, days),
+    );
   }
 
   // -------------------------------------------------------------
@@ -167,22 +210,55 @@ export class HousekeepingController {
   }
 
   @Patch('config')
-  updateConfig(@Body() dto: HousekeepingConfigDto) {
-    return this.schedule.updateConfig(dto);
+  @UseGuards(OperatorOrgGuard)
+  async updateConfig(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: HousekeepingConfigDto,
+  ) {
+    const out = await this.schedule.updateConfig(dto);
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'housekeeping.config',
+      targetType: 'housekeeping',
+      targetId: 'schedule',
+      outcome: 'succeeded',
+      detail: { ...dto },
+    });
+    return out;
   }
 
   @Get('runs')
+  @UseGuards(OperatorOrgGuard)
   listRuns(@Query('limit') limit?: string) {
     const n = Number(limit);
     return this.schedule.listRuns(Number.isFinite(n) && n > 0 ? n : 25);
   }
 
   @Post('run')
-  runNow(@CurrentUser() user: AuthUser) {
-    return this.schedule.runOnce({
-      trigger: 'manual',
-      startedBy: user.id,
-    });
+  @UseGuards(OperatorOrgGuard)
+  async runNow(@CurrentUser() user: AuthUser) {
+    // Audited after the run with its real outcome. Recording
+    // "succeeded" up front logged refused (409) and failed runs as
+    // successes.
+    let outcome: 'succeeded' | 'failed' = 'failed';
+    try {
+      const result = await this.schedule.runOnce({
+        trigger: 'manual',
+        startedBy: user.id,
+      });
+      outcome = result.status === 'succeeded' ? 'succeeded' : 'failed';
+      return result;
+    } finally {
+      void this.audit?.record({
+        orgId: user.orgId,
+        actorUserId: user.id,
+        action: 'housekeeping.run',
+        targetType: 'housekeeping',
+        targetId: 'schedule',
+        outcome,
+      });
+    }
   }
 
   /**
@@ -204,12 +280,19 @@ export class HousekeepingController {
    * marking fields searchable (schema saves are metadata-only and
    * do not build indexes inline) or after a big import, so the map
    * search bar stops scanning county-scale layers per keystroke.
-   * Synchronous like recompute-extents: the admin waits and gets
-   * the created / kept / dropped breakdown back.
+   * Queues the build for the worker and returns the queued (or
+   * already active) build at once; GET search-index-build reports
+   * its progress and the created / kept / dropped breakdown (06-5).
    */
   @Post('build-search-indexes')
   async buildSearchIndexes(@CurrentUser() user: AuthUser) {
-    return this.housekeeping.buildSearchIndexes(user.orgId);
+    return this.housekeeping.buildSearchIndexes(user.orgId, user.id);
+  }
+
+  /** The org's latest search index build, or null when none ran. */
+  @Get('search-index-build')
+  async searchIndexBuildStatus(@CurrentUser() user: AuthUser) {
+    return this.housekeeping.searchIndexBuildStatus(user.orgId);
   }
 
   /**
@@ -222,6 +305,7 @@ export class HousekeepingController {
    * The delete is a separate explicit POST below.
    */
   @Get('orphaned-uploads')
+  @UseGuards(OperatorOrgGuard)
   orphanedUploads() {
     return this.housekeeping.orphanedUploadsReport();
   }
@@ -235,8 +319,18 @@ export class HousekeepingController {
    * the dry run.
    */
   @Post('orphaned-uploads/purge')
-  purgeOrphanedUploads() {
-    return this.housekeeping.purgeOrphanedUploads();
+  @UseGuards(OperatorOrgGuard)
+  async purgeOrphanedUploads(@CurrentUser() user: AuthUser) {
+    const out = await this.housekeeping.purgeOrphanedUploads();
+    void this.audit?.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'housekeeping.purge',
+      targetType: 'housekeeping',
+      targetId: 'orphaned-uploads',
+      outcome: 'succeeded',
+    });
+    return out;
   }
 }
 

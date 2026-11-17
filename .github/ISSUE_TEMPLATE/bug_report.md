@@ -17,7 +17,7 @@ What should have happened instead.
 ## Version and deployment mode
 
 - Commit hash or release (from the repo, or the footer of the landing page):
-- How you run it: local dev (`pnpm dev`), self-hosted Docker stack, or the public test instance at gratisgis.org:
+- How you run it: local dev (`pnpm dev`), self-hosted Docker stack, or the public test instance at demo.gratisgis.org:
 - Browser and OS, if it's a UI issue:
 
 ## Logs

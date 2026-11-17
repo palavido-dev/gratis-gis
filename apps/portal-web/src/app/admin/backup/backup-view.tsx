@@ -99,6 +99,24 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
   const [stopping, setStopping] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const [restoringRun, setRestoringRun] = useState<BackupRun | null>(null);
+  const [recoveryBanner, setRecoveryBanner] = useState<string | null>(null);
+
+  useEffect(() => {
+    let gone = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/portal/admin/backup/health');
+        if (!res.ok) return;
+        const body = (await res.json()) as { recoveryBanner?: string | null };
+        if (!gone) setRecoveryBanner(body.recoveryBanner ?? null);
+      } catch {
+        // The page still shows backup history when health is unreachable.
+      }
+    })();
+    return () => {
+      gone = true;
+    };
+  }, []);
 
   const reloadRuns = useCallback(async () => {
     try {
@@ -207,6 +225,16 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
 
   return (
     <div className="space-y-6">
+      {runs.some((run) => run.status === 'failed') ? (
+        <p className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800" role="status">
+          {t('opsBackup.failureBanner')}
+        </p>
+      ) : null}
+      {recoveryBanner ? (
+        <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-ink-0">
+          {recoveryBanner}
+        </p>
+      ) : null}
       <SettingsCard
         config={config}
         onSaved={(next) => setConfig(next)}
@@ -331,6 +359,12 @@ function SettingsCard({
   }, [config]);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(config);
+  // A custom schedule with no expression saved fine and then never
+  // ran, so Save waits for something cron-shaped. The API checks the
+  // expression itself; this only catches the empty or half-typed case.
+  const customCronInvalid =
+    draft.scheduleMode === 'custom' &&
+    !/^\S+(\s+\S+){4}$/.test((draft.customCron ?? '').trim());
 
   async function handleSave() {
     setSaving(true);
@@ -351,7 +385,9 @@ function SettingsCard({
               ? draft.scheduleDayOfMonth ?? 1
               : null,
           customCron:
-            draft.scheduleMode === 'custom' ? draft.customCron : null,
+            draft.scheduleMode === 'custom'
+              ? (draft.customCron ?? '').trim()
+              : null,
           retentionCount: draft.retentionCount,
         }),
       });
@@ -558,8 +594,10 @@ function SettingsCard({
                   Where backups are saved
                 </label>
                 <p className="mb-1 text-2xs text-muted">
-                  Absolute path on the portal server. Leave blank to
-                  use the deployment's default location.
+                  Absolute path on the portal server, inside the
+                  deployment's backup folder (or another folder the
+                  server operator allowed). Leave blank to use the
+                  default location.
                 </p>
                 <input
                   type="text"
@@ -591,7 +629,7 @@ function SettingsCard({
           <button
             type="button"
             onClick={handleSave}
-            disabled={!dirty || saving}
+            disabled={!dirty || saving || customCronInvalid}
             className="inline-flex items-center gap-2 rounded-md border border-accent bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? (
@@ -827,11 +865,23 @@ function WhatsIncluded() {
           feature (photos, PDFs, etc.).
         </li>
         <li>
-          <span className="font-medium">Not included (yet):</span> user
-          accounts, which are stored in the portal's identity provider
-          and need a separate backup for now. Items keep a record of
-          their owner's id, so restoring a backup onto a fresh
-          deployment works as long as the same users are re-created.
+          <span className="font-medium">Not included:</span> user
+          accounts. Those live in the identity provider. Item ownership
+          follows the portal username, so a restored database still
+          belongs to the same usernames. Recreating someone under a new
+          username does not attach them to the old items, and signing
+          in with a different role overwrites the restored role.
+        </li>
+        <li>
+          <span className="font-medium">Not a new install:</span> this
+          file does not contain the encryption key or the sign-in
+          configuration. Restoring it onto a freshly generated install
+          cannot decrypt credentials stored for external services, and
+          sign-in will not match. Restore it on this portal, or on a
+          copy that still has this install&apos;s env file or boot
+          volume. Copying the archive to another disk is a separate
+          step. Downloading it to this same machine is not an off-site
+          copy.
         </li>
         <li>
           <span className="font-medium">Not included:</span> server

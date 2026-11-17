@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { CLOSED_GEO_LIMIT } from '../common/closed-geo-limit.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -19,14 +20,11 @@ import type { PrismaService } from '../prisma/prisma.service.js';
  * get the unclipped layer, so the tier boundary was advisory on every
  * caller.
  *
- * Fail-open on a broken reference is deliberate and mirrors
- * `geoLimitFor` (sharing.service.ts, "missing / wrong type / empty"
- * sets hasUnrestrictedPath): a boundary item that was deleted or has
- * no geometry yet resolves to no clip rather than to an empty result.
- * Diverging here would make the public surface stricter than the
- * authenticated one for the same item, which is its own bug class.
- * Whether that fail-open is the right default at all is a live
- * question, but it belongs to both paths at once, not to this one.
+ * A configured boundary that is missing, the wrong type, or has no
+ * geometry does not widen the public layer. Callers receive a closed
+ * clip and the read matches no rows. The signed-in public tier uses
+ * the same closed clip. No boundary id still means the layer is not
+ * clipped.
  */
 export async function publicTierGeoLimit(
   prisma: PrismaService,
@@ -40,8 +38,11 @@ export async function publicTierGeoLimit(
     select: { data: true },
   });
   const geom = (row?.data as { geometry?: unknown } | null)?.geometry;
-  return geom && typeof geom === 'object' ? geom : undefined;
+  return geom && typeof geom === 'object' ? geom : CLOSED_GEO_LIMIT;
 }
+
+export const PUBLIC_BOUNDARY_WARNING =
+  'The public geographic boundary is missing or has no geometry. Public readers see no features until you choose a boundary that still exists.';
 
 /** The select fragment every public data_layer lookup needs. */
 export const PUBLIC_TIER_SELECT = { publicGeoBoundaryId: true } as const;

@@ -16,8 +16,9 @@
 
 import type { MapLayer } from '@gratis-gis/shared-types';
 import { parseApiError } from '@/lib/api-error';
-import { formatNumber } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { renderLabelTemplate } from '@/lib/label-template';
+import { geometryBbox } from '@/lib/geo-bbox';
+import { serverSublayerOf } from '@/lib/server-sublayer';
 
 export type SearchResult =
   | {
@@ -85,6 +86,10 @@ export function searchLayers(
     // the origin directly with a WHERE clause against the whole
     // dataset.
     if (layer.source.kind === 'arcgis-rest') continue;
+    // v3 sublayers (Editor targets included) are searched on the
+    // server by searchV3Layers; whatever rows sit in the browser are
+    // only the viewport, and listing them here would double the hits.
+    if (serverSublayerOf(layer)) continue;
     const fc = featuresByLayer[layer.id];
     if (!fc) continue;
 
@@ -104,7 +109,7 @@ export function searchLayers(
       if (!matched) continue;
 
       const label = layer.search.labelTemplate
-        ? renderTemplate(layer.search.labelTemplate, props)
+        ? renderLabelTemplate(layer.search.labelTemplate, props)
         : firstNonEmpty(fields.map((ff) => props[ff])) ?? '(unnamed)';
       out.push({
         kind: 'feature',
@@ -236,7 +241,7 @@ export async function searchArcgisLayers(
           (f): SearchResult => {
             const props = (f.properties ?? {}) as Record<string, unknown>;
             const label = layer.search!.labelTemplate
-              ? renderTemplate(layer.search!.labelTemplate, props)
+              ? renderLabelTemplate(layer.search!.labelTemplate, props)
               : firstNonEmpty(fields.map((ff) => props[ff])) ?? '(unnamed)';
             return {
               kind: 'feature',
@@ -272,8 +277,8 @@ export async function searchArcgisLayers(
 }
 
 /**
- * Search portal-hosted v3 data layers (`source.kind === 'data-layer'`)
- * by hitting the dedicated /features-search endpoint.
+ * Search portal-hosted v3 data layers (`source.kind === 'data-layer'`,
+ * and Editor targets that read a v3 sublayer) by hitting the dedicated /features-search endpoint.
  *
  * This is the data-layer analogue of searchArcgisLayers(): both reach
  * features the local-cache searchLayers() can't, because the relevant
@@ -301,22 +306,18 @@ export async function searchV3Layers(
   const tasks = layers
     .filter(
       (l) =>
-        l.source.kind === 'data-layer' &&
         // Only v3 multi-layer sublayers carry a layerKey and back the
         // per-sublayer endpoints. v1/v2 single-table items omit it and
-        // aren't served by /features-search.
-        (l.source as { layerKey?: string }).layerKey !== undefined &&
+        // aren't served by /features-search. Editor targets read the
+        // same sublayer through a geojson-url source and qualify too.
+        serverSublayerOf(l) !== null &&
         l.search?.enabled &&
         l.search.fields.filter((f) => f.length > 0).length > 0 &&
         // Same matrix-enforcement gate as the other search paths.
         (l.effective === undefined || l.effective.query !== false),
     )
     .map(async (layer) => {
-      const src = layer.source as {
-        kind: 'data-layer';
-        itemId: string;
-        layerKey?: string;
-      };
+      const src = serverSublayerOf(layer)!;
       const fields = layer.search!.fields.filter((f) => f.length > 0);
       const params = new URLSearchParams({
         q,
@@ -325,7 +326,7 @@ export async function searchV3Layers(
       });
       const url = `/api/portal/items/${encodeURIComponent(
         src.itemId,
-      )}/layers/${encodeURIComponent(src.layerKey!)}/features-search?${params.toString()}`;
+      )}/layers/${encodeURIComponent(src.layerKey)}/features-search?${params.toString()}`;
       const init: RequestInit = { headers: { Accept: 'application/json' } };
       if (signal) init.signal = signal;
       try {
@@ -346,7 +347,7 @@ export async function searchV3Layers(
         return body.results.map((row): SearchResult => {
           const props = row.properties ?? {};
           const label = layer.search!.labelTemplate
-            ? renderTemplate(layer.search!.labelTemplate, props)
+            ? renderLabelTemplate(layer.search!.labelTemplate, props)
             : firstNonEmpty(fields.map((ff) => props[ff])) ?? '(unnamed)';
           // The canvas highlight does a best-effort property match, so
           // carry the attrs on a minimal feature. Geometry is null when
@@ -425,12 +426,22 @@ export async function geocodeViaItem(
   const url = `/api/portal/geocode/${encodeURIComponent(geocoderItemId)}?${params.toString()}`;
   const init: RequestInit = { headers: { Accept: 'application/json' } };
   if (signal) init.signal = signal;
+  // Same rule as geocode() below: "could not ask" is not "nothing
+  // matched". A timeout or a 5xx used to read as "No places found",
+  // and the user reworded a query that was never answered. A 403 or
+  // 404 stays an empty list, so a geocoder the viewer may not use
+  // does not announce itself.
   let res: Response;
   try {
     res = await fetch(url, init);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return [];
-    return [];
+    throw new GeocoderUnavailableError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (res.status >= 500) {
+    throw new GeocoderUnavailableError(await parseApiError(res, 'HTTP error'));
   }
   if (!res.ok) return [];
   const body = (await res.json()) as {
@@ -543,35 +554,7 @@ export async function geocode(
 function featureBbox(
   f: GeoJSON.Feature,
 ): [number, number, number, number] | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let seen = false;
-  function visit(v: unknown) {
-    if (Array.isArray(v)) {
-      if (v.length >= 2 && typeof v[0] === 'number' && typeof v[1] === 'number') {
-        const x = v[0] as number;
-        const y = v[1] as number;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        seen = true;
-      } else {
-        for (const c of v) visit(c);
-      }
-    }
-  }
-  const geom = f.geometry;
-  if (!geom) return null;
-  if ('coordinates' in geom) visit(geom.coordinates);
-  else if (geom.type === 'GeometryCollection') {
-    for (const g of geom.geometries) {
-      if ('coordinates' in g) visit(g.coordinates);
-    }
-  }
-  return seen ? [minX, minY, maxX, maxY] : null;
+  return geometryBbox(f.geometry);
 }
 
 function featureCenter(f: GeoJSON.Feature): [number, number] | null {
@@ -593,28 +576,3 @@ function firstNonEmpty(vs: unknown[]): string | null {
   return null;
 }
 
-function renderTemplate(
-  template: string,
-  props: Record<string, unknown>,
-): string {
-  return template.replace(
-    /\{\{\s*([\w.-]+)\s*(?:\|\s*([\w.-]+))?\s*\}\}/g,
-    (_, key: string, formatter?: string) => {
-      const raw = props[key];
-      if (raw === undefined || raw === null) return '';
-      const str = String(raw);
-      switch (formatter?.toLowerCase()) {
-        case 'upper':
-          return str.toUpperCase();
-        case 'lower':
-          return str.toLowerCase();
-        case 'number': {
-          const n = Number(str);
-          return Number.isNaN(n) ? str : formatNumber(n, DEFAULT_LOCALE);
-        }
-        default:
-          return str;
-      }
-    },
-  );
-}

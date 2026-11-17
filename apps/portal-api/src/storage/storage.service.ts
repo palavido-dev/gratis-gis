@@ -2,18 +2,26 @@
 import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CreateBucketCommand,
+  CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  ListMultipartUploadsCommand,
   ListObjectsV2Command,
   PutBucketCorsCommand,
   PutBucketPolicyCommand,
+  ListPartsCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { IMAGE_UPLOAD_MAX_BYTES } from '@gratis-gis/shared-types';
+import { deriveServerSigningKey } from './signing-key.js';
 
 /**
  * Kinds of content we host. Each gets its own path prefix inside the
@@ -96,7 +104,8 @@ const TILE_LAYER_MAX_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB
  *  lidar, still a bound. */
 const POINT_CLOUD_MAX_BYTES = 8 * 1024 * 1024 * 1024; // 8 GB
 
-const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB; thumbnails should be small.
+// Thumbnails should be small. Shared with the web clients' early check.
+const MAX_UPLOAD_BYTES = IMAGE_UPLOAD_MAX_BYTES;
 
 export interface PresignResult {
   /** URL the browser PUTs the bytes to. Expires in 60 seconds. */
@@ -113,14 +122,16 @@ export interface PresignResult {
 
 /**
  * Wraps the MinIO client. Responsibilities:
- *   - Make sure the target bucket exists + has anonymous-read + browser CORS.
+ *   - Make sure the target bucket exists, with anonymous read on the
+ *     public prefixes only, plus browser CORS.
  *   - Mint short-lived presigned PUT URLs the browser uses for direct upload.
- *   - Construct the stable public URL we persist on the owning entity.
+ *   - Construct the URL we persist on the owning entity: a direct MinIO
+ *     URL for a public prefix, an API path for a private one.
  *
- * The bucket policy is deliberately public-read because thumbnails are,
- * by nature, shown to anyone who can see the entity. Sensitive payloads
- * (feature data, form submissions) will live in separate buckets with
- * per-request signed reads; we do NOT co-mingle them here.
+ * Only images that are, by nature, shown to anyone who can see the
+ * entity (thumbnails, avatars, hero images, map icons) are
+ * public-read. Every other prefix (PRIVATE_KINDS) is read by key
+ * through the SDK behind a sharing check in the API.
  */
 @Injectable()
 export class StorageService implements OnModuleInit {
@@ -128,6 +139,10 @@ export class StorageService implements OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly publicBase: string;
+  /** Signs browser URLs. Same object as `client` when the public base
+   *  is the SDK endpoint (the VPS). A LAN install signs for the
+   *  published address while server-side calls stay on `minio:9000`. */
+  private readonly presignClient: S3Client;
   private readonly s3Endpoint: string;
   private readonly s3AccessKeyId: string;
   private readonly s3SecretAccessKey: string;
@@ -163,13 +178,12 @@ export class StorageService implements OnModuleInit {
     this.s3SecretAccessKey = secretAccessKey;
 
     // Browsers hit MinIO directly for both upload (presigned PUT) and
-    // read (public bucket), so the public base URL has to be something
+    // read (public prefixes), so the public base URL has to be something
     // the browser can reach. In dev that's the same localhost endpoint;
     // in prod this should be a CDN / reverse-proxied hostname.
     this.publicBase = cfg.get<string>('MINIO_PUBLIC_BASE', endpoint);
 
-    this.client = new S3Client({
-      endpoint,
+    const s3Options = {
       region: 'us-east-1', // MinIO ignores this but the SDK requires a value.
       credentials: { accessKeyId, secretAccessKey },
       forcePathStyle: true, // MinIO only supports path-style addressing.
@@ -191,9 +205,16 @@ export class StorageService implements OnModuleInit {
       // is not implemented." Opting out via WHEN_REQUIRED keeps the
       // checksum on real PUT-data calls (where MinIO supports it) and
       // skips it on the metadata operations where MinIO chokes.
-      requestChecksumCalculation: 'WHEN_REQUIRED',
-      responseChecksumValidation: 'WHEN_REQUIRED',
-    });
+      requestChecksumCalculation: 'WHEN_REQUIRED' as const,
+      responseChecksumValidation: 'WHEN_REQUIRED' as const,
+    };
+    this.client = new S3Client({ endpoint, ...s3Options });
+    const publicEndpoint = this.publicBase.replace(/\/$/, '');
+    const internalEndpoint = endpoint.replace(/\/$/, '');
+    this.presignClient =
+      publicEndpoint === internalEndpoint
+        ? this.client
+        : new S3Client({ endpoint: publicEndpoint, ...s3Options });
   }
 
   /**
@@ -238,7 +259,10 @@ export class StorageService implements OnModuleInit {
     }
 
     // Anonymous GET only on the prefixes that are public by design:
-    // thumbnails + avatars + hero images.  Private prefixes
+    // thumbnails + avatars + hero images + map icons. Map icons are
+    // fetched by the map renderer straight from their stored MinIO
+    // URL, for anonymous viewers of a public map too, so without
+    // this entry every uploaded icon was refused. Private prefixes
     // (feature-attachment, item-file, item-tile-layer) are NOT
     // listed and therefore require AWS-signed reads via the SDK.
     // Portal-api mediates those via /api/storage/private/* with a
@@ -260,6 +284,7 @@ export class StorageService implements OnModuleInit {
                 `arn:aws:s3:::${this.bucket}/group-thumb/*`,
                 `arn:aws:s3:::${this.bucket}/user-avatar/*`,
                 `arn:aws:s3:::${this.bucket}/org-hero/*`,
+                `arn:aws:s3:::${this.bucket}/map-icon/*`,
               ],
             },
           ],
@@ -369,7 +394,16 @@ export class StorageService implements OnModuleInit {
     // run multi-GB on slow uplinks, so they get the longer 600s
     // window.
     const expiresIn = isTileLayer || isPointCloud ? 600 : anyMime ? 180 : 60;
-    const uploadUrl = await getSignedUrl(this.client, cmd, { expiresIn });
+    // Sign the Content-Type as well as the size. The presigner leaves
+    // content-type out of the signed headers by default, so the
+    // image-only rule on the public prefixes was advice: a PUT could
+    // send text/html to a URL presigned for image/png and the bucket
+    // would serve it as HTML. Signed, a different type fails the
+    // signature check. Every client sends the type it presigned.
+    const uploadUrl = await getSignedUrl(this.presignClient, cmd, {
+      expiresIn,
+      signableHeaders: new Set(['content-type']),
+    });
     // Private-kind objects are served back through the api with a
     // sharing check (the bucket policy no longer permits anonymous
     // GET on those prefixes).  Public-kind objects (thumbnails,
@@ -385,6 +419,163 @@ export class StorageService implements OnModuleInit {
       contentType,
       maxBytes,
     };
+  }
+
+  /**
+   * Retry the bucket bootstrap when it was deferred at boot. Same rule
+   * as presignUpload: a slow MinIO at startup must not break the first
+   * upload after a restart.
+   */
+  private async ensureReady(): Promise<void> {
+    if (this.bootstrapped) return;
+    try {
+      await this.ensureBucket();
+      this.bootstrapped = true;
+    } catch (err) {
+      this.log.warn(
+        `Storage still not ready: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * A key for signing values that only this server should mint, such
+   * as resumable upload handles. Derived from the MinIO secret with
+   * HKDF under a per-purpose label, so the raw secret is never used
+   * directly and two purposes never share a key. Every install already
+   * sets MINIO_SECRET_KEY, so no new setting is needed.
+   */
+  deriveSigningKey(label: string): Buffer {
+    return deriveServerSigningKey(this.s3SecretAccessKey, label);
+  }
+
+  /** Start an S3 multipart upload and return its upload id. */
+  async createMultipartUpload(key: string): Promise<string> {
+    await this.ensureReady();
+    const res = await this.client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ContentType: 'application/octet-stream',
+      }),
+    );
+    if (!res.UploadId) {
+      throw new Error('Storage did not return an upload id.');
+    }
+    return res.UploadId;
+  }
+
+  /**
+   * Presigned PUT for one part. The length is signed into the URL, so
+   * the browser must send exactly that many bytes for this part.
+   * Signed for the browser-facing endpoint like presignUpload.
+   */
+  async presignUploadPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    contentLength: number,
+    expiresIn: number,
+  ): Promise<string> {
+    const cmd = new UploadPartCommand({
+      Bucket: this.bucket,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+      ContentLength: contentLength,
+    });
+    return getSignedUrl(this.presignClient, cmd, { expiresIn });
+  }
+
+  /** Every part stored so far for one multipart upload, in order. */
+  async listUploadedParts(
+    key: string,
+    uploadId: string,
+  ): Promise<Array<{ partNumber: number; etag: string; size: number }>> {
+    const out: Array<{ partNumber: number; etag: string; size: number }> = [];
+    let marker: string | undefined;
+    for (;;) {
+      const res = await this.client.send(
+        new ListPartsCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+          ...(marker ? { PartNumberMarker: marker } : {}),
+        }),
+      );
+      for (const p of res.Parts ?? []) {
+        if (typeof p.PartNumber !== 'number' || !p.ETag) continue;
+        out.push({ partNumber: p.PartNumber, etag: p.ETag, size: p.Size ?? 0 });
+      }
+      const next = res.NextPartNumberMarker;
+      if (!res.IsTruncated || next === undefined || String(next) === marker) break;
+      marker = String(next);
+    }
+    out.sort((a, b) => a.partNumber - b.partNumber);
+    return out;
+  }
+
+  /** Join the listed parts into one object. */
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: Array<{ partNumber: number; etag: string }>,
+  ): Promise<void> {
+    await this.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: parts.map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+        },
+      }),
+    );
+  }
+
+  /**
+   * Drop an unfinished multipart upload and the parts stored for it.
+   * A missing upload counts as done, so a repeated abort is harmless.
+   */
+  /** Keys of multipart uploads started under `prefix` and not yet
+   *  completed or aborted. */
+  async listMultipartUploadsUnder(prefix: string): Promise<string[]> {
+    await this.ensureReady();
+    const out: string[] = [];
+    let keyMarker: string | undefined;
+    let uploadIdMarker: string | undefined;
+    for (let page = 0; page < 100; page += 1) {
+      const res = await this.client.send(
+        new ListMultipartUploadsCommand({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(keyMarker ? { KeyMarker: keyMarker } : {}),
+          ...(uploadIdMarker ? { UploadIdMarker: uploadIdMarker } : {}),
+        }),
+      );
+      for (const u of res.Uploads ?? []) if (u.Key) out.push(u.Key);
+      if (!res.IsTruncated) break;
+      keyMarker = res.NextKeyMarker;
+      uploadIdMarker = res.NextUploadIdMarker;
+      if (!keyMarker && !uploadIdMarker) break;
+    }
+    return out;
+  }
+
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+        }),
+      );
+    } catch (err) {
+      const name = (err as { name?: string } | undefined)?.name ?? '';
+      if (name === 'NoSuchUpload' || name === 'NotFound') return;
+      throw err;
+    }
   }
 
   /**
@@ -406,11 +597,16 @@ export class StorageService implements OnModuleInit {
    * buffer to MinIO directly without a tmp-file round trip.
    * Returns the same `{ key, publicUrl }` shape so callers can
    * persist them on whatever item / row they belong to.
+   *
+   * `keySuffix` is appended after the UUID. Raster map icons use
+   * `.png` so a style that stores only the key can tell them apart
+   * from SVG icons, whose keys stay bare (#686).
    */
   async uploadBuffer(
     kind: AssetKind,
     body: Buffer,
     contentType = 'application/octet-stream',
+    keySuffix: '' | '.png' = '',
   ): Promise<{ key: string; publicUrl: string }> {
     if (!this.bootstrapped) {
       try {
@@ -422,7 +618,7 @@ export class StorageService implements OnModuleInit {
         );
       }
     }
-    const key = `${kind}/${randomUUID()}`;
+    const key = `${kind}/${randomUUID()}${keySuffix}`;
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -487,6 +683,11 @@ export class StorageService implements OnModuleInit {
    * resolves it against the current origin.
    */
   private apiUrlFor(kind: AssetKind, key: string): string {
+    return StorageService.privateApiUrl(kind, key);
+  }
+
+  /** The api route that serves a private-kind key, with a sharing check. */
+  static privateApiUrl(kind: AssetKind, key: string): string {
     // Strip the kind prefix off the key for the api-side URL since
     // the route segment already implies it.  E.g.
     // `feature-attachment/abc...` -> `/api/portal/storage/private/feature-attachment/abc...`.
@@ -498,7 +699,7 @@ export class StorageService implements OnModuleInit {
    * Asset kinds whose objects are NOT publicly readable from the
    * bucket policy.  Callers must go through the api with a sharing
    * check.  The corresponding public prefixes (`item-thumb`,
-   * `group-thumb`, `user-avatar`, `org-hero`) keep their direct
+   * `group-thumb`, `user-avatar`, `org-hero`, `map-icon`) keep their direct
    * MinIO URLs and are fetched without an auth round-trip.
    */
   static readonly PRIVATE_KINDS: ReadonlySet<AssetKind> = new Set<AssetKind>([

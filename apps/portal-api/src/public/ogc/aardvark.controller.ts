@@ -7,6 +7,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
@@ -33,6 +34,9 @@ export class OgcAardvarkController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
+  // Harvest scrape path (SEC-aardvark-throttle): tighter than the
+  // global 300/min so anonymous id sweeps cannot lean on it alone.
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get(':itemId.json')
   async one(
     @Req() req: Request,

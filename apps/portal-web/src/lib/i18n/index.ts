@@ -76,7 +76,9 @@ export function t(
   const fromLocale = lookup(CATALOGS[locale] as Record<string, unknown>, key);
   const fallback = lookup(CATALOGS[DEFAULT_LOCALE] as Record<string, unknown>, key);
   const value = fromLocale ?? fallback ?? key;
-  return interpolate(value, params);
+  // Plural categories follow the language of the text actually
+  // chosen: an English fallback string uses English rules.
+  return interpolate(value, params, fromLocale !== null ? locale : DEFAULT_LOCALE);
 }
 
 /**
@@ -108,7 +110,8 @@ function lookup(
  */
 function interpolate(
   raw: string,
-  params?: Record<string, string | number>,
+  params: Record<string, string | number> | undefined,
+  locale: SupportedLocale,
 ): string {
   if (!params || Object.keys(params).length === 0) {
     // Still handle bare `#` in plural bodies that callers happen
@@ -116,14 +119,17 @@ function interpolate(
     return raw;
   }
   // Plural form first: `{name, plural, one {...} other {...}}`.
+  // A case body may hold its own `{placeholder}` (one level deeper),
+  // which the simple pass below fills in. Exact `=N` cases win over
+  // the CLDR category, as in ICU.
   let out = raw.replace(
-    /\{(\w+),\s*plural,\s*([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g,
+    /\{(\w+),\s*plural,\s*((?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*)\}/g,
     (_match, name: string, body: string) => {
       const value = params[name];
       const n = typeof value === 'number' ? value : Number(value);
       const cases = parsePluralBody(body);
-      const pickKey = pluralCaseFor(n);
-      const chosen = cases[pickKey] ?? cases.other ?? '';
+      const chosen =
+        cases[`=${n}`] ?? cases[pluralCaseFor(n, locale)] ?? cases.other ?? '';
       return chosen.replace(/#/g, String(n));
     },
   );
@@ -136,21 +142,51 @@ function interpolate(
 }
 
 function parsePluralBody(body: string): Record<string, string> {
-  // `one {a # b} other {x #}`: pull each `<key> { ... }` pair.
+  // `=0 {none} one {a # b} other {x # in {schema}}`: pull each
+  // `<key> { ... }` pair. Braces are matched by depth, so a case
+  // body can hold a `{placeholder}`.
   const out: Record<string, string> = {};
-  const re = /(\w+)\s*\{([^{}]*)\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(body)) !== null) {
-    out[m[1]!] = m[2]!;
+  const keyRe = /\s*(=?\w+)\s*\{/y;
+  let i = 0;
+  while (i < body.length) {
+    keyRe.lastIndex = i;
+    const m = keyRe.exec(body);
+    if (!m) break;
+    let depth = 1;
+    let j = keyRe.lastIndex;
+    const start = j;
+    for (; j < body.length && depth > 0; j += 1) {
+      if (body[j] === '{') depth += 1;
+      else if (body[j] === '}') depth -= 1;
+    }
+    if (depth !== 0) break;
+    out[m[1]!] = body.slice(start, j - 1);
+    i = j;
   }
   return out;
 }
 
-function pluralCaseFor(n: number): 'zero' | 'one' | 'two' | 'few' | 'many' | 'other' {
-  // English-default Cardinal: one when |n| == 1, other otherwise.
-  // Phase 1.1 will switch to Intl.PluralRules per-locale; the
-  // current rule keeps Phase 1.0 self-contained.
-  return Math.abs(n) === 1 ? 'one' : 'other';
+const pluralRules = new Map<string, Intl.PluralRules>();
+
+/**
+ * CLDR cardinal category for `n` in `locale`. French and Portuguese
+ * put 0 in `one` ("0 élément"), which a single English rule got
+ * wrong. Falls back to the English rule if Intl is unavailable.
+ */
+export function pluralCaseFor(
+  n: number,
+  locale: SupportedLocale = DEFAULT_LOCALE,
+): Intl.LDMLPluralRule {
+  try {
+    let rules = pluralRules.get(locale);
+    if (!rules) {
+      rules = new Intl.PluralRules(locale);
+      pluralRules.set(locale, rules);
+    }
+    return rules.select(n);
+  } catch {
+    return Math.abs(n) === 1 ? 'one' : 'other';
+  }
 }
 
 export { DEFAULT_LOCALE };

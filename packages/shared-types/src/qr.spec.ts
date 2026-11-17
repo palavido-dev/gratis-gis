@@ -134,3 +134,29 @@ describe('qrSvg', () => {
     expect(qrSvg('https://gratisgis.org/field').match(/<path/g)).toHaveLength(1);
   });
 });
+
+describe('format information', () => {
+  it('writes the same 15 bits in both copies, for every mask', () => {
+    for (let mask = 0; mask < 8; mask++) {
+      const r = encodeQr('https://example.org/abc', { mask });
+      const g = r.modules;
+      const n = r.size;
+      const copy1: number[] = [];
+      for (let i = 0; i < 15; i++) {
+        let v: boolean;
+        if (i < 6) v = g[8]![i]!;
+        else if (i === 6) v = g[8]![7]!;
+        else if (i === 7) v = g[8]![8]!;
+        else if (i === 8) v = g[7]![8]!;
+        else v = g[14 - i]![8]!;
+        copy1.push(v ? 1 : 0);
+      }
+      const copy2: number[] = [];
+      for (let i = 0; i < 15; i++) {
+        const v = i < 7 ? g[n - 1 - i]![8]! : g[8]![n - 15 + i]!;
+        copy2.push(v ? 1 : 0);
+      }
+      expect(copy2).toEqual(copy1);
+    }
+  });
+});

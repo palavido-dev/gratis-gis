@@ -74,6 +74,7 @@ class UpdateDrawingDto {
   @IsOptional() @IsHexColor() color?: string;
   @IsOptional() @IsBoolean() visible?: boolean;
   @IsOptional() @IsArray() features?: DrawingFeatureDto[];
+  @IsOptional() @IsArray() appendFeatures?: DrawingFeatureDto[];
 }
 
 class AllowAnonymousDto {
@@ -92,6 +93,9 @@ export class DrawingsController {
    * against canRead.
    */
   @Public()
+  // Tighter than the global 300/min: matches Public comments list /
+  // OGC Records (SEC-drawings-list-throttle). Writes stay at 30/min.
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get()
   list(
     @CurrentUser() user: AuthUser | null,
@@ -158,6 +162,9 @@ export class DrawingsController {
       ...(dto.visible !== undefined ? { visible: dto.visible } : {}),
       ...(dto.features !== undefined
         ? { features: dto.features as DrawingFeature[] }
+        : {}),
+      ...(dto.appendFeatures !== undefined
+        ? { appendFeatures: dto.appendFeatures as DrawingFeature[] }
         : {}),
     });
   }

@@ -13,9 +13,10 @@
  * no new server surface.
  *
  * The reader is deliberately exact about what it accepts: a COG in
- * EPSG:3857 (what the elevation job produces via the
- * GoogleMapsCompatible tiling scheme). Anything else fails with a
- * plain-language error instead of returning wrong numbers.
+ * Web Mercator (EPSG:3857 and its common aliases — what the
+ * elevation job produces via the GoogleMapsCompatible tiling
+ * scheme). Anything else fails with a plain-language error instead
+ * of returning wrong numbers.
  */
 
 import { lineLengthMeters } from '@/lib/measure';
@@ -47,6 +48,9 @@ const MAX_READ_PX = 1_500_000;
 /** Chart sampling density. */
 const MAX_SAMPLES = 512;
 const MIN_SAMPLES = 64;
+
+/** EPSG codes that all mean Web Mercator for our purposes. */
+const WEB_MERCATOR_EPSG = new Set([3857, 900913, 102100]);
 
 function toMercator(lng: number, lat: number): [number, number] {
   const x = (lng * Math.PI * EARTH_RADIUS_M) / 180;
@@ -104,6 +108,37 @@ interface Level {
 }
 
 /**
+ * Read the projected CRS code from a geotiff image.
+ *
+ * geotiff v3 exposes keys via `getGeoKeys()`; v2 put them on a
+ * `.geoKeys` field. Dependabot landed v3 while this reader still
+ * looked at the v2 shape, so every DEM looked like an unsupported
+ * projection and the profile tool stopped working. Accept both
+ * shapes, coerce string codes, and treat the common Web Mercator
+ * aliases as equivalent to 3857.
+ *
+ * Exported for unit tests.
+ */
+export function readProjectedEpsg(image: {
+  getGeoKeys?: () => Record<string, unknown> | null | undefined;
+  geoKeys?: Record<string, unknown>;
+}): number | null {
+  const keys =
+    (typeof image.getGeoKeys === 'function' ? image.getGeoKeys() : null) ??
+    image.geoKeys ??
+    null;
+  if (!keys) return null;
+  const raw = keys.ProjectedCSTypeGeoKey;
+  if (raw == null) return null;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function isWebMercatorEpsg(epsg: number | null): boolean {
+  return epsg != null && WEB_MERCATOR_EPSG.has(epsg);
+}
+
+/**
  * Sample elevations along `coords` (a [lng, lat] polyline) from the
  * elevation COG at `url`. Reads the finest overview level that fits
  * the pixel budget, so short lines get native resolution and long
@@ -120,9 +155,13 @@ export async function sampleElevationProfile(
   const tiff = await fromUrl(url);
   const full = await tiff.getImage(0);
 
-  const geoKeys = (full as { geoKeys?: Record<string, unknown> }).geoKeys;
-  const epsg = geoKeys?.ProjectedCSTypeGeoKey;
-  if (epsg !== 3857) {
+  const epsg = readProjectedEpsg(
+    full as {
+      getGeoKeys?: () => Record<string, unknown> | null | undefined;
+      geoKeys?: Record<string, unknown>;
+    },
+  );
+  if (!isWebMercatorEpsg(epsg)) {
     throw new Error(
       'This elevation layer is stored in a projection the profile tool cannot read yet.',
     );

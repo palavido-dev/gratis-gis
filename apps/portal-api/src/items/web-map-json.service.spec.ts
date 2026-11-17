@@ -17,9 +17,10 @@ import { WebMapJsonService } from './web-map-json.service.js';
  *   - ordering: MapData.layers[0] is the portal render stack's TOP;
  *     Esri draws operationalLayers[0] FIRST (bottom), so the output
  *     array is the reverse of the portal order
- *   - hidden / group layers are skipped
+ *   - hidden layers are exported with visibility false; group
+ *     layers are skipped
  *   - single-clause layer filters emit a definitionExpression
- *   - basemap reference resolves through the prisma findUnique
+ *   - basemap reference resolves through the prisma findFirst
  *     mock; missing falls back to seeded basemap then to OSM
  *   - missing host header still produces a valid (but pathless)
  *     WebMap document (the test verifies the version + structure)
@@ -35,7 +36,7 @@ function makeMap(overrides: Partial<Item> = {}): Item {
     description: '',
     tags: [],
     data: {
-      basemap: 'basemap-1',
+      basemap: 'bbbbbbbb-0000-4000-8000-000000000001',
       center: [-122.4, 37.7],
       zoom: 10,
       bearing: 0,
@@ -115,18 +116,18 @@ function makePrismaMock(opts: {
 }) {
   return {
     item: {
-      findUnique: async () => opts.basemapItem ?? null,
+      findFirst: async () => opts.basemapItem ?? null,
       findMany: async () => (opts.fallbackBasemap ? [opts.fallbackBasemap] : []),
     },
   } as unknown as ConstructorParameters<typeof WebMapJsonService>[0];
 }
 
 describe('WebMapJsonService', () => {
-  it('builds a multi-layer WebMap with portal, arcgis, geojson, skipping hidden + group', async () => {
+  it('builds a multi-layer WebMap with portal, arcgis, geojson and hidden, skipping group', async () => {
     const svc = new WebMapJsonService(
       makePrismaMock({
         basemapItem: {
-          id: 'basemap-1',
+          id: 'bbbbbbbb-0000-4000-8000-000000000001',
           title: 'Positron',
           type: 'basemap',
           deletedAt: null,
@@ -143,27 +144,30 @@ describe('WebMapJsonService', () => {
     });
     expect(wm.version).toMatch(/^2\./);
     const layers = wm.operationalLayers ?? [];
-    expect(layers.length).toBe(3);
+    expect(layers.length).toBe(4);
     // Order: the REVERSE of MapData.layers. Portal index 0 is the
     // top of the render stack; Esri draws operationalLayers[0]
     // first (bottom), so the portal's top layer lands LAST.
-    expect(layers[0]?.id).toBe('layer-geojson');
-    expect(layers[0]?.url).toBe('https://example.com/data.geojson');
-    expect(layers[1]?.id).toBe('layer-arcgis');
-    expect(layers[1]?.url).toBe(
+    // A hidden layer is kept, with visibility false.
+    expect(layers[0]?.id).toBe('layer-hidden');
+    expect(layers[0]?.visibility).toBe(false);
+    expect(layers[1]?.id).toBe('layer-geojson');
+    expect(layers[1]?.url).toBe('https://example.com/data.geojson');
+    expect(layers[2]?.id).toBe('layer-arcgis');
+    expect(layers[2]?.url).toBe(
       'https://services.example.com/arcgis/rest/services/Roads/FeatureServer/0',
     );
-    expect(layers[1]?.opacity).toBeCloseTo(0.8);
-    expect(layers[2]?.id).toBe('layer-portal');
+    expect(layers[2]?.opacity).toBeCloseTo(0.8);
+    expect(layers[3]?.id).toBe('layer-portal');
+    expect(layers[3]?.visibility).toBe(true);
     // Per-sublayer endpoint derived from the data-layer source's
     // itemId + layerKey; the route DataLayerFeaturesController
     // actually serves.
-    expect(layers[2]?.url).toBe(
+    expect(layers[3]?.url).toBe(
       'https://portal.example.org/api/items/dl-1/layers/lyr_a/geojson',
     );
-    // Hidden + group never appear.
+    // Group layers never appear.
     const ids = layers.map((l) => l.id);
-    expect(ids).not.toContain('layer-hidden');
     expect(ids).not.toContain('layer-group');
   });
 
@@ -294,7 +298,7 @@ describe('WebMapJsonService', () => {
     const svc = new WebMapJsonService(
       makePrismaMock({
         basemapItem: {
-          id: 'basemap-1',
+          id: 'bbbbbbbb-0000-4000-8000-000000000001',
           title: 'Voyager',
           type: 'basemap',
           deletedAt: null,
@@ -384,5 +388,69 @@ describe('WebMapJsonService', () => {
       portalBaseUrl: 'https://portal.example.org',
     });
     expect(wm.initialState).toBeUndefined();
+  });
+
+  it('carries a data layer opacity through the lens path', async () => {
+    const svc = new WebMapJsonService(makePrismaMock({}));
+    const wm = await svc.buildForMap({
+      map: makeMap({
+        data: {
+          layers: [
+            {
+              id: 'faded',
+              title: 'Faded',
+              visible: true,
+              opacity: 0.4,
+              source: { kind: 'data-layer', itemId: 'dl-1', layerKey: 'a' },
+            },
+          ],
+        },
+      } as unknown as Partial<Item>),
+      portalBaseUrl: 'https://portal.example.org',
+    });
+    expect(wm.operationalLayers?.[0]?.opacity).toBeCloseTo(0.4);
+  });
+
+  it('never queries a non-uuid basemap ref, and tolerates a numeric clause value', async () => {
+    const findFirst = jest.fn(async () => null);
+    const svc = new WebMapJsonService({
+      item: { findFirst, findMany: async () => [] },
+    } as unknown as ConstructorParameters<typeof WebMapJsonService>[0]);
+    const wm = await svc.buildForMap({
+      map: makeMap({
+        data: {
+          basemap: 'osm',
+          layers: [
+            {
+              id: 'n',
+              title: 'N',
+              visible: true,
+              opacity: 1,
+              source: { kind: 'data-layer', itemId: 'dl-1', layerKey: 'a' },
+              filter: { clauses: [{ field: 'n', op: '>', value: 5 }] },
+            },
+          ],
+        },
+      } as unknown as Partial<Item>),
+      portalBaseUrl: 'https://portal.example.org',
+    });
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(wm.operationalLayers?.length).toBe(1);
+  });
+
+  it('only resolves a basemap of the map org or a public one', async () => {
+    const findFirst = jest.fn(async () => null);
+    const svc = new WebMapJsonService({
+      item: { findFirst, findMany: async () => [] },
+    } as unknown as ConstructorParameters<typeof WebMapJsonService>[0]);
+    await svc.buildForMap({ map: makeMap(), portalBaseUrl: 'https://p' });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'bbbbbbbb-0000-4000-8000-000000000001',
+          OR: [{ orgId: 'org-1' }, { access: 'public' }],
+        },
+      }),
+    );
   });
 });

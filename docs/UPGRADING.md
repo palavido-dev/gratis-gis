@@ -6,10 +6,11 @@ manual flow in [deployment.md](./deployment.md). Starting with v0.9.0,
 releases are git tags named `vX.Y.Z`, listed in
 [CHANGELOG.md](../CHANGELOG.md) and on the GitHub releases page.
 
-Until v1.0.0, a minor release (0.9 to 0.10) may include breaking
-changes; each one is called out in its changelog section. Read the
-section for the release you are moving to before you start. The
-policy is in [VERSIONING.md](./VERSIONING.md).
+From v1.0.0 onward, semantic versioning applies: breaking changes
+only in major releases. Each breaking change is called out in its
+changelog section with a line starting `Breaking:`. Read the section
+for the release you are moving to before you start. The policy is in
+[VERSIONING.md](./VERSIONING.md).
 
 ## 1. Back up first
 
@@ -25,7 +26,10 @@ Before any upgrade:
    snapshot the PostgreSQL and MinIO Docker volumes at the host level.
 
 See the Backups section of [deployment.md](./deployment.md) for
-details on both backup surfaces.
+details on both backup surfaces. If a restore fails and the portal
+stays in maintenance mode, follow "When a restore fails" in that
+guide. `infra/restore-maintenance.sh` will not clear the flag while
+the portal tables are missing.
 
 ## 2. Upgrade
 
@@ -33,6 +37,16 @@ details on both backup surfaces.
 cd /opt/gratis-gis
 ./infra/deploy.sh
 ```
+
+A NAS install that was pasted from `infra/docker-compose.nas.yml`
+does not use this script. An admin opens **Updates**. That page
+shows the running version, the available version, the changelog
+(including lines that start with `Breaking:`), and the steps for
+this install. Take the backup it offers first. If the compose file
+is out of date, paste the new `docker-compose.nas.yml`. If only the
+images moved, Stop then Start in TrueNAS, or click Update in
+Dockge. The passwords live on the `boot` volume and are kept.
+Details are in [truenas.md](./truenas.md).
 
 The deploy script takes the shared deploy lock, fetches from origin
 (tags included), resolves the target ref, hard-resets the checkout to
@@ -96,11 +110,12 @@ moved the compose mount to `/var/lib/postgresql`. Existing installs
 still store a PG17 cluster at the volume root. Booting the PG18 image
 against that volume fails with the docker-library "data in
 /var/lib/postgresql" error and takes the stack down. v0.9.119 restores
-PG17 and the `/var/lib/postgresql/data` mount. To move to PG18 later,
-run the dump/restore dance documented in `infra/postgres/Dockerfile`
-(pg_dumpall on 17, fresh 18 volume, restore) before flipping the image
-and mount. Fresh empty volumes can start on PG18 only after that
-documented cutover lands again.
+PG17 and the `/var/lib/postgresql/data` mount. The deliberate upgrade
+is [upgrades/postgres-18.md](./upgrades/postgres-18.md) (Postgres 18,
+PostGIS 3.6, dump/restore for Compose and for TrueNAS or Dockge). It
+is a plan. No current release flips the image or the mount, and
+Dependabot ignores major `postgis/postgis` bumps so a tag change does
+not land on its own.
 
 **v0.9.107 or later, on an install created before it.** The
 production compose file preloads `pg_stat_statements` so slow

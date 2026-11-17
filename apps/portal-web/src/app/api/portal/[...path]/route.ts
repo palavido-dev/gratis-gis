@@ -7,11 +7,24 @@
  *
  * Only verbs we currently use are wired; add more as needed.
  */
-import { getServerSession } from 'next-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidatePath } from 'next/cache';
-import { authOptions, type SessionWithToken } from '@/lib/auth';
+import { resolveRouteSession, type CookieWrite } from '@/lib/session-roll';
 import { isSessionStale } from '@/lib/session-state';
+import { mintRequestId } from '@/lib/api-error';
+import {
+  fetchFailureReason,
+  isLongRunningPath,
+  longRunningFetch,
+} from '@/lib/long-running-fetch';
+import {
+  hasUnsafePathSegment,
+  isCrossOriginMutation,
+  PRINT_READ_HEADER,
+  printReadBearer,
+  securityResponseHeaders,
+} from '@/lib/bff-guards';
+import { PAGE_CSP } from '@/lib/content-security-policy.mjs';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 
@@ -33,54 +46,6 @@ function warnStaleSession(method: string, suffix: string): void {
   );
 }
 
-/**
- * Long-running upstream dispatcher for ingest, per-layer import,
- * and whole-layer export routes. Default undici fetch() caps the
- * response-headers wait at 30 s, which is plenty for an admin click
- * but nowhere near long enough for a county-scale parcel ingest
- * (GDAL parse + bulk insert) or a GeoParquet export of the same
- * layer (the api walks every feature before the first response
- * byte). We use a dedicated Agent so normal API calls keep their
- * tight defaults: only requests routed here get the loosened
- * budget.
- *
- * Both the import AND the constructor are deferred to the first
- * matching hit. A static `import { Agent } from 'undici'` loads
- * undici's Agent module at evaluation time, and that module body
- * references `util.markAsUncloneable`, a Node 22+ builtin that
- * doesn't exist on the older Node our build container runs.
- * Next.js's "Collect page data" phase evaluates every route module,
- * so the build crashed even though we never instantiated the Agent.
- * Dynamic import keeps undici entirely out of build-time
- * evaluation.
- */
-let _longRunningAgent: unknown = null;
-async function getLongRunningAgent(): Promise<unknown> {
-  if (!_longRunningAgent) {
-    const { Agent } = await import('undici');
-    _longRunningAgent = new Agent({
-      headersTimeout: 15 * 60 * 1000,
-      bodyTimeout: 15 * 60 * 1000,
-      connectTimeout: 30 * 1000,
-    });
-  }
-  return _longRunningAgent;
-}
-
-/** Match v3 per-layer ingest, v2 ingest, the wizard probe path,
- *  the per-layer GeoParquet export, and admin backup restore (#233).
- *  Conservative: only widens for endpoints we know can take minutes. */
-function isLongRunningPath(suffix: string): boolean {
-  return (
-    /^items\/[^/]+\/layers\/[^/]+\/import$/.test(suffix) ||
-    /^items\/[^/]+\/layers\/[^/]+\/geoparquet$/.test(suffix) ||
-    /^items\/[^/]+\/ingest$/.test(suffix) ||
-    suffix === 'ingest/probe' ||
-    // #233: pg_restore + full MinIO refill routinely exceeds undici's
-    // 30s default; without this the BFF aborts mid-restore.
-    /^admin\/backup\/runs\/[^/]+\/restore$/.test(suffix)
-  );
-}
 
 /**
  * Anonymous-fallback rewrites for #307. When the caller has no
@@ -152,6 +117,12 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   if (
     /^items\/[^/]+\/layers\/[^/]+\/tile\/\d+\/\d+\/\d+\.mvt$/.test(suffix)
   ) {
+    return `public/${suffix}`;
+  }
+  // The layer's TileJSON, which the map reads for the tile zoom range
+  // (minzoom / maxzoom) of its vector source. Same public mirror and
+  // same access='public' gate as the tiles it describes.
+  if (/^items\/[^/]+\/layers\/[^/]+\/tilejson\.json$/.test(suffix)) {
     return `public/${suffix}`;
   }
   // Designer-baked thumbnail SVG. Public landing tiles + anon
@@ -323,22 +294,16 @@ function isAnonymousDrawingMutationAllowed(
   return false;
 }
 
-/**
- * True when a path segment would collapse during URL normalization:
- * empty (from '//'), a single dot, or a double dot. WHATWG URL (and
- * therefore fetch) also treats the percent-encoded spellings '%2e',
- * '%2e%2e', '.%2e', and '%2e.' as dot segments, so those count too:
- * Next decodes catch-all segments once, meaning a double-encoded
- * '%252e%252e' arrives here as the literal text '%2e%2e' and would
- * still normalize into '..' when the upstream URL is parsed.
- */
-function isDotOrEmptySegment(segment: string): boolean {
-  if (segment === '') return true;
-  const decodedDots = segment.toLowerCase().replace(/%2e/g, '.');
-  return decodedDots === '.' || decodedDots === '..';
+async function forward(req: NextRequest, pathSegments: string[]) {
+  const { response, cookies } = await forwardInner(req, pathSegments);
+  for (const c of cookies) response.cookies.set(c.name, c.value, c.options);
+  return response;
 }
 
-async function forward(req: NextRequest, pathSegments: string[]) {
+async function forwardInner(
+  req: NextRequest,
+  pathSegments: string[],
+): Promise<{ response: NextResponse; cookies: CookieWrite[] }> {
   // Per-hop timing log behind the BFF_TIMING flag. Lets us split a
   // slow page load into "cookie + getServerSession" vs "upstream
   // fetch to portal-api" vs "body shaping". With ~24 items in the
@@ -347,7 +312,11 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   const trace = process.env.BFF_TIMING === '1';
   const t0 = trace ? Date.now() : 0;
 
-  const session = (await getServerSession(authOptions)) as SessionWithToken | null;
+  // Not getServerSession: it runs the jwt callback (token refresh,
+  // idle activity stamp) but cannot write the result back in a route
+  // handler. resolveRouteSession returns the cookie writes, which
+  // forward() puts on whatever response it returns.
+  const { session, cookies: sessionCookies } = await resolveRouteSession(req);
   const tSession = trace ? Date.now() : 0;
 
   const suffix = pathSegments.join('/');
@@ -363,8 +332,28 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // segments introduced by an embedded decoded '/' are checked too.
   // No legitimate client sends dot or empty segments, so a flat 400
   // is safe for authenticated callers as well.
-  if (suffix.split('/').some(isDotOrEmptySegment)) {
-    return NextResponse.json({ message: 'Bad request' }, { status: 400 });
+  // Backslashes, `?`, `#` and control characters are refused for the
+  // same reason: WHATWG URL reinterprets each of them (see
+  // isUnsafePathSegment).
+  if (hasUnsafePathSegment(suffix)) {
+    return {
+      response: NextResponse.json({ message: 'Bad request' }, { status: 400 }),
+      cookies: sessionCookies,
+    };
+  }
+
+  // The session cookie becomes a bearer below, so a state-changing
+  // request must come from this origin. SameSite=Lax alone lets any
+  // same-site page (another app on the NAS IP, a sibling subdomain)
+  // POST a plain form here.
+  if (isCrossOriginMutation(req.method, req.headers)) {
+    return {
+      response: NextResponse.json(
+        { message: 'Cross-origin request refused' },
+        { status: 403 },
+      ),
+      cookies: sessionCookies,
+    };
   }
 
   // #195: a session whose Keycloak refresh has failed still carries
@@ -379,8 +368,19 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // an anonymous visitor uses, and everything else gets an explicit
   // session-expired 401 the client can surface.
   const sessionStale = isSessionStale(session);
-  const accessToken = sessionStale ? undefined : session?.accessToken;
+  const sessionToken = sessionStale ? undefined : session?.accessToken;
   if (sessionStale) warnStaleSession(req.method, suffix);
+  // The server-side print's headless page has no session. On its
+  // layer reads it sends a per-job credential instead, which stands
+  // in for the bearer on those GET routes only. A real session wins.
+  const accessToken =
+    sessionToken ??
+    printReadBearer(
+      req.method,
+      suffix,
+      req.headers.get(PRINT_READ_HEADER),
+    ) ??
+    undefined;
 
   // #307: when an anonymous visitor opens a publicly-shared viewer,
   // the runtime makes client-side fetches for layer features and
@@ -416,12 +416,15 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     // sign-in decayed"; the session-expired banner keys off the
     // session object itself, but API consumers (QGIS plugin, tests)
     // get an honest machine-readable reason too.
-    return NextResponse.json(
+    return {
+      response: NextResponse.json(
       sessionStale
         ? { message: 'Unauthorized', code: 'session-expired' }
         : { message: 'Unauthorized' },
       { status: 401 },
-    );
+    ),
+      cookies: sessionCookies,
+    };
   }
 
   const effectiveSuffix = publicRewrite ?? suffix;
@@ -449,6 +452,10 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // forwarding everything.
   const editorId = req.headers.get('x-editor-id');
   if (editorId) headers['x-editor-id'] = editorId;
+  // One id for this attempt. portal-api keeps it when it is a safe
+  // token and puts the same value on the error JSON and in its log.
+  const requestId = mintRequestId();
+  headers['x-request-id'] = requestId;
   // Field deployment runtime sends `x-data-collection-id` on every
   // write so the API can fire the data_collection_feature_created
   // notification (#229). Same allowlist pattern as x-editor-id.
@@ -473,6 +480,11 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   if (range) headers.range = range;
   const ifRange = req.headers.get('if-range');
   if (ifRange) headers['if-range'] = ifRange;
+  // The tile handlers answer 304 to a matching If-None-Match. Without
+  // forwarding it every revalidation of a cached tile was sent again
+  // in full.
+  const ifNoneMatch = req.headers.get('if-none-match');
+  if (ifNoneMatch) headers['if-none-match'] = ifNoneMatch;
 
   // Stream-forward the request body instead of buffering the full
   // payload into a single ArrayBuffer. Buffering blew up on large
@@ -482,7 +494,7 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // `duplex: 'half'` is required by undici/fetch when the request
   // body is a ReadableStream; without it Node throws "RequestInit:
   // duplex option is required when sending a body".
-  const init: RequestInit & { duplex?: 'half'; dispatcher?: unknown } = {
+  const init: RequestInit & { duplex?: 'half' } = {
     method: req.method,
     headers,
     cache: 'no-store',
@@ -499,15 +511,33 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // serialises behind the previous one's still-running query.
   init.signal = req.signal;
 
-  // Long-running ingest / export endpoints get a custom dispatcher
-  // with 15 min headers + body timeouts. Everything else falls
-  // through to the built-in 30 s defaults so a misbehaving upstream
-  // still fails fast.
-  if (isLongRunningPath(suffix)) {
-    init.dispatcher = await getLongRunningAgent();
+  // Long-running ingest / export endpoints get a 15 min budget.
+  // Everything else falls through to the built-in 30 s defaults so a
+  // misbehaving upstream still fails fast.
+  let upstream: Response;
+  try {
+    upstream = isLongRunningPath(suffix)
+      ? await longRunningFetch(target, init)
+      : await fetch(target, init);
+  } catch (err) {
+    const reason = fetchFailureReason(err);
+    // The browser gets a sentence and the id. The reason (a refused
+    // connection, a DNS failure) stays in this log.
+    console.error(
+      `[bff] ${requestId} ${req.method} /api/${suffix} failed: ${reason}`,
+    );
+    return {
+      response: NextResponse.json(
+      {
+        message: 'The portal API could not be reached.',
+        statusCode: 502,
+        requestId,
+      },
+      { status: 502, headers: { 'x-request-id': requestId } },
+      ),
+      cookies: sessionCookies,
+    };
   }
-
-  const upstream = await fetch(target, init);
   const tUpstream = trace ? Date.now() : 0;
   // Stream-pass the response body so the browser receives bytes the
   // moment portal-api flushes them. The previous arrayBuffer() round-
@@ -578,18 +608,40 @@ async function forward(req: NextRequest, pathSegments: string[]) {
   // mirrored, so a 206 arrives as a 206; without Content-Range
   // the client cannot place the slice, and without ETag /
   // Accept-Ranges the reader disables range mode entirely.
+  // Protective headers portal-api sets per response (the proxies'
+  // sandbox CSP, thumbnail.svg's script-free CSP, nosniff). Dropping
+  // them would put a proxied document under the page CSP, which
+  // allows inline script.
+  for (const [name, value] of securityResponseHeaders(
+    upstream.headers,
+    PAGE_CSP,
+  )) {
+    outHeaders.set(name, value);
+  }
   const contentRange = upstream.headers.get('content-range');
   if (contentRange) outHeaders.set('content-range', contentRange);
   const acceptRanges = upstream.headers.get('accept-ranges');
   if (acceptRanges) outHeaders.set('accept-ranges', acceptRanges);
   const etag = upstream.headers.get('etag');
   if (etag) outHeaders.set('etag', etag);
+  // Set on the tile handlers' 503 when their cache is saturated, so
+  // the client backs off instead of retrying at once.
+  const retryAfter = upstream.headers.get('retry-after');
+  if (retryAfter) outHeaders.set('retry-after', retryAfter);
   const contentLength = upstream.headers.get('content-length');
   if (contentLength) outHeaders.set('content-length', contentLength);
   // Paged list endpoints report the total row count here so the
   // browser can page without an envelope around the JSON array.
   const totalCount = upstream.headers.get('x-total-count');
   if (totalCount) outHeaders.set('x-total-count', totalCount);
+  // Cursor-paged lists (comment threads) say where the next page
+  // starts here, for the same reason.
+  const nextCursor = upstream.headers.get('x-next-cursor');
+  if (nextCursor) outHeaders.set('x-next-cursor', nextCursor);
+  outHeaders.set(
+    'x-request-id',
+    upstream.headers.get('x-request-id') ?? requestId,
+  );
   // #154: portal-api mints `gg_anon_drawing` on anon markup writes.
   // Forward every Set-Cookie so the browser keeps the session.
   const setCookies =
@@ -600,10 +652,13 @@ async function forward(req: NextRequest, pathSegments: string[]) {
     outHeaders.append('set-cookie', c);
   }
 
-  return new NextResponse(upstream.body, {
-    status: upstream.status,
-    headers: outHeaders,
-  });
+  return {
+    response: new NextResponse(upstream.body, {
+      status: upstream.status,
+      headers: outHeaders,
+    }),
+    cookies: sessionCookies,
+  };
 }
 
 // Next 15 changed Route Handler params from a sync object to a

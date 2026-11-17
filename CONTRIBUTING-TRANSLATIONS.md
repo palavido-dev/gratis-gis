@@ -6,6 +6,21 @@ way to help today: pick a locale below, open the matching catalog
 file, fix anything that reads wrong to a native speaker, and open
 a pull request.
 
+## Platform choice
+
+**Weblate** is the project's chosen translation platform (self-hosted
+or Hosted Weblate later). Crowdin (SaaS OSS plan) and Tolgee
+(open-core + paid hosted) were considered and not selected: Weblate
+matches the AGPL / self-hosted stack better.
+
+Standing up Weblate (compose, secrets, CI PR bots, completeness
+badges) is **not** done yet. Until that lands, the supported
+community path is still a git pull request against the TypeScript
+catalogs below. When Weblate is live, the expected flow is:
+translator edits on Weblate → platform opens a PR → maintainer
+review → merge. Catalogs in this repo remain the source of truth
+either way.
+
 ## Where the translations live
 
 - The supported-locale list at

@@ -29,6 +29,7 @@ function makeRow(overrides: Record<string, unknown> = {}) {
       orgRole: 'contributor' as const,
       deletedAt: null,
       autoDisableAt: null,
+      disabledAt: null,
       org: { slug: 'randolph' },
     },
     ...overrides,
@@ -107,6 +108,20 @@ describe('ApiKeyService.resolve', () => {
       [
         'deleted owner',
         { user: { ...makeRow().user, deletedAt: new Date(NOW - HOUR) } },
+      ],
+      [
+        'disabled owner',
+        { user: { ...makeRow().user, disabledAt: new Date(NOW - HOUR) } },
+      ],
+      [
+        'disabled admin owner',
+        {
+          user: {
+            ...makeRow().user,
+            orgRole: 'admin' as const,
+            disabledAt: new Date(NOW - HOUR),
+          },
+        },
       ],
       [
         'auto-disabled owner',

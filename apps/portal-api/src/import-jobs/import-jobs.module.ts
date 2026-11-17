@@ -6,6 +6,7 @@ import { ItemsModule } from '../items/items.module.js';
 import { IngestModule } from '../ingest/ingest.module.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
 import { DataLayerTablesModule } from '../data-layer/tables.module.js';
+import { ResourceQuotaModule } from '../admin/resource-quota.module.js';
 
 import { ImportJobsService } from './import-jobs.service.js';
 import { ImportJobsController } from './import-jobs.controller.js';
@@ -34,6 +35,7 @@ import { ImportJobsController } from './import-jobs.controller.js';
     IngestModule,
     DataLayerFeaturesModule,
     DataLayerTablesModule,
+    ResourceQuotaModule,
   ],
   providers: [ImportJobsService],
   controllers: [ImportJobsController],

@@ -1,7 +1,7 @@
 ---
 id: admin-geocoders
 title: Geocoders
-summary: Configure address-to-location services used by the search bar, the form designer's location-pick widget, and reverse geocoding in popups.
+summary: Make a geocoding service item from your own data or an ArcGIS GeocodeServer, and use it in a map's search bar.
 category: admin
 order: 20
 complexity: intermediate
@@ -13,74 +13,46 @@ related:
   - admin-organization-settings
 ---
 
-A **geocoder** is a service that turns addresses into coordinates
-(and vice versa). The portal uses geocoders for the map search
-bar, form location-picker widgets, and the reverse-geocode column
-on form submissions. Configure one or more in admin →
-geocoders.
+A **geocoder** turns a typed address or place name into a location.
+In GratisGIS a geocoder is an item of type **Geocoding service**,
+not an admin page. Anyone who can create items can make one, and
+sharing controls who can use it.
 
-## Supported services
+## Make one
 
-- **Nominatim** (OpenStreetMap, self-hosted). The default for
- GratisGIS deployments. The portal ships with a Docker compose
- add-on (`infra/NOMINATIM.md`) that runs a local Nominatim
- against your region's OSM extract.
-- **Photon** (OpenStreetMap, self-hosted). Faster fuzzy
- matching than Nominatim; less precise on full addresses.
-- **Pelias** (self-hosted). Heavier setup, more capable.
-- **Esri World Geocoding** (external, requires a key).
-- **Google Geocoding** (external, requires a key, has
- commercial terms).
-- **Custom HTTP** (any service that returns a documented JSON
- shape).
+1. **New item -> Geocoding service.** Give it a title.
+2. On the item page, pick the source:
+   - **Use your own data.** Search a data layer, for example a
+     parcels or address points layer. Pick the layer, then the
+     fields to search and how much each one counts. The search
+     index builds when you save.
+   - **Use an existing ArcGIS GeocodeServer.** Paste the
+     GeocodeServer URL, for example a statewide locator, and probe
+     it. The portal sends queries to it for you.
+3. Set the options: how many candidates to return (1 to 50), the
+   minimum score (0 to 1), and for your own data, a spatial extent
+   and a result label template.
+4. Try addresses in **Test geocoder** before anyone relies on it.
 
-Multiple geocoders can be configured simultaneously. Maps
-reference them by name; the org default is the geocoder used
-when nothing else is specified.
+## Use it in a map
 
-## Adding a geocoder
+In the map editor, choose the geocoder for the map's search bar.
+The search bar then shows results from that geocoder alongside
+matches in the map's own layers.
 
-1. **Admin → Geocoders → New**.
-2. Pick the service type.
-3. Fill in:
-   - **Name** (visible to users when they pick a geocoder).
-   - **Endpoint URL**.
-   - **Auth** (key, token, basic auth) if required.
-   - **Default country / language hints**.
-   - **Result limits** (max results per query).
-4. Click **Test** with a known address; verify the response.
-5. Save.
+## Address search without a geocoder item
 
-## Per-map geocoder
-
-A map can override the org default by referencing a specific
-geocoder item. Useful when one map is country-specific and
-another is regional.
-
-## Reverse geocoding
-
-The reverse-geocode column on forms uses the same geocoder
-config. When a form respondent picks a location, the portal
-asynchronously reverse-geocodes and stores the resulting
-address as a separate field. The reverse-geocode is best-effort;
-failures don't block submission.
-
-## Rate limits and quotas
-
-Self-hosted geocoders (Nominatim, Photon) are typically
-unlimited; commercial ones meter per request. The portal
-respects per-geocoder rate limits configured here and falls
-back to the next available geocoder if a primary fails.
+The map search bar also searches addresses through the portal's
+`/api/geocode` route, which uses the Nominatim instance the operator
+configured with `NOMINATIM_URL`. With none configured, it falls back
+to the public OpenStreetMap Nominatim service unless the operator
+set `NOMINATIM_PUBLIC_FALLBACK=0`. Those are server settings, not
+something you set in the portal. See `infra/NOMINATIM.md` for
+running your own.
 
 ## Notes
 
-- **Nominatim usage policy** for the public server is **not**
- OK for production. Run your own instance for any deployment
- with real users. The infra add-on builds one off an OSM
- region extract you supply.
-- **Coordinate systems**. Geocoders return WGS-84 (EPSG:4326)
- lat/lon. The portal stores everything in 4326 anyway, no
- conversion needed.
-- **No PII storage**. The portal doesn't cache search queries
- against the user; only the result coordinate is kept (when
- a form respondent picks a location).
+- There is no built-in support for Photon, Pelias, Google or a
+  custom HTTP geocoder, and no failover between geocoders.
+- An external GeocodeServer sees every query sent to it. Check its
+  terms and whether your addresses may leave your network.

@@ -1,7 +1,7 @@
 ---
 id: print-templates-parameters
 title: Parameters
-summary: The inputs a runner supplies when generating a report. Types, defaults, validation.
+summary: Inputs a print template declares; the Print widget form prompts for them at print time.
 category: print-templates
 order: 20
 complexity: intermediate
@@ -11,79 +11,59 @@ tags:
 related:
   - print-templates-overview
   - print-templates-tokens
+  - items-print-template
+  - widget-print
 ---
 
-A report template's **parameters** are the inputs the runner
-supplies at generation time. The detail page renders a form from
-the parameter list; submitting the form runs the template with
-those values.
+A print template's **parameters** are the inputs the Print form
+collects at print time. The template author declares them on the
+item; text elements bind to them with parameter chips. They are
+not report-template "run against this feature" inputs — print
+templates do not take feature references, date ranges, or layer
+pickers.
 
 ## Supported parameter types
 
 - **Text**. A short string.
-- **Long text**. A multi-line string. Use for free-form notes.
-- **Number**. Integer or decimal.
-- **Date** / **Datetime**. Calendar picker.
-- **Boolean**. A checkbox.
-- **Feature reference**. A picker that lets the runner choose a
- single feature from a bound layer. Common for "report on this
- parcel."
-- **Feature ID list**. A multi-pick variant.
-- **Date range**. A pair of dates. Common for "report covering
- January 1 to January 31."
-- **Layer reference**. A picker for a layer item. Lets the same
- template work against any of several layers.
-- **Choice**. Single-pick from a fixed list. The list is
- authored on the parameter.
-- **Pick list reference**. Single-pick where the list comes from
- a Pick list item.
+- **Long text**. A multi-line string (notes, disclaimers).
+- **Number**. Numeric input.
+- **Date**. Calendar date input.
+- **Dropdown**. Single pick from author-defined options
+  (`value` + `label`).
 
-Each parameter has a name, a type, an optional default, and an
-optional validation rule (min, max, required, regex).
+Each parameter has:
+
+- **Id.** Stable machine name used by text-element bindings
+  (lowercase ASCII, no spaces). Renaming the label does not break
+  bindings.
+- **Label.** Shown in the Print form.
+- **Description** (optional). Helper text under the input.
+- **Default value** (optional). Initial form value and fallback
+  when the user leaves the field empty.
+- **Required** (optional). The runtime form blocks Print until
+  filled.
 
 ## Authoring
 
-In the report template detail page, the **Parameters** tab is
-the editor. Each parameter is a row:
-
-- **Name** (machine name). Used as the placeholder reference in
- the body (`{{ params.<name> }}`).
-- **Label**. What the runner sees in the form.
-- **Type**.
-- **Default value**.
-- **Required** toggle.
-- **Help text** (shown under the field).
-
-## Computed defaults
-
-Some parameter types support a computed default:
-
-- **Date**: `today()`.
-- **Datetime**: `now()`.
-- **Feature reference**: when run from a feature's context menu
- (right-click → Generate report), the clicked feature is the
- default.
-- **User**: the running user is the default (built-in user
- parameter).
+In the print template designer, the **Parameters** list is the
+editor. Starters typically seed a Title (and sometimes Subtitle,
+Author, Project, Notes). Add more as the layout needs them.
 
 ## Running
 
-The detail page's **Run** section renders the parameter form. The
-runner fills it in; the portal validates against the parameter
-constraints; on submit, the template runs and downloads the
-output.
+In a web app, the **Print** widget renders one control per
+parameter for the selected template, then opens the print page
+with those values. From the map editor Print path, the same
+parameter model applies once you open a template.
 
-When run from a feature context menu, the matching parameter
-defaults to that feature and the form pre-fills. Common pattern:
-one click on a parcel → one click on "Generate report" →
-the PDF downloads.
+There is no separate "Run" action on the item detail page that
+generates a stored DOCX or archived PDF. Print is the browser
+print / Save as PDF flow against the layout.
 
 ## Notes
 
-- **Required parameters** can't be left blank. The form blocks
- submission until they're filled.
-- **Validation runs server-side too.** A user fiddling with the
- URL can't bypass the form constraints.
-- **The parameter form is the user's primary surface.** Make
- names and labels match the parameter's purpose; helper text
- prevents wrong inputs more than after-the-fact validation does.
+- **Required parameters** block Print until filled.
+- **Ids stay stable.** Bind text chips to the id, not the label.
+- **No feature / layer parameters.** For map-driven content, use
+  map / legend / scalebar / north-arrow elements; they bind to
+  the print job's map automatically.

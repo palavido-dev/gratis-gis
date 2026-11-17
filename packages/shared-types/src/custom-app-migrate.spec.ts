@@ -239,3 +239,19 @@ describe('migrateCustomAppData v4 -> v5', () => {
     expect(out.sources).toHaveLength(3);
   });
 });
+
+describe('migrateCustomAppData keeps sources a v4 app already has', () => {
+  it('does not rebuild sources the wizard wrote (follow the map survives)', () => {
+    const app = v4App({
+      targets: [LAYER_A],
+      sources: [{ id: 'src_ab12', layer: LAYER_A, followMapWidgetId: 'w_map' }],
+      pages: [
+        { id: 'home', title: 'Home', widgets: [widget('w1', 'indicator', { targetIndex: 0 })] },
+      ],
+    } as Partial<CustomAppData>);
+    const out = migrateCustomAppData(app);
+    expect(out.version).toBe(5);
+    expect(out.sources).toEqual([{ id: 'src_ab12', layer: LAYER_A, followMapWidgetId: 'w_map' }]);
+    expect(cfg(out.pages[0]!.widgets[0]!).sourceId).toBe('src_ab12');
+  });
+});

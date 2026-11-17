@@ -874,12 +874,13 @@ Phases 2-5 sequence.
 
 ### Open questions
 
-- **Weblate vs Crowdin vs Tolgee.** Weblate is the strongest open-
-  source fit (AGPL, self-host) but adds infra to maintain. Crowdin
-  is free for OSS but is hosted SaaS and creates a soft dependency
-  on a US company. Tolgee is a newer hybrid — open core + paid hosted.
-  Recommend Weblate self-hosted to keep the OSS-stack-purity story
-  intact, but call this out as a deliberate choice.
+- **Weblate vs Crowdin vs Tolgee.** **Decided 2026-11-03 (Q-162b):**
+  Weblate is the project choice. Crowdin (SaaS OSS) and Tolgee
+  (open-core + paid hosted) were declined to keep the AGPL /
+  self-hosted stack. Hosting Weblate itself is still deferred;
+  community contributions use git PRs against the TypeScript
+  catalogs until a Weblate instance is stood up (see
+  [CONTRIBUTING-TRANSLATIONS.md](../../CONTRIBUTING-TRANSLATIONS.md)).
 - **OSM preset translations** are a separate vendoring problem —
   the iD-presets catalog ships its own translation files we should
   consume rather than re-translate. Currently our OSM toolset uses

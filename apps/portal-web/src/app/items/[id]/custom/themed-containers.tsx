@@ -720,12 +720,25 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
     if (!open) return;
     function onDown(e: MouseEvent) {
       if (!ref.current) return;
-      if (!ref.current.contains(e.target as Node)) {
-        setOpen(false);
+      const target = e.target as Node;
+      if (ref.current.contains(target)) return;
+      // A child tool's panel is portaled into the runtime root, so it
+      // is outside this wrapper in the DOM. A click inside it is still
+      // a click inside the menu's tool.
+      if (
+        target instanceof Element &&
+        target.closest('[data-gg-tool-popover]')
+      ) {
+        return;
       }
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key !== 'Escape') return;
+      // Escape closes the most recent panel first. While a tool panel
+      // is still on screen, leave the menu open for the next Escape.
+      if (document.querySelector('[data-gg-tool-popover]')) return;
+      setOpen(false);
     }
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
@@ -769,26 +782,30 @@ function MenuContainer({ config, renderChild }: ContainerRenderProps) {
           {triggerLabel}
         </span>
       </button>
-      {open ? (
-        <div
-          className="absolute left-1/2 top-full z-30 mt-1 min-w-[180px] -translate-x-1/2 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-1 shadow-(--app-shadow-overlay)"
-          role="menu"
-        >
-          <div className="flex flex-col gap-0.5">
-            {config.widgets.map((child) => (
-              <div key={child.id} role="menuitem" className="flex">
-                {renderChild(child)}
-              </div>
-            ))}
-            {config.widgets.length === 0 ? (
-              <div className="px-2 py-1 text-2xs italic text-[hsl(var(--app-muted))]">
-                Empty menu -- drop tools into this stack in the
-                designer.
-              </div>
-            ) : null}
-          </div>
+      {/* Children stay mounted while the menu is closed and are only
+          hidden, as DockContainer and OverlayContainer do. Unmounting
+          them took an open tool panel and its state with them. */}
+      <div
+        className={`absolute left-1/2 top-full z-30 mt-1 min-w-[180px] -translate-x-1/2 rounded-md border border-[hsl(var(--app-border))] bg-[hsl(var(--app-surface-1))] p-1 shadow-(--app-shadow-overlay) ${
+          open ? '' : 'hidden'
+        }`}
+        role="menu"
+        aria-hidden={!open}
+      >
+        <div className="flex flex-col gap-0.5">
+          {config.widgets.map((child) => (
+            <div key={child.id} role="menuitem" className="flex">
+              {renderChild(child)}
+            </div>
+          ))}
+          {config.widgets.length === 0 ? (
+            <div className="px-2 py-1 text-2xs italic text-[hsl(var(--app-muted))]">
+              Empty menu -- drop tools into this stack in the
+              designer.
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

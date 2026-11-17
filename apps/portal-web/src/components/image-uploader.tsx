@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import { Loader2, Trash2, Upload } from 'lucide-react';
 import { EntityBadge, type BadgeRounded, type BadgeSize } from '@gratis-gis/ui';
 import { presignUpload, type PresignKind } from '@/lib/presign-upload';
+import { IMAGE_UPLOAD_MAX_MB } from '@gratis-gis/shared-types';
 
 export type AssetKind = Extract<
   PresignKind,
@@ -32,7 +33,7 @@ interface Props {
   hint?: string;
 }
 
-const MAX_MB = 5;
+const MAX_MB = IMAGE_UPLOAD_MAX_MB;
 
 /**
  * Thin wrapper around the presign → PUT → persist flow. Responsibilities:

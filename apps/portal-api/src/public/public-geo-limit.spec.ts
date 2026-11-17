@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { CLOSED_GEO_LIMIT } from '../common/closed-geo-limit.js';
 import { publicTierGeoLimit } from './public-geo-limit.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 
@@ -46,15 +47,11 @@ describe('publicTierGeoLimit', () => {
     expect(prisma.item.findFirst).not.toHaveBeenCalled();
   });
 
-  it('fails open on a broken reference, matching geoLimitFor', async () => {
-    // sharing.service.ts treats missing / wrong-type / geometry-less as
-    // hasUnrestrictedPath. Diverging here would make the public surface
-    // stricter than the authenticated one for the same item. If that
-    // fail-open is ever revisited, both paths change together.
+  it('fails closed when the public boundary reference does not resolve', async () => {
     for (const row of [null, {}, { data: null }, { data: {} }, { data: { geometry: null } }]) {
       await expect(
         publicTierGeoLimit(prismaWith(row), 'boundary-1'),
-      ).resolves.toBeUndefined();
+      ).resolves.toBe(CLOSED_GEO_LIMIT);
     }
   });
 
@@ -62,6 +59,6 @@ describe('publicTierGeoLimit', () => {
     // A string here would reach the engine's ST_Intersects arg.
     await expect(
       publicTierGeoLimit(prismaWith({ data: { geometry: 'POLYGON(...)' } }), 'b'),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(CLOSED_GEO_LIMIT);
   });
 });

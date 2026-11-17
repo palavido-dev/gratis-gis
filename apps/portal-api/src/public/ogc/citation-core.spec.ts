@@ -34,6 +34,11 @@ describe('citation builders', () => {
     expect(bib.endsWith('}\n')).toBe(true);
   });
 
+  it('escapes a backslash without escaping the braces it adds', () => {
+    const bib = buildBibTeX({ ...baseRow, title: 'C:\\data {x} 50% & a_b' }, 'https://example.test');
+    expect(bib).toContain('title = {C:\\textbackslash{}data \\{x\\} 50\\% \\& a\\_b}');
+  });
+
   it('builds RIS with DATA type and ER terminator', () => {
     const ris = buildRis(baseRow, 'https://example.test');
     expect(ris.startsWith('TY  - DATA\n')).toBe(true);

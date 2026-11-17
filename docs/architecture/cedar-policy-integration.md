@@ -88,6 +88,14 @@ permit (
 
 ### Phase C (lens-level custom policies, infrastructure shipped)
 
+> **Removed (2026-11 review, 08-13).** The Phase C evaluator and the
+> Phase D `lensPolicy` argument below were taken out. No read path ever
+> passed it, nothing in the product authors lens policies, and a filter
+> that only some reads apply would give a false sense of protection.
+> The text below records the design in case row policies come back;
+> if they do, they must be applied on every read path (features,
+> tiles, search, paging, delta, aggregates, exports) at once.
+
 `apps/portal-api/src/policy/lens-policy.service.ts` adds the
 row-level evaluator that runs lens-attached Cedar policies against
 per-feature inputs. The lens carries an optional

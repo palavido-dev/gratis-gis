@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GratisGIS brand mark: a G drawn as two contour rings around a point,
+  in brand teal. Mirrors components/brand-mark.tsx in portal-web (full
+  variant) so the login surface and the app share the same identity.
+  Keep in sync with that component and public/icon.svg.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" fill="none">
+  <path d="M36.73 11.27A18 18 0 1 0 42 24H32"
+        stroke="#0b6e69" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M32.49 15.51A12 12 0 1 0 36 24"
+        stroke="#0b6e69" stroke-width="3.6" stroke-linecap="round" opacity="0.55"/>
+  <circle cx="24" cy="24" r="3.4" fill="#0b6e69"/>
+</svg>

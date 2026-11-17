@@ -3,14 +3,209 @@
 User-visible changes shipped to GratisGIS. Plain-English summaries
 only; one entry per notable feature. Add new entries at the top.
 
-Format: `## YYYY-MM-DD - Short feature name` on one line, then one
-short paragraph of plain-English description on the next line.
+Format:
 
-This file is loaded by the public landing page at runtime, so
-keep entries short and accessible. Anything that reads like a
-release note ("Refactored the X service") doesn't belong here.
+- Optional release banner (Keep a Changelog style), once per tagged
+  release: `## [0.9.120] - 2026-10-28`. Entries below inherit that
+  version until the next banner or `## [earlier]` (clears the stamp
+  for pre-version history). The landing card and `/whats-new`
+  history page group by these banners.
+- Each feature: `## YYYY-MM-DD - Short feature name` on one line,
+  then one short paragraph of plain-English description.
+
+This file is loaded by the public landing page (five newest) and
+the full `/whats-new` history at runtime, so keep entries short and
+accessible. Anything that reads like a developer release note
+("Refactored the X service") doesn't belong here. Prefer starting a
+new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
+
+## [1.6.0] - 2026-11-13
+
+## 2026-11-13 - A new look, and tighter sharing
+GratisGIS has a new logo and brand colour. Printed maps now include your private and organization layers. Turning off editing on a layer now really stops shared editors, share lists are visible only to owners and admins, and dozens of smaller improvements land across forms, maps, apps and the Android app.
+
+## [1.5.0] - 2026-11-12
+
+## 2026-11-12 - A tighter, more reliable GratisGIS
+This release finishes a full review of the code. Offline edits are no longer lost or sent twice, field maps sync more reliably on weak signal, Viewer apps open large layers quickly by drawing them from map tiles, printed maps match the screen, and hundreds of smaller problems across maps, forms, apps and admin pages are fixed.
+
+## [1.4.3] - 2026-11-12
+
+## 2026-11-12 - Safer editing and a security update
+Clicking a second feature while an edit form is open now shows that feature's own values instead of saving the first one's onto it, and table edits always land on the row you changed. Offline edits keep the feature's real shape. This release also closes several security gaps found in a full review.
+
+## [1.4.2] - 2026-11-11
+
+## 2026-11-11 - Permanently deleting large layers works
+Permanently deleting a data layer from Recently deleted failed for large layers and left their data behind. It now finishes, however big the layer is.
+
+## [1.4.1] - 2026-11-10
+
+## 2026-11-10 - File imports work again
+In 1.4.0, importing a file from the new item wizard failed with "The portal API could not be reached" right after the upload finished. Imports, exports and backup restores now go through again.
+
+## [1.4.0] - 2026-11-10
+
+## 2026-11-10 - Upload files of any size
+Imports go straight to storage in parts, so multi-gigabyte files upload from the browser. If the connection drops or the tab closes, pick the same file again and the upload picks up where it stopped. The only limit is the server's free disk space, and you are told up front if a file will not fit.
+
+## 2026-11-10 - Sharper point symbols, and image symbols
+Point icons now sit centered inside their circle or square background and stay sharp when you change their color. You can also use your own PNG or JPEG images as point symbols.
+
+## [1.3.0] - 2026-11-09
+
+## 2026-11-09 - KML and KMZ keep all their fields
+Imported KML and KMZ files now keep every attribute stored on each placemark, not only Name and Description. Numbers and yes/no values keep their types.
+
+## 2026-11-09 - Large imports finish
+Big shapefiles and geodatabases no longer stop partway through. Files with date columns import with their dates instead of failing every row.
+
+## 2026-11-09 - Layers with many tables save
+A layer with dozens of related tables now saves. Before, a large schema was refused as too big.
+
+## 2026-11-09 - Vector tiles: TileJSON, labels and per-layer settings
+Each layer publishes a TileJSON document, carries a label layer, and has its own tile settings for fields, zoom range, cache age and feature cap. Tiles are also cached on disk, so a restart no longer starts cold.
+
+## 2026-11-08 - Address search works on a home NAS; GPS still needs HTTPS
+Finding an address works on the plain HTTP address. The browser was asking a path the proxy did not send to the portal. My location is GPS: browsers block it on http://192.168.x.x. The button explains that and points at Tailscale HTTPS. It does not turn GPS on for plain HTTP.
+
+## 2026-11-08 - Tailscale sign-in stays on the name you configure
+Signing in from a Tailscale name no longer sends the browser to the LAN address. Set GRATIS_BASE_URL to that name and restart. Keep the volumes. Until you do, the sign-in page shows the line to add instead of leaving the name you opened.
+
+## 2026-11-08 - Shapefile, KMZ, GeoPackage, and GeoJSON load into a data layer
+A zipped shapefile, KMZ, GeoPackage, or GeoJSON added to a data layer now keeps its features, not just an empty schema. Dashboards can use that layer after the import finishes. Updating the portal images is enough. You do not reset volumes.
+
+## 2026-11-06 - Pick a location on a map, and sign forms
+Location questions in forms now show a small map: tap it or drag the pin to report a spot you are not standing on. Signature questions show a pad to sign with a finger, stylus, or mouse; the signature is saved as an image with the response.
+
+## [1.2.0] - 2026-11-05
+
+## 2026-11-05 - Admin Updates page
+Signed-in admins get an Updates page that compares this install with GitHub and lists backup and restart steps. It does not update Docker for you.
+
+## 2026-11-05 - Showcase dashboards on Load sample
+Load showcase dashboards adds the public demo's storm-events and West Virginia water-quality dashboards plus Elkins in 3D, each with fresh ids for your install.
+
+## 2026-11-05 - Add layer works on plain HTTP NAS
+Opening GratisGIS at `http://` on a LAN address (typical TrueNAS) no longer breaks Add layer, Add group, or drawing. Failed layer creates also show the server reason.
+
+## [1.1.0] - 2026-11-03
+
+## 2026-11-03 - Install on a home NAS
+Paste one compose file into TrueNAS or Dockge; the first boot writes secrets and prints the LAN address and admin password. Listens on 8080 by default so your NAS UI can keep 80/443. Optional Tailscale, Cloudflare Tunnel, and public-domain modes are in the TrueNAS guide.
+
+## 2026-11-03 - Live markup with a teammate
+When you and a signed-in teammate both edit the same markup set on a map, new pins and sketches show up for each other without overwriting. Anonymous markup still saves the older way.
+
+## 2026-11-03 - @mentions in map comments
+On a map, type `@username` in a comment or reply to email that person when they can view the map and your portal has notifications turned on. Unknown names stay as plain text.
+
+## [1.0.0] - 2026-10-31
+
+## 2026-10-31 - Area square next to the scale bar
+Maps now show a small square beside the distance scale bar — typically 1 acre, 10 acres, 100 acres, and so on as you zoom — so you can judge area at a glance, not only length. Click the square to cycle units (acres, hectares, square meters, square kilometers, square miles, square feet); the scale bar stays in the matching metric or imperial family.
+
+## 2026-10-31 - Past runs on Analyze
+On a data layer's Analyze tab, **Past runs** lists your derived layers from that layer. Re-run creates a new private copy of the same recipe; Edit & re-run opens the matching guided form when one exists.
+
+## [0.9.126] - 2026-10-30
+
+## 2026-10-30 - Buffer from the map layer menu
+On a map, the layer ⋮ menu now includes Buffer, Centroids, and Convex hull for data layers. Each opens the guided Analyze form on that layer in a new tab. You can also share `?tool=buffer#data` (and the other Analyze tool ids) straight into the form.
+
+## [0.9.125] - 2026-10-29
+
+## 2026-10-29 - Measure locks top-down for ground area
+Opening Measure jumps the map flat and keeps tilt locked so a sketch that looks like it covers a parcel matches the acreage readout and the scale bar. Ground (slope) area stays the main number when terrain is on; horizontal planimetric acres stay listed underneath.
+
+## [0.9.124] - 2026-10-29
+
+## 2026-10-29 - Measure flattens pitched 3D
+Opening Measure eases the map to top-down so a sketch that looks like it covers a parcel matches the acreage readout and the scale bar. Ground (slope) area stays the main number when terrain is on; horizontal planimetric acres stay listed underneath. Public landing, item, and basemap gallery endpoints tighten anonymous rate limits further.
+
+## [0.9.123] - 2026-10-29
+
+## 2026-10-29 - Measure ground area on 3D terrain
+With elevation terrain on, Measure → Area shows ground (slope) surface acres as the main number, and still lists horizontal planimetric area underneath (the same basis as parcel acre fields). Pitched 3D makes sketches look larger than their map footprint — flatten the pitch and check the scale bar when comparing.
+
+## [0.9.122] - 2026-10-29
+
+## 2026-10-29 - Measure scale bar, more chrome languages, honest data-layer help
+The Measure pane no longer covers the map scale bar, so pitched 3D area sketches have ground truth next to the readout. Folder, item, and print-template chrome join the language catalogs. Data layer help drops the “native Esri feature service” claim. Public catalog, CSW, and zoom-to-filter endpoints tighten anonymous rate limits further.
+
+## [0.9.121] - 2026-10-28
+
+## 2026-10-28 - Measure, print preview, and elevation profile
+Maps gain a Measure tool for distances and areas, Print this map shows a layout preview before PDF download (with hover thumbnails), and the elevation Profile works again on Web Mercator DEMs — Profile and View From only appear when the map has terrain. Builder and sharing chrome keep expanding through Spanish, French, German, and Brazilian Portuguese. Public layer and catalogue endpoints tighten anonymous rate limits further.
+
+## 2026-10-28 - Full What's new history
+The landing What's new card now links to a scrollable `/whats-new` page that lists every past update, grouped by release when a version banner is present.
+
+## [0.9.120] - 2026-10-28
+
+## 2026-10-28 - Analyze shortcuts, field chrome languages, and tighter public API limits
+Analyze can now create private PostGIS layers for Group by, Contour, Random sample, Top N, Fishnet, Nearest neighbor, and more from the layer tab. Field and map editor chrome keep growing into Spanish, French, German, and Brazilian Portuguese. Public list and search endpoints that used to share a loose global budget now rate-limit anonymous scans more tightly.
+
+## 2026-10-28 - Group by for this layer from Analyze
+On a data layer's Analyze tab, **Group by for this layer** opens one optional group key (or whole layer), one aggregate (count / sum / avg), and an output name, then creates a private PostGIS derived layer. Geometry is always the union of each group (`ST_Union`). Multi-key and multi-agg stay in Create → Derived layer. Expect a server job, not an instant browser result.
+
+## 2026-10-28 - Contour for this layer from Analyze
+On a point data layer's Analyze tab, **Contour for this layer** opens numeric field, auto interval, and optional min/max controls and creates a private PostGIS derived layer of TIN iso-lines (each line carries a `level` property). Not iso-polygons; dense point sets can be slow. Same path as Create → Derived layer → Contour. Expect a server job, not an instant browser result.
+
+## 2026-10-28 - Honest Print template help
+Help now has a **Print template** item page, and the Print widget / print-templates section describe the shipped paper layouts (page size, map/legend/scale/north-arrow, parameters, browser print) instead of promising DOCX report merges that are not built.
+
+## 2026-10-28 - Random sample for this layer from Analyze
+On a data layer's Analyze tab, **Random sample for this layer** opens percentage-or-count, value, and seed controls (with reshuffle) and creates a private PostGIS derived layer. The sample is deterministic for a given seed — not Postgres `random()`. Same path as Create → Derived layer → Random sample. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Honest OSM truncated flag on recipe tools
+When a recipe tool’s OSM overlay (or nearest-N / relational) result hits a feature cap, the response now sets truncated honestly instead of always claiming the list is complete. Zoom in or tighten the query if you need a full census of the area.
+
+## 2026-10-28 - Top N for this layer from Analyze
+On a data layer's Analyze tab, **Top N for this layer** opens numeric field, N, and highest/lowest controls and creates a private PostGIS derived layer with those rows (NULLs last). Same path as Create → Derived layer → Top N. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Fishnet for this layer from Analyze
+On a polygon data layer's Analyze tab, **Fishnet for this layer** opens cell size, unit, and polygons vs lines controls and creates a private PostGIS derived layer (`ST_SquareGrid`, clipped to the source). Point/line layers do not show the chip. Very fine grids on large extents may hit a ~1 million cell save-time cap. Same path as Create → Derived layer → Fishnet. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Nearest neighbor for this layer from Analyze
+On a data layer's Analyze tab, **Nearest neighbor for this layer** creates a private PostGIS derived layer that adds `nearest_distance_m` (meters to the closest other feature in the same layer). Same-layer only; large layers can be slow (O(N²)); a single-row layer yields NULL. Same path as Create → Derived layer → Nearest neighbor. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Data collection help for field deployments
+Help now has a **Data collection** page: what a field deployment includes (map, editable layers, forms), how QR / link share works, Download for offline and Refresh, sync queue and where to review conflicts, and an honest note that this is not Field Maps or Survey123.
+
+## 2026-10-28 - Field offline and GPS chrome follow your language
+On a field deployment, Download for offline / Refresh offline cache, Show my location and GPS status, Save feature / Save changes, Layer visibility, related-record sync hints, and the edits-waiting-to-sync badge follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
+
+## 2026-10-28 - Calculate geometry for this layer from Analyze
+On a data layer's Analyze tab, **Calculate geometry for this layer** opens length / perimeter / area, unit, and field-name controls and creates a private PostGIS derived layer with that measure (geography, honest units). This is not Calculate field expressions. Same path as Create → Derived layer → Calculate geometry. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Vertices for this layer from Analyze
+On a data layer's Analyze tab, **Vertices for this layer** creates a private PostGIS derived layer that explodes each geometry into one point per vertex (`ST_DumpPoints`, with `vertex_index`). Dense shapes can produce many rows; multi-part geometries dump all parts together. Same path as Create → Derived layer → Vertices. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Bounding boxes for this layer from Analyze
+On a data layer's Analyze tab, **Bounding boxes for this layer** creates a private PostGIS derived layer that replaces each feature with its axis-aligned envelope (attributes kept; not one box for the whole layer). Same path as Create → Derived layer → Bbox. Expect a short server job, not an instant browser result.
+
+## 2026-10-28 - Field collect buttons follow your language
+On a field deployment, Add at GPS / Add at center (and Vertex at … for lines and polygons), Remove from device, and the map tool labels follow the portal language (English, Spanish, French, German, Brazilian Portuguese).
+
+## [earlier]
+
+## 2026-10-27 - Honest streaming note on large point clouds
+On a point cloud item, clouds over about 20 million points show a short note under the 3D viewer: lower in-view density and delayed rebuilds while you pan (stricter again over 100 million). This is a responsiveness tradeoff, not Potree-style LOD or 3D Tiles yet — see Point cloud help.
+
+## 2026-10-27 - Densify this layer from Analyze
+On a data layer's Analyze tab, **Densify this layer** opens a max segment length and unit form and creates a private PostGIS derived layer that adds vertices so no segment exceeds that length (`ST_Segmentize` on geography; min 1 m, soft max 100 km). Same path as Create → Derived layer → Densify. Expect a short server job, not an instant browser result.
+
+## 2026-10-27 - Convex hulls for this layer from Analyze
+On a data layer's Analyze tab, **Convex hulls for this layer** creates a private PostGIS derived layer that replaces each feature with its convex hull (attributes kept; not one hull for the whole layer). Same path as Create → Derived layer → Convex hull. Expect a short server job, not an instant browser result.
+
+## 2026-10-27 - Simplify this layer from Analyze
+On a data layer's Analyze tab, **Simplify this layer** opens a tolerance and unit form and creates a private PostGIS derived layer that drops vertices within that tolerance (`ST_Simplify`; not topology-preserving). Same path as Create → Derived layer → Simplify. Expect a short server job, not an instant browser result.
+
+## 2026-10-27 - Dissolve this layer from Analyze
+On a data layer's Analyze tab, **Dissolve this layer** creates a private PostGIS derived layer that unions every feature into one shape (attributes dropped; same path as Create → Derived layer → Dissolve). For one polygon per attribute value with counts or sums, use Group by with dissolve geometry instead. Expect a short server job, not an instant browser result.
 
 ## 2026-10-27 - Centroids for this layer from Analyze
 On a data layer's Analyze tab, **Centroids for this layer** creates a private PostGIS derived layer that replaces each feature with its geometric center point (same path as Create → Derived layer → Centroid). Expect a short server job, not an instant browser result.

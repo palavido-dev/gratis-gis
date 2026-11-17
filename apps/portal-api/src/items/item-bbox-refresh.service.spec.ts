@@ -76,7 +76,31 @@ function makeWorld(rows: Row[], refs: Record<string, string[]>) {
       return {};
     },
   );
+  // Raw bbox writes. The service writes bbox with raw SQL so the
+  // @updatedAt column is left alone; both statement shapes are
+  // replayed into the row and recorded through `update` so the
+  // assertions below can keep counting writes per item.
+  const $executeRaw = jest.fn(async (sql: { values: unknown[]; strings: string[] }) => {
+    const [bbox, id] = sql.values as [number[], string];
+    await update({ where: { id }, data: { bbox } });
+    return 1;
+  });
+  const growRaw = (sql: { values: unknown[] }) => {
+    const [w, s, e, n, id] = sql.values as [number, number, number, number, string];
+    const row = byId.get(id);
+    if (!row || !Array.isArray(row.bbox) || row.bbox.length !== 4) return [];
+    const b = row.bbox as Bbox;
+    const next: Bbox = [
+      Math.min(b[0], w),
+      Math.min(b[1], s),
+      Math.max(b[2], e),
+      Math.max(b[3], n),
+    ];
+    void update({ where: { id }, data: { bbox: next } });
+    return [{ bbox: next }];
+  };
   const $queryRaw = jest.fn(async (sql: { values: unknown[]; strings: string[] }) => {
+    if (sql.strings.join('?').includes('UPDATE')) return growRaw(sql);
     const out = new Set<string>();
     for (const [target, referencers] of Object.entries(refs)) {
       const asked = sql.values.some(
@@ -88,7 +112,7 @@ function makeWorld(rows: Row[], refs: Record<string, string[]>) {
   });
   const aggregateBbox = jest.fn(async (): Promise<Bbox | null> => FROM_ENGINE);
   const service = new ItemBboxRefreshService(
-    { item: { findUnique, findMany, update }, $queryRaw } as unknown as PrismaService,
+    { item: { findUnique, findMany }, $queryRaw, $executeRaw } as unknown as PrismaService,
     { aggregateBbox } as unknown as DataLayerTablesService,
   );
   const bboxOf = (id: string) => byId.get(id)?.bbox;
@@ -357,8 +381,11 @@ describe('ItemBboxRefreshService: reverse reference walk', () => {
     ]);
     // Hop 1 asks about the seed, hop 2 about both maps at once; the
     // editor (hop 2) is not expanded further.
-    expect(w.$queryRaw).toHaveBeenCalledTimes(2);
-    const secondAsk = w.$queryRaw.mock.calls[1]![0].values.join('\n');
+    const asks = w.$queryRaw.mock.calls.filter(
+      (c) => !c[0].strings.join('?').includes('UPDATE'),
+    );
+    expect(asks).toHaveLength(2);
+    const secondAsk = asks[1]![0].values.join('\n');
     expect(secondAsk).toContain(MAP);
     expect(secondAsk).toContain(MAP2);
     expect(w.bboxOf(MAP2)).toEqual([0, 0, 20, 10]);
@@ -370,13 +397,17 @@ describe('ItemBboxRefreshService: reverse reference walk', () => {
     w.service.noteFeatureWrite(LAYER, { kind: 'insert', geometries: [point(20, 5)] });
     await w.service.flushPending(LAYER);
 
-    const sql = w.$queryRaw.mock.calls[0]![0];
+    const sql = w.$queryRaw.mock.calls.find(
+      (c) => !c[0].strings.join('?').includes('UPDATE'),
+    )![0];
     const text = sql.strings.join('?');
     expect(text).toContain('data_json @>');
     expect(text).toContain(`'map'::"ItemType"`);
     expect(text).toContain(`'editor'::"ItemType"`);
     expect(text).toContain(`'web-app'::"ItemType"`);
-    expect(text).toContain(`'derived-layer'::"ItemType"`);
+    // derived_layer bboxes are read from their own data, so they
+    // are not part of the walk.
+    expect(text).not.toContain(`'derived-layer'::"ItemType"`);
     expect(text).not.toContain('web_app');
     expect(text).not.toContain('derived_layer');
     expect(text).toContain('deleted_at IS NULL');
@@ -392,9 +423,46 @@ describe('ItemBboxRefreshService: reverse reference walk', () => {
         { targets: [{ dataLayerId: LAYER }] },
         { template: 'editor', config: { editor: { mapId: LAYER } } },
         { template: 'editor', config: { editor: { targets: [{ dataLayerId: LAYER }] } } },
-        { source: { itemId: LAYER } },
       ]),
     );
-    expect(shapes).toHaveLength(7);
+    expect(shapes).toHaveLength(6);
+  });
+});
+
+describe('ItemBboxRefreshService: writes', () => {
+  it('grows the bbox in SQL against the current row, keeping another replica growth', async () => {
+    const rows = standardRows();
+    const w = makeWorld(rows, STANDARD_REFS);
+    // Another replica grows the row west after our read but before
+    // our write: the union in SQL keeps both sides.
+    const realFind = w.findUnique.getMockImplementation()!;
+    w.findUnique.mockImplementationOnce(async (args) => {
+      const out = await realFind(args);
+      rows[0]!.bbox = [-30, 0, 10, 10];
+      return out;
+    });
+    w.service.noteFeatureWrite(LAYER, { kind: 'insert', geometries: [point(20, 5)] });
+    await w.service.flushPending(LAYER);
+    expect(w.bboxOf(LAYER)).toEqual([-30, 0, 20, 10]);
+  });
+
+  it('never writes bbox through prisma.item.update, so updatedAt is untouched', async () => {
+    const w = makeWorld(standardRows(), STANDARD_REFS);
+    w.service.noteFeatureWrite(LAYER, { kind: 'delete', geometries: [point(0, 5)] });
+    await w.service.flushPending(LAYER);
+    // The world exposes no item.update, so any such call would throw
+    // and be logged instead of writing. The rows still changed.
+    expect(w.bboxOf(LAYER)).toEqual(FROM_ENGINE);
+  });
+
+  it('drains waiting windows on shutdown', async () => {
+    const w = makeWorld(standardRows(), STANDARD_REFS);
+    w.service.noteFeatureWrite(LAYER, { kind: 'insert', geometries: [point(20, 5)] });
+    await w.service.flushPending(LAYER);
+    w.service.noteFeatureWrite(LAYER, { kind: 'insert', geometries: [point(40, 5)] });
+    expect(w.service.hasPending(LAYER)).toBe(true);
+    await w.service.onApplicationShutdown();
+    expect(w.service.hasPending(LAYER)).toBe(false);
+    expect(w.bboxOf(LAYER)).toEqual([0, 0, 40, 10]);
   });
 });

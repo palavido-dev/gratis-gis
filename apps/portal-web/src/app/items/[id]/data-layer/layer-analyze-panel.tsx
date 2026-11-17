@@ -25,10 +25,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle, Loader2, Play, Save, Sparkles } from 'lucide-react';
 import { AnalyzeQueryBuilder } from './analyze-query-builder';
+import { AnalyzePastRuns } from './analyze-past-runs';
 import { AnalyzeBufferGuide } from './analyze-buffer-guide';
-import { AnalyzeCentroidGuide } from './analyze-centroid-guide';
+import { AnalyzeCalculateGeometryGuide } from './analyze-calculate-geometry-guide';
 import { AnalyzeClipGuide } from './analyze-clip-guide';
+import { AnalyzeContourGuide } from './analyze-contour-guide';
+import { AnalyzeDensifyGuide } from './analyze-densify-guide';
 import { AnalyzeEraseGuide } from './analyze-erase-guide';
+import { AnalyzeFishnetGuide } from './analyze-fishnet-guide';
+import { AnalyzeGroupByGuide } from './analyze-group-by-guide';
+import { AnalyzeManifestGuide } from './analyze-manifest-guide';
+import { AnalyzeNearestNeighborGuide } from './analyze-nearest-neighbor-guide';
+import { AnalyzeSimplifyGuide } from './analyze-simplify-guide';
+import { AnalyzeRandomSampleGuide } from './analyze-random-sample-guide';
+import { AnalyzeTopNGuide } from './analyze-top-n-guide';
 import type {
   DataLayerSublayer,
   FeatureField,
@@ -41,14 +51,30 @@ import {
   getDuckDb,
   isSpatialAvailable,
   registerParquetView,
+  releaseParquetFile,
   runQuery,
   RESULT_ROW_CAP,
   type QueryResultTable,
 } from '@/lib/duckdb-wasm';
+import {
+  quoteSqlIdent,
+  sanitizeFieldName,
+  uniqueFieldNames,
+} from '@/lib/analyze-save-columns';
+import {
+  importStreamErrorText,
+  readImportStreamResult,
+} from '@/lib/import-stream-result';
+import {
+  analyzeToolDeepLink,
+  type AnalyzeToolId,
+} from '@/lib/analyze-tool-ids';
 
 interface Props {
   itemId: string;
   layer: DataLayerSublayer;
+  /** Expand this Analyze guide on mount (`?tool=` deep link). */
+  initialTool?: AnalyzeToolId | null;
 }
 
 type Phase =
@@ -56,9 +82,13 @@ type Phase =
   | { kind: 'ready' }
   | { kind: 'boot-error'; message: string };
 
-export function LayerAnalyzePanel({ itemId, layer }: Props) {
+export function LayerAnalyzePanel({ itemId, layer, initialTool = null }: Props) {
   const fmt = useFormat();
   const t = useT();
+  // Past runs "Edit & re-run" remounts the guide chips (defaultOpen
+  // is mount-only). Deep-link ?tool= still seeds the first open.
+  const [openTool, setOpenTool] = useState<AnalyzeToolId | null>(initialTool);
+  const [guideEpoch, setGuideEpoch] = useState(0);
   // View name mirrors the layer's table name so queries read like
   // the schema the author already knows (SELECT * FROM facilities).
   const viewName = (layer.name || 'layer').replace(/[^a-zA-Z0-9_]/g, '_');
@@ -84,6 +114,19 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
   const [saveTitle, setSaveTitle] = useState('');
   const [saveBusy, setSaveBusy] = useState(false);
 
+  useEffect(() => {
+    if (initialTool) {
+      setOpenTool(initialTool);
+      setGuideEpoch((n) => n + 1);
+    }
+  }, [initialTool]);
+
+  function focusAnalyzeTool(tool: AnalyzeToolId): void {
+    setOpenTool(tool);
+    setGuideEpoch((n) => n + 1);
+    router.replace(analyzeToolDeepLink(itemId, tool, layer.id));
+  }
+
   /**
    * Unit 3 of #175: persist the CURRENT query's result as a brand
    * new data_layer item. The result is COPY'd to Parquet inside the
@@ -105,29 +148,51 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     try {
       // Trailing semicolons would terminate the COPY's inner SELECT.
       const inner = sql.trim().replace(/;+\s*$/, '');
-      await conn.query(
-        `COPY (${inner}) TO '${outFile}' (FORMAT PARQUET)`,
-      );
       const described = await runQuery(
         conn,
-        `DESCRIBE SELECT * FROM read_parquet('${outFile}')`,
+        `DESCRIBE SELECT * FROM (${inner}) AS q`,
       );
-      const fields: FeatureField[] = [];
-      let hasGeometry = false;
+      const attrCols: Array<{ name: string; type: string }> = [];
+      let geometryCol: string | null = null;
       for (const row of described.rows) {
         const colName = String(row[0] ?? '');
         const colType = String(row[1] ?? '');
-        if (isGeometryColumn(colName, colType)) {
-          hasGeometry = true;
+        if (geometryCol === null && isGeometryColumn(colName, colType)) {
+          geometryCol = colName;
           continue;
         }
-        fields.push({
-          name: sanitizeFieldName(colName),
-          label: colName,
-          type: duckdbTypeToFieldType(colType),
-          nullable: true,
-        });
+        // A second geometry column has no place in the one-geometry
+        // layer model; leave it out rather than store a blob.
+        if (isGeometryColumn(colName, colType)) continue;
+        attrCols.push({ name: colName, type: colType });
       }
+      const hasGeometry = geometryCol !== null;
+      // The import keeps only properties whose key is a schema field
+      // name, so the file is written with the sanitized names the
+      // schema declares. Without this, `count(*)` or "Total" became
+      // an empty column.
+      const fieldNames = uniqueFieldNames(
+        attrCols.map((c) => c.name),
+        geometryCol !== null ? [geometryCol] : [],
+      );
+      const fields: FeatureField[] = attrCols.map((c, i) => ({
+        name: fieldNames[i]!,
+        label: c.name,
+        type: duckdbTypeToFieldType(c.type),
+        nullable: true,
+      }));
+      const selectList = [
+        ...attrCols.map(
+          (c, i) => `${quoteSqlIdent(c.name)} AS ${quoteSqlIdent(fieldNames[i]!)}`,
+        ),
+        ...(geometryCol !== null ? [quoteSqlIdent(geometryCol)] : []),
+      ];
+      if (selectList.length === 0) {
+        throw new Error('The result has no columns to save.');
+      }
+      await conn.query(
+        `COPY (SELECT ${selectList.join(', ')} FROM (${inner}) AS q) TO '${outFile}' (FORMAT PARQUET)`,
+      );
       const db = await getDuckDb();
       const bytes = await db.copyFileToBuffer(outFile);
 
@@ -174,11 +239,25 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
         `/api/portal/items/${created.id}/layers/layer-1/import?mode=replace`,
         { method: 'POST', body: form },
       );
+      // The import answers NDJSON and reports a failure after the
+      // first line only as an `error` event under status 200, so the
+      // status alone cannot say the rows loaded.
+      const importText = await importRes.text().catch(() => '');
+      let importError: string | null = null;
       if (!importRes.ok) {
+        importError = importStreamErrorText(importRes.status, importText);
+      } else {
+        try {
+          readImportStreamResult(importText);
+        } catch (err) {
+          importError = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (importError !== null) {
         // The empty item exists at this point; say so instead of
         // silently deleting work the user may want to retry into.
         throw new Error(
-          `The layer was created but loading the rows failed (${importRes.status}). Open the new item to retry the import.`,
+          `The layer was created but loading the rows failed: ${importError} Open the new item to retry the import.`,
         );
       }
       toast.success(`Layer "${title}" created`);
@@ -213,6 +292,9 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
   useEffect(() => {
     let cancelled = false;
     let conn: AsyncDuckDBConnection | null = null;
+    // A name per open, so a reopened panel downloads the current rows
+    // and this open's copy can be dropped when it closes.
+    const fileName = `layer-${itemId}-${layer.id}-${Date.now()}.parquet`;
     (async () => {
       try {
         setPhase({
@@ -220,7 +302,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           step: t('analyzeWorkbench.bootStartingEngine'),
         });
         conn = await registerParquetView({
-          fileName: `layer-${itemId}-${layer.id}.parquet`,
+          fileName,
           viewName,
           bytes: async () => {
             if (!cancelled) {
@@ -242,7 +324,13 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             return new Uint8Array(await res.arrayBuffer());
           },
         });
-        if (cancelled) return;
+        if (cancelled) {
+          // The cleanup already ran while this was downloading, with
+          // no connection to close. Close the one opened since.
+          void conn.close().catch(() => undefined);
+          void releaseParquetFile(fileName);
+          return;
+        }
         connRef.current = conn;
         setPhase({ kind: 'ready' });
         // Kick off the preview so the panel opens showing data, not
@@ -262,6 +350,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
       connRef.current = null;
       // Close asynchronously; nothing depends on the teardown.
       void conn?.close().catch(() => undefined);
+      if (conn) void releaseParquetFile(fileName);
     };
     // execute is stable (useCallback with no deps).
   }, [itemId, layer.id, viewName, execute, t]);
@@ -269,7 +358,10 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
   const countField = firstTextField(layer);
   const spatial = isSpatialAvailable();
   const starters: Array<{ label: string; sql: string }> = [
-    { label: 'Preview', sql: `SELECT * FROM "${viewName}" LIMIT 100` },
+    {
+      label: t('analyzeWorkbench.starterPreview'),
+      sql: `SELECT * FROM "${viewName}" LIMIT 100`,
+    },
     // SUMMARIZE is DuckDB's built-in per-column profile: min / max /
     // distinct counts / null fraction in one click, the fastest
     // possible "what is in this layer" answer.
@@ -280,7 +372,7 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
     ...(countField !== null
       ? [
           {
-            label: `Count by ${countField}`,
+            label: t('analyzeWorkbench.starterCountBy', { field: countField }),
             sql: `SELECT "${countField}", count(*) AS features\nFROM "${viewName}"\nGROUP BY 1\nORDER BY features DESC`,
           },
         ]
@@ -381,29 +473,131 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
             honestly. Offer a server derived_layer recipe instead of
             a lying in-browser ST_Buffer (R4-analyze-buffer-derived). */}
         {layer.geometryType ? (
-          <div className="flex flex-wrap items-start gap-2">
+          <div
+            key={guideEpoch}
+            className="flex flex-wrap items-start gap-2"
+          >
             <AnalyzeBufferGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'buffer'}
             />
             <AnalyzeClipGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'clip'}
             />
             <AnalyzeEraseGuide
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'erase'}
             />
-            <AnalyzeCentroidGuide
+            <AnalyzeManifestGuide
+              tool="centroid"
               itemId={itemId}
               layerKey={layer.id}
               sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'centroid'}
+            />
+            <AnalyzeManifestGuide
+              tool="convex-hull"
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'convex-hull'}
+            />
+            <AnalyzeManifestGuide
+              tool="bbox"
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'bbox'}
+            />
+            <AnalyzeManifestGuide
+              tool="dissolve"
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'dissolve'}
+            />
+            <AnalyzeSimplifyGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'simplify'}
+            />
+            <AnalyzeDensifyGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'densify'}
+            />
+            <AnalyzeManifestGuide
+              tool="vertices"
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'vertices'}
+            />
+            <AnalyzeCalculateGeometryGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'calculate-geometry'}
+            />
+            <AnalyzeNearestNeighborGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'nearest-neighbor'}
+            />
+            {layer.geometryType === 'polygon' ? (
+              <AnalyzeFishnetGuide
+                itemId={itemId}
+                layerKey={layer.id}
+                sourceLabel={layer.label || layer.name || 'Layer'}
+                defaultOpen={openTool === 'fishnet'}
+              />
+            ) : null}
+            {layer.geometryType === 'point' ? (
+              <AnalyzeContourGuide
+                itemId={itemId}
+                layerKey={layer.id}
+                sourceLabel={layer.label || layer.name || 'Layer'}
+                fields={layer.fields ?? []}
+                defaultOpen={openTool === 'contour'}
+              />
+            ) : null}
+            <AnalyzeGroupByGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              fields={layer.fields ?? []}
+              defaultOpen={openTool === 'group-by'}
+            />
+            <AnalyzeTopNGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              fields={layer.fields ?? []}
+              defaultOpen={openTool === 'top-n'}
+            />
+            <AnalyzeRandomSampleGuide
+              itemId={itemId}
+              layerKey={layer.id}
+              sourceLabel={layer.label || layer.name || 'Layer'}
+              defaultOpen={openTool === 'random-sample'}
             />
           </div>
         ) : null}
+        <AnalyzePastRuns
+          itemId={itemId}
+          layerKey={layer.id}
+          onEditTool={focusAnalyzeTool}
+        />
         {mode === 'builder' ? (
           <AnalyzeQueryBuilder
             viewName={viewName}
@@ -563,23 +757,18 @@ export function LayerAnalyzePanel({ itemId, layer }: Props) {
           </div>
         ) : null}
         <p className="text-2xs text-muted">
-          The layer is available as{' '}
+          {t('analyzeWorkbench.sqlFooterLayerAvailable')}{' '}
           <span className="font-mono">&quot;{viewName}&quot;</span>.{' '}
           {spatial ? (
             <>
-              Spatial SQL works on the{' '}
-              <span className="font-mono">geometry</span> column for
-              CRS-safe transforms and spheroid measures (area, length).
-              Meter buffers need PROJ data this browser engine does not
-              ship — use <strong>Buffer this layer</strong> above to
-              create a PostGIS derived layer instead of a degree-unit
-              trap.
+              {t('analyzeWorkbench.sqlFooterSpatialLead')}{' '}
+              <span className="font-mono">geometry</span>{' '}
+              {t('analyzeWorkbench.sqlFooterSpatialMid')}{' '}
+              <strong>{t('analyzeWorkbench.bufferAction')}</strong>{' '}
+              {t('analyzeWorkbench.sqlFooterSpatialTail')}
             </>
           ) : (
-            <>
-              The spatial extension could not be loaded, so the geometry
-              column is raw WKB and attribute SQL only for this session.
-            </>
+            t('analyzeWorkbench.sqlFooterSpatialUnavailable')
           )}
         </p>
       </div>
@@ -646,16 +835,4 @@ function duckdbTypeToFieldType(t: string): FeatureField['type'] {
     return 'date';
   }
   return 'string';
-}
-
-/** Field names must satisfy the schema validator ([a-z0-9_], not
- *  starting with a digit). Derived from whatever the user aliased
- *  their result columns to, so normalize hard and keep it stable. */
-function sanitizeFieldName(name: string): string {
-  const cleaned = name
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .replace(/^(\d)/, 'f_$1');
-  return cleaned.length > 0 ? cleaned : 'field';
 }

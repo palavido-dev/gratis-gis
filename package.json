@@ -1,6 +1,6 @@
 {
   "name": "gratis-gis",
-  "version": "0.9.119",
+  "version": "1.6.1",
   "private": true,
   "description": "Self-hosted GIS portal, field PWA, and QGIS plugin for teams leaving ArcGIS Online seat costs. Portal, sharing, field collection, and QGIS. Built on Postgres, PostGIS, and MapLibre.",
   "keywords": [
@@ -21,7 +21,6 @@
     "typescript",
     "nextjs",
     "nestjs",
-    "react-native",
     "monorepo"
   ],
   "homepage": "https://github.com/palavido-dev/gratis-gis",
@@ -30,7 +29,7 @@
     "url": "https://github.com/palavido-dev/gratis-gis.git"
   },
   "license": "AGPL-3.0-or-later",
-  "author": "Matt Palavido <matthew.palavido@gmail.com>",
+  "author": "Matt Palavido <matthew@gratisgis.org>",
   "packageManager": "pnpm@9.12.0",
   "engines": {
     "node": ">=24.9.0",
@@ -44,26 +43,29 @@
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "check:spdx": "bash scripts/check-spdx.sh",
+    "check:doc-versions": "node scripts/check-doc-versions.mjs",
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
     "infra:reset": "docker compose -f infra/docker-compose.yml down -v && pnpm infra:up"
   },
   "devDependencies": {
-    "@next/eslint-plugin-next": "^16.4.3",
-    "@types/node": "^26.6.5",
-    "concurrently": "^10.0.6",
+    "@next/eslint-plugin-next": "^16.4.6",
+    "@types/node": "^26.6.6",
+    "concurrently": "^10.0.7",
     "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.13.0",
-    "prettier": "^3.9.10",
-    "turbo": "^2.11.10",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "turbo": "^2.11.11",
     "typescript": "^6.0.3"
   },
   "pnpm": {
     "overrides": {
-      "glob": "^11.0.0",
+      "glob": ">=14.0.2",
+      "minimatch": ">=11.0.1",
       "path-scurry": "^2.0.0",
       "fast-uri": "^3.1.9",
       "fast-xml-builder": "^1.1.7",
@@ -82,8 +84,8 @@
       "fast-xml-parser": "^5.7.0",
       "uuid": "^11.1.1",
       "shell-quote": "^1.8.4",
-      "hono": "^4.12.34",
-      "@hono/node-server": "^2.0.5",
+      "hono": "^4.13.16",
+      "@hono/node-server": "^2.1.6",
       "handlebars": "^4.7.10",
       "esbuild": "^0.28.1",
       "tar": "^7.5.21",

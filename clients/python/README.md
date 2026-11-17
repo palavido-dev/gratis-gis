@@ -113,7 +113,7 @@ own message, plus the status and route:
 | `NotFoundError` | 404. Missing, or not visible to this key |
 | `ValidationError` | 400 / 422. Understood and refused |
 | `ConflictError` | 409. Something moved under you |
-| `RateLimitError` | 429. Carries `retry_after` when the portal sends it |
+| `RateLimitError` | 429, or 503 with a numeric Retry-After. Carries `retry_after` when the portal sends it |
 | `PortalError` | Anything else, including a network failure |
 
 ## What this does not do

@@ -12,7 +12,7 @@ import type {
   ViewerTarget,
   WebAppData,
 } from '@gratis-gis/shared-types';
-import { DEFAULT_CUSTOM_APP } from '@gratis-gis/shared-types';
+import { DEFAULT_CUSTOM_APP, migrateCustomAppData } from '@gratis-gis/shared-types';
 import {
   Dialog,
   DialogContent,
@@ -49,7 +49,8 @@ interface Props {
  *      per-target permission flags since they don't apply to a
  *      generic custom app)
  *   3. one starter page with a full-bleed map widget + a layer-list
- *      widget on the side, sized into the 12-column grid.
+ *      widget on the side, written in version 1 units (12 columns)
+ *      and scaled to the current grid by migrateCustomAppData.
  *
  * After PATCH the page reloads so the detail-page dispatch picks
  * the new template branch up.
@@ -131,12 +132,18 @@ export function ConvertToCustomButton({
         title: 'Home',
         widgets,
       };
-      const custom: CustomAppData = {
+      // The layouts above are in version 1 units (12 columns), but
+      // DEFAULT_CUSTOM_APP is the current version (192 columns), and
+      // the migrator only rescales versions 1 to 3. Saved as is, the
+      // map came out 9/192 of the width. Tag the seed as version 1
+      // and migrate it, so it is scaled and stored current.
+      const custom: CustomAppData = migrateCustomAppData({
         ...DEFAULT_CUSTOM_APP,
+        version: 1,
         ...(sourceMapId ? { mapId: sourceMapId } : {}),
         targets,
         pages: [page],
-      };
+      });
       const data: WebAppData = {
         version: 1,
         template: 'custom',

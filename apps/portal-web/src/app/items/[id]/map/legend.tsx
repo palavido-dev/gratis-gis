@@ -228,6 +228,39 @@ function LayerSwatch({
     );
   }
 
+  if (
+    r.kind === 'time-bins' &&
+    r.field &&
+    r.boundaries.length > 0 &&
+    r.bins.length === r.boundaries.length + 1
+  ) {
+    // Same binning the canvas draws: below the first boundary, between
+    // each pair, and at or after the last.
+    return (
+      <div>
+        <div className="mb-1 text-2xs uppercase tracking-wide text-muted">
+          by {r.field}
+        </div>
+        <ul className="space-y-0.5 text-2xs">
+          {r.bins.map((bin, i) => {
+            const range =
+              i === 0
+                ? `< ${r.boundaries[0]}`
+                : i === r.bins.length - 1
+                  ? `\u2265 ${r.boundaries[r.boundaries.length - 1]}`
+                  : `${r.boundaries[i - 1]} to < ${r.boundaries[i]}`;
+            return (
+              <li key={i} className="flex items-center gap-2">
+                <CategoryMark color={bin.color} family={family} />
+                <span className="truncate text-muted">{bin.label || range}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  }
+
   // Simple renderer (or an in-progress unique-values / class-breaks).
   // Only show swatches for geometries the layer actually contains.
   // If metadata hasn't told us yet, show everything: it's better than
@@ -273,7 +306,12 @@ function SimpleSwatches({
       ) : null}
       {showPoint ? (
         <li className="flex items-center gap-2">
-          {s.point.symbol === 'icon' && s.point.iconName ? (
+          {s.point.symbol === 'icon' &&
+          s.point.iconName &&
+          // Uploaded icons are files, not bundled glyphs, and
+          // renderIconSvg has no markup for them; a plain dot beats
+          // an empty mark.
+          !s.point.iconName.startsWith('upload:') ? (
             <IconMark
               iconName={s.point.iconName}
               color={s.point.iconTint !== false ? s.point.color : '#111827'}
@@ -301,8 +339,15 @@ function FallbackRow({
 }) {
   // The "other" catch-all mirrors the categories' shape so the row
   // doesn't reintroduce a square under a list of circles / stripes.
-  // Dashed to read as "everything not listed above."
-  const color = layer.style.polygon.fillColor;
+  // Dashed to read as "everything not listed above." The colour is
+  // the one the canvas falls back to for this geometry: point colour
+  // for points, line colour for lines, fill for polygons.
+  const color =
+    family === 'point'
+      ? layer.style.point.color
+      : family === 'line'
+        ? layer.style.line.color
+        : layer.style.polygon.fillColor;
   if (family === 'point') {
     return (
       <li className="flex items-center gap-2 text-xs">

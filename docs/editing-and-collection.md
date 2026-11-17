@@ -619,8 +619,10 @@ and is Phase 3, demand-driven.
 - ArcGIS Pro full portal-mode (`/sharing/rest`, FeatureServer with
   applyEdits, Esri OAuth shape).
 - Real-time collaborative editing (CRDT-based).
-- Native mobile apps (MapLibre Native + React Native), if PWA-only
-  proves insufficient.
+- Native mobile apps (Kotlin / Jetpack Compose Android first; see
+  [mobile-field-app.md](./mobile-field-app.md)), if the field PWA
+  proves insufficient. Not required for v1.0.0; no Play Store build
+  yet.
 
 ## Implementation slicing (proposed)
 

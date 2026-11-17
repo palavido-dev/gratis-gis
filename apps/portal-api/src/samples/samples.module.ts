@@ -6,6 +6,7 @@ import { ItemsModule } from '../items/items.module.js';
 import { FormsModule } from '../forms/forms.module.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
 import { SamplesService } from './samples.service.js';
+import { ShowcaseService } from './showcase.service.js';
 import { SamplesController } from './samples.controller.js';
 
 /**
@@ -18,7 +19,7 @@ import { SamplesController } from './samples.controller.js';
 @Module({
   imports: [PrismaModule, ItemsModule, FormsModule, DataLayerFeaturesModule],
   controllers: [SamplesController],
-  providers: [SamplesService],
-  exports: [SamplesService],
+  providers: [SamplesService, ShowcaseService],
+  exports: [SamplesService, ShowcaseService],
 })
 export class SamplesModule {}

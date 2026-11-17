@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -27,6 +27,7 @@ import {
   Wand2,
   X,
 } from 'lucide-react';
+import { clientUuid } from '@/lib/uuid';
 import { LayerPanel } from '../map/layer-panel';
 import {
   discoverLayerMetadata,
@@ -53,8 +54,9 @@ import {
   useTerraDraw,
 } from '../map/use-terra-draw';
 import { fetchFeatureFromServer } from '../map/fetch-feature';
+import { featuresBbox } from '@/lib/geo-bbox';
 import type { TerraDraw } from 'terra-draw';
-import { parseApiError } from '@/lib/api-error';
+import { apiErrorMessage, parseApiError } from '@/lib/api-error';
 import {
   EDITOR_TARGET_LAYER_PREFIX,
   editorTargetLayerId,
@@ -69,8 +71,15 @@ import {
   formatLengthIn,
   lineLengthMeters,
   ringAreaSquareMeters,
+  ringPerimeterMeters,
+  terrainSurfaceAreaSquareMeters,
 } from '@/lib/measure';
 import type { AreaUnit, DistanceUnit } from '@/lib/measure';
+import { flattenPitchForMeasure } from '@/lib/measure-camera';
+import { useT } from '@/lib/i18n/locale-context';
+import { fetchLayerExtent, layerExtentUrl } from '@/lib/layer-extent-url';
+import { editorTargetsExtent, serverSublayerOf } from '@/lib/server-sublayer';
+import { showLayerAndParents } from '@/lib/search-hidden-layers';
 
 interface Props {
   /** The Editor item id (used for the back link and POST URLs). */
@@ -160,6 +169,12 @@ interface Props {
   /** Sublayer key (e.g. 'submissions') paired with
    *  surveyAttachmentsLayerItemId. */
   surveyAttachmentsLayerKey?: string | null;
+  /**
+   * Fit the camera to the union of the target layers' extents once
+   * the map is ready. The Editor sets it when it has no reference
+   * map; other runtimes frame the camera themselves.
+   */
+  fitTargetsOnOpen?: boolean;
 }
 
 /**
@@ -212,7 +227,28 @@ export function EditorRuntime({
   tableOpenDefault = false,
   surveyAttachmentsLayerItemId = null,
   surveyAttachmentsLayerKey = null,
+  fitTargetsOnOpen = false,
 }: Props) {
+  const t = useT();
+  const toolLabels: Record<EditorTool, string> = {
+    select: t('editorRuntime.select'),
+    add: t('editorRuntime.toolAdd'),
+    magic: t('editorRuntime.toolMagic'),
+    edit: t('common.edit'),
+    snap: t('editorRuntime.toolSnap'),
+    measure: t('editorRuntime.measure'),
+    undo: t('editorRuntime.toolUndo'),
+    redo: t('editorRuntime.toolRedo'),
+  };
+  const selectModeLabels: Record<
+    'click' | 'rectangle' | 'polygon' | 'lasso',
+    string
+  > = {
+    click: t('editorRuntime.selectClick'),
+    rectangle: t('editorRuntime.selectRectangle'),
+    polygon: t('editorRuntime.selectPolygon'),
+    lasso: t('editorRuntime.selectLasso'),
+  };
   const [mapData, setMapData] = useState<MapData>(initialMapData);
   // Track the camera's current zoom so LayerPanel can render the
   // "current view" tick under each layer's scale-range slider.
@@ -228,6 +264,17 @@ export function EditorRuntime({
 
   const canvasRef = useRef<MapCanvasHandle | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    },
+    [],
+  );
+  // Bumped to make the draw-mode effect run again (see cancelPending).
+  const [drawRearm, setDrawRearm] = useState(0);
 
   // Tool / active-target machinery. activeTool drives terra-draw and
   // toolbar highlight; activeTargetKey is "<dataLayerId>:<layerKey>"
@@ -339,11 +386,10 @@ export function EditorRuntime({
   const probeAbortsRef = useRef<Record<string, AbortController>>({});
   // Per-layer last-probed source key. The probe effect re-fetches a
   // layer whenever its current source key differs from the entry
-  // here, which captures both initial mount AND
-  // refreshTarget-driven URL bumps (`_ts=` cache-buster). Without
-  // this tracking, the previous "skip if loaded" check would short-
-  // circuit the re-probe after refreshTarget, leaving the
-  // attribute-table cache stale after a save.
+  // here, which captures initial mount and any later source swap.
+  // Editor targets are described from their schema only (no feature
+  // download), and refreshTarget no longer changes their source, so
+  // a save does not re-probe them.
   const probedSourceKeyRef = useRef<Record<string, string>>({});
   const sourceKeysJoined = mapData.layers
     .map((l) => `${l.id}|${JSON.stringify(l.source)}`)
@@ -390,15 +436,26 @@ export function EditorRuntime({
       }));
       void discoverLayerMetadata(layer, controller.signal).then((md) => {
         if (controller.signal.aborted) return;
+        // Settled: the cleanup below has nothing to abort for it.
+        if (probeAbortsRef.current[layer.id] === controller) {
+          delete probeAbortsRef.current[layer.id];
+        }
         setMetadata((prev) => ({ ...prev, [layer.id]: md }));
       });
     }
     return () => {
-      for (const c of Object.values(probeAbortsRef.current)) c.abort();
+      // A probe still running is aborted here, and its source key is
+      // forgotten so the next run starts it again. Keeping the key
+      // made the next run skip the layer, which then stayed
+      // "loading" for the session.
+      for (const [id, c] of Object.entries(probeAbortsRef.current)) {
+        c.abort();
+        delete probeAbortsRef.current[id];
+        delete probedSourceKeyRef.current[id];
+      }
     };
     // The joined source-key string changes when a layer is added /
-    // removed / has its source swapped (including the _ts=
-    // cache-buster bump from refreshTarget). The per-layer
+    // removed / has its source swapped. The per-layer
     // probedSourceKeyRef captures the "do we already have data for
     // THIS source URL" check that the effect needs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -499,6 +556,12 @@ export function EditorRuntime({
     number | null
   >(null);
   const [measureAreaSqm, setMeasureAreaSqm] = useState<number | null>(null);
+  const [measureSurfaceSqm, setMeasureSurfaceSqm] = useState<number | null>(
+    null,
+  );
+  const [measurePerimeterMeters, setMeasurePerimeterMeters] = useState<
+    number | null
+  >(null);
   // Per-mode unit pick. Defaults track AGO's US-friendly imperial
   // defaults; the user can flip via the dropdown and the readout
   // re-formats live.
@@ -666,31 +729,45 @@ export function EditorRuntime({
     setMapData((cur) => ({ ...cur, basemap: id }));
   }, []);
 
-  // Refresh a target layer's source by appending a fresh _ts param
-  // to its geojson URL. MapCanvas's blunt sync tears down + rebuilds
-  // any layer whose URL changes, which forces a re-fetch and
-  // re-renders the new feature without flicker on the basemap.
+  // Bumped after every save, undo and redo. The attribute table and
+  // the survey form view refetch what they show when it changes.
+  const [targetReloadToken, setTargetReloadToken] = useState(0);
+
+  // Show a target's new state after a write. The canvas re-runs its
+  // viewport read for the target (the bounded bbox fetch that fills
+  // it), and the token above refetches the table page.
+  //
+  // This used to append a fresh `_ts` param to the target's URL.
+  // That changed the source key, which made the canvas rebuild the
+  // source and the metadata probe download the whole layer again,
+  // twice per edit.
   const refreshTarget = useCallback(
     (dataLayerId: string, layerKey: string) => {
-      const id = editorTargetLayerId(dataLayerId, layerKey);
-      const ts = Date.now();
-      setMapData((cur) => ({
-        ...cur,
-        layers: cur.layers.map((l) => {
-          if (l.id !== id) return l;
-          if (l.source.kind !== 'geojson-url') return l;
-          // Strip any prior _ts param so the URL stays clean.
-          const baseUrl = l.source.url.replace(/[?&]_ts=\d+/, '');
-          const sep = baseUrl.includes('?') ? '&' : '?';
-          return {
-            ...l,
-            source: { ...l.source, url: `${baseUrl}${sep}_ts=${ts}` },
-          };
-        }),
-      }));
+      canvasRef.current?.refreshLayerSource(
+        editorTargetLayerId(dataLayerId, layerKey),
+      );
+      setTargetReloadToken((n) => n + 1);
     },
     [],
   );
+
+  // An Editor with no reference map opens at DEFAULT_MAP, a continent
+  // view. Fit the camera once to the union of the targets' extents,
+  // as EditorData.mapId promises. Marked done only after a fit lands,
+  // so an effect cancelled by a remount tries again.
+  const fittedToTargetsRef = useRef(false);
+  useEffect(() => {
+    if (!fitTargetsOnOpen || !mapInstance || fittedToTargetsRef.current) return;
+    let cancelled = false;
+    void editorTargetsExtent(initialMapData.layers).then((bbox) => {
+      if (cancelled || !bbox) return;
+      fittedToTargetsRef.current = true;
+      canvasRef.current?.zoomTo(bbox);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fitTargetsOnOpen, mapInstance, initialMapData.layers]);
 
   // terra-draw lives in the shared hook (map/use-terra-draw.ts): one
   // instance on the same MapLibre map the canvas created, imported
@@ -728,14 +805,12 @@ export function EditorRuntime({
         (l) => l.visible !== false && l.source.kind === 'tile',
       );
       if (!imagery || imagery.source.kind !== 'tile') {
-        setToast(
-          'Add an imagery layer to this map to outline-solid from it.',
-        );
+        setToast(t('editorRuntime.magicNeedsImagery'));
         scheduleToastClear();
         return;
       }
       busy = true;
-      setMagicBusy('Outlining...');
+      setMagicBusy(t('editorRuntime.outlining'));
       void import('@/lib/sam-outline')
         .then((mod) =>
           mod.outlineAt(
@@ -767,7 +842,7 @@ export function EditorRuntime({
           setToast(
             err instanceof Error
               ? err.message
-              : 'The outline-solid tool hit a problem. Try again.',
+              : t('editorRuntime.magicProblem'),
           );
           scheduleToastClear();
         })
@@ -782,7 +857,7 @@ export function EditorRuntime({
       canvas.style.cursor = prevCursor;
       setMagicBusy(null);
     };
-  }, [mapInstance, activeTool]);
+  }, [mapInstance, activeTool, t]);
 
   // Measure tool change listener (#122). When active, terra-draw
   // emits 'change' on every click while the user is sketching the
@@ -833,10 +908,24 @@ export function EditorRuntime({
         Array.isArray(g.coordinates) &&
         g.coordinates[0]
       ) {
-        const a = ringAreaSquareMeters(
-          g.coordinates[0] as Array<[number, number]>,
-        );
-        setMeasureAreaSqm(a);
+        const ring = g.coordinates[0] as Array<[number, number]>;
+        setMeasureAreaSqm(ringAreaSquareMeters(ring));
+        setMeasurePerimeterMeters(ringPerimeterMeters(ring));
+        if (mapInstance?.getTerrain()) {
+          const surface = terrainSurfaceAreaSquareMeters(
+            ring,
+            (lng, lat) => {
+              try {
+                return mapInstance.queryTerrainElevation([lng, lat]);
+              } catch {
+                return null;
+              }
+            },
+          );
+          setMeasureSurfaceSqm(surface);
+        } else {
+          setMeasureSurfaceSqm(null);
+        }
       }
     };
     draw.on('change', handleChange);
@@ -848,6 +937,14 @@ export function EditorRuntime({
       }
     };
   }, [activeTool, measureMode, mapInstance, drawReady]);
+
+  // Jump to top-down + lock maxPitch while measuring so the sketched
+  // ring matches what the user sees (pitch foreshortening was the
+  // ~58 vs ~144 ac report). Restore prior pitch when leaving.
+  useEffect(() => {
+    if (activeTool !== 'measure' || !mapInstance) return;
+    return flattenPitchForMeasure(mapInstance);
+  }, [activeTool, mapInstance]);
 
   // Clear the in-canvas measurement(s). Drops every feature in
   // terra-draw's store; that's safe here because the only things
@@ -864,6 +961,8 @@ export function EditorRuntime({
     measureFeatureIdRef.current = null;
     setMeasureLengthMeters(null);
     setMeasureAreaSqm(null);
+    setMeasureSurfaceSqm(null);
+    setMeasurePerimeterMeters(null);
   }
 
   // Switch sub-mode without exiting the tool. Clears the existing
@@ -913,7 +1012,7 @@ export function EditorRuntime({
           ],
         }),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new OpRefusedError(res.status, await apiErrorMessage(res));
     } else if (mode === 'update') {
       if (op.kind !== 'update') {
         throw new Error('Apply.update requires an update op');
@@ -921,19 +1020,20 @@ export function EditorRuntime({
       const res = await fetch(`${baseUrl}/${op.featureId}`, {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({
-          geometry: op.geometry,
-          properties: op.properties,
-        }),
+        body: JSON.stringify(
+          op.changes === 'geometry'
+            ? { geometry: op.geometry }
+            : { properties: op.properties },
+        ),
       });
-      if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+      if (!res.ok) throw new OpRefusedError(res.status, await apiErrorMessage(res));
     } else {
       const res = await fetch(`${baseUrl}/${op.featureId}`, {
         method: 'DELETE',
         headers,
       });
       if (!res.ok && res.status !== 204) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new OpRefusedError(res.status, await apiErrorMessage(res));
       }
     }
     refreshTarget(op.dataLayerId, op.layerKey);
@@ -941,11 +1041,12 @@ export function EditorRuntime({
 
   /**
    * Pop the most recent op and run its inverse. Pushes the same op
-   * onto the redo stack so the user can step forward again. On
-   * server failure (e.g. someone else deleted the row out from
-   * under us), the op stays popped: trying to undo it again would
-   * keep failing, and surfacing the error so the user knows the
-   * stack is partially stale is more honest than silently retrying.
+   * onto the redo stack so the user can step forward again. When the
+   * server refuses the step for good (403: this Editor cannot invert
+   * it; 404: the row is gone), the op is dropped so the steps below
+   * it can still be undone; it used to stay on top and fail on every
+   * later Undo. Other failures (network, 5xx, 409) leave it in place
+   * to try again.
    */
   async function undo() {
     if (undoBusy || undoStack.length === 0) return;
@@ -976,8 +1077,13 @@ export function EditorRuntime({
       setUndoStack((cur) => cur.slice(0, -1));
       setRedoStack((cur) => [...cur, op]);
     } catch (err) {
+      if (isPermanentRefusal(err)) {
+        setUndoStack((cur) => cur.filter((o) => o !== op));
+      }
       setToast(
-        err instanceof Error ? `Undo failed: ${err.message}` : 'Undo failed',
+        err instanceof Error
+          ? t('editorRuntime.undoFailedWithMessage', { message: err.message })
+          : t('editorRuntime.undoFailed'),
       );
       scheduleToastClear();
     } finally {
@@ -1013,8 +1119,13 @@ export function EditorRuntime({
         return next;
       });
     } catch (err) {
+      if (isPermanentRefusal(err)) {
+        setRedoStack((cur) => cur.filter((o) => o !== op));
+      }
       setToast(
-        err instanceof Error ? `Redo failed: ${err.message}` : 'Redo failed',
+        err instanceof Error
+          ? t('editorRuntime.redoFailedWithMessage', { message: err.message })
+          : t('editorRuntime.redoFailed'),
       );
       scheduleToastClear();
     } finally {
@@ -1201,6 +1312,7 @@ export function EditorRuntime({
     // silently ignored; re-running once the instance exists closes
     // that window.
     drawReady,
+    drawRearm,
   ]);
 
   // Map cursor override. MapLibre's pan default (grab/grabbing
@@ -1292,9 +1404,7 @@ export function EditorRuntime({
         (e) => e.resolved?.layer?.geometryType === 'polygon',
       );
       if (polygonTargets.length === 0) {
-        setToast(
-          'The outline-solid tool needs an editable polygon layer as a target. Open the editor config to add one.',
-        );
+        setToast(t('editorRuntime.magicNeedsPolygon'));
         scheduleToastClear();
         return;
       }
@@ -1308,9 +1418,7 @@ export function EditorRuntime({
     }
     if (tool === 'add') {
       if (eligibleAddTargets.length === 0) {
-        setToast(
-          'No editable target layers configured. Open the editor config to add one.',
-        );
+        setToast(t('editorRuntime.noEditableTargetsAdd'));
         scheduleToastClear();
         return;
       }
@@ -1328,9 +1436,7 @@ export function EditorRuntime({
     }
     if (tool === 'edit') {
       if (editableTargetKeys.size === 0) {
-        setToast(
-          'No editable target layers. Turn on attribute or geometry editing on a target in the config.',
-        );
+        setToast(t('editorRuntime.noEditableTargetsEdit'));
         scheduleToastClear();
         return;
       }
@@ -1357,13 +1463,15 @@ export function EditorRuntime({
       // still draw / edit / delete with snap on or off.
       setSnappingEnabled((v) => !v);
       const next = !snappingEnabled;
-      setToast(next ? 'Snapping on' : 'Snapping off');
+      setToast(
+        next ? t('featureEdit.snappingOn') : t('featureEdit.snappingOff'),
+      );
       scheduleToastClear();
       return;
     }
     if (tool === 'undo') {
       if (undoStack.length === 0) {
-        setToast('Nothing to undo.');
+        setToast(t('editorRuntime.nothingToUndo'));
         scheduleToastClear();
         return;
       }
@@ -1372,7 +1480,7 @@ export function EditorRuntime({
     }
     if (tool === 'redo') {
       if (redoStack.length === 0) {
-        setToast('Nothing to redo.');
+        setToast(t('editorRuntime.nothingToRedo'));
         scheduleToastClear();
         return;
       }
@@ -1393,7 +1501,11 @@ export function EditorRuntime({
       setMeasureAreaSqm(null);
       return;
     }
-    setToast(`${TOOL_LABELS[tool]} lands in a follow-up slice.`);
+    setToast(
+      t('editorRuntime.toolComingSoon', {
+        tool: toolLabels[tool] ?? tool,
+      }),
+    );
     scheduleToastClear();
   }
 
@@ -1437,15 +1549,13 @@ export function EditorRuntime({
           ? (props['_global_id'] as string)
           : null;
       if (!featureId) {
-        setToast(
-          'Couldn\'t recover the feature id. Refresh the page and try again.',
-        );
+        setToast(t('editorRuntime.featureIdRecoverFailed'));
         scheduleToastClear();
         return;
       }
 
       if (!editableTargetKeys.has(targetKey)) {
-        setToast('That layer is not editable in this editor.');
+        setToast(t('editorRuntime.layerNotEditable'));
         scheduleToastClear();
         return;
       }
@@ -1509,7 +1619,9 @@ export function EditorRuntime({
             // No session yet, so the panel's error slot is not on
             // screen; the toast is the handler's existing channel.
             setToast(
-              err instanceof Error ? err.message : 'Could not load the feature.',
+              err instanceof Error
+                ? err.message
+                : t('editorRuntime.couldNotLoadFeature'),
             );
             scheduleToastClear();
             return;
@@ -1526,14 +1638,50 @@ export function EditorRuntime({
         })();
         return;
       }
-      setActiveTargetKey(targetKey);
-      setPendingFeature({
-        mode: 'update',
-        geometry: hit.geometry as unknown,
-        targetKey,
-        featureId,
-        initialProperties: initialProps,
-      });
+      // Attribute-only edit. The rendered feature is clipped to its
+      // tile, simplified for the zoom and missing its null values, and
+      // its geometry becomes the snapshot a Delete and its Undo use,
+      // so read the stored row the same way the geometry branch does.
+      // The rendered feature stays the fallback when the server has
+      // no current row for this id.
+      const renderedGeometry = hit.geometry
+        ? (JSON.parse(JSON.stringify(hit.geometry)) as GeoJSON.Geometry)
+        : null;
+      const pick = ++latestPick;
+      void (async () => {
+        let geometry: unknown = renderedGeometry;
+        let properties = initialProps;
+        try {
+          const full = await fetchFeatureFromServer(dataLayerId, layerKey, featureId);
+          if (cancelled || pick !== latestPick) return;
+          if (full) {
+            geometry = full.geometry;
+            const fullProps: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(full.properties)) {
+              if (k.startsWith('_')) continue;
+              fullProps[k] = v;
+            }
+            properties = fullProps;
+          }
+        } catch (err) {
+          if (cancelled || pick !== latestPick) return;
+          setToast(
+            err instanceof Error
+              ? err.message
+              : t('editorRuntime.couldNotLoadFeature'),
+          );
+          scheduleToastClear();
+          return;
+        }
+        setActiveTargetKey(targetKey);
+        setPendingFeature({
+          mode: 'update',
+          geometry,
+          targetKey,
+          featureId,
+          initialProperties: properties,
+        });
+      })();
     };
     m.on('click', handler);
     return () => {
@@ -1550,6 +1698,7 @@ export function EditorRuntime({
     editableTargetKeys,
     targetByKey,
     editor.targets,
+    t,
   ]);
 
   // The vertex-editing session itself (load into terra-draw, select so
@@ -1577,8 +1726,11 @@ export function EditorRuntime({
   // server keeps the existing properties. On success we refresh the
   // target layer's source so the moved feature paints in its new
   // position, and exit edit mode.
-  async function saveGeometryEdit() {
-    if (!pendingGeometryEdit || !currentEditGeometry) return;
+  // Resolves true when the geometry was saved. The caller cannot
+  // read the error state for this, since the value it sees is the
+  // one from the render it was created in.
+  async function saveGeometryEdit(): Promise<boolean> {
+    if (!pendingGeometryEdit || !currentEditGeometry) return false;
     const geometry = currentEditGeometry;
     setGeomEditSaving(true);
     setGeomEditSaveError(null);
@@ -1593,12 +1745,13 @@ export function EditorRuntime({
         body: JSON.stringify({ geometry }),
       });
       if (!res.ok) {
-        setGeomEditSaveError(await parseApiError(res, 'Save failed'));
-        return;
+        setGeomEditSaveError(
+          await parseApiError(res, t('featureEdit.saveFailed')),
+        );
+        return false;
       }
-      // Push undo op (#123). Geometry-only edit: properties stay
-      // the same on both sides so a redo or undo round-trips
-      // cleanly through applyOp.update.
+      // Push undo op (#123). Geometry-only edit, so undo and redo
+      // send only the geometry (see `changes`).
       pushOp({
         kind: 'update',
         dataLayerId: pendingGeometryEdit.dataLayerId,
@@ -1608,18 +1761,21 @@ export function EditorRuntime({
         previousProperties: pendingGeometryEdit.properties,
         geometry,
         properties: pendingGeometryEdit.properties,
+        changes: 'geometry',
       });
       const dl = pendingGeometryEdit.dataLayerId;
       const lk = pendingGeometryEdit.layerKey;
       setPendingGeometryEdit(null);
       setActiveTool('off');
       refreshTarget(dl, lk);
+      return true;
     } catch (err) {
       setGeomEditSaveError(
         err instanceof Error
           ? err.message
-          : 'Network error during geometry save.',
+          : t('editorRuntime.networkGeometrySave'),
       );
+      return false;
     } finally {
       setGeomEditSaving(false);
     }
@@ -1647,10 +1803,7 @@ export function EditorRuntime({
       // Persist geometry first; if the save fails, stay in geometry
       // mode so the user can retry rather than silently losing the
       // edit when the modal opens.
-      await saveGeometryEdit();
-      // saveGeometryEdit already cleared pendingGeometryEdit on
-      // success. If we got here without success, bail.
-      if (geomEditError) return;
+      if (!(await saveGeometryEdit())) return;
     }
     const targetKey = pendingGeometryEdit.targetKey;
     const featureId = pendingGeometryEdit.featureId;
@@ -1684,7 +1837,12 @@ export function EditorRuntime({
         },
       );
       if (!res.ok && res.status !== 204) {
-        setDeleteError(`Delete failed: ${res.status} ${await res.text()}`);
+        setDeleteError(
+          t('editorRuntime.deleteFailedStatus', {
+            status: res.status,
+            detail: await res.text(),
+          }),
+        );
         return;
       }
       // Push undo op (#123). The captured geometry + properties
@@ -1705,17 +1863,26 @@ export function EditorRuntime({
       refreshTarget(dl, lk);
     } catch (err) {
       setDeleteError(
-        err instanceof Error ? err.message : 'Network error during delete.',
+        err instanceof Error
+          ? err.message
+          : t('editorRuntime.networkDelete'),
       );
     } finally {
       setDeleting(false);
     }
   }
 
+  // One clear timer at a time. Each toast used to start its own, so
+  // an earlier toast's timer cleared a newer toast almost at once.
   function scheduleToastClear() {
-    if (typeof window !== 'undefined') {
-      window.setTimeout(() => setToast(null), 2500);
+    if (typeof window === 'undefined') return;
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
     }
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast(null);
+    }, 2500);
   }
 
   // Submit the pending feature. POST for create, PATCH for update.
@@ -1754,10 +1921,7 @@ export function EditorRuntime({
       // round-trip cleanly.
       let createdGlobalId: string | null = null;
       if (pendingFeature.mode === 'create') {
-        createdGlobalId =
-          typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+        createdGlobalId = clientUuid();
         res = await fetch(baseUrl, {
           method: 'POST',
           headers: writeHeaders,
@@ -1773,9 +1937,14 @@ export function EditorRuntime({
         });
       } else {
         if (!pendingFeature.featureId) {
-          setSubmitError(
-            'Missing feature id; cannot update. Refresh the page and try again.',
-          );
+          setSubmitError(t('editorRuntime.missingFeatureId'));
+          return;
+        }
+        // The form sends only changed fields on update. Nothing
+        // changed means nothing to write.
+        if (Object.keys(values).length === 0) {
+          setPendingFeature(null);
+          setActiveTool('off');
           return;
         }
         res = await fetch(`${baseUrl}/${pendingFeature.featureId}`, {
@@ -1785,8 +1954,18 @@ export function EditorRuntime({
         });
       }
       if (!res.ok) {
-        const verb = pendingFeature.mode === 'create' ? 'Save' : 'Update';
-        setSubmitError(`${verb} failed: ${res.status} ${await res.text()}`);
+        const detail = await res.text();
+        setSubmitError(
+          pendingFeature.mode === 'create'
+            ? t('editorRuntime.saveFailedStatus', {
+                status: res.status,
+                detail,
+              })
+            : t('editorRuntime.updateFailedStatus', {
+                status: res.status,
+                detail,
+              }),
+        );
         return;
       }
       // Push an undo op so the user can step backward. Capture
@@ -1814,12 +1993,20 @@ export function EditorRuntime({
           featureId: pendingFeature.featureId,
           previousGeometry: (pendingFeature.geometry ??
             null) as GeoJSON.Geometry | null,
-          previousProperties: pendingFeature.initialProperties,
+          // Only the fields this edit changed, so undo and redo write
+          // back those and nothing else.
+          previousProperties: Object.fromEntries(
+            Object.keys(values).map((k) => [
+              k,
+              pendingFeature.initialProperties[k] ?? null,
+            ]),
+          ),
           // Geometry is unchanged on attribute-only edits, so
           // record the same value for both sides.
           geometry: (pendingFeature.geometry ??
             null) as GeoJSON.Geometry | null,
           properties: values,
+          changes: 'properties',
         });
       }
       // Success: clear pending, refresh layer, return to select.
@@ -1833,7 +2020,9 @@ export function EditorRuntime({
       refreshTarget(target.dataLayerId, target.layerKey);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : 'Network error during save.',
+        err instanceof Error
+          ? err.message
+          : t('editorRuntime.networkSave'),
       );
     } finally {
       setSubmitting(false);
@@ -1852,6 +2041,10 @@ export function EditorRuntime({
     // again rather than re-clicking through the toolbar. Drop the
     // chosen target only if we auto-selected it; respecting the
     // user's manual pick keeps things less surprising.
+    // The finished sketch parked terra-draw in select mode, and none
+    // of the mode effect's inputs changed, so ask it to run again or
+    // the armed Add tool cannot draw.
+    setDrawRearm((n) => n + 1);
   }
 
   // Helper for the create-flow: removes the sketch we kept visible
@@ -1936,8 +2129,8 @@ export function EditorRuntime({
   // back to its (dataLayerId, layerKey) pair, hits the v3 PATCH
   // endpoint with the x-editor-id header so EditorPolicyService can
   // re-validate the write against the editor's per-target rules,
-  // then bumps the layer's URL so MapCanvas and the metadata probe
-  // pick up the new value. AttributeTable handles its own error
+  // then refreshes the target so the map and the table page pick up
+  // the new value. AttributeTable handles its own error
   // surfacing; we re-throw so it can show the server message.
   const onInlineEditFeature = useCallback(
     async (
@@ -1956,7 +2149,7 @@ export function EditorRuntime({
       const dataLayerId = stripped.slice(0, sep);
       const layerKey = stripped.slice(sep + 1);
       const res = await fetch(
-        `/api/portal/items/${dataLayerId}/layers/${layerKey}/features/${featureId}`,
+        `/api/portal/items/${encodeURIComponent(dataLayerId)}/layers/${encodeURIComponent(layerKey)}/features/${encodeURIComponent(featureId)}`,
         {
           method: 'PATCH',
           headers: {
@@ -1967,7 +2160,7 @@ export function EditorRuntime({
         },
       );
       if (!res.ok) {
-        throw new Error(`${res.status} ${await res.text()}`);
+        throw new Error(await apiErrorMessage(res));
       }
       refreshTarget(dataLayerId, layerKey);
     },
@@ -2013,35 +2206,78 @@ export function EditorRuntime({
     setFormViewIndex(0);
   }, [surveyKeysJoined]);
 
-  const surveyActiveFeature = useMemo<GeoJSON.Feature | null>(() => {
-    if (!surveyTargetLayerId) return null;
-    if (surveyKeys.length === 0) return null;
-    const idx = Math.min(formViewIndex, surveyKeys.length - 1);
-    const key = surveyKeys[idx];
-    const fc = featuresByLayer[surveyTargetLayerId];
-    if (!fc) return null;
-    if (typeof key === 'number') {
-      // Numeric index into the original collection. Used by non-v3
-      // sources whose features have no stable id we can promote.
-      return fc.features[key] ?? null;
-    }
-    // String key = _global_id; v3 collections always carry it on
-    // properties (the form mirror writes it when seeding the row).
-    const hit = fc.features.find(
-      (f) => (f.properties as Record<string, unknown> | null)?.['_global_id'] === key,
-    );
-    return hit ?? null;
-  }, [surveyTargetLayerId, surveyKeys, formViewIndex, featuresByLayer]);
-
-  const surveyActiveProperties = useMemo<Record<string, unknown> | null>(() => {
-    if (!surveyActiveFeature) return null;
-    return (surveyActiveFeature.properties ?? {}) as Record<string, unknown>;
-  }, [surveyActiveFeature]);
-
   const surveyTargetLayer = useMemo(() => {
     if (!surveyTargetLayerId) return null;
     return mapData.layers.find((l) => l.id === surveyTargetLayerId) ?? null;
   }, [surveyTargetLayerId, mapData.layers]);
+
+  const surveyActiveKey: number | string | null =
+    surveyKeys.length === 0
+      ? null
+      : (surveyKeys[Math.min(formViewIndex, surveyKeys.length - 1)] ?? null);
+
+  // The survey target is a v3 sublayer, and the browser only holds the
+  // rows in view, so the active response is fetched by its _global_id.
+  // It used to be looked up in a full download of the layer.
+  const surveyServerSub = serverSublayerOf(surveyTargetLayer);
+  const surveyServerItemId = surveyServerSub?.itemId ?? null;
+  const surveyServerLayerKey = surveyServerSub?.layerKey ?? null;
+  const [surveyFetched, setSurveyFetched] = useState<{
+    key: string;
+    properties: Record<string, unknown> | null;
+  } | null>(null);
+  useEffect(() => {
+    if (
+      !surveyServerItemId ||
+      !surveyServerLayerKey ||
+      typeof surveyActiveKey !== 'string'
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const key = surveyActiveKey;
+    fetchFeatureFromServer(surveyServerItemId, surveyServerLayerKey, key)
+      .then((f) => {
+        if (!cancelled) setSurveyFetched({ key, properties: f?.properties ?? null });
+      })
+      .catch(() => {
+        if (!cancelled) setSurveyFetched({ key, properties: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // targetReloadToken: show the saved values after an edit.
+  }, [surveyServerItemId, surveyServerLayerKey, surveyActiveKey, targetReloadToken]);
+
+  const surveyActiveProperties = useMemo<Record<string, unknown> | null>(() => {
+    if (!surveyTargetLayerId || surveyActiveKey === null) return null;
+    if (surveyServerItemId) {
+      // Only a fetch for the key on screen counts; a stale one from
+      // the previous response would show the wrong record.
+      return surveyFetched && surveyFetched.key === surveyActiveKey
+        ? surveyFetched.properties
+        : null;
+    }
+    // Layers that are not v3 keep reading the collection the probe
+    // loaded. Numeric keys index into it.
+    const fc = featuresByLayer[surveyTargetLayerId];
+    if (!fc) return null;
+    const hit =
+      typeof surveyActiveKey === 'number'
+        ? fc.features[surveyActiveKey]
+        : fc.features.find(
+            (f) =>
+              (f.properties as Record<string, unknown> | null)?.['_global_id'] ===
+              surveyActiveKey,
+          );
+    return hit ? ((hit.properties ?? {}) as Record<string, unknown>) : null;
+  }, [
+    surveyTargetLayerId,
+    surveyActiveKey,
+    surveyServerItemId,
+    surveyFetched,
+    featuresByLayer,
+  ]);
 
   return (
     <div className="flex h-full min-h-[calc(100dvh-3.5rem)] flex-col bg-surface-0">
@@ -2064,7 +2300,7 @@ export function EditorRuntime({
                 className="inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Back to items
+                {t('common.backToItems')}
               </Link>
               <span className="text-muted">/</span>
             </>
@@ -2085,7 +2321,7 @@ export function EditorRuntime({
           </span>
           {referencedMapTitle && canEdit ? (
             <span className="hidden items-center gap-1 text-xs text-muted sm:inline-flex">
-              <span>against</span>
+              <span>{t('editorRuntime.against')}</span>
               <span className="font-medium text-ink-1">
                 {referencedMapTitle}
               </span>
@@ -2115,8 +2351,8 @@ export function EditorRuntime({
                   }, 50);
                 }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0"
-                title="Print the current view"
-                aria-label="Print"
+                title={t('editorRuntime.printTitle')}
+                aria-label={t('editorRuntime.printAria')}
               >
                 <Printer className="h-5 w-5" />
               </button>
@@ -2148,8 +2384,8 @@ export function EditorRuntime({
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
                   basemapMenuOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                 }`}
-                title="Basemap"
-                aria-label="Basemap"
+                title={t('mapEditor.basemapButton')}
+                aria-label={t('mapEditor.basemapButton')}
                 aria-haspopup="menu"
                 aria-expanded={basemapMenuOpen}
               >
@@ -2161,11 +2397,11 @@ export function EditorRuntime({
                   className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
                 >
                   <div className="border-b border-border bg-surface-2 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
-                    Basemap
+                    {t('mapEditor.basemapMenuHeading')}
                   </div>
                   {basemaps.length === 0 ? (
                     <div className="px-3 py-2 italic text-muted">
-                      No basemaps available
+                      {t('mapEditor.noBasemaps')}
                     </div>
                   ) : (
                     <ul className="max-h-72 overflow-auto py-1">
@@ -2189,7 +2425,7 @@ export function EditorRuntime({
                               <span className="truncate">{b.label}</span>
                               {active ? (
                                 <span className="ml-auto text-2xs uppercase tracking-wide">
-                                  active
+                                  {t('mapEditor.basemapActive')}
                                 </span>
                               ) : null}
                             </button>
@@ -2207,8 +2443,8 @@ export function EditorRuntime({
               className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
                 layersOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
               }`}
-              title="Layers"
-              aria-label="Layers"
+              title={t('mapLayerPanel.title')}
+              aria-label={t('mapLayerPanel.title')}
               aria-pressed={layersOpen}
             >
               <LayersIcon className="h-5 w-5" />
@@ -2222,8 +2458,8 @@ export function EditorRuntime({
               className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
                 tableOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
               }`}
-              title="Attribute table"
-              aria-label="Attribute table"
+              title={t('mapEditor.tableButton')}
+              aria-label={t('mapEditor.tableButton')}
               aria-pressed={tableOpen}
             >
               <TableIcon className="h-5 w-5" />
@@ -2239,8 +2475,8 @@ export function EditorRuntime({
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
                   formViewOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                 }`}
-                title="Form view"
-                aria-label="Form view"
+                title={t('editorRuntime.formViewButton')}
+                aria-label={t('editorRuntime.formViewButton')}
                 aria-pressed={formViewOpen}
               >
                 <ClipboardList className="h-5 w-5" />
@@ -2255,8 +2491,8 @@ export function EditorRuntime({
                     ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
                     : ''
                 }`}
-                title="Measure"
-                aria-label="Measure"
+                title={t('editorRuntime.measure')}
+                aria-label={t('editorRuntime.measure')}
                 aria-pressed={activeTool === 'measure'}
               >
                 <Ruler className="h-5 w-5" />
@@ -2284,8 +2520,12 @@ export function EditorRuntime({
                     className={`inline-flex h-9 w-9 items-center justify-center rounded-l text-muted hover:bg-surface-2 hover:text-ink-0 ${
                       isActive ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                     }`}
-                    title={`Select (${selectMode})`}
-                    aria-label={`Select (${selectMode})`}
+                    title={t('editorRuntime.selectWithMode', {
+                      mode: selectModeLabels[selectMode],
+                    })}
+                    aria-label={t('editorRuntime.selectWithMode', {
+                      mode: selectModeLabels[selectMode],
+                    })}
                     aria-pressed={isActive}
                   >
                     <ModeIcon className="h-5 w-5" />
@@ -2296,10 +2536,10 @@ export function EditorRuntime({
                     className={`inline-flex h-9 w-5 items-center justify-center rounded-r text-muted hover:bg-surface-2 hover:text-ink-0 ${
                       isActive ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                     }`}
-                    aria-label="Select mode"
+                    aria-label={t('editorRuntime.selectMode')}
                     aria-haspopup="menu"
                     aria-expanded={selectMenuOpen}
-                    title="Select mode"
+                    title={t('editorRuntime.selectMode')}
                   >
                     <ChevronDown className="h-3.5 w-3.5" />
                   </button>
@@ -2310,7 +2550,8 @@ export function EditorRuntime({
                     >
                       <SelectModeItem
                         Icon={MousePointer2}
-                        label="Click"
+                        label={selectModeLabels.click}
+                        activeLabel={t('mapEditor.basemapActive')}
                         active={selectMode === 'click'}
                         onClick={() => {
                           setSelectMode('click');
@@ -2320,7 +2561,8 @@ export function EditorRuntime({
                       />
                       <SelectModeItem
                         Icon={Square}
-                        label="Rectangle"
+                        label={selectModeLabels.rectangle}
+                        activeLabel={t('mapEditor.basemapActive')}
                         active={selectMode === 'rectangle'}
                         onClick={() => {
                           setSelectMode('rectangle');
@@ -2330,7 +2572,8 @@ export function EditorRuntime({
                       />
                       <SelectModeItem
                         Icon={Pentagon}
-                        label="Polygon"
+                        label={selectModeLabels.polygon}
+                        activeLabel={t('mapEditor.basemapActive')}
                         active={selectMode === 'polygon'}
                         onClick={() => {
                           setSelectMode('polygon');
@@ -2340,7 +2583,8 @@ export function EditorRuntime({
                       />
                       <SelectModeItem
                         Icon={Spline}
-                        label="Lasso"
+                        label={selectModeLabels.lasso}
+                        activeLabel={t('mapEditor.basemapActive')}
                         active={selectMode === 'lasso'}
                         onClick={() => {
                           setSelectMode('lasso');
@@ -2364,8 +2608,12 @@ export function EditorRuntime({
                 className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 ${
                   editorPaneOpen ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300' : ''
                 }`}
-                title={editorPaneOpen ? 'Close editor pane' : 'Open editor pane'}
-                aria-label="Editor pane"
+                title={
+                  editorPaneOpen
+                    ? t('editorRuntime.closeEditorPane')
+                    : t('editorRuntime.openEditorPane')
+                }
+                aria-label={t('editorRuntime.editorPaneAria')}
                 aria-pressed={editorPaneOpen}
               >
                 <PencilLine className="h-5 w-5" />
@@ -2377,16 +2625,16 @@ export function EditorRuntime({
               Only show for editors. */}
           {canEdit ? (
             <span>
-              {targetCount} editable layer{targetCount === 1 ? '' : 's'}
+              {t('editorRuntime.editableLayersCount', { count: targetCount })}
             </span>
           ) : null}
           {canEdit ? (
             <Link
               href={`/items/${editorId}`}
               className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
-              title="Open the editor's configuration page"
+              title={t('editorRuntime.configureTitle')}
             >
-              Configure
+              {t('editorRuntime.configure')}
             </Link>
           ) : null}
         </div>
@@ -2410,13 +2658,13 @@ export function EditorRuntime({
         >
           <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-surface-1 px-3">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-              Layers
+              {t('mapLayerPanel.title')}
             </span>
             <button
               type="button"
               onClick={() => setLayersOpen(false)}
               className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0"
-              aria-label="Close layers panel"
+              aria-label={t('editorRuntime.closeLayersAria')}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -2442,11 +2690,30 @@ export function EditorRuntime({
               setTableOpen(true);
             }}
             onZoomToLayer={(layerId) => {
+              // This used to compute null on both branches and never
+              // zoom. Same sources as the map builder: a bbox stamped
+              // on a tile or point-cloud source, else the loaded
+              // features, else the server's extent for a v3 sublayer
+              // (editor targets included), which has no features in
+              // the browser.
               const layer = mapData.layers.find((l) => l.id === layerId);
-              const bbox = layer
-                ? null /* MapCanvas doesn't expose a bbox helper here yet */
-                : null;
-              if (bbox) canvasRef.current?.zoomTo(bbox);
+              if (!layer) return;
+              const src = layer.source;
+              if (src.kind === 'point-cloud' || src.kind === 'tile') {
+                if (src.bboxWgs84) canvasRef.current?.zoomTo(src.bboxWgs84);
+                return;
+              }
+              const fc = metadata[layerId]?.featureCollection ?? null;
+              const local = fc ? featuresBbox(fc.features) : null;
+              if (local) {
+                canvasRef.current?.zoomTo(local);
+                return;
+              }
+              const url = layerExtentUrl(src, layer.filter);
+              if (!url) return;
+              void fetchLayerExtent(url).then((bbox) => {
+                if (bbox) canvasRef.current?.zoomTo(bbox);
+              });
             }}
             onChange={onLayersChange}
             showAddLayer={false}
@@ -2520,11 +2787,11 @@ export function EditorRuntime({
               <span className="text-xs font-semibold uppercase tracking-wide text-muted">
                 {pendingFeature
                   ? pendingFeature.mode === 'create'
-                    ? 'New feature'
-                    : 'Edit feature'
+                    ? t('featureEdit.newFeatureTitle')
+                    : t('editorRuntime.editFeatureTitle')
                   : pendingGeometryEdit
-                    ? 'Edit geometry'
-                    : 'Editor'}
+                    ? t('editorRuntime.editGeometryTitle')
+                    : t('editorRuntime.editorPaneTitle')}
               </span>
               <button
                 type="button"
@@ -2539,10 +2806,10 @@ export function EditorRuntime({
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0"
                 aria-label={
                   pendingFeature
-                    ? 'Cancel attribute edit'
+                    ? t('editorRuntime.cancelAttributeEdit')
                     : pendingGeometryEdit
-                      ? 'Cancel geometry edit'
-                      : 'Close editor pane'
+                      ? t('editorRuntime.cancelGeometryEdit')
+                      : t('editorRuntime.closeEditorPane')
                 }
               >
                 <X className="h-3.5 w-3.5" />
@@ -2558,6 +2825,10 @@ export function EditorRuntime({
               // (create has nothing to delete).
               <div className="min-h-0 flex-1">
                 <AttributeForm
+                  // One form per record (AttributeForm seeds its values
+                  // once): a click on another feature while the form is
+                  // open must not carry this feature's values over.
+                  key={`${pendingFeature.mode}:${pendingFeature.targetKey}:${pendingFeature.featureId ?? 'new'}`}
                   fields={pendingTarget.layer.fields}
                   editableFieldNames={editableSet}
                   pickLists={pickLists}
@@ -2567,13 +2838,16 @@ export function EditorRuntime({
                   errorMessage={submitError}
                   onCancel={cancelPending}
                   onSubmit={submitPending}
+                  changedOnly={pendingFeature.mode === 'update'}
                   submitLabel={
-                    pendingFeature.mode === 'create' ? 'Save feature' : 'Update feature'
+                    pendingFeature.mode === 'create'
+                      ? t('editorRuntime.saveFeature')
+                      : t('editorRuntime.updateFeature')
                   }
                   title={
                     pendingFeature.mode === 'create'
-                      ? 'New feature attributes'
-                      : 'Edit feature attributes'
+                      ? t('featureEdit.newFeatureAttributes')
+                      : t('editorRuntime.editFeatureAttributes')
                   }
                   extraFooter={
                     pendingFeature.mode === 'update' &&
@@ -2630,10 +2904,10 @@ export function EditorRuntime({
                           cancelPending();
                         }}
                         className="inline-flex items-center gap-1 rounded-md border border-danger/40 bg-danger/10 px-2 py-1.5 text-xs font-medium text-danger hover:bg-danger/15 disabled:opacity-50"
-                        title="Delete this feature"
+                        title={t('editorRuntime.deleteThisFeature')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        Delete
+                        {t('common.delete')}
                       </button>
                     ) : null
                   }
@@ -2650,143 +2924,45 @@ export function EditorRuntime({
                   the per-feature panels carry the destructive
                   action where it belongs. */}
               {ALL_TOOLS.filter(
-                (t) =>
-                  editor.tools.includes(t.key) &&
-                  t.key !== 'select' &&
-                  t.key !== 'measure',
+                (tool) =>
+                  editor.tools.includes(tool.key) &&
+                  tool.key !== 'select' &&
+                  tool.key !== 'measure',
               ).length > 0 ? (
                 <section>
                   <h3 className="mb-1.5 text-xs font-semibold text-ink-0">
-                    Edit features
+                    {t('editorRuntime.editFeaturesSection')}
                   </h3>
                   <div className="flex flex-wrap items-center gap-0.5 rounded-md border border-border bg-surface-0 p-1">
                     {ALL_TOOLS.filter(
-                      (t) =>
-                        editor.tools.includes(t.key) &&
-                        t.key !== 'select' &&
-                        t.key !== 'measure',
-                    ).map((t) => {
-                      const isToggle = t.key === 'snap';
+                      (tool) =>
+                        editor.tools.includes(tool.key) &&
+                        tool.key !== 'select' &&
+                        tool.key !== 'measure',
+                    ).map((tool) => {
+                      const label = toolLabels[tool.key];
+                      const isToggle = tool.key === 'snap';
                       const isActive = isToggle
                         ? snappingEnabled
-                        : activeTool === t.key;
+                        : activeTool === tool.key;
                       const stackEmpty =
-                        (t.key === 'undo' && undoStack.length === 0) ||
-                        (t.key === 'redo' && redoStack.length === 0);
+                        (tool.key === 'undo' && undoStack.length === 0) ||
+                        (tool.key === 'redo' && redoStack.length === 0);
                       const isStackButton =
-                        t.key === 'undo' || t.key === 'redo';
-                      const isReadOnlyTool =
-                        t.key === 'select' || t.key === 'measure';
+                        tool.key === 'undo' || tool.key === 'redo';
+                      // Select and measure are filtered out above and live
+                      // in their own section, so every tool here writes.
                       const disabled =
-                        (!canEdit && !isReadOnlyTool) ||
+                        !canEdit ||
                         (isStackButton && stackEmpty) ||
                         (isStackButton && undoBusy);
-                      if (t.key === 'select') {
-                        const ModeIcon =
-                          selectMode === 'click'
-                            ? MousePointer2
-                            : selectMode === 'rectangle'
-                              ? Square
-                              : selectMode === 'polygon'
-                                ? Pentagon
-                                : Spline;
-                        return (
-                          <div
-                            key={t.key}
-                            ref={selectMenuRef}
-                            className="relative flex items-stretch"
-                          >
-                            <button
-                              type="button"
-                              disabled={disabled}
-                              onClick={() => onToolClick(t.key)}
-                              className={`inline-flex h-9 w-9 items-center justify-center rounded-l text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
-                                isActive
-                                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
-                                  : ''
-                              }`}
-                              title={`Select (${selectMode})`}
-                              aria-label={`Select (${selectMode})`}
-                              aria-pressed={isActive}
-                            >
-                              <ModeIcon className="h-5 w-5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={disabled}
-                              onClick={() => setSelectMenuOpen((v) => !v)}
-                              className={`inline-flex h-9 w-5 items-center justify-center rounded-r text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
-                                isActive
-                                  ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
-                                  : ''
-                              }`}
-                              aria-label="Select mode"
-                              aria-haspopup="menu"
-                              aria-expanded={selectMenuOpen}
-                              title="Select mode"
-                            >
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            </button>
-                            {selectMenuOpen ? (
-                              <div
-                                role="menu"
-                                className="absolute left-0 top-11 z-30 w-44 overflow-hidden rounded-md border border-border bg-surface-1 text-xs shadow-overlay"
-                              >
-                                <SelectModeItem
-                                  Icon={MousePointer2}
-                                  label="Click"
-                                  active={selectMode === 'click'}
-                                  onClick={() => {
-                                    setSelectMode('click');
-                                    setSelectMenuOpen(false);
-                                    if (activeTool !== 'select')
-                                      onToolClick('select');
-                                  }}
-                                />
-                                <SelectModeItem
-                                  Icon={Square}
-                                  label="Rectangle"
-                                  active={selectMode === 'rectangle'}
-                                  onClick={() => {
-                                    setSelectMode('rectangle');
-                                    setSelectMenuOpen(false);
-                                    if (activeTool !== 'select')
-                                      onToolClick('select');
-                                  }}
-                                />
-                                <SelectModeItem
-                                  Icon={Pentagon}
-                                  label="Polygon"
-                                  active={selectMode === 'polygon'}
-                                  onClick={() => {
-                                    setSelectMode('polygon');
-                                    setSelectMenuOpen(false);
-                                    if (activeTool !== 'select')
-                                      onToolClick('select');
-                                  }}
-                                />
-                                <SelectModeItem
-                                  Icon={Spline}
-                                  label="Lasso"
-                                  active={selectMode === 'lasso'}
-                                  onClick={() => {
-                                    setSelectMode('lasso');
-                                    setSelectMenuOpen(false);
-                                    if (activeTool !== 'select')
-                                      onToolClick('select');
-                                  }}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      }
+                      const ToolIcon = tool.Icon;
                       return (
                         <button
-                          key={t.key}
+                          key={tool.key}
                           type="button"
                           disabled={disabled}
-                          onClick={() => onToolClick(t.key)}
+                          onClick={() => onToolClick(tool.key)}
                           className={`inline-flex h-9 w-9 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0 disabled:cursor-not-allowed disabled:opacity-40 ${
                             isActive
                               ? isToggle
@@ -2796,19 +2972,26 @@ export function EditorRuntime({
                           }`}
                           title={
                             isToggle
-                              ? `${t.label}: ${snappingEnabled ? 'on' : 'off'}`
+                              ? t('editorRuntime.snapStateTitle', {
+                                  label,
+                                  state: snappingEnabled
+                                    ? t('editorRuntime.on')
+                                    : t('editorRuntime.off'),
+                                })
                               : isStackButton
-                                ? `${t.label}${
-                                    t.key === 'undo'
-                                      ? ` (${undoStack.length} available)`
-                                      : ` (${redoStack.length} available)`
-                                  }`
-                                : t.label
+                                ? t('editorRuntime.stackAvailableTitle', {
+                                    label,
+                                    count:
+                                      tool.key === 'undo'
+                                        ? undoStack.length
+                                        : redoStack.length,
+                                  })
+                                : label
                           }
-                          aria-label={t.label}
+                          aria-label={label}
                           aria-pressed={isActive}
                         >
-                          <t.Icon className="h-5 w-5" />
+                          <ToolIcon className="h-5 w-5" />
                         </button>
                       );
                     })}
@@ -2829,15 +3012,16 @@ export function EditorRuntime({
                 <section className="rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950 px-3 py-2 text-xs text-purple-900 dark:text-purple-200">
                   <div>
                     <p className="font-medium">
-                      Editing{' '}
-                      {targetByKey.get(pendingGeometryEdit.targetKey)?.layer
-                        ?.label ?? 'feature'}{' '}
-                      geometry
+                      {t('editorRuntime.editingGeometry', {
+                        layer:
+                          targetByKey.get(pendingGeometryEdit.targetKey)?.layer
+                            ?.label ?? t('editorRuntime.featureFallback'),
+                      })}
                     </p>
                     <p className="mt-0.5 text-2xs text-purple-700 dark:text-purple-400">
                       {pendingGeometryEdit.geometryType === 'point'
-                        ? 'Drag the point to move it.'
-                        : 'Drag vertices to move them. Click midpoints to add a vertex. Alt-click a vertex to delete it.'}
+                        ? t('editorRuntime.dragPointHint')
+                        : t('editorRuntime.dragVerticesHint')}
                     </p>
                   </div>
                   {geomEditError ? (
@@ -2855,7 +3039,7 @@ export function EditorRuntime({
                       disabled={geomEditSaving}
                       className="inline-flex h-7 items-center rounded border border-border bg-white px-2 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
                     >
-                      Cancel
+                      {t('common.cancel')}
                     </button>
                     <button
                       type="button"
@@ -2863,7 +3047,7 @@ export function EditorRuntime({
                       disabled={geomEditSaving}
                       className="inline-flex h-7 items-center rounded border border-purple-300 dark:border-purple-800 bg-white px-2 text-xs font-medium text-purple-900 dark:text-purple-200 hover:bg-purple-100 dark:hover:bg-purple-900 disabled:opacity-50"
                     >
-                      Edit attributes
+                      {t('editorRuntime.editAttributes')}
                     </button>
                     <button
                       type="button"
@@ -2871,7 +3055,9 @@ export function EditorRuntime({
                       disabled={geomEditSaving || !geometryEdit.dirty}
                       className="inline-flex h-7 items-center gap-1 rounded bg-purple-600 px-3 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {geomEditSaving ? 'Saving...' : 'Save geometry'}
+                      {geomEditSaving
+                        ? t('mapEditor.savingIndicator')
+                        : t('editorRuntime.saveGeometry')}
                     </button>
                     {deletableTargetKeys.has(pendingGeometryEdit.targetKey) ? (
                       <button
@@ -2912,11 +3098,11 @@ export function EditorRuntime({
                         }}
                         disabled={geomEditSaving}
                         className="ml-auto inline-flex h-7 items-center gap-1 rounded border border-danger/40 bg-danger/10 px-2 text-xs font-medium text-danger hover:bg-danger/15 disabled:opacity-50"
-                        title="Delete this feature"
-                        aria-label="Delete this feature"
+                        title={t('editorRuntime.deleteThisFeature')}
+                        aria-label={t('editorRuntime.deleteThisFeature')}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                        Delete
+                        {t('common.delete')}
                       </button>
                     ) : null}
                   </div>
@@ -2924,11 +3110,10 @@ export function EditorRuntime({
               ) : activeTool === 'edit' ? (
                 <section className="flex items-start gap-2 rounded-md border border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-950 px-3 py-2 text-xs text-purple-900 dark:text-purple-200">
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium">Edit mode</p>
-                    <p className="mt-0.5">
-                      Click a feature on the map to edit its geometry
-                      or attributes.
+                    <p className="font-medium">
+                      {t('editorRuntime.editModeTitle')}
                     </p>
+                    <p className="mt-0.5">{t('editorRuntime.editModeHint')}</p>
                   </div>
                   <button
                     type="button"
@@ -2938,8 +3123,8 @@ export function EditorRuntime({
                       cancelGeometryEdit();
                     }}
                     className="shrink-0 rounded-md p-0.5 text-purple-900 dark:text-purple-200 hover:bg-purple-100 dark:hover:bg-purple-900"
-                    aria-label="Exit edit mode"
-                    title="Exit edit mode"
+                    aria-label={t('editorRuntime.exitEditMode')}
+                    title={t('editorRuntime.exitEditMode')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -2967,14 +3152,14 @@ export function EditorRuntime({
               {pendingGeometryEdit ? null : eligibleAddTargets.length > 0 ? (
                 <section>
                   <h3 className="mb-1.5 text-xs font-semibold text-ink-0">
-                    Create features
+                    {t('editorRuntime.createFeaturesSection')}
                   </h3>
                   <div className="space-y-3">
                     {eligibleAddTargets.map((e) => {
                       const layerTitle =
                         e.resolved?.layer?.label ??
                         e.resolved?.dataLayerTitle ??
-                        'Layer';
+                        t('editorRuntime.layerFallback');
                       const dataLayerTitle = e.resolved?.dataLayerTitle;
                       const templates = e.editorTarget.templates ?? [];
                       const geomType =
@@ -3033,7 +3218,7 @@ export function EditorRuntime({
                                           : 'rounded-sm border-ink-2 bg-purple-300'
                                     }`}
                                   />
-                                  <span>New feature</span>
+                                  <span>{t('featureEdit.newFeatureTitle')}</span>
                                 </button>
                               );
                             })()}
@@ -3091,8 +3276,7 @@ export function EditorRuntime({
                 </section>
               ) : (
                 <section className="rounded-md border border-dashed border-border bg-surface-0 px-3 py-4 text-xs text-muted">
-                  No editable target layers configured. Open the
-                  editor's Configure page to add one.
+                  {t('editorRuntime.noTargetsEmpty')}
                 </section>
               )}
               </div>
@@ -3116,14 +3300,14 @@ export function EditorRuntime({
           >
             <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-surface-1 px-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-                Measure
+                {t('editorRuntime.measure')}
               </span>
               <button
                 type="button"
                 onClick={exitMeasure}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-0"
-                aria-label="Exit measure"
-                title="Exit measure"
+                aria-label={t('editorRuntime.exitMeasure')}
+                title={t('editorRuntime.exitMeasure')}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -3135,7 +3319,7 @@ export function EditorRuntime({
                   with no stale geometry. */}
               <div
                 role="radiogroup"
-                aria-label="Measure mode"
+                aria-label={t('editorRuntime.measureModeAria')}
                 className="inline-flex overflow-hidden rounded-md border border-border bg-surface-0"
               >
                 <button
@@ -3148,10 +3332,10 @@ export function EditorRuntime({
                       ? 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200'
                       : 'text-muted hover:bg-surface-2'
                   }`}
-                  title="Distance"
+                  title={t('editorRuntime.distance')}
                 >
                   <Ruler className="h-3.5 w-3.5" />
-                  Distance
+                  {t('editorRuntime.distance')}
                 </button>
                 <button
                   type="button"
@@ -3163,10 +3347,10 @@ export function EditorRuntime({
                       ? 'bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200'
                       : 'text-muted hover:bg-surface-2'
                   }`}
-                  title="Area"
+                  title={t('editorRuntime.area')}
                 >
                   <Pentagon className="h-3.5 w-3.5" />
-                  Area
+                  {t('editorRuntime.area')}
                 </button>
               </div>
 
@@ -3176,7 +3360,7 @@ export function EditorRuntime({
                   without re-clicking on the map. */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink-1">
-                  Unit
+                  {t('editorRuntime.unit')}
                 </label>
                 {measureMode === 'distance' ? (
                   <select
@@ -3218,7 +3402,11 @@ export function EditorRuntime({
                   half-rendered. */}
               <div>
                 <p className="mb-1 text-xs font-medium text-ink-1">
-                  {measureMode === 'distance' ? 'Distance' : 'Area'}
+                  {measureMode === 'distance'
+                    ? t('editorRuntime.distance')
+                    : measureSurfaceSqm != null
+                      ? t('editorRuntime.measureGroundArea')
+                      : t('editorRuntime.area')}
                 </p>
                 <p className="font-mono text-base font-semibold text-ink-0">
                   {measureMode === 'distance'
@@ -3228,14 +3416,42 @@ export function EditorRuntime({
                           measureDistanceUnit,
                         )
                       : '—'
-                    : measureAreaSqm !== null
-                      ? formatAreaIn(measureAreaSqm, measureAreaUnit)
-                      : '—'}
+                    : measureSurfaceSqm != null
+                      ? formatAreaIn(measureSurfaceSqm, measureAreaUnit)
+                      : measureAreaSqm !== null
+                        ? formatAreaIn(measureAreaSqm, measureAreaUnit)
+                        : '—'}
                 </p>
+                {measureMode === 'area' && measureAreaSqm !== null ? (
+                  <div className="mt-0.5 space-y-0.5 font-mono text-2xs text-muted">
+                    {measureSurfaceSqm != null ? (
+                      <p>
+                        {t('editorRuntime.measureHorizontalLabel')}:{' '}
+                        {formatAreaIn(measureAreaSqm, measureAreaUnit)}
+                        {measureAreaUnit !== 'square-meters'
+                          ? ` (${formatAreaIn(measureAreaSqm, 'square-meters')})`
+                          : ''}
+                      </p>
+                    ) : measureAreaUnit !== 'square-meters' ? (
+                      <p>{formatAreaIn(measureAreaSqm, 'square-meters')}</p>
+                    ) : null}
+                    {measurePerimeterMeters != null ? (
+                      <p>
+                        {t('editorRuntime.measurePerimeterLabel')}:{' '}
+                        {formatLengthIn(
+                          measurePerimeterMeters,
+                          measureDistanceUnit,
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <p className="mt-1 text-2xs text-muted">
                   {measureMode === 'area'
-                    ? 'Click to add vertices on the map. Double-click to finish.'
-                    : 'Click to add points on the map. Double-click to finish.'}
+                    ? measureSurfaceSqm != null
+                      ? t('editorRuntime.measureHintAreaTerrain')
+                      : t('editorRuntime.measureHintArea')
+                    : t('editorRuntime.measureHintDistance')}
                 </p>
               </div>
 
@@ -3247,7 +3463,7 @@ export function EditorRuntime({
                 }
                 className="inline-flex h-8 w-full items-center justify-center gap-1 rounded-md bg-purple-600 px-3 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                New measurement
+                {t('editorRuntime.newMeasurement')}
               </button>
             </div>
           </div>
@@ -3315,6 +3531,12 @@ export function EditorRuntime({
               layers={mapData.layers}
               featuresByLayer={featuresByLayer}
               geocodingEnabled={mapData.search?.geocoding !== false}
+              onShowLayer={(id) =>
+                setMapData((cur) => ({
+                  ...cur,
+                  layers: showLayerAndParents(cur.layers, id),
+                }))
+              }
               onPick={(r) => {
                 canvasRef.current?.flyAndHighlight({
                   bbox: r.bbox,
@@ -3322,6 +3544,9 @@ export function EditorRuntime({
                   ...(r.kind === 'feature'
                     ? {
                         layerId: r.layerId,
+                        ...(r.feature.id !== undefined
+                          ? { featureId: r.feature.id }
+                          : {}),
                         featureProps: (r.feature.properties ?? {}) as Record<
                           string,
                           unknown
@@ -3359,7 +3584,9 @@ export function EditorRuntime({
               floating bar was removed per user feedback. */}
 
           {/* AttributeTable bottom-overlay. Same component the map
-              editor uses; pulls from the same featuresByLayer
+              editor uses. Target layers page from the server
+              (features-page), as data-layer sources do in the
+              Viewer; reference layers keep the featuresByLayer
               cache. Open via the layer-panel kebab's "Open
               attribute table" item; close with the panel's X.
               onPatchLayer mutates the layer client-side (used for
@@ -3406,6 +3633,7 @@ export function EditorRuntime({
             editableFieldsByLayer={inlineEditableFieldsByLayer}
             fieldsByLayer={inlineFieldsByLayer}
             pickLists={pickLists}
+            reloadToken={targetReloadToken}
           />
         </div>
       </div>
@@ -3429,13 +3657,20 @@ export function EditorRuntime({
           setDeleteError(null);
         }}
         onConfirm={confirmDelete}
-        title="Delete this feature?"
+        title={t('featureEdit.deleteConfirmTitle')}
         description={
           pendingDelete
-            ? `${pendingDelete.summary} on ${pendingDelete.layerTitle}. This cannot be undone from the editor runtime.`
+            ? t('editorRuntime.deleteConfirmDescription', {
+                summary: pendingDelete.summary,
+                layer: pendingDelete.layerTitle,
+              })
             : ''
         }
-        confirmLabel={deleting ? 'Deleting...' : 'Delete feature'}
+        confirmLabel={
+          deleting
+            ? t('editorRuntime.deleting')
+            : t('featureEdit.deleteFeature')
+        }
         tone="danger"
       >
         {deleteError ? (
@@ -3478,6 +3713,14 @@ type EditorOp =
       previousProperties: Record<string, unknown>;
       geometry: GeoJSON.Geometry | null;
       properties: Record<string, unknown>;
+      /**
+       * Which half the edit changed. Undo and redo send only that
+       * half: the Editor policy reads a geometry in the body as a
+       * geometry edit and every property key as an attribute edit,
+       * so resending the unchanged half was refused on targets that
+       * allow only one kind of edit or a subset of fields.
+       */
+      changes: 'geometry' | 'properties';
     }
   | {
       kind: 'delete';
@@ -3488,29 +3731,38 @@ type EditorOp =
       properties: Record<string, unknown>;
     };
 
-const TOOL_LABELS: Record<EditorTool, string> = {
-  select: 'Select',
-  add: 'Add',
-  magic: 'Magic outline-solid',
-  edit: 'Edit',
-  snap: 'Snap toggle',
-  measure: 'Measure',
-  undo: 'Undo',
-  redo: 'Redo',
-};
+/** An undo or redo request the server answered with an error. */
+class OpRefusedError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'OpRefusedError';
+  }
+}
+
+/** A refusal that retrying will not change. */
+function isPermanentRefusal(err: unknown): boolean {
+  return (
+    err instanceof OpRefusedError && (err.status === 403 || err.status === 404)
+  );
+}
 
 const ALL_TOOLS: Array<{
   key: EditorTool;
-  label: string;
   Icon: typeof MousePointer2;
 }> = [
-  { key: 'select', label: 'Select', Icon: MousePointer2 },
-  { key: 'add', label: 'Add', Icon: Plus },
-  { key: 'edit', label: 'Edit', Icon: PencilRuler },
-  { key: 'snap', label: 'Snap', Icon: Wand2 },
-  { key: 'measure', label: 'Measure', Icon: Ruler },
-  { key: 'undo', label: 'Undo', Icon: Undo2 },
-  { key: 'redo', label: 'Redo', Icon: Redo2 },
+  { key: 'select', Icon: MousePointer2 },
+  { key: 'add', Icon: Plus },
+  { key: 'edit', Icon: PencilRuler },
+  // The config page offers Magic outline and onToolClick handles it;
+  // without an entry here it never had a button.
+  { key: 'magic', Icon: Sparkles },
+  { key: 'snap', Icon: Wand2 },
+  { key: 'measure', Icon: Ruler },
+  { key: 'undo', Icon: Undo2 },
+  { key: 'redo', Icon: Redo2 },
 ];
 
 /**
@@ -3521,11 +3773,13 @@ const ALL_TOOLS: Array<{
 function SelectModeItem({
   Icon,
   label,
+  activeLabel,
   active,
   onClick,
 }: {
   Icon: typeof MousePointer2;
   label: string;
+  activeLabel: string;
   active: boolean;
   onClick: () => void;
 }) {
@@ -3541,7 +3795,7 @@ function SelectModeItem({
       <Icon className="h-4 w-4" />
       <span className="flex-1">{label}</span>
       {active ? (
-        <span className="text-2xs uppercase tracking-wide">active</span>
+        <span className="text-2xs uppercase tracking-wide">{activeLabel}</span>
       ) : null}
     </button>
   );

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
@@ -19,6 +19,7 @@ import type {
   ServiceProtocol,
 } from '@gratis-gis/shared-types';
 import { serviceProtocolLabel } from '@gratis-gis/shared-types';
+import { ogcBaseUrl, ogcRequestUrl } from '@/lib/ogc-rest';
 import {
   probeService as autoProbeService,
 } from '@/lib/service-probe';
@@ -26,7 +27,23 @@ import {
 interface Props {
   itemId: string;
   initial: ServiceData;
+  /** The item's updatedAt at load, for the stale-save guard. */
+  updatedAt?: string | null;
   canEdit: boolean;
+}
+
+/**
+ * Indices of the selected layers as stored. An empty or missing list
+ * means every layer (see pickedServiceLayers in shared-types), so it
+ * is expanded here; comparing against the raw empty list made a
+ * freshly loaded item look edited.
+ */
+function storedSelection(data: ServiceData): number[] {
+  const raw = data.selectedLayerIds ?? [];
+  if (raw.length === 0) return data.layers.map((_, i) => i);
+  return raw
+    .map((id) => (typeof id === 'number' ? id : Number(id)))
+    .filter((n) => Number.isInteger(n));
 }
 
 /**
@@ -49,27 +66,30 @@ interface Props {
  * preview, basemap composer) resolves URL + selected layers and
  * renders directly against the remote server.
  */
-export function ServiceEditor({ itemId, initial, canEdit }: Props) {
+export function ServiceEditor({ itemId, initial, updatedAt, canEdit }: Props) {
   const router = useRouter();
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
   const [data, setData] = useState<ServiceData>(initial);
   const [urlDraft, setUrlDraft] = useState(data.url);
   const [probing, setProbing] = useState(false);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [pendingData, setPendingData] = useState<ServiceData | null>(null);
+  // The URL text the pending probe result came from. The probe may
+  // normalise the URL it stores, so "has the URL been edited since"
+  // compares against what was typed, not against staged.url.
+  const [probedFrom, setProbedFrom] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
+  const fmt = useFormat();
   const [, startTransition] = useTransition();
 
   // Selection by name (rather than by index) so re-probe preserves
   // the user's curated subset across server-side reorderings. Same
   // approach OgcServiceEditor (#299) uses.
   const initialSelectedNames = new Set<string>(
-    (data.selectedLayerIds && data.selectedLayerIds.length > 0
-      ? data.selectedLayerIds
-      : data.layers.map((_, i) => i)
-    )
+    storedSelection(data)
       .map((i) => data.layers[i]?.name ?? '')
       .filter((n) => n.length > 0),
   );
@@ -77,18 +97,20 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
     initialSelectedNames,
   );
 
-  // Active staged shape -- merges the saved data with any uncommitted
-  // probe result. Save commits this.
+  // Active staged shape: the saved data, or the uncommitted draft (a
+  // probe result and/or option edits). Save commits this. `data` is
+  // only ever replaced by a successful save, so it stays the baseline
+  // that Discard returns to and that hasChanges compares against.
   const staged: ServiceData = pendingData ?? data;
   const stagedSelectedIds = staged.layers
     .map((l, i) => (selectedNames.has(l.name) ? i : -1))
     .filter((i) => i >= 0);
 
-  const storedSelectedIds: number[] = (data.selectedLayerIds ?? []).map(
-    (id) => (typeof id === 'number' ? id : Number(id)),
-  );
+  const storedSelectedIds = storedSelection(data);
+  const urlChanged = urlDraft.trim() !== (probedFrom ?? data.url.trim());
   const hasChanges =
     pendingData !== null ||
+    urlChanged ||
     arraysDiffer(stagedSelectedIds, storedSelectedIds) ||
     optionsDiffer(staged, data);
 
@@ -116,6 +138,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
       }
       setSelectedNames(nextNames);
       setPendingData(result.data);
+      setProbedFrom(raw);
     } catch (err) {
       setProbeError(
         err instanceof Error
@@ -129,13 +152,10 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
 
   function discardProbe() {
     setPendingData(null);
+    setProbedFrom(null);
     setProbeError(null);
     setUrlDraft(data.url);
-    const resetIndices: number[] = data.selectedLayerIds
-      ? data.selectedLayerIds
-          .map((id) => (typeof id === 'number' ? id : Number(id)))
-          .filter((n) => Number.isInteger(n))
-      : data.layers.map((_, i) => i);
+    const resetIndices = storedSelection(data);
     setSelectedNames(
       new Set(
         resetIndices
@@ -148,17 +168,30 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
   async function save() {
     if (!canEdit) return;
     setError(null);
+    // The layer list and protocol come from probing the URL, so a URL
+    // typed but not probed would be saved with the old URL's layers,
+    // or (before this check) silently not saved at all.
+    if (urlChanged) {
+      setError(t('serviceEditors.reprobeBeforeSave'));
+      return;
+    }
+    // An empty selection is stored as [] and read back as "every
+    // layer", so Clear then Save would quietly select everything.
+    if (staged.layers.length > 0 && stagedSelectedIds.length === 0) {
+      setError(t('serviceEditors.pickAtLeastOneLayer'));
+      return;
+    }
     setSaving(true);
     try {
       const payload: ServiceData = {
         ...staged,
         selectedLayerIds: stagedSelectedIds,
       };
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
-      });
+      const res = await patchItem({ data: payload });
+      if (isStaleItemSave(res)) {
+        setError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         setError(`Save failed: ${res.status}${body ? ` - ${body}` : ''}`);
@@ -166,6 +199,8 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
       }
       setData(payload);
       setPendingData(null);
+      setProbedFrom(null);
+      setUrlDraft(payload.url);
       setProbeError(null);
       setSaved(true);
       startTransition(() => router.refresh());
@@ -198,7 +233,7 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
               {' · '}
             </>
           ) : null}
-          {t('serviceEditors.probedPrefix', { when: staged.probedAt ? formatRelative(staged.probedAt) : t('serviceEditors.probedNotYet') })}
+          {t('serviceEditors.probedPrefix', { when: staged.probedAt ? fmt.relativeTime(staged.probedAt) : t('serviceEditors.probedNotYet') })}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -249,15 +284,13 @@ export function ServiceEditor({ itemId, initial, canEdit }: Props) {
           data={staged}
           canEdit={canEdit}
           onChange={(patch) => {
-            // Per-protocol options edit the saved `data` (or the
-            // pending probe result) directly. Stage on whichever is
-            // currently active so a probe-pending edit doesn't drop
-            // when the user toggles a format.
-            if (pendingData) {
-              setPendingData({ ...pendingData, ...patch } as ServiceData);
-            } else {
-              setData((d) => ({ ...d, ...patch } as ServiceData));
-            }
+            // Option edits go into the draft, seeded from the saved
+            // data on the first edit. Writing them into `data` changed
+            // the baseline itself, so the edit never counted as a
+            // change and could not be saved or discarded.
+            setPendingData(
+              (p) => ({ ...(p ?? data), ...patch }) as ServiceData,
+            );
           }}
         />
       </section>
@@ -628,8 +661,8 @@ function layerWordFor(p: ServiceProtocol): string {
  *  in a new tab. ArcGIS uses ?f=json on the service root; OGC trio
  *  uses GetCapabilities. */
 function capabilitiesUrlFor(d: ServiceData): string | null {
-  if (!d.url) return null;
-  const base = d.url.replace(/\?.*$/, '').replace(/\/+$/, '');
+  if (!d.url || !d.url.trim()) return null;
+  const base = d.url.replace(/\?.*$/, '').replace(/(?<!\/)\/+$/, '');
   if (
     d.protocol === 'arcgis_map' ||
     d.protocol === 'arcgis_feature' ||
@@ -638,14 +671,28 @@ function capabilitiesUrlFor(d: ServiceData): string | null {
   ) {
     return `${base}?f=json`;
   }
+  // OGC services keep their vendor parameters (MapServer's `map=`).
+  const ogcBase = ogcBaseUrl(d.url);
   if (d.protocol === 'wms') {
-    return `${base}?service=WMS&request=GetCapabilities&version=${d.protocolVersion}`;
+    return ogcRequestUrl(ogcBase, {
+      service: 'WMS',
+      request: 'GetCapabilities',
+      version: d.protocolVersion,
+    });
   }
   if (d.protocol === 'wfs') {
-    return `${base}?service=WFS&request=GetCapabilities&version=${d.protocolVersion}`;
+    return ogcRequestUrl(ogcBase, {
+      service: 'WFS',
+      request: 'GetCapabilities',
+      version: d.protocolVersion,
+    });
   }
   if (d.protocol === 'wmts') {
-    return `${base}?service=WMTS&request=GetCapabilities&version=1.0.0`;
+    return ogcRequestUrl(ogcBase, {
+      service: 'WMTS',
+      request: 'GetCapabilities',
+      version: '1.0.0',
+    });
   }
   return null;
 }
@@ -689,21 +736,3 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function formatRelative(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const ms = Date.now() - d.getTime();
-    const sec = Math.round(ms / 1000);
-    if (sec < 60) return 'just now';
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.round(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const day = Math.round(hr / 24);
-    if (day < 30) return `${day}d ago`;
-    return formatDate(d, DEFAULT_LOCALE);
-  } catch {
-    return iso;
-  }
-}

@@ -86,4 +86,59 @@ describe('ImportJobsService counter honesty', () => {
     expect(arg.data.status).toBe('failed');
     expect(arg.data.errorMessage).toBe('boom');
   });
+
+  it('releases the staging reservation from the update result once no job needs it', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'job-4', stagingId: 'stage-4' });
+    const count = jest.fn().mockResolvedValue(0);
+    const releasePurpose = jest.fn().mockResolvedValue(undefined);
+    const prisma = { importJob: { update, count } } as unknown as PrismaService;
+    const svc = new ImportJobsService(prisma, {
+      releasePurpose,
+    } as unknown as ConstructorParameters<typeof ImportJobsService>[1]);
+    await svc.markFailed('job-4', 'boom');
+    await svc.markSucceeded('job-4', 3);
+    expect(releasePurpose).toHaveBeenCalledTimes(2);
+    expect(releasePurpose).toHaveBeenNthCalledWith(1, 'stage-4');
+    expect(releasePurpose).toHaveBeenNthCalledWith(2, 'stage-4');
+  });
+
+  it('keeps the hold while another layer of the same file is still queued', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'job-5', stagingId: 'stage-5' });
+    const count = jest.fn().mockResolvedValue(1);
+    const releasePurpose = jest.fn().mockResolvedValue(undefined);
+    const prisma = { importJob: { update, count } } as unknown as PrismaService;
+    const svc = new ImportJobsService(prisma, {
+      releasePurpose,
+    } as unknown as ConstructorParameters<typeof ImportJobsService>[1]);
+    await svc.markSucceeded('job-5', 3);
+    expect(count).toHaveBeenCalledWith({
+      where: { stagingId: 'stage-5', status: { in: ['queued', 'running'] } },
+    });
+    expect(releasePurpose).not.toHaveBeenCalled();
+  });
+});
+
+describe('ImportJobsService.enqueue', () => {
+  it('takes the reservation before the job row exists, so a refusal leaves nothing to claim', async () => {
+    const create = jest.fn();
+    const reserve = jest.fn().mockRejectedValue(new Error('no room'));
+    const prisma = { importJob: { create } } as unknown as PrismaService;
+    const svc = new ImportJobsService(prisma, {
+      reserve,
+    } as unknown as ConstructorParameters<typeof ImportJobsService>[1]);
+    await expect(
+      svc.enqueue({
+        itemId: 'i',
+        layerId: 'l',
+        stagingId: 's',
+        sourceFileName: 'f',
+        sourceLayerName: 'L',
+        mode: 'append',
+        totalFeatures: null,
+        userId: 'u',
+        orgId: 'o',
+      }),
+    ).rejects.toThrow('no room');
+    expect(create).not.toHaveBeenCalled();
+  });
 });

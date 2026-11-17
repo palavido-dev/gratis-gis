@@ -39,7 +39,10 @@ export const AUTH_KINDS: readonly AuthKind[] = [
 export type CredentialPayload =
   | { kind: 'bearer'; token: string }
   | { kind: 'basic'; username: string; password: string }
-  | { kind: 'arcgis_token'; token: string };
+  // `referer` is set when the token came from our own username and
+  // password exchange, which binds it to that referer; the data call
+  // must then send the same Referer header.
+  | { kind: 'arcgis_token'; token: string; referer?: string };
 
 /** Read-side metadata: enough for the editor to render
  *  "credential set ✓" without exposing the secret. */

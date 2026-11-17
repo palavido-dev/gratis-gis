@@ -1,0 +1,217 @@
+{
+  "cycle": 10,
+  "researchedAt": "2026-10-28T05:35:00Z",
+  "method": "PLAYBOOK + QUEUE + research-cycle-9; R9 ship-without-input fully drained on origin/main through #413 (filter/spatial-filter/sampling-nn/catalog honesty #406-#409, field collect i18n #410, Analyze bbox #411, vertices #412, calculate-geometry #413). Open issues still only #162 (Weblate needs-maintainer) and #183 (OPEN; Tile3D / SSE / incremental nodes stay needs-maintainer). Security Sentinel this cycle: clean; deep-dive SEC-* remain shipped (#376-#383); no new @Public / BFF allowlist / throttle regressions since #383; safeFetch, zip/GDAL budgets, otherSource ACL, Records 60/min + bbox scan intact. Honesty scan after R9: analysis help now covers the full derived-layer registry (including filter / spatial-filter / top-n / random-sample / nearest-neighbor / bbox / vertices); derived-layer.md Analyze blurb matches shipped shortcuts. Remaining gaps: field-runtime still hard-codes English on offline Download/Refresh, GPS location chrome (Show my location / acquiring / denied), Save feature/changes, related-record editability / waiting-to-sync copy, Layer visibility aria, and edits-waiting titles after R9 collect i18n; data_collection item type has only an item-types one-liner (no help/items page for Download for offline, sync, QR); recipe-runner still hardcodes osm-features-overlay truncated:false with a wave-2 comment while /api/osm/query already surfaces truncated; Analyze shortcuts still missing for no-param nearest-neighbor and Buffer-shaped fishnet / top-n / random-sample (contour / spatial-join / spatial-filter / calculate-field stay builder-only — multi-picker or expression UX is heavy). Ethos filters applied; needs-maintainer carry-forward unchanged; node-graph, brand/print redesign, seat pricing, recipe materialize, Weblate hosting, Tile3D local rebuild, keyed dissolve-on-dissolve, and heavy multi-input Analyze shortcuts rejected again.",
+  "driverBcId": "bc-01a101a0-01ba-705b-acf4-2c1dffc02838",
+  "securitySentinel": {
+    "ranAt": "2026-10-28T05:33:00Z",
+    "result": "clean",
+    "notes": "No new @Public routes or BFF anonymous allowlist entries since #383 / #413. Global ThrottlerGuard 300/min still covers Public controllers that lack a tighter decorator (tools run, feedback POST, comments GET, STAC, OGC Features/Tiles); drawings writes stay 30/min; Records stay at 60/min + bbox scan cap. User-supplied outbound URLs remain on safeFetch / assertSafeOutboundUrl; Keycloak admin and env-configured basemap HEAD probes stay operator-trusted. Zip central-directory budget and assertSafeGdalOpenPath still guard /vsizip/; derived-layer otherSource canRead checks remain. Deep-dive SEC-* all shipped (#376–#383). No High/Medium hardening queued this cycle; Low follow-up proposed as SEC-tools-run-throttle (tighter @Throttle on Public POST /api/tools/:id/run, matching drawings 30/min) to limit anonymous Overpass egress abuse."
+  },
+  "proposals": [
+    {
+      "id": "R10-i18n-field-offline-gps-chrome",
+      "title": "Continue #162 i18n on field offline / GPS / related chrome",
+      "summary": "After R9 collect chrome (#410), field-runtime.tsx still hard-codes English on Download for offline / Refresh offline cache, Show my location / Acquiring / permission denied / unavailable, Enable location to use GPS, Save feature / Save changes, Not set, Layer visibility aria-label, related-record editability and waiting-to-sync hints, and edits-waiting-to-sync titles. Extract into fieldRuntime / fieldGps / fieldOffline catalogs with t() calls. No Weblate, no RTL.",
+      "rationale": "Only finishable open-issue slice left after collect i18n. Field collectors are the #162 audience (EU / LatAm demos); offline and GPS chrome is what they see first when leaving signal.",
+      "risk": "Keep offlineMessage progress codes as-is. Reuse existing fieldRuntime / fieldGps / fieldOffline keys where possible; machine-translate non-en with the Phase 1.1 pattern. Scope to user-visible offline/GPS/related/save strings, not the whole 6k-line runtime.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Language follow-through on free field chrome. No Contour brand kit.",
+      "sources": [
+        "https://github.com/palavido-dev/gratis-gis/issues/162",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/i18n/messages/en.ts",
+        "https://github.com/palavido-dev/gratis-gis/pull/410"
+      ],
+      "suggestedFirstPR": "Extract remaining field offline Download/Refresh, GPS location, Save feature/changes, related-record, and edits-waiting strings into en/es/fr/de/pt-BR catalogs with t() calls; What's new optional (i18n-only can skip).",
+      "relatedIssues": [162]
+    },
+    {
+      "id": "R10-data-collection-help-honesty",
+      "title": "Honest data-collection item help (offline, sync, QR)",
+      "summary": "item-types.md describes Data collection as a field deployment with offline area and QR share, but there is no help/items/data-collection.md. Collectors and authors only learn Download for offline, delta refresh, sync conflicts, and checkOnly dry-run from data-layer.md asides. Add a focused item help page: what a deployment is (map + editable layers + forms), Download / Refresh offline, sync queue + conflict review pointer, QR / link share, and an honest Not Field Maps / Not Survey123 line.",
+      "rationale": "Core pillar with no dedicated help page after R9 honesty passes. Demo authors following item-types hit a dead end; offline reliability docs belong next to the surface that ships it.",
+      "risk": "Do not invent offline tile budgets or Android-only flows beyond what the PWA ships. Cross-link data-layer syncConflicts / forms; CHANGELOG docs note; What's new optional.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about free field capture without Field Maps cosplay. Guided UX docs before raw API.",
+      "sources": [
+        "apps/portal-web/content/help/reference/item-types.md",
+        "apps/portal-web/content/help/items/data-layer.md",
+        "apps/portal-web/src/app/items/[id]/field/field-runtime.tsx",
+        "apps/portal-web/src/lib/offline-download.ts",
+        "docs/data-collection-phase1.md"
+      ],
+      "suggestedFirstPR": "Add help/items/data-collection.md (offline download/refresh, sync, QR, honest limits); link from item-types + form/map help; CHANGELOG docs note.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R10-analyze-nearest-neighbor-shortcut",
+      "title": "Guided Nearest neighbor shortcut that creates a derived-layer recipe",
+      "summary": "nearestNeighborGenerator is no-param (adds nearest_distance_m via geography self-join). Analyze has no Nearest neighbor for this layer control; help/analysis/nearest-neighbor.md already documents the builder path. Mirror AnalyzeCentroidGuide: POST a single-step nearest-neighbor derived_layer; say O(N²) and single-row NULL in UI.",
+      "rationale": "Cheapest remaining Analyze honesty win after Calculate geometry. No-param like centroid/bbox/vertices; help already honest from R9.",
+      "risk": "Performance on large layers. Surface O(N²) honesty and featureLimit; do not invent KNN index requirements or a second-layer picker. Reuse Centroid worker path and i18n pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free proximity on your PostGIS. Honest about same-layer distance cost.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/nearest-neighbor.ts",
+        "apps/portal-web/content/help/analysis/nearest-neighbor.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-centroid-guide.tsx",
+        "apps/portal-web/src/app/items/[id]/data-layer/layer-analyze-panel.tsx"
+      ],
+      "suggestedFirstPR": "Add analyze-nearest-neighbor-guide POSTing single-step nearest-neighbor derived_layer; link nearest-neighbor.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R10-analyze-fishnet-shortcut",
+      "title": "Guided Fishnet shortcut that creates a derived-layer recipe",
+      "summary": "fishnetGenerator takes cellSize + unit + output polygons|lines (Buffer-shaped). Analyze has no Fishnet for this layer control; help/analysis/fishnet.md already matches ST_SquareGrid honesty. Mirror AnalyzeDensifyGuide / Buffer: short form, POST single-step fishnet derived_layer; gate to polygon geometryType; surface cell-count / MAX_CELLS honesty.",
+      "rationale": "Next Buffer-shaped Analyze shortcut after Calculate geometry. Square-grid workflows are a common free substitute for ArcGIS Create Fishnet seats.",
+      "risk": "Tiny cellSize on large polygons can explode rows. Reuse generator enrich max-cells check; say polygon-only and attributes dropped; do not invent hex cells or a separate extent picker.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free square grid on your PostGIS. Prefer honest cell caps over fake hex / AOI chrome.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/fishnet.ts",
+        "apps/portal-web/content/help/analysis/fishnet.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-densify-guide.tsx",
+        "apps/portal-web/src/lib/analyze-buffer-derived.ts"
+      ],
+      "suggestedFirstPR": "Add analyze-fishnet-guide (cell size, unit, polygons|lines) for polygon layers; link fishnet.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R10-analyze-top-n-shortcut",
+      "title": "Guided Top N shortcut that creates a derived-layer recipe",
+      "summary": "topNGenerator takes numeric field + n + asc|desc (Buffer-shaped with a field picker from the layer schema). Analyze has no Top N for this layer control; help/analysis/top-n.md already documents NULLs-last and MAX_N. Mirror Calculate-geometry form shape: field select, N, direction; POST single-step top-n derived_layer.",
+      "rationale": "Attribute sampling is the next low-risk Analyze gap after no-param / geometry Buffer-shaped tools. Single-layer field picker only — not a multi-input overlay UX.",
+      "risk": "Non-numeric fields must be filtered out of the picker (generator validates type number). Cap N in the form to MAX_N; do not invent multi-field sort. Reuse existing Analyze i18n pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free Top N on your PostGIS. Guided field pick over raw SQL ORDER BY seats.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/top-n.ts",
+        "apps/portal-web/content/help/analysis/top-n.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-calculate-geometry-guide.tsx",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Add analyze-top-n-guide (numeric field, N, asc|desc); link top-n.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R10-recipe-overpass-truncated-honesty",
+      "title": "Honest recipe OSM overlay truncated flag",
+      "summary": "recipe-runner hardcodes truncated: false on osm-features-overlay / relational / reverse-geocode outputs with a wave-2 comment, while GET /api/osm/query already computes truncated from featureCount vs returned rows. Wire the real truncated bit from OsmService results (or drop the field from the public shape if unused) and scrub remaining wave-2 comments so clients do not trust a permanent false.",
+      "rationale": "Same class of recipe honesty as AOI wave-2 (#396). Demo tools that hit Overpass caps silently claim completeness.",
+      "risk": "Confirm client consumers of truncated before flipping true. Prefer plumbing the existing OsmService / maxFeatures signal over inventing a new cap UI. CHANGELOG docs note; skip What's new unless a user-visible banner lands.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Honest about Overpass caps on free self-hosted tools. No fake completeness.",
+      "sources": [
+        "apps/portal-api/src/tools/recipe-runner.service.ts",
+        "apps/portal-api/src/osm/osm-query.controller.ts",
+        "apps/portal-web/content/help/items/tool.md",
+        "https://github.com/palavido-dev/gratis-gis/pull/396"
+      ],
+      "suggestedFirstPR": "Propagate truncated from OsmService/maxFeatures into recipe overlay outputs; remove wave-2 comments; CHANGELOG docs note + tool help if the flag is user-visible.",
+      "relatedIssues": []
+    },
+    {
+      "id": "R10-analyze-random-sample-shortcut",
+      "title": "Guided Random sample shortcut that creates a derived-layer recipe",
+      "summary": "randomSampleGenerator takes mode percentage|count + value + stable seed (Buffer-shaped). Analyze has no Random sample for this layer control; help/analysis/random-sample.md already documents md5(global_id||seed) stability. Mirror Top N / Densify: short form, POST single-step random-sample derived_layer; expose seed with a reshuffle control that stays client-side.",
+      "rationale": "Pairs with Top N for sampling honesty. Single-layer, no otherSource picker; help already shipped in R9.",
+      "risk": "Do not use Postgres random() (non-stable). Keep seed persisted on the recipe; cap count to MAX_COUNT; percentage 0..100 validation in the form. Reuse Analyze i18n pattern.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Free stable sample on your PostGIS. Honest seed over shuffle cosplay.",
+      "sources": [
+        "apps/portal-api/src/derived-layers/tools/random-sample.ts",
+        "apps/portal-web/content/help/analysis/random-sample.md",
+        "apps/portal-web/src/app/items/[id]/data-layer/analyze-densify-guide.tsx",
+        "apps/portal-web/src/app/items/new/derived-layer-builder.tsx"
+      ],
+      "suggestedFirstPR": "Add analyze-random-sample-guide (mode, value, seed); link random-sample.md; What's new + CHANGELOG + locale catalogs.",
+      "relatedIssues": []
+    },
+    {
+      "id": "SEC-tools-run-throttle",
+      "title": "Tighter throttle on Public POST /api/tools/:id/run",
+      "summary": "ToolsController.run is @Public with only the global 300/min ThrottlerGuard. Anonymous callers can run public Overpass-backed tools (osm-features-overlay / relational) and burn egress. Add @Throttle({ default: { ttl: 60_000, limit: 30 } }) matching anonymous drawings writes; keep auth behaviour unchanged.",
+      "rationale": "Standing Low follow-up from R8/R9 Security Sentinel notes. Small hardening, no product call, reduces anonymous Overpass abuse surface.",
+      "risk": "Embedded public web apps that run tools in a tight loop may hit 30/min. Prefer 30 to match drawings; document in CHANGELOG Security. Add a regression test that the decorator is present if the suite already covers throttle metadata.",
+      "shipClass": "ship-without-input",
+      "classification": "ship-without-input",
+      "ethosFit": "Self-hosted hardenings without waiting on pricing or Keycloak defaults.",
+      "sources": [
+        "apps/portal-api/src/tools/tools.controller.ts",
+        "apps/portal-api/src/items/drawings.controller.ts",
+        "apps/portal-api/src/app.module.ts",
+        "docs/research/security-deep-dive-2026-10-27.md",
+        "docs/autonomy/research-cycle-9.json"
+      ],
+      "suggestedFirstPR": "Add @Throttle 30/min on ToolsController.run; CHANGELOG Security note; skip What's new.",
+      "relatedIssues": []
+    }
+  ],
+  "rejected": [
+    {
+      "id": "R10-reject-node-graph-canvas",
+      "title": "Reject visual node-graph recipe canvas",
+      "reason": "Linear canvas + DAG runtime exist; branching node-graph editor remains polish. Prefer field i18n, data-collection help, and Analyze nearest-neighbor / fishnet / top-n / random-sample shortcuts."
+    },
+    {
+      "id": "R10-reject-print-brand-kit",
+      "title": "Reject Contour brand / print chrome redesign",
+      "reason": "Fails playbook brand test. Print markup honesty already shipped."
+    },
+    {
+      "id": "R10-reject-seat-pricing",
+      "title": "Reject named-user / seat pricing experiments",
+      "reason": "Self-hosted ethos; no per-seat SaaS cosplay."
+    },
+    {
+      "id": "R10-reject-recipe-materialize-sinks",
+      "title": "Reject wiring recipe derived-layer / data-layer materialize sinks",
+      "reason": "Honesty PR #386 already points authors at derived_layer / Analyze. Wiring sinks is a multi-path feature, not a first PR."
+    },
+    {
+      "id": "R10-reject-tile3d-local-rebuild",
+      "title": "Reject another local point-cloud rebuild as closing #183",
+      "reason": "Playbook forbids closing #183 on tuning alone; COPC to Tile3D stays needs-maintainer. R8 streaming honesty (#404) was docs/UI only; #183 remains OPEN."
+    },
+    {
+      "id": "R10-reject-dissolve-groupby-feature",
+      "title": "Reject implementing dissolve groupBy / aggregates now",
+      "reason": "Honesty rewrite + Analyze no-param shortcut already shipped. Keyed dissolve with aggregates already exists as group-by with ST_Union geometry; inventing a second path is scope creep."
+    },
+    {
+      "id": "R10-reject-weblate-hosting",
+      "title": "Reject choosing Weblate vs Crowdin vs Tolgee",
+      "reason": "Process / hosting decision stays needs-maintainer (Q-162b). Finishable #162 work is catalog extraction only."
+    },
+    {
+      "id": "R10-reject-analyze-contour-shortcut",
+      "title": "Reject Contour Analyze shortcut this cycle",
+      "reason": "Contour params (field + auto/manual levels + enrich cachedLevels) are heavier than Buffer-shaped forms. Prefer fishnet / top-n / random-sample; contour stays builder + existing help."
+    },
+    {
+      "id": "R10-reject-analyze-multi-input-shortcuts",
+      "title": "Reject Spatial join / Spatial filter / Clip-style multi-picker Analyze shortcuts",
+      "reason": "Multi-source otherSource pickers are heavy Analyze UX. Honesty help already shipped (#398/#407); keep those tools on the derived-layer builder."
+    },
+    {
+      "id": "R10-reject-analyze-calculate-field-shortcut",
+      "title": "Reject Calculate field Analyze shortcut",
+      "reason": "Expression dialect needs a real expression editor, not a Buffer-shaped form. Calculate geometry already covers meter-honest measures (#413); calculate-field stays builder-only."
+    }
+  ],
+  "needsMaintainerCarryForward": [
+    "Q-162b / R5-weblate-hosting",
+    "Q-183b / R5-tile3d-heavy-clouds",
+    "R1-presence-crdt / R5-presence-crdt",
+    "R2-comments-mentions / R5-comments-mentions"
+  ]
+}

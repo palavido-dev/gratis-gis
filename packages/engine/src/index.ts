@@ -43,6 +43,8 @@ export {
   operationalLayerForLens,
   webMapJsonToLens,
   webMapJsonToLenses,
+  toEsriTemplate,
+  fromEsriTemplate,
 } from './web-map-json.js';
 
 export { uuidv7, uuidv7Timestamp, isUuid } from './uuid.js';

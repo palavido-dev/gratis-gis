@@ -25,8 +25,8 @@ or a single mask polygon for a later clip / erase.
 
 If you need one polygon **per attribute value** (land-use
 categories, ownership, zoning) plus counts or sums, use
-[Group by](analysis-group-by) with geometry strategy **Dissolve**
-instead. That is the shipped keyed path.
+[Group by](analysis-group-by) (always `ST_Union` per group) instead.
+That is the shipped keyed path.
 
 ## Inputs
 
@@ -51,13 +51,25 @@ or use group-by when you need keys and aggregates.
 
 ## How to use it on its own
 
+### From Analyze (guided)
+
+1. Open a data layer and switch to the **Analyze** tab.
+2. Click **Dissolve this layer**.
+3. Optionally edit the title.
+4. Click **Create derived layer**.
+
+The portal creates a private derived layer and opens it. Expect a
+short server job, not an instant browser result. Attributes are
+dropped on this path.
+
+### From the new-item wizard
+
 1. New-item wizard → **Derived layer**.
 2. Pick a Source.
 3. Add a **Dissolve** step (no options to fill in).
 4. Save.
 
-Expect a short server job. The builder shows a short note that
-attributes are dropped.
+The builder shows a short note that attributes are dropped.
 
 ## Examples
 
@@ -68,15 +80,15 @@ attributes are dropped.
   dissolve — one shape for that owner without inventing a key
   field on dissolve itself.
 
-## Dissolve vs. group-by with dissolve geometry strategy
+## Dissolve vs. group-by
 
 Both can merge geometries. The differences:
 
 - **Dissolve** (this step) is the simple path: one union of the
   whole input, no attributes. Prefer it when that is all you need.
-- **Group by** with geometry strategy **Dissolve** is the path
-  when you also want group keys and aggregates (count, sum,
-  average) alongside the merged geometry per key.
+- **Group by** is the path when you also want group keys and
+  aggregates (count, sum, average, …) alongside `ST_Union`
+  geometry per key.
 
 ## Notes
 

@@ -5,6 +5,7 @@ import {
   DEFAULT_PAGE_SIZE,
   MAX_PAGE_SIZE,
   parsePagingParams,
+  unpagedFeatureReadAllowed,
 } from './feature-paging.js';
 
 const CURSOR = '019fd2cb-09b5-7410-8b95-2ae9f635dad7';
@@ -66,5 +67,13 @@ describe('parsePagingParams', () => {
     expect(() =>
       parsePagingParams(undefined, "'; DROP TABLE observation; --"),
     ).toThrow(BadRequestException);
+  });
+});
+
+describe('unpagedFeatureReadAllowed', () => {
+  it('keeps the full stream unless the operator requires pages', () => {
+    expect(unpagedFeatureReadAllowed(undefined)).toBe(true);
+    expect(unpagedFeatureReadAllowed('')).toBe(true);
+    expect(unpagedFeatureReadAllowed('required')).toBe(false);
   });
 });

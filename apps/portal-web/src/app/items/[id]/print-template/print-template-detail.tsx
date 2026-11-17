@@ -24,6 +24,7 @@
  *     WYSIWYG-ish DOM render; runtime renders to PDF separately)
  */
 
+import { isStaleItemSave, useGuardedItemPatch } from '@/lib/item-version';
 import {
   useCallback,
   useEffect,
@@ -34,6 +35,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { useFormat } from '@/lib/i18n/format';
+import { useT } from '@/lib/i18n/locale-context';
 import {
   AlignCenter,
   AlignLeft,
@@ -77,6 +79,8 @@ import {
 
 interface PrintTemplateDetailProps {
   itemId: string;
+  /** The item's updatedAt as loaded; guards saves against a newer one. */
+  updatedAt?: string;
   initialBlueprint: PrintTemplateData;
   seedKind: string | null;
   canEdit: boolean;
@@ -210,10 +214,13 @@ interface ActiveGesture {
 
 export function PrintTemplateDetail({
   itemId,
+  updatedAt,
   initialBlueprint,
   seedKind,
   canEdit,
 }: PrintTemplateDetailProps) {
+  const patchItem = useGuardedItemPatch(itemId, updatedAt);
+  const t = useT();
   const [data, setData] = useState<PrintTemplateData>(() => initialBlueprint);
   const [dirty, setDirty] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -245,11 +252,11 @@ export function PrintTemplateDetail({
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(`/api/portal/items/${itemId}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ data }),
-      });
+      const res = await patchItem({ data });
+      if (isStaleItemSave(res)) {
+        setSaveError(t('common.itemChangedElsewhere'));
+        return;
+      }
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
         throw new Error(`${res.status} ${txt}`);
@@ -260,7 +267,7 @@ export function PrintTemplateDetail({
     } finally {
       setSaving(false);
     }
-  }, [canEdit, data, itemId]);
+  }, [canEdit, data, patchItem, t]);
 
   // ---- Element CRUD ----------------------------------------------
 
@@ -444,7 +451,7 @@ export function PrintTemplateDetail({
           type="button"
           onClick={() => setZoom((z) => Math.max(0.4, z - 0.1))}
           className="rounded border border-border bg-surface-0 px-2 py-1 text-xs hover:bg-surface-2"
-          aria-label="Zoom out"
+          aria-label={t('printTemplate.zoomOutAria')}
         >
           <Minus className="h-3.5 w-3.5" />
         </button>
@@ -455,7 +462,7 @@ export function PrintTemplateDetail({
           type="button"
           onClick={() => setZoom((z) => Math.min(1.5, z + 0.1))}
           className="rounded border border-border bg-surface-0 px-2 py-1 text-xs hover:bg-surface-2"
-          aria-label="Zoom in"
+          aria-label={t('printTemplate.zoomInAria')}
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
@@ -467,7 +474,11 @@ export function PrintTemplateDetail({
         className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white shadow-xs transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-ink-2"
       >
         <Save className="h-3.5 w-3.5" />
-        {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+        {saving
+          ? t('printTemplate.saving')
+          : dirty
+            ? t('printTemplate.saveChanges')
+            : t('printTemplate.saved')}
       </button>
     </div>
   );
@@ -531,10 +542,10 @@ export function PrintTemplateDetail({
       icon={<Printer className="h-4 w-4 text-ink-1" strokeWidth={1.75} />}
       toolbarRight={toolbarRight}
       leftPanel={leftPanel}
-      leftPanelTitle="Elements"
+      leftPanelTitle={t('printTemplate.elements')}
       leftRailIcon={<Printer className="h-4 w-4" />}
       rightPanel={rightPanel}
-      rightPanelTitle="Properties"
+      rightPanelTitle={t('printTemplate.properties')}
       rightRailIcon={<Settings className="h-4 w-4" />}
     >
       <div className="absolute inset-0 overflow-auto bg-surface-2/40 p-6">
@@ -874,13 +885,14 @@ function PaperPanel({
   canEdit: boolean;
   onChange: (patch: Partial<PrintPaperSpec>) => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-1 p-3">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">
-        Paper
+        {t('printTemplate.paper')}
       </h3>
       <label className="block text-xs text-ink-1">
-        Size
+        {t('printTemplate.size')}
         <select
           value={paper.size}
           disabled={!canEdit}
@@ -895,7 +907,7 @@ function PaperPanel({
         </select>
       </label>
       <fieldset className="mt-2 flex gap-1.5">
-        <legend className="sr-only">Orientation</legend>
+        <legend className="sr-only">{t('printTemplate.orientation')}</legend>
         <button
           type="button"
           disabled={!canEdit}
@@ -906,7 +918,7 @@ function PaperPanel({
               : 'border-border bg-surface-0 text-ink-1'
           }`}
         >
-          Portrait
+          {t('printTemplate.portrait')}
         </button>
         <button
           type="button"
@@ -918,11 +930,11 @@ function PaperPanel({
               : 'border-border bg-surface-0 text-ink-1'
           }`}
         >
-          Landscape
+          {t('printTemplate.landscape')}
         </button>
       </fieldset>
       <label className="mt-2 block text-xs text-ink-1">
-        Margin (inches)
+        {t('printTemplate.marginInches')}
         <input
           type="number"
           min={0}
@@ -1055,6 +1067,7 @@ function TextProps({
   canEdit: boolean;
   onChange: (patch: Partial<PrintTextElement>) => void;
 }) {
+  const t = useT();
   const [literalDraft, setLiteralDraft] = useState('');
 
   const insertBinding = useCallback(
@@ -1114,7 +1127,7 @@ function TextProps({
                   disabled={!canEdit}
                   onClick={() => removeSegment(i)}
                   className="ml-0.5 text-muted hover:text-danger"
-                  aria-label="Remove text"
+                  aria-label={t('printTemplate.removeTextAria')}
                 >
                   ×
                 </button>
@@ -1132,7 +1145,7 @@ function TextProps({
                   disabled={!canEdit}
                   onClick={() => removeSegment(i)}
                   className="text-accent hover:text-danger"
-                  aria-label="Remove chip"
+                  aria-label={t('printTemplate.removeChipAria')}
                 >
                   ×
                 </button>
@@ -1151,7 +1164,7 @@ function TextProps({
                 commitLiteralDraft();
               }
             }}
-            placeholder="Type text…"
+            placeholder={t('printTemplate.typeTextPlaceholder')}
             className="min-w-[60px] flex-1 bg-transparent text-2xs outline-hidden"
           />
         </div>
@@ -1161,7 +1174,9 @@ function TextProps({
         <div className="mt-1.5 space-y-1.5">
           {parameters.length > 0 ? (
             <div>
-              <div className="text-2xs uppercase tracking-wide text-muted">Parameters</div>
+              <div className="text-2xs uppercase tracking-wide text-muted">
+                {t('printTemplate.parameters')}
+              </div>
               <div className="mt-0.5 flex flex-wrap gap-1">
                 {parameters.map((p) => (
                   <button
@@ -1444,11 +1459,12 @@ function ParameterPanel({
   onUpdate: (id: string, patch: Partial<PrintTemplateParameter>) => void;
   onDelete: (id: string) => void;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-1 p-3">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
-          Parameters
+          {t('printTemplate.parameters')}
         </h3>
         <button
           type="button"
@@ -1456,12 +1472,12 @@ function ParameterPanel({
           onClick={onAdd}
           className="text-xs text-accent hover:underline disabled:opacity-50"
         >
-          <Plus className="inline h-3 w-3" /> Add
+          <Plus className="inline h-3 w-3" /> {t('printTemplate.addParameter')}
         </button>
       </div>
       {parameters.length === 0 ? (
         <p className="text-2xs text-muted">
-          Parameters become form fields the user fills before printing.
+          {t('printTemplate.parametersHint')}
         </p>
       ) : (
         <div className="space-y-2">
@@ -1481,7 +1497,7 @@ function ParameterPanel({
                   disabled={!canEdit}
                   onClick={() => onDelete(p.id)}
                   className="text-xs text-danger hover:underline disabled:opacity-50"
-                  aria-label="Delete parameter"
+                  aria-label={t('printTemplate.deleteParameterAria')}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>

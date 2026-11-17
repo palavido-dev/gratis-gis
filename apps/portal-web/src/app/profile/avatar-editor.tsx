@@ -47,6 +47,16 @@ export function AvatarEditor({ userId, fullName, initialAvatarUrl }: Props) {
         return;
       }
       router.refresh();
+    } catch (err) {
+      // A network failure must not leave the new picture showing as if
+      // it saved.
+      setError(
+        t('profile.avatar.saveFailed', {
+          status: 'network',
+          detail: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      setAvatarUrl(initialAvatarUrl);
     } finally {
       setSaving(false);
     }

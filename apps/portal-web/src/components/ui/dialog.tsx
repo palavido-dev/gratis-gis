@@ -36,6 +36,7 @@ import {
 } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
+import { useT } from '@/lib/i18n/locale-context';
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
@@ -82,6 +83,7 @@ export const DialogContent = forwardRef<
   { className = '', size = 'md', srTitle, hideCloseButton, children, ...props },
   ref,
 ) {
+  const t = useT();
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -99,7 +101,7 @@ export const DialogContent = forwardRef<
         {hideCloseButton ? null : (
           <DialogPrimitive.Close
             className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-ink-1 focus:outline-hidden focus:ring-2 focus:ring-accent/30"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X className="h-4 w-4" />
           </DialogPrimitive.Close>

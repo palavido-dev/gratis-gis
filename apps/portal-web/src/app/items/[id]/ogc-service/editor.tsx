@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { formatDate } from '@/lib/i18n/format';
-import { DEFAULT_LOCALE } from '@/lib/i18n/locales';
+import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 
 import { useRef, useState, useTransition } from 'react';
@@ -24,6 +23,8 @@ import {
   DEFAULT_WMS_SERVICE,
 } from '@gratis-gis/shared-types';
 import {
+  ogcBaseUrl,
+  ogcRequestUrl,
   probeWfs,
   probeWms,
   type OgcCapabilities,
@@ -61,10 +62,15 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
   const fallback = (
     kind === 'wms' ? DEFAULT_WMS_SERVICE : DEFAULT_WFS_SERVICE
   ) as WmsServiceData | WfsServiceData;
-  const [data, setData] = useState<WmsServiceData | WfsServiceData>({
+  // `data` is the draft the option controls edit; `stored` is what the
+  // server holds. The option controls used to write straight into the
+  // only copy, so the draft always equalled the baseline: no Save bar
+  // appeared, Discard could not undo, and the edit was lost on reload.
+  const [stored, setStored] = useState<WmsServiceData | WfsServiceData>({
     ...fallback,
     ...initial,
   });
+  const [data, setData] = useState<WmsServiceData | WfsServiceData>(stored);
   const [urlDraft, setUrlDraft] = useState(data.url);
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<OgcCapabilities | null>(null);
@@ -73,6 +79,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const t = useT();
+  const fmt = useFormat();
   const [, startTransition] = useTransition();
   const abortRef = useRef<AbortController | null>(null);
 
@@ -123,14 +130,17 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
     .filter((i) => i >= 0);
 
   // Coerce stored ids to numbers for the diff (ArcGIS-compat shape
-  // allows string|number).
-  const storedSelectedIdsAsNums: number[] = (data.selectedLayerIds ?? []).map(
-    (id) => (typeof id === 'number' ? id : Number(id)),
-  );
+  // allows string|number). No stored list means "all", as at load,
+  // so an older item does not show unsaved changes from the start.
+  const storedSelectedIdsAsNums: number[] = stored.selectedLayerIds
+    ? stored.selectedLayerIds.map((id) =>
+        typeof id === 'number' ? id : Number(id),
+      )
+    : stored.layers.map((_, i) => i);
   const hasChanges =
     probeResult !== null ||
     arraysDiffer(stagedSelectedIds, storedSelectedIdsAsNums) ||
-    formatsDiffer(staged, data);
+    formatsDiffer(staged, stored);
 
   async function runProbe() {
     if (!canEdit) return;
@@ -189,17 +199,18 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
   function discardProbe() {
     setProbeResult(null);
     setProbeError(null);
-    setUrlDraft(data.url);
+    setData(stored);
+    setUrlDraft(stored.url);
     // Reset selection to the saved set. Same string|number coercion
     // as the initial state computation.
-    const resetIndices: number[] = data.selectedLayerIds
-      ? data.selectedLayerIds
+    const resetIndices: number[] = stored.selectedLayerIds
+      ? stored.selectedLayerIds
           .map((id) => (typeof id === 'number' ? id : Number(id)))
           .filter((n) => Number.isInteger(n))
-      : data.layers.map((_, i) => i);
+      : stored.layers.map((_, i) => i);
     const reset = new Set<string>(
       resetIndices
-        .map((i) => data.layers[i]?.name ?? '')
+        .map((i) => stored.layers[i]?.name ?? '')
         .filter((n) => n.length > 0),
     );
     setSelectedNames(reset);
@@ -225,6 +236,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
         return;
       }
       setData(payload);
+      setStored(payload);
       setProbeResult(null);
       setProbeError(null);
       setSaved(true);
@@ -250,7 +262,7 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
           {protocolLabel} {staged.protocolVersion} &middot;{' '}
           {t('serviceEditors.probedPrefix', {
             when: staged.probedAt
-              ? formatRelative(staged.probedAt)
+              ? fmt.relativeTime(staged.probedAt)
               : t('serviceEditors.probedNotYet'),
           })}
         </p>
@@ -264,7 +276,14 @@ export function OgcServiceEditor({ itemId, kind, initial, canEdit }: Props) {
             className="h-9 min-w-0 flex-1 rounded-md border border-border bg-surface-1 px-2 font-mono text-sm"
           />
           <a
-            href={`${data.url}?service=${protocolLabel}&request=GetCapabilities`}
+            href={
+              data.url.trim()
+                ? ogcRequestUrl(ogcBaseUrl(data.url), {
+                    service: protocolLabel,
+                    request: 'GetCapabilities',
+                  })
+                : undefined
+            }
             target="_blank"
             rel="noreferrer"
             className="inline-flex h-9 items-center gap-1 rounded-md border border-border bg-surface-1 px-2 text-xs text-ink-1 hover:bg-surface-2"
@@ -582,21 +601,3 @@ function formatBbox(b: [number, number, number, number]): string {
   return `${w.toFixed(3)}, ${s.toFixed(3)} → ${e.toFixed(3)}, ${n.toFixed(3)}`;
 }
 
-function formatRelative(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const ms = Date.now() - d.getTime();
-    const sec = Math.round(ms / 1000);
-    if (sec < 60) return 'just now';
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min}m ago`;
-    const hr = Math.round(min / 60);
-    if (hr < 24) return `${hr}h ago`;
-    const day = Math.round(hr / 24);
-    if (day < 30) return `${day}d ago`;
-    return formatDate(d, DEFAULT_LOCALE);
-  } catch {
-    return iso;
-  }
-}

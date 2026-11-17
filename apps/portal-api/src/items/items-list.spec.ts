@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PolicyService } from '../policy/policy.service.js';
@@ -47,10 +47,11 @@ interface FakePrisma {
   };
   itemShare: { findMany: jest.Mock };
   $queryRaw: jest.Mock;
+  $transaction: jest.Mock;
 }
 
 function makePrisma(): FakePrisma {
-  return {
+  const prisma: FakePrisma = {
     item: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
@@ -59,7 +60,10 @@ function makePrisma(): FakePrisma {
     },
     itemShare: { findMany: jest.fn().mockResolvedValue([]) },
     $queryRaw: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn(),
   };
+  prisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(prisma));
+  return prisma;
 }
 
 function makeService(prisma: FakePrisma): ItemsService {
@@ -218,6 +222,24 @@ describe('ItemsService list paging and projection', () => {
     expect(countWhere).toMatchObject({ type: 'map' });
   });
 
+  it('filters by data.source.itemId when sourceItemId is set', async () => {
+    const prisma = makePrisma();
+    const svc = makeService(prisma);
+    const src = '33333333-3333-4333-8333-333333333333';
+    await svc.listPaged(makeUser(), {
+      lite: false,
+      type: 'derived_layer',
+      mine: true,
+      sourceItemId: src,
+      limit: 50,
+    });
+    const where = (prisma.item.findMany.mock.calls[0]![0] as { where: unknown })
+      .where;
+    expect(where).toMatchObject({
+      data: { path: ['source', 'itemId'], equals: src },
+    });
+  });
+
   it('annotates web_app rows with _template in lite mode', async () => {
     const prisma = makePrisma();
     const webAppId = '22222222-2222-2222-2222-222222222222';
@@ -244,7 +266,98 @@ describe('ItemsService list paging and projection', () => {
   });
 });
 
+describe('ItemsService full list of maps', () => {
+  it('applies the per-layer viewer filter to maps the caller cannot edit', async () => {
+    const prisma = makePrisma();
+    prisma.item.findMany.mockResolvedValue([
+      makeListRow({
+        ownerId: 'someone-else',
+        data: {
+          layers: [
+            {
+              id: 'hidden',
+              access: {
+                policy: 'custom',
+                entries: [
+                  { principalType: 'user', principalId: 'x', view: true },
+                ],
+              },
+            },
+            { id: 'open' },
+          ],
+        },
+      }),
+    ]);
+    const svc = makeService(prisma);
+    const rows = (await svc.list(makeUser(), { lite: false })) as Array<{
+      data: { layers: Array<{ id: string; access?: { entries?: unknown } }> };
+    }>;
+    expect(rows[0]!.data.layers.map((l) => l.id)).toEqual(['open']);
+  });
+});
+
+describe('ItemsService list owner filter', () => {
+  it('lets a non-admin filter by another owner, still inside visibleWhere', async () => {
+    const prisma = makePrisma();
+    const svc = makeService(prisma);
+    await svc.list(makeUser(), {
+      lite: true,
+      ownerId: '22222222-2222-2222-2222-222222222222',
+    });
+    const args = prisma.item.findMany.mock.calls[0]![0] as {
+      where: Record<string, unknown>;
+    };
+    expect(JSON.stringify(args.where)).toContain(
+      '22222222-2222-2222-2222-222222222222',
+    );
+    // The visibility clause is still there.
+    expect(JSON.stringify(args.where)).toContain('org-1');
+  });
+});
+
 describe('ItemsController GET /items paging contract', () => {
+  it('refuses a malformed ownerId with 400 instead of reaching Prisma', async () => {
+    const listPaged = jest.fn().mockResolvedValue({ rows: [], total: 0 });
+    const { controller, res } = makeController({ listPaged });
+    await expect(
+      controller.list(
+        makeUser(),
+        res as never,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-uuid',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(listPaged).not.toHaveBeenCalled();
+  });
+
+  it('passes a uuid sourceItemId through and refuses a malformed one', async () => {
+    const listPaged = jest.fn().mockResolvedValue({ rows: [], total: 0 });
+    const { controller, res } = makeController({ listPaged });
+    const src = '33333333-3333-4333-8333-333333333333';
+    const call = (value: string) =>
+      controller.list(
+        makeUser(),
+        res as never,
+        undefined, // mine
+        undefined, // type
+        undefined, // q
+        undefined, // ownerId
+        undefined, // bbox
+        undefined, // buffer
+        undefined, // lite
+        undefined, // full
+        undefined, // limit
+        undefined, // offset
+        undefined, // sharedWithGroupId
+        value,
+      );
+    await call(src);
+    expect((listPaged.mock.calls[0]![1] as Record<string, unknown>).sourceItemId).toBe(src);
+    await expect(call('nope')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('defaults to lite + limit 500 and emits X-Total-Count', async () => {
     const listPaged = jest
       .fn()
@@ -379,6 +492,7 @@ describe('PublicController GET /public/items mirror', () => {
     PublicController: new (
       prisma: unknown,
       v3: unknown,
+      itemsService: unknown,
     ) => {
       items: (
         res: unknown,
@@ -391,7 +505,7 @@ describe('PublicController GET /public/items mirror', () => {
   };
 
   function makePublic(prisma: FakePrisma) {
-    const controller = new PublicController(prisma as never, {} as never);
+    const controller = new PublicController(prisma as never, {} as never, {} as never);
     return { controller, res: { setHeader: jest.fn() } };
   }
 
@@ -453,6 +567,10 @@ describe('ItemsService update expectedUpdatedAt precondition', () => {
     });
     prisma.item.findUnique.mockResolvedValue(row);
     prisma.item.update.mockResolvedValue({ ...row, title: 'Renamed' });
+    // The row as the write sees it under its lock: unchanged.
+    prisma.$queryRaw.mockResolvedValue([
+      { data: (row as { data?: unknown }).data, updated_at_ms: ROW_UPDATED_AT.getTime() },
+    ]);
   }
 
   it('409s when the supplied expectedUpdatedAt is stale', async () => {
@@ -500,6 +618,90 @@ describe('ItemsService update expectedUpdatedAt precondition', () => {
   });
 });
 
+describe('ItemsService update under the row lock', () => {
+  const T1 = new Date('2026-07-01T12:00:00.000Z');
+  const T2 = new Date('2026-07-01T12:00:05.000Z');
+
+  function folderRow(updatedAt: Date, childItemIds: string[]) {
+    return makeListRow({
+      type: 'folder',
+      updatedAt,
+      data: { version: 1, childItemIds },
+    });
+  }
+
+  it('recomputes from the new row when a save lands between read and write', async () => {
+    const prisma = makePrisma();
+    const stale = folderRow(T1, ['a']);
+    const fresh = folderRow(T2, ['a', 'b']);
+    prisma.item.findUnique
+      .mockResolvedValueOnce(stale)
+      .mockResolvedValue(fresh);
+    prisma.item.findMany.mockResolvedValue([]);
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a', 'b'] }, updated_at_ms: T2.getTime() },
+    ]);
+    prisma.item.update.mockResolvedValue(fresh);
+    const svc = makeService(prisma);
+
+    await svc.update(makeUser(), 'item-1', {
+      data: { version: 1, childItemIds: ['a', 'b', 'c'] },
+    });
+
+    // First attempt saw T1, the lock saw T2, so it ran again from the
+    // fresh read and wrote once.
+    expect(prisma.item.findUnique).toHaveBeenCalledTimes(2);
+    expect(prisma.item.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('409s under the lock when expectedUpdatedAt passed the early check but the row moved', async () => {
+    const prisma = makePrisma();
+    prisma.item.findUnique.mockResolvedValue(folderRow(T1, ['a']));
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a', 'b'] }, updated_at_ms: T2.getTime() },
+    ]);
+    const svc = makeService(prisma);
+
+    await expect(
+      svc.update(makeUser(), 'item-1', {
+        title: 'Renamed',
+        expectedUpdatedAt: T1.toISOString(),
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.item.update).not.toHaveBeenCalled();
+  });
+
+  it('gives up with a 409 when the row keeps moving', async () => {
+    const prisma = makePrisma();
+    prisma.item.findUnique.mockResolvedValue(folderRow(T1, ['a']));
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a'] }, updated_at_ms: T2.getTime() },
+    ]);
+    const svc = makeService(prisma);
+
+    await expect(
+      svc.update(makeUser(), 'item-1', {
+        data: { version: 1, childItemIds: ['a', 'c'] },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.item.update).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a metadata-only patch', async () => {
+    const prisma = makePrisma();
+    const row = folderRow(T1, ['a']);
+    prisma.item.findUnique.mockResolvedValue(row);
+    prisma.item.update.mockResolvedValue(row);
+    prisma.$queryRaw.mockResolvedValue([
+      { data: { version: 1, childItemIds: ['a'] }, updated_at_ms: T2.getTime() },
+    ]);
+    const svc = makeService(prisma);
+
+    await svc.update(makeUser(), 'item-1', { title: 'Renamed' });
+    expect(prisma.item.update).toHaveBeenCalledTimes(1);
+  });
+});
+
 // v0.9.1 regression: the trash list must serialize the lean owner
 // projection. The pre-snapshot demo purge keys keep-or-purge on
 // owner.username and hard-aborts when it is missing, which is exactly
@@ -516,5 +718,33 @@ describe('listTrash owner projection', () => {
       fullName: true,
       avatarUrl: true,
     });
+  });
+});
+
+// Smart folders and the trash used to load every matching row with its
+// full data blob before trimming the result.
+describe('smart folder and trash loads', () => {
+  const me = { id: 'u1', orgId: 'o1', orgRole: 'admin', groupIds: [] } as never;
+
+  it('a smart folder asks list() for a bounded lite page', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const list = jest.fn(async () => []);
+    Object.assign(svc, { list });
+    await (svc as unknown as {
+      resolveSmartFolder: (u: unknown, q: unknown) => Promise<unknown>;
+    }).resolveSmartFolder(me, { q: 'parcels', limit: 50 });
+    expect(list).toHaveBeenCalledWith(
+      me,
+      expect.objectContaining({ q: 'parcels', limit: 50, lite: true }),
+    );
+  });
+
+  it('the trash list leaves out item data', async () => {
+    const svc = Object.create(ItemsService.prototype) as ItemsService;
+    const findMany = jest.fn(async () => []);
+    Object.assign(svc, { prisma: { item: { findMany } } });
+    await svc.listTrash(me);
+    const calls = findMany.mock.calls as unknown as Array<[{ omit?: unknown }]>;
+    expect(calls[0]![0].omit).toEqual({ data: true });
   });
 });

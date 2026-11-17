@@ -73,6 +73,14 @@ export class ApiKeyService {
     if (user.deletedAt !== null) {
       throw new UnauthorizedException('Invalid API key.');
     }
+    // Disabled in Keycloak by an admin or by housekeeping. Disabling
+    // also revokes the user's keys; this check covers keys minted
+    // after that (a scheduled script's run key) and any write that
+    // raced the revoke. Admins included: an admin's key must not
+    // outlive the admin's account either.
+    if (user.disabledAt !== null) {
+      throw new UnauthorizedException('Invalid API key.');
+    }
     if (
       user.autoDisableAt !== null &&
       user.autoDisableAt.getTime() <= Date.now() &&

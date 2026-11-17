@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
+import { EXECUTOR_JSON_BODY_LIMIT } from './common/body-limits.js';
 import { ScriptExecutorAppModule } from './script-executor.module.js';
 
 /**
@@ -30,10 +32,15 @@ import { ScriptExecutorAppModule } from './script-executor.module.js';
  */
 async function bootstrap() {
   const log = new Logger('ScriptExecutor');
-  const app = await NestFactory.create(ScriptExecutorAppModule, {
-    bufferLogs: false,
-  });
+  const app = await NestFactory.create<NestExpressApplication>(
+    ScriptExecutorAppModule,
+    { bufferLogs: false },
+  );
   app.enableShutdownHooks();
+  // The claimer posts the whole source as a JSON string. Express's
+  // 100 KB default refused scripts well under the 256 KB source cap
+  // once quotes and newlines were escaped, so raise it past that.
+  app.useBodyParser('json', { limit: EXECUTOR_JSON_BODY_LIMIT });
 
   // A run can be the full timeout long, so the request body/response can
   // legitimately take an hour: disable requestTimeout, and let the

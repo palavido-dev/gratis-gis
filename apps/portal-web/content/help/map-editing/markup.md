@@ -25,6 +25,11 @@ visitors on a public map can add and edit their own sets (off by
 default, rate-limited). Guests cannot promote a set to a data
 layer — that still needs a signed-in account.
 
+When two signed-in people edit the same markup set at once, the
+portal merges their sketches live (see
+[Live presence](map-editing-presence)). Anonymous markup does not
+use that path.
+
 The classic use case: a project manager opens a shared parcel map,
 spots three parcels with wrong boundaries, sketches the correct
 edges, and emails the map URL to the analyst who can fix the

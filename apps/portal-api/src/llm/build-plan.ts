@@ -124,7 +124,7 @@ function slug(value: string, fallback: string): string {
   const out = value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
+    .replace(/^_+|(?<!_)_+$/g, '')
     .slice(0, 40);
   if (!out || !/^[a-z]/.test(out)) return fallback;
   return out;

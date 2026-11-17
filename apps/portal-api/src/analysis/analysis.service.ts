@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,6 +14,7 @@ import type { Prisma } from '@prisma/client';
 import { isPointCloudData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { featureScopeFilter } from '../items/sharing.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
@@ -19,8 +22,14 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
 import { assertGridBudget } from './grid-estimate.js';
-import { stampAnalysisTargetFailed } from './analysis-target-stamp.js';
+import {
+  cancelLinkedImport,
+  stampAnalysisTargetFailed,
+} from './analysis-target-stamp.js';
 import type { ZonalStatName } from './analysis.dto.js';
+
+/** Largest point cloud colorize accepts (see createColorizeJob). */
+export const COLORIZE_MAX_POINTS = 30_000_000;
 
 const MAX_ZONAL_ZONES = 2000;
 const DEFAULT_ZONAL_STATS: ZonalStatName[] = [
@@ -60,6 +69,11 @@ export interface HillshadeParams {
  */
 const MAX_RASTER_CELLS = 12000 * 12000;
 
+/** Analysis jobs one user, and one org, may have waiting or running. */
+export const ANALYSIS_MAX_IN_FLIGHT_PER_USER = 5;
+export const ANALYSIS_MAX_IN_FLIGHT_PER_ORG = 20;
+const ACTIVE_JOB_STATES = ['queued', 'running', 'cancel_requested', 'ingest', 'importing'];
+
 @Injectable()
 export class AnalysisService {
   constructor(
@@ -72,6 +86,33 @@ export class AnalysisService {
 
   private assertServerTier(): void {
     assertServerHeavyTier(this.cfg, 'Server-side analysis');
+  }
+
+  /**
+   * Every analysis kind shares one FIFO queue across all orgs, and a
+   * heavy job may run for hours. Without a cap one user could queue
+   * hundreds and make every other org wait behind them. Same shape as
+   * the outline tool's per-user cap; checked before the target item
+   * is created, so a refused call leaves nothing behind.
+   */
+  private async assertJobCapacity(user: AuthUser): Promise<void> {
+    const active = { in: ACTIVE_JOB_STATES };
+    const [mine, org] = await Promise.all([
+      this.prisma.analysisJob.count({
+        where: { userId: user.id, kind: { not: 'sam-embed' }, state: active },
+      }),
+      this.prisma.analysisJob.count({
+        where: { orgId: user.orgId, kind: { not: 'sam-embed' }, state: active },
+      }),
+    ]);
+    if (mine >= ANALYSIS_MAX_IN_FLIGHT_PER_USER || org >= ANALYSIS_MAX_IN_FLIGHT_PER_ORG) {
+      throw new HttpException(
+        mine >= ANALYSIS_MAX_IN_FLIGHT_PER_USER
+          ? `You already have ${mine} analysis jobs waiting or running. Wait for one to finish, or cancel one, and try again.`
+          : 'Your organization has too many analysis jobs waiting or running. Try again when some have finished.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
   }
 
   async createHillshadeJob(
@@ -115,6 +156,7 @@ export class AnalysisService {
     // starts as an empty tile_layer; the worker stamps it into the
     // cog-ready state and the pyramid pipeline takes over.
     const modeLabel = params.mode === 'dtm' ? 'terrain' : 'surface';
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `${source.title} hillshade (${modeLabel}, ${resolution}m)`,
@@ -199,6 +241,7 @@ export class AnalysisService {
     // the number attached, and the estimate rides the response.
     const estimate = assertGridBudget(data, resolution, 1);
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `${source.title} elevation (${resolution}m)`,
@@ -310,6 +353,7 @@ export class AnalysisService {
       );
     }
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `Visible area (${source.title})`,
@@ -379,6 +423,7 @@ export class AnalysisService {
     const intervalM = clampNumber(params.intervalM, 0.5, 500, 3.048);
 
     const layerId = randomUUID();
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'data_layer',
       title: `Contour lines (${source.title})`,
@@ -454,6 +499,7 @@ export class AnalysisService {
       );
     }
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `Steepness map (${source.title})`,
@@ -525,6 +571,7 @@ export class AnalysisService {
     // two gridding passes (DSM + DTM) count double.
     const estimate = assertGridBudget(data, resolution, 2);
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `Height above ground (${source.title})`,
@@ -593,6 +640,14 @@ export class AnalysisService {
         'This point cloud has no uploaded file yet.',
       );
     }
+    // The worker colorizes in PDAL's standard mode, which holds every
+    // point in memory, inside a 2.5 GB container. A large cloud was
+    // downloaded, warped and then OOM-killed; refuse it up front.
+    if (typeof data.pointCount === 'number' && data.pointCount > COLORIZE_MAX_POINTS) {
+      throw new BadRequestException(
+        `This point cloud has ${data.pointCount.toLocaleString('en-US')} points; colorize handles up to ${COLORIZE_MAX_POINTS.toLocaleString('en-US')}. Colorize a smaller part of it.`,
+      );
+    }
 
     const rasterItemId =
       typeof params.rasterItemId === 'string' ? params.rasterItemId.trim() : '';
@@ -631,6 +686,7 @@ export class AnalysisService {
       );
     }
 
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'point_cloud',
       title: `${source.title} (colored from ${raster.title})`,
@@ -808,10 +864,17 @@ export class AnalysisService {
 
     let zonesFc: { type: 'FeatureCollection'; features: unknown[] };
     if (zoneLayerKey) {
+      // Zones are the caller's own read of the layer: a share limited
+      // to some rows or an area clips them as every other read does.
+      const zoneScope = await this.items.featureReadScope(
+        user,
+        zoneItem,
+        zoneLayerKey,
+      );
       zonesFc = await this.features.listFeatures(
         params.zoneItemId,
         zoneLayerKey,
-        { limit: MAX_ZONAL_ZONES + 1 },
+        { limit: MAX_ZONAL_ZONES + 1, ...featureScopeFilter(zoneScope) },
       );
     } else {
       zonesFc = await this.items.getGeoJson(user, params.zoneItemId);
@@ -863,6 +926,7 @@ export class AnalysisService {
       label: `Zonal ${s}`,
       nullable: true,
     }));
+    await this.assertJobCapacity(user);
     const target = await this.items.create(user, {
       type: 'data_layer',
       title: `Zonal stats (${source.title})`,
@@ -939,11 +1003,41 @@ export class AnalysisService {
         job,
         'This analysis was cancelled before it started.',
       );
-    } else {
-      await this.prisma.analysisJob.updateMany({
-        where: { id: jobId, state: 'running' },
-        data: { state: 'cancel_requested' },
+      return this.prisma.analysisJob.findUnique({ where: { id: jobId } });
+    }
+    const runningFlip = await this.prisma.analysisJob.updateMany({
+      where: { id: jobId, state: 'running' },
+      data: { state: 'cancel_requested' },
+    });
+    if (runningFlip.count === 0) {
+      // Past the worker: the result is waiting to be imported
+      // ('ingest') or its import is queued or running ('importing').
+      // Nothing polls this row for a cancel request in either state, so
+      // cancel it outright, and cancel the import it handed off to.
+      const handoffFlip = await this.prisma.analysisJob.updateMany({
+        where: { id: jobId, state: { in: ['ingest', 'importing'] } },
+        data: { state: 'cancelled', finishedAt: new Date() },
       });
+      if (handoffFlip.count > 0) {
+        // Read params again after the flip. The bridge may have
+        // recorded the import id between the first read and the flip;
+        // the stale copy would miss it and the import would still fill
+        // the layer.
+        const fresh = await this.prisma.analysisJob.findUnique({
+          where: { id: jobId },
+          select: { params: true },
+        });
+        const importJobId = (fresh?.params as { importJobId?: unknown } | null)
+          ?.importJobId;
+        if (typeof importJobId === 'string') {
+          await cancelLinkedImport(this.prisma, importJobId);
+        }
+        await stampAnalysisTargetFailed(
+          this.prisma,
+          job,
+          'This analysis was cancelled before its result was imported.',
+        );
+      }
     }
     return this.prisma.analysisJob.findUnique({ where: { id: jobId } });
   }

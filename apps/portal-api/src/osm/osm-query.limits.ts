@@ -30,6 +30,16 @@ export const OSM_QUERY_MAX_PRESETS = 10;
 /** Cap on relational near-conditions. */
 export const OSM_QUERY_MAX_CONDITIONS = 5;
 
+/** Cap on relational "must not be near" rules. */
+export const OSM_QUERY_MAX_NEGATIONS = 5;
+
+/**
+ * Cap on a relational condition or negation distance, in meters. The
+ * `around` sets carry no bbox, so an unbounded distance turned a small
+ * bbox into a continent-scale search.
+ */
+export const OSM_QUERY_MAX_DISTANCE_METERS = 50_000;
+
 export type OsmQueryBbox = [west: number, south: number, east: number, north: number];
 
 export interface OsmQueryLimitsOk {

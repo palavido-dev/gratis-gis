@@ -47,6 +47,9 @@ import {
   UNIT_LABELS,
 } from '@gratis-gis/shared-types';
 import { commitChain, syncSteps } from '@/lib/workflow-canvas';
+import { useT } from '@/lib/i18n/locale-context';
+import { metersToDisplay } from '@/lib/length-display';
+import { renameRecipeParameter } from '@/lib/recipe-param-rename';
 import { WorkflowCanvas } from './workflow-canvas';
 
 const PREDICATE_LABELS: Record<SpatialPredicate, string> = {
@@ -72,13 +75,26 @@ interface Props {
 }
 
 export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
+  const t = useT();
   const labelCls =
     'block text-xs font-medium uppercase tracking-wide text-muted';
   const inputCls =
     'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30 disabled:opacity-60';
 
   function setParameters(next: ToolParameter[]) {
-    onChange({ ...recipe, parameters: next });
+    // Carry a rename (or a removal) through to everything that refers
+    // to the parameter by name, so the refs follow the parameter.
+    let base: RecipeAction = recipe;
+    const prev = recipe.parameters;
+    if (next.length === prev.length) {
+      const i = prev.findIndex((p, j) => p.name !== next[j]?.name);
+      if (i >= 0) base = renameRecipeParameter(recipe, prev[i]!.name, next[i]!.name);
+    } else if (next.length === prev.length - 1) {
+      const kept = new Set(next.map((p) => p.name));
+      const gone = prev.find((p) => !kept.has(p.name));
+      if (gone) base = renameRecipeParameter(recipe, gone.name, '');
+    }
+    onChange({ ...base, parameters: next });
   }
   function setPipeline(next: ToolStep[]) {
     if (!recipe.graph) {
@@ -112,11 +128,12 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
         <div className="space-y-2 rounded-md border border-accent/30 bg-accent/5 p-3">
           <div className="flex items-center gap-2 text-sm text-ink-0">
             <Sparkles className="h-4 w-4 text-accent" />
-            <span className="font-medium">Start from a template</span>
+            <span className="font-medium">
+              {t('recipeEditor.startFromTemplate')}
+            </span>
           </div>
           <p className="text-2xs text-muted">
-            Stamp out a working recipe in one click.  You can edit
-            anything afterward.
+            {t('recipeEditor.startFromTemplateHint')}
           </p>
           <div className="flex flex-wrap gap-2">
             {RECIPE_TEMPLATES.flatMap((tpl) => {
@@ -173,7 +190,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
       />
 
       <div>
-        <label className={labelCls}>Selection cap</label>
+        <label className={labelCls}>{t('recipeEditor.selectionCap')}</label>
         <input
           type="number"
           disabled={!canEdit}
@@ -188,9 +205,7 @@ export function RecipeEditor({ recipe, canEdit, onChange }: Props) {
           className={inputCls}
         />
         <p className="mt-1 text-2xs text-muted">
-          Maximum feature ids returned per run.  The runtime banner
-          warns the user when the limit is reached so they know the
-          selection is incomplete.
+          {t('recipeEditor.selectionCapHint')}
         </p>
       </div>
     </div>
@@ -228,11 +243,14 @@ function ParametersSection({
     onChange(parameters.filter((_, i) => i !== index));
   }
 
+  const t = useT();
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium text-ink-0">Parameters</h3>
+          <h3 className="text-sm font-medium text-ink-0">
+            {t('recipeEditor.parameters')}
+          </h3>
           <p className="text-2xs text-muted">
             Slots the recipe exposes.  A parameter can be hardcoded
             into the tool or filled at run time by the host app /
@@ -272,7 +290,10 @@ function ParametersSection({
         <div className="space-y-2">
           {parameters.map((p, i) => (
             <ParameterCard
-              key={`${p.name}-${i}`}
+              // Index, not the name: the ID field edits the name, and a
+              // key that changes on every keystroke remounted the card,
+              // dropping focus and refetching its preset catalog.
+              key={i}
               parameter={p}
               canEdit={canEdit}
               onChange={(next) => update(i, next)}
@@ -302,6 +323,7 @@ function ParameterCard({
   labelCls: string;
   inputCls: string;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
       <div className="flex items-start justify-between gap-3">
@@ -333,7 +355,7 @@ function ParameterCard({
                 disabled={!canEdit}
                 value={parameter.label}
                 onChange={(e) => onChange({ label: e.target.value })}
-                placeholder="Area of interest"
+                placeholder={t('recipeEditor.areaOfInterest')}
                 className={inputCls}
               />
             </div>
@@ -379,7 +401,8 @@ function ParameterCard({
               type="button"
               onClick={onRemove}
               className="rounded-md border border-border bg-surface-1 p-1 text-danger hover:bg-danger/10"
-              title="Remove parameter"
+              title={t('recipeEditor.removeParameterAria')}
+              aria-label={t('recipeEditor.removeParameterAria')}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -708,11 +731,15 @@ function DistanceBindingEditor({
   const unit: LengthUnit = parameter.unit ?? 'meters';
   const factor = METERS_PER_UNIT[unit];
 
-  // Convert stored meters into the chosen unit for display.
-  const displayValue =
+  // Convert stored meters into the chosen unit for display, rounded
+  // so the conversion noise (7 ft read back as 6.999999999999999) does
+  // not overwrite the field while the author types.
+  const displayValue = metersToDisplay(
     mode === 'hardcoded'
-      ? parameter.binding.meters / factor
-      : (parameter.binding as Extract<DistanceParameter['binding'], { mode: 'runtime-input' }>).defaultMeters / factor;
+      ? parameter.binding.meters
+      : (parameter.binding as Extract<DistanceParameter['binding'], { mode: 'runtime-input' }>).defaultMeters,
+    factor,
+  );
 
   function setMode(next: 'hardcoded' | 'runtime-input') {
     let binding: DistanceParameter['binding'];
@@ -1377,11 +1404,14 @@ function PipelineSection({
     onChange(pipeline.filter((_, i) => i !== index));
   }
 
+  const t = useT();
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium text-ink-0">Pipeline</h3>
+          <h3 className="text-sm font-medium text-ink-0">
+            {t('recipeEditor.pipeline')}
+          </h3>
           <p className="text-2xs text-muted">
             Ordered steps that run when the recipe executes.  Each
             step&apos;s output feeds the next.
@@ -1446,6 +1476,7 @@ function StepCard({
   labelCls: string;
   inputCls: string;
 }) {
+  const t = useT();
   return (
     <div className="rounded-md border border-border bg-surface-2 p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -1457,7 +1488,8 @@ function StepCard({
             type="button"
             onClick={onRemove}
             className="rounded-md border border-border bg-surface-1 p-1 text-danger hover:bg-danger/10"
-            title="Remove step"
+            title={t('recipeEditor.removeStepAria')}
+            aria-label={t('recipeEditor.removeStepAria')}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -1743,6 +1775,7 @@ function OutputSection({
   labelCls: string;
   inputCls: string;
 }) {
+  const t = useT();
   const parameters = recipe.parameters;
   const output = recipe.output;
   const featureSourceParams = parameters.filter(
@@ -1821,18 +1854,23 @@ function OutputSection({
                 targetParameterRef: featureSourceParams[0]?.name ?? '',
               });
             } else {
-              setOutput({ kind: 'osm-features-overlay' });
               // Auto-seed sourceParameterRef + aoiParameterRef when
               // the recipe already has the right shape so authors
               // don't have to click two more dropdowns after picking
               // the sink.  Idempotent: only sets when the field is
-              // empty.
-              if (!recipe.sourceParameterRef && osmFeatureParams[0]) {
-                setSourceRef(osmFeatureParams[0].name);
-              }
-              if (!recipe.aoiParameterRef && featureSourceParams[0]) {
-                setAoiRef(featureSourceParams[0].name);
-              }
+              // empty.  One onChange: three separate calls each
+              // started from the same stale `recipe`, so only the
+              // last one survived and the sink needed three picks.
+              onChange({
+                ...recipe,
+                output: { kind: 'osm-features-overlay' },
+                ...(!recipe.sourceParameterRef && osmFeatureParams[0]
+                  ? { sourceParameterRef: osmFeatureParams[0].name }
+                  : {}),
+                ...(!recipe.aoiParameterRef && featureSourceParams[0]
+                  ? { aoiParameterRef: featureSourceParams[0].name }
+                  : {}),
+              });
             }
           }}
           className={inputCls}
@@ -1888,7 +1926,9 @@ function OutputSection({
             </p>
           </div>
           <div>
-            <label className={labelCls}>Area of interest parameter</label>
+            <label className={labelCls}>
+              {t('recipeEditor.areaOfInterestParameter')}
+            </label>
             <select
               disabled={!canEdit}
               value={recipe.aoiParameterRef ?? ''}
@@ -1904,8 +1944,9 @@ function OutputSection({
             </select>
             <p className="mt-1 text-2xs text-muted">
               The Overpass call is bounded by this parameter&apos;s
-              bbox (padded by any distance parameter).  v1 supports
-              drawn AOIs; layer / selection AOIs land in wave 2.
+              bbox (padded by any distance parameter). Drawn AOIs
+              work for everyone; layer and selection AOIs need a
+              signed-in user with access to that layer.
             </p>
           </div>
         </div>

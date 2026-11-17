@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { ItemType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { KeycloakSyncService } from './keycloak-sync.service.js';
 import { DataLayerTablesService } from '../data-layer/tables.service.js';
-import { HousekeepingService } from './housekeeping.service.js';
+import {
+  HousekeepingService,
+  staleCandidateWhere,
+} from './housekeeping.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { disableLocalAccount } from '../auth/account-disable.js';
+
+/**
+ * A run row still marked `running` after this long belongs to a
+ * process that died; it no longer blocks a new run.
+ */
+const STALE_RUN_MS = 6 * 60 * 60 * 1000;
 
 export type HousekeepingScheduleMode = 'off' | 'daily' | 'weekly';
 
@@ -48,6 +56,11 @@ export interface HousekeepingConfig {
    *  registered with, or null when mode='off' or both auto-actions
    *  are disabled (nothing to run). */
   effectiveCron: string | null;
+  /** Display-only: the time zone the hour and minute are read in.
+   *  The cron job is registered with no zone, so it fires in the API
+   *  process's zone (UTC in the shipped containers), and the form
+   *  says so. */
+  timeZone: string;
 }
 
 export interface HousekeepingConfigPatch {
@@ -197,12 +210,13 @@ export class HousekeepingScheduleService {
     const recompute = row?.recomputeExtentsEnabled ?? false;
     const fieldQueueAutoPrune = row?.fieldQueueAutoPruneEnabled ?? false;
 
+    // Any mode but 'off' gets a cron, even with every toggle off: the
+    // end-date account disable and the Keycloak user sync in runOnce
+    // are not behind a toggle, so they need the schedule to run
+    // (03-7).
     let effectiveCron: string | null = null;
     let summary = 'Off';
-    if (
-      mode !== 'off' &&
-      (autoTrash || autoDisable || recompute || fieldQueueAutoPrune)
-    ) {
+    if (mode !== 'off') {
       const m = String(minute).padStart(2, '0');
       const h = String(hour).padStart(2, '0');
       if (mode === 'daily') {
@@ -215,14 +229,9 @@ export class HousekeepingScheduleService {
           ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d] ?? 'Monday';
         summary = `Weekly on ${dayName} at ${h}:${m}`;
       }
-    } else if (
-      !autoTrash &&
-      !autoDisable &&
-      !recompute &&
-      !fieldQueueAutoPrune &&
-      mode !== 'off'
-    ) {
-      summary = 'Schedule set, but no auto-actions enabled';
+      if (!autoTrash && !autoDisable && !recompute && !fieldQueueAutoPrune) {
+        summary += ' (account end dates and user sync only)';
+      }
     }
 
     return {
@@ -242,7 +251,31 @@ export class HousekeepingScheduleService {
       scheduleDayOfWeek: dow,
       scheduleSummary: summary,
       effectiveCron,
+      timeZone: serverTimeZone(),
     };
+  }
+
+  /**
+   * Mark runs left 'running' as failed (03-12). Called once at API
+   * start by the leader: a run row is only finalized by the process
+   * that started it, so after a restart (deploy, OOM) the row would
+   * otherwise stay 'running', block Run now for STALE_RUN_MS and show
+   * as running in the history forever. If the run was in fact still
+   * going on another replica, its own final update overwrites this.
+   */
+  async failInterruptedRuns(): Promise<number> {
+    const r = await this.prisma.housekeepingRun.updateMany({
+      where: { status: 'running' },
+      data: {
+        status: 'failed',
+        finishedAt: new Date(),
+        error: 'The server restarted before this run finished.',
+      },
+    });
+    if (r.count > 0) {
+      this.log.warn(`Marked ${r.count} interrupted housekeeping run(s) failed.`);
+    }
+    return r.count;
   }
 
   // ---------------------------------------------------------------
@@ -254,13 +287,30 @@ export class HousekeepingScheduleService {
     startedBy: string | null;
   }): Promise<HousekeepingRunResult> {
     const cfg = await this.getConfig();
-    const run = await this.prisma.housekeepingRun.create({
-      data: {
-        trigger: args.trigger,
-        startedBy: args.startedBy,
-        status: 'running',
-      },
+    // One run at a time across replicas. The advisory lock serialises
+    // the check and the insert; the `running` row is what the next
+    // caller sees while this run works.
+    const run = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('housekeeping_run'))`;
+      const live = await tx.housekeepingRun.findFirst({
+        where: {
+          status: 'running',
+          startedAt: { gt: new Date(Date.now() - STALE_RUN_MS) },
+        },
+        select: { id: true },
+      });
+      if (live) return null;
+      return tx.housekeepingRun.create({
+        data: {
+          trigger: args.trigger,
+          startedBy: args.startedBy,
+          status: 'running',
+        },
+      });
     });
+    if (!run) {
+      throw new ConflictException('A housekeeping run is already in progress.');
+    }
     let itemsTrashed = 0;
     let usersDisabled = 0;
     let error: string | null = null;
@@ -388,27 +438,29 @@ export class HousekeepingScheduleService {
   /**
    * Soft-delete every item that matches the stale-item heuristic
    * from HousekeepingService.staleItems (no recent edits, zero
-   * shares). Item soft-delete is reversible from the trash, so
-   * accidental over-trashing is recoverable.
+   * shares, nothing depends on it, not a seeded builtin). Item
+   * soft-delete is reversible from the trash, so accidental
+   * over-trashing is recoverable, but the trash purge later deletes
+   * for good, so this pass is stricter than the report:
    *
-   * Per #95, "no recent edits" must include underlying feature
-   * activity, not just item.updatedAt: a data_layer with active
-   * feature edits is fresh even when nobody touched the item card.
-   * We pull candidates by item.updatedAt then filter out anything
-   * whose v3 layer tables show recent activity before trashing.
+   *   - Private items only. Org and public items can be read by
+   *     people and anonymous visitors without leaving any usage
+   *     stamp (public pages, OGC, STAC), so "nobody touched it" is
+   *     not something we can know about them.
+   *   - No folders. Trashing a folder needs the cascade and cohort
+   *     that ItemsService.remove applies; a bare update would strand
+   *     its children.
+   *
+   * Per #95, "no recent edits" includes feature activity, not just
+   * item.updatedAt; the shared refine step checks it.
    */
   private async autoTrashStaleItems(days: number): Promise<number> {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const candidates = await this.prisma.item.findMany({
       where: {
-        deletedAt: null,
-        updatedAt: { lt: cutoff },
-        // Mirror staleItems(): an item recently hit through the
-        // proxy can't be auto-trashed regardless of how stale the
-        // item card looks. NULL lastUsageAt means "never used via
-        // proxy"; the per-item refine still applies.
-        OR: [{ lastUsageAt: null }, { lastUsageAt: { lt: cutoff } }],
-        shares: { none: {} },
+        ...staleCandidateWhere(undefined, cutoff),
+        access: 'private',
+        type: { not: 'folder' },
       },
       select: {
         id: true,
@@ -419,52 +471,31 @@ export class HousekeepingScheduleService {
         lastUsageAt: true,
       },
     });
-    // Build referenced-set per org so an item depended-on by any
-    // non-trashed sibling stays alive (#98). Cached across the
-    // candidate loop because a single org typically owns many
-    // candidates and the helper does one query per org.
-    const referencedByOrg = new Map<string, Set<string>>();
-    const refSetFor = async (orgId: string): Promise<Set<string>> => {
-      const cached = referencedByOrg.get(orgId);
-      if (cached) return cached;
-      const set = await this.housekeeping.buildReferencedItemSet(orgId);
-      referencedByOrg.set(orgId, set);
-      return set;
-    };
-    const toTrash: string[] = [];
+    const byOrg = new Map<string, typeof candidates>();
     for (const c of candidates) {
-      const referenced = await refSetFor(c.orgId);
-      if (referenced.has(c.id)) continue;
-      const dataAt = await this.dataActivityAt(c.id, c.type, c.data);
-      let effective = c.updatedAt;
-      if (dataAt && dataAt > effective) effective = dataAt;
-      if (c.lastUsageAt && c.lastUsageAt > effective) effective = c.lastUsageAt;
-      if (effective < cutoff) toTrash.push(c.id);
+      const list = byOrg.get(c.orgId) ?? [];
+      list.push(c);
+      byOrg.set(c.orgId, list);
+    }
+    const toTrash: string[] = [];
+    for (const [orgId, list] of byOrg) {
+      // An item depended on by any live sibling stays (#98).
+      const referenced = await this.housekeeping.buildReferencedItemSet(orgId, {
+        fresh: true,
+      });
+      const stale = await this.housekeeping.refineStaleCandidates(
+        list,
+        referenced,
+        cutoff,
+      );
+      toTrash.push(...stale.map((c) => c.id));
     }
     if (toTrash.length === 0) return 0;
     const res = await this.prisma.item.updateMany({
-      where: { id: { in: toTrash } },
+      where: { id: { in: toTrash }, deletedAt: null },
       data: { deletedAt: new Date() },
     });
     return res.count;
-  }
-
-  /**
-   * Most recent feature-level activity for a v3 data_layer; null
-   * for other types (caller falls back to item.updatedAt).
-   * Mirrors HousekeepingService.dataActivityAt; duplicated here so
-   * the auto-trash path doesn't need to depend on the analytics
-   * service.
-   */
-  private async dataActivityAt(
-    itemId: string,
-    type: ItemType,
-    data: unknown,
-  ): Promise<Date | null> {
-    if (type !== 'data_layer') return null;
-    const layers = readV3Layers(data);
-    if (layers === null || layers.length === 0) return null;
-    return this.dataLayerTables.lastDataActivityAt(itemId, layers);
   }
 
   /**
@@ -472,8 +503,9 @@ export class HousekeepingScheduleService {
    * the past (#85/#86). Always runs in the housekeeping pass, even
    * when the quiet-user heuristic is off: the admin set a hard end
    * date per-user, and that contract should hold whether or not
-   * `autoDisableEnabled` is checked. Keycloak's `enabled=false` is
-   * idempotent so re-running the same user is harmless.
+   * `autoDisableEnabled` is checked. Each user is handled once: the
+   * pass stamps `disabled_at`, revokes the user's API keys, and skips
+   * rows that already carry `disabled_at`.
    *
    * auth-sync rejects the request with 401 the moment the timestamp
    * passes (see auth-sync.service.ts), so this cron is the second
@@ -481,9 +513,14 @@ export class HousekeepingScheduleService {
    * the SSO refresh-token loop from minting fresh JWTs.
    */
   private async autoDisableExpiredUsers(): Promise<number> {
+    // Users this pass (or an admin) already disabled carry disabledAt
+    // and are not picked again, so each user is disabled and emailed
+    // once.
     const candidates = await this.prisma.user.findMany({
       where: {
         orgRole: { not: 'admin' },
+        deletedAt: null,
+        disabledAt: null,
         autoDisableAt: { not: null, lte: new Date() },
       },
       select: { id: true, username: true, autoDisableAt: true },
@@ -502,16 +539,16 @@ export class HousekeepingScheduleService {
           );
           continue;
         }
-        await this.keycloak.updateUser(kcId, { enabled: false });
+        const wasEnabled = await this.disableInKeycloak(kcId);
+        await disableLocalAccount(this.prisma, u.id);
         count += 1;
-        // Fire user_disabled notification (#128). The cron's
-        // sweep-once-per-tick contract means we only get here when
-        // the row freshly crossed the threshold or the previous
-        // tick failed; the notify() path is idempotent on
-        // (userId, type, autoDisableAt) so a flap doesn't double-
-        // email. Fire-and-forget: a notify failure shouldn't
-        // unflip the Keycloak disable.
-        if (u.autoDisableAt) {
+        // Fire user_disabled notification (#128) once: the row now
+        // carries disabledAt, so the next run skips it. A user who was
+        // already disabled in Keycloak (by an admin, before this
+        // column existed) is marked locally but not emailed again.
+        // Fire-and-forget: a notify failure shouldn't unflip the
+        // Keycloak disable.
+        if (u.autoDisableAt && wasEnabled) {
           void this.notifications.notify(u.id, 'user_disabled', {
             autoDisableAt: u.autoDisableAt.toISOString(),
           });
@@ -548,6 +585,8 @@ export class HousekeepingScheduleService {
     const candidates = await this.prisma.user.findMany({
       where: {
         orgRole: { not: 'admin' },
+        deletedAt: null,
+        disabledAt: null,
         OR: [
           { lastSeenAt: { lt: cutoff } },
           { AND: [{ lastSeenAt: null }, { createdAt: { lt: cutoff } }] },
@@ -569,17 +608,19 @@ export class HousekeepingScheduleService {
           );
           continue;
         }
-        await this.keycloak.updateUser(kcId, { enabled: false });
+        const wasEnabled = await this.disableInKeycloak(kcId);
+        await disableLocalAccount(this.prisma, u.id, now);
         count += 1;
         // Quiet-user disable doesn't have a stored autoDisableAt
         // (the heuristic is the disable trigger). Use `now` as
         // the synthetic timestamp so the user sees a real "your
-        // account was disabled on <today>" message; the
-        // notification's idempotency key falls back to user_id +
-        // type if the autoDisableAt timestamp matches.
-        void this.notifications.notify(u.id, 'user_disabled', {
-          autoDisableAt: now.toISOString(),
-        });
+        // account was disabled on <today>" message. disabledAt keeps
+        // the next run from picking the user again.
+        if (wasEnabled) {
+          void this.notifications.notify(u.id, 'user_disabled', {
+            autoDisableAt: now.toISOString(),
+          });
+        }
       } catch (err) {
         this.log.warn(
           `auto-disable: could not disable ${u.username} (${u.id}): ${
@@ -589,6 +630,17 @@ export class HousekeepingScheduleService {
       }
     }
     return count;
+  }
+
+  /**
+   * Turn sign-in off in Keycloak. Returns whether the account was
+   * enabled before, so callers email only on a real change.
+   */
+  private async disableInKeycloak(kcId: string): Promise<boolean> {
+    const current = await this.keycloak.getUser(kcId);
+    if (current.enabled === false) return false;
+    await this.keycloak.updateUser(kcId, { enabled: false });
+    return true;
   }
 
   // ---------------------------------------------------------------
@@ -624,5 +676,14 @@ export class HousekeepingScheduleService {
       usersDisabled: r.usersDisabled,
       error: r.error,
     };
+  }
+}
+
+/** IANA name of the zone this process runs cron jobs in. */
+export function serverTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
   }
 }

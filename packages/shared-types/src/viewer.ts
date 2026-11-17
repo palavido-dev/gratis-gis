@@ -69,8 +69,8 @@ export interface ViewerTarget {
  *
  * Three files built this string by hand and a fourth needed to
  * recognise it. Recognising it by its source shape instead is what
- * broke cross-filtering on the map: an app target is published as a
- * `geojson-url` layer, so a check for `source.kind === 'data-layer'`
+ * broke cross-filtering on the map: an app target used to be published
+ * as a `geojson-url` layer, so a check for `source.kind === 'data-layer'`
  * never matched and the map sat unfiltered beside charts that had
  * already narrowed. The id is the only reliable key, so it gets one
  * definition.

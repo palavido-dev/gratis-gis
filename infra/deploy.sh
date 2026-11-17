@@ -10,13 +10,21 @@
 #   1. Sanity-checks that infra/.env.prod exists.
 #   1b. Syncs the checkout to the release ref (see gg_resolve_ref).
 #   2. Builds the portal-api + portal-web images from source.
-#   3. Rolls the stack with `docker compose up -d`. Containers whose
-#      image / config didn't change keep running.
+#   3. Rolls the stack with `docker compose up -d --remove-orphans`.
+#      Containers whose image / config didn't change keep running.
+#      Services behind a profile (scripts) are built and started only
+#      when COMPOSE_PROFILES in infra/.env.prod names that profile.
+#   3b. Removes containers whose service left the compose file
+#      (pg_tileserv), since --remove-orphans alone did not on Compose
+#      v5.3.1, restarts Caddy if it still serves an older Caddyfile,
+#      and restarts Keycloak (dropping its gzip cache) when the login
+#      theme files changed (see infra/lib-deploy.sh).
 #   4. Tails recent logs so you can see whether the boot was clean.
 #
-# Migrations: the portal-api container's entrypoint runs `prisma
-# migrate deploy` on every start, so a normal `up -d` is enough to
-# apply pending schema changes. There's no separate migrate step.
+# Migrations: the portal-migrate one-shot service runs `prisma migrate
+# deploy` once per `up`, and the long-lived services wait for it to
+# finish. They set SKIP_MIGRATE, so N replicas never race for the
+# migration lock.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,17 +45,23 @@ cd "$REPO_ROOT"
 # at all; a per-script override would re-split the mutex.
 LOCK_FILE="${GRATISGIS_LOCK_FILE:-/var/lock/gratisgis-deploy.lock}"
 mkdir -p "$(dirname "$LOCK_FILE")"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-  echo "Another deploy is in progress (lock=$LOCK_FILE)." >&2
-  echo "Tail /tmp/deploy.log if you started one in the background, or wait for it to finish before re-running." >&2
-  exit 1
+if [[ -n "${GG_DEPLOY_REEXEC:-}" ]] && { : >&9; } 2>/dev/null; then
+  # Restarted from the new checkout (see "Syncing repo" below). The
+  # first run still holds the lock on fd 9, which exec kept open.
+  :
+else
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    echo "Another deploy is in progress (lock=$LOCK_FILE)." >&2
+    echo "Tail /tmp/deploy.log if you started one in the background, or wait for it to finish before re-running." >&2
+    exit 1
+  fi
 fi
 # The lock auto-releases when fd 9 closes (process exit).
 
 if [[ ! -f infra/.env.prod ]]; then
   echo "FATAL: infra/.env.prod is missing." >&2
-  echo "Copy infra/.env.prod.example to infra/.env.prod and fill in real values." >&2
+  echo "Run ./infra/bootstrap.sh to generate it (./infra/setup.sh is the same script)." >&2
   exit 1
 fi
 
@@ -107,7 +121,17 @@ GG_DEPLOY_COMMIT="$(
   echo "FATAL: cannot resolve '${GG_DEPLOY_REF}' to a commit. Check GG_REF." >&2
   exit 1
 }
+GG_SELF_BEFORE="$(git hash-object infra/deploy.sh)"
 git reset --hard "$GG_DEPLOY_COMMIT"
+# Bash keeps reading the copy of this script it opened before the
+# reset, so without a restart every deploy ran the previous release's
+# steps after this point. Restart once from the new copy, pinned to the
+# ref just resolved.
+if [[ -z "${GG_DEPLOY_REEXEC:-}" ]] \
+    && [[ "$(git hash-object infra/deploy.sh)" != "$GG_SELF_BEFORE" ]]; then
+  echo "deploy.sh changed in ${GG_DEPLOY_REF}; restarting with the new copy."
+  GG_DEPLOY_REEXEC=1 GG_REF="$GG_DEPLOY_REF" exec bash infra/deploy.sh
+fi
 echo "Deploying ref ${GG_DEPLOY_REF} at commit:"
 git log --oneline -1
 
@@ -118,57 +142,93 @@ git log --oneline -1
 # portal-web build arg and the api runtime env below.
 GG_VERSION="$(git describe --tags --always 2>/dev/null || echo "")"
 export GG_VERSION
-echo "Version stamp: ${GG_VERSION:-'(none)'}"
+export GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo "")"
+export INSTALL_TYPE="${INSTALL_TYPE:-vps}"
+if [[ "${GG_DEPLOY_REF}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  export GG_CHANNEL="${GG_DEPLOY_REF}"
+elif [[ "${GG_DEPLOY_REF}" == "main" ]]; then
+  export GG_CHANNEL=edge
+else
+  export GG_CHANNEL="${GG_CHANNEL:-latest}"
+fi
+echo "Version stamp: ${GG_VERSION:-'(none)'} channel ${GG_CHANNEL} (${INSTALL_TYPE})"
 
 # All the GENERATE placeholders have to be replaced before deploy or
 # Keycloak / Postgres / NextAuth will refuse to start.
 if grep -q '^[A-Z_]*=GENERATE$' infra/.env.prod; then
   echo "FATAL: infra/.env.prod still contains GENERATE placeholders:" >&2
   grep '^[A-Z_]*=GENERATE$' infra/.env.prod >&2
-  echo "Run: openssl rand -base64 36   to generate strong values for each." >&2
+  echo "Run ./infra/bootstrap.sh --force, or replace each GENERATE with a real secret." >&2
+  echo "CHROMIUM_TOKEN and SCRIPT_EXECUTOR_TOKEN are required even if you do not print or enable user scripts." >&2
   exit 1
 fi
 
-# Materialize the Keycloak realm import file from the template by
-# substituting env vars. envsubst only replaces $VAR / ${VAR} forms,
-# leaving JSON braces alone. Run it before bringing keycloak up so
-# the import directory is ready when the container starts.
-echo "=== Materializing Keycloak realm import ==="
-mkdir -p infra/keycloak/import
+# Materialize the Keycloak realm import before keycloak starts.
 # Parsed, not sourced. `. infra/.env.prod` lets bash expand the
 # values: a bcrypt hash like STATS_HASH turns its $$ into the deploy
 # shell's PID, Caddy then rejects the basic-auth config, and the site
 # stays down until someone reads the container log. See
-# infra/lib-env.sh.
+# infra/lib-env.sh. Substitution itself is Python (no envsubst) so
+# the same path works on a TrueNAS shell.
+echo "=== Materializing Keycloak realm import ==="
 # shellcheck source=infra/lib-env.sh
 . infra/lib-env.sh
 gg_load_env_file infra/.env.prod
+gg_require_prod_env
+# The env file of an older install still carries the GG_VERSION that
+# bootstrap.sh wrote at setup time, and loading it just replaced the
+# stamp computed above. The stamp from git wins.
+GG_VERSION="$(git describe --tags --always 2>/dev/null || echo "")"
+export GG_VERSION
 # Derived AUTH_URL the realm template uses for the realm-level
 # frontendUrl. Keep this separate from PUBLIC_URL: the realm has to
 # advertise itself as the AUTH subdomain (otherwise discovery
 # returns the wrong issuer and OAuth breaks).
 export AUTH_URL="https://${AUTH_DOMAIN:-auth.gratisgis.org}"
-envsubst < infra/keycloak/realm-gratis-gis.prod.json.tmpl \
-  > infra/keycloak/import/realm-gratis-gis.json
-# The materialized file carries real secrets (client secrets, the
-# bootstrap admin password), so strip world read. Not 600: the
-# keycloak container runs as uid 1000 with gid 0 and reads this
-# through the bind mount, so the group-read bit for root's gid 0 is
-# what keeps --import-realm working on a fresh install while other
+# Mode 640 and root:root when we are root. Keycloak runs as uid 1000
+# with gid 0 and reads this through the bind mount; the group-read
+# bit for gid 0 is what keeps --import-realm working while other
 # host users still get nothing.
-chmod 640 infra/keycloak/import/realm-gratis-gis.json
-# Sanity-check: the JSON should still parse after substitution.
-python3 -c "import json,sys; json.load(open('infra/keycloak/import/realm-gratis-gis.json'))" \
-  || { echo "FATAL: realm import JSON is malformed after envsubst" >&2; exit 1; }
+gg_render_realm_import \
+  infra/keycloak/realm-gratis-gis.prod.json.tmpl \
+  infra/keycloak/import/realm-gratis-gis.json
 echo "Wrote infra/keycloak/import/realm-gratis-gis.json"
 
 COMPOSE=(docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod)
 
 echo "=== Building images ==="
-"${COMPOSE[@]}" build
+# The nightly `docker builder prune` drops the build cache, so the
+# database image's apt layer was rebuilt on every deploy. That gave it
+# a new image id, and compose then recreated the postgres container:
+# a short database outage on every deploy even when nothing about the
+# database changed. The image carries a hash of its inputs as a label;
+# when it matches, postgres is left out of the build and keeps running.
+GG_PG_INPUTS="$(cat infra/postgres/Dockerfile infra/init-prod-db.sql infra/init-prod-db.sh \
+  | sha256sum | cut -c1-16)"
+export GG_PG_INPUTS
+GG_BUILD_SERVICES=()
+GG_PG_BUILT_FROM="$(docker image inspect gratis-gis-postgres:prod \
+  --format '{{ index .Config.Labels "org.gratisgis.pg-inputs" }}' 2>/dev/null || true)"
+if [[ "$GG_PG_BUILT_FROM" == "$GG_PG_INPUTS" ]]; then
+  mapfile -t GG_BUILD_SERVICES < <("${COMPOSE[@]}" config --services | grep -vx postgres || true)
+  echo "Database image inputs unchanged; not rebuilding it."
+fi
+"${COMPOSE[@]}" build "${GG_BUILD_SERVICES[@]}"
 
 echo "=== Bringing up stack ==="
-"${COMPOSE[@]}" up -d
+"${COMPOSE[@]}" up -d --remove-orphans
+
+# shellcheck source=infra/lib-deploy.sh
+. infra/lib-deploy.sh
+
+echo "=== Removing retired containers ==="
+gg_sweep_orphans gratis-gis-prod "${COMPOSE[@]}"
+
+echo "=== Checking Caddy config ==="
+gg_sync_caddyfile gratis-gis-prod-caddy infra/Caddyfile "${COMPOSE[@]}" || true
+
+echo "=== Checking Keycloak login theme ==="
+gg_sync_keycloak_themes gratis-gis-prod-keycloak infra/keycloak/themes "${COMPOSE[@]}" || true
 
 echo "=== Status ==="
 "${COMPOSE[@]}" ps
@@ -181,7 +241,9 @@ echo "=== Status ==="
 # executor holds a static IP, so this is normally a no-op re-assert, but
 # on a first deploy or a network recreate it is the difference between
 # the executor being fenced and being open to the metadata service until
-# the next timer tick. Non-fatal: the timer is the backstop.
+# the next timer tick. Non-fatal: the timer is the backstop. `sudo -n`
+# clears the environment; the script reads SCRIPT_EGRESS from
+# infra/.env.prod itself, so a portal-only install stays portal-only.
 if [[ -x infra/script-net-firewall.sh ]]; then
   echo "=== Applying script egress fence ==="
   sudo -n infra/script-net-firewall.sh || \
@@ -205,9 +267,10 @@ fi
 #      shipped in the first realm import with a portal-wide https
 #      redirect and web origin it never needed; the import pass will
 #      not tighten an existing client, so this does).
-#   2. Every existing realm user holds the `offline_access` role,
-#      so the native clients' refresh-token flow doesn't 400 on
-#      first sign-in.
+#   2. The realm's default role includes `offline_access`, and every
+#      existing realm user holds it, so the native clients'
+#      refresh-token flow doesn't 400 on first sign-in, including
+#      for users created after this deploy.
 #   3. The realm's offline session idle timeout is pinned to 30 days
 #      (Keycloak's default, made explicit because the Android field
 #      client's sign-in lifetime depends on it).
@@ -234,15 +297,18 @@ echo "=== Reconciling Keycloak realm (native clients + offline_access) ==="
 # Wait up to 60s for Keycloak's admin endpoint to be responsive.
 # Fresh containers take a few seconds; an already-running container
 # returns immediately.
+# kcadm reads the password from KC_CLI_PASSWORD. `-e KC_CLI_PASSWORD`
+# with no value copies it from this shell, so the master-realm password
+# never appears on a command line that `ps` shows.
 kc_wait() {
   local i
+  export KC_CLI_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD"
   for i in $(seq 1 30); do
-    if docker exec "$KEYCLOAK_CONTAINER" \
+    if docker exec -e KC_CLI_PASSWORD "$KEYCLOAK_CONTAINER" \
         /opt/keycloak/bin/kcadm.sh config credentials \
           --server http://localhost:8080 \
           --realm master \
-          --user "$KEYCLOAK_ADMIN" \
-          --password "$KEYCLOAK_ADMIN_PASSWORD" >/dev/null 2>&1; then
+          --user "$KEYCLOAK_ADMIN" >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -321,6 +387,42 @@ json.dump(client, sys.stdout)
     rm -f /tmp/gg-field-app-update.json
   fi
 
+  # --- qgis-plugin: loopback redirect needs a port separator ---
+  # Realms imported before the fix allow `http://127.0.0.1*`, which
+  # also matches a host such as 127.0.0.1.example. portal-api used to
+  # tighten this at startup, but its service account has no
+  # manage-clients role (and should not get one just for this), so on
+  # the demo it logged a 403 on every boot. The master admin does it
+  # here instead. Same rule as apps/portal-api/src/admin/qgis-redirects.ts:
+  # drop the open loopback patterns, keep any other custom URI, add
+  # the custom scheme and http://127.0.0.1:*. Idempotent.
+  GG_QGIS_CID="$(kc_client_id qgis-plugin)"
+  if [[ -n "$GG_QGIS_CID" ]]; then
+    if KC get "clients/$GG_QGIS_CID" -r gratis-gis --fields redirectUris 2>/dev/null \
+        | python3 -c '
+import json, sys
+open_loopback = {"http://127.0.0.1*", "https://127.0.0.1*", "http://localhost*", "https://localhost*"}
+cur = json.load(sys.stdin).get("redirectUris") or []
+nxt = [u for u in cur if u not in open_loopback]
+for u in ("gratisgis-qgis://auth-callback", "http://127.0.0.1:*"):
+    if u not in nxt:
+        nxt.append(u)
+if nxt == cur:
+    sys.exit(3)
+json.dump({"redirectUris": nxt}, sys.stdout)
+' > /tmp/gg-qgis-update.json; then
+      docker cp /tmp/gg-qgis-update.json "$KEYCLOAK_CONTAINER:/tmp/gg-qgis-update.json"
+      if KC update "clients/$GG_QGIS_CID" -r gratis-gis -f /tmp/gg-qgis-update.json; then
+        echo "qgis-plugin redirect list reconciled."
+      else
+        echo "WARN: qgis-plugin client update failed; check kcadm output above." >&2
+      fi
+    else
+      echo "qgis-plugin redirect list already tight (or could not be read)."
+    fi
+    rm -f /tmp/gg-qgis-update.json
+  fi
+
   # --- realm: offline session idle timeout ---
   # 30 days is Keycloak's default; the Android field client's sign-in
   # lifetime is exactly this value, so it is pinned rather than
@@ -331,25 +433,106 @@ json.dump(client, sys.stdout)
     echo "WARN: realm offlineSessionIdleTimeout update failed." >&2
   fi
 
+  # --- user profile: declare org and org_role ---
+  # Keycloak 26 drops user attributes the user-profile schema does not
+  # declare, and the realm import does not carry that schema. Without
+  # this, an invited user loses org / org_role and every sign-in 401s
+  # with "JWT is missing required org claim". The NAS bootstrap does
+  # the same on every start. Idempotent.
+  GG_PROFILE="$(KC get users/profile -r gratis-gis 2>/dev/null || true)"
+  GG_PROFILE_RC=0
+  GG_PATCHED="$(printf '%s' "$GG_PROFILE" \
+    | python3 infra/keycloak/patch-user-profile-via-docker.py --filter 2>/dev/null)" \
+    || GG_PROFILE_RC=$?
+  if [[ -z "$GG_PROFILE" ]]; then
+    echo "WARN: could not read the user-profile schema." >&2
+  elif [[ "$GG_PROFILE_RC" -eq 3 ]]; then
+    echo "User-profile schema already declares org and org_role."
+  elif [[ "$GG_PROFILE_RC" -eq 0 ]] \
+      && printf '%s' "$GG_PATCHED" | docker exec -i "$KEYCLOAK_CONTAINER" \
+        /opt/keycloak/bin/kcadm.sh update users/profile -r gratis-gis -f - >/dev/null; then
+    echo "User-profile schema now declares org and org_role."
+  else
+    echo "WARN: could not update the user-profile schema." >&2
+  fi
+  # The import may already have dropped them from the first admin.
+  GG_ADMIN_ROW="$(KC get users -r gratis-gis -q username=admin -q exact=true \
+      --fields id,attributes 2>/dev/null \
+    | python3 -c 'import sys,json
+rows = json.load(sys.stdin)
+if rows:
+    attrs = rows[0].get("attributes") or {}
+    print(rows[0]["id"], "has-org" if attrs.get("org") else "no-org")' 2>/dev/null || true)"
+  if [[ "$GG_ADMIN_ROW" == *" no-org" ]]; then
+    if KC update "users/${GG_ADMIN_ROW%% *}" -r gratis-gis \
+        -s "attributes.org=[\"${DEFAULT_ORG_SLUG:-gratis-gis}\"]" \
+        -s 'attributes.org_role=["admin"]' >/dev/null 2>&1; then
+      echo "Restored org and org_role on the admin user."
+    else
+      echo "WARN: could not restore org and org_role on the admin user." >&2
+    fi
+  fi
+
+  # --- offline_access on the realm's default role ---
+  # The realm template names `viewer` as the default role, and viewer
+  # does not carry offline_access, so a user created after the import
+  # (an admin invite, or anyone on a fresh install) could not sign in
+  # to the field app or QGIS: "Offline tokens not allowed for the user
+  # or client". Adding offline_access to the default role covers every
+  # user who holds it, including future ones. Idempotent.
+  # kcadm's --fields drops nested objects unless their fields are
+  # named, so plain `--fields defaultRole` returned {} and this step
+  # warned on every deploy. add-roles also fails when the role is
+  # already a composite, so check before adding.
+  GG_DEFAULT_ROLE="$(KC get realms/gratis-gis --fields 'defaultRole(name)' 2>/dev/null \
+    | python3 -c 'import sys,json; print((json.load(sys.stdin).get("defaultRole") or {}).get("name",""))' \
+      2>/dev/null || true)"
+  if [[ -z "$GG_DEFAULT_ROLE" ]]; then
+    echo "WARN: could not read the realm's default role." >&2
+  elif KC get-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --fields name 2>/dev/null \
+      | python3 -c 'import sys,json; sys.exit(0 if any(r.get("name")=="offline_access" for r in json.load(sys.stdin)) else 1)' \
+        2>/dev/null; then
+    echo "Default role $GG_DEFAULT_ROLE includes offline_access."
+  elif KC add-roles -r gratis-gis --rname "$GG_DEFAULT_ROLE" --rolename offline_access >/dev/null 2>&1; then
+    echo "Added offline_access to the default role $GG_DEFAULT_ROLE."
+  else
+    echo "WARN: could not add offline_access to the default role $GG_DEFAULT_ROLE." >&2
+  fi
+
   # --- offline_access for every realm user ---
   # The native clients ask for the offline_access scope so their
   # refresh-token survives restarts and weeks offline. Keycloak gates
   # that on the user holding the offline_access realm role; without
   # it the PKCE code exchange returns "Offline tokens not allowed for
-  # the user or client". Grant to everyone; add-roles is idempotent.
-  echo "Granting offline_access to every realm user..."
-  KC get users -r gratis-gis --fields username --offset 0 --limit 200 \
-      2>/dev/null \
-    | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
-    | while read -r username; do
-        if [[ -z "$username" ]]; then continue; fi
-        # add-roles errors when the user already has the role; the
-        # `|| true` swallows that so the loop stays idempotent.
-        KC add-roles -r gratis-gis --uusername "$username" \
-            --rolename offline_access >/dev/null 2>&1 \
-          && echo "  + $username" \
-          || echo "  = $username (already had role)"
-      done
+  # the user or client". Users who hold the default role already have
+  # it through the step above, so only users with neither the default
+  # role nor a direct grant get one. Granting to everyone started one
+  # kcadm JVM per user on every deploy, under the shared stack lock.
+  # add-roles fails when the role is already present, so its exit
+  # status is not used to tell the two cases apart.
+  kc_usernames() {
+    local path="$1" offset=0 page
+    while :; do
+      page="$(KC get "$path" -r gratis-gis --offset "$offset" --limit 100 2>/dev/null \
+        | python3 -c "import sys,json; [print(u['username']) for u in json.load(sys.stdin)]" \
+          2>/dev/null || true)"
+      [[ -n "$page" ]] || break
+      printf '%s\n' "$page"
+      offset=$((offset + 100))
+    done
+  }
+  echo "Granting offline_access to realm users who lack it..."
+  GG_KC_COVERED="$( { kc_usernames roles/offline_access/users
+    [[ -n "$GG_DEFAULT_ROLE" ]] && kc_usernames "roles/$GG_DEFAULT_ROLE/users"; } | sort -u)"
+  GG_KC_ALL="$(kc_usernames users | sort -u)"
+  GG_KC_MISSING="$(comm -23 <(printf '%s\n' "$GG_KC_ALL") <(printf '%s\n' "$GG_KC_COVERED"))"
+  while read -r username; do
+    if [[ -z "$username" ]]; then continue; fi
+    KC add-roles -r gratis-gis --uusername "$username" \
+        --rolename offline_access >/dev/null 2>&1 \
+      && echo "  + $username" \
+      || echo "WARN: could not grant offline_access to $username" >&2
+  done <<< "$GG_KC_MISSING"
   echo "Offline-access reconciliation done."
 
   # --- portal-api-admin: portal-admin identity for snapshot tooling ---

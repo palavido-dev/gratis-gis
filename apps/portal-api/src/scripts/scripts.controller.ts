@@ -8,11 +8,9 @@ import {
   Param,
   Post,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
-import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ScriptsService } from './scripts.service.js';
@@ -29,7 +27,6 @@ import { isScriptsEnabled } from './scripts-config.js';
 @ApiTags('scripts')
 @ApiBearerAuth()
 @Controller('scripts')
-@UseGuards(JwtAuthGuard)
 export class ScriptsController {
   constructor(private readonly scripts: ScriptsService) {}
 

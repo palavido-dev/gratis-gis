@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { hasCapability } from '../auth/capabilities.js';
+import { Prisma } from '@prisma/client';
 import {
   BadRequestException,
   Body,
@@ -8,6 +10,7 @@ import {
   Headers,
   NotFoundException,
   Param,
+  Query,
   Post,
   Req,
   Res,
@@ -21,9 +24,24 @@ import { Public } from '../auth/public.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
-import { SharingService } from '../items/sharing.service.js';
+import {
+  SharingService,
+  featureScopeFilter,
+  isScopeLimited,
+  type FeatureScopeFilter,
+} from '../items/sharing.service.js';
+import { DataLayerEngine } from '../engine/data-layer.js';
+import { visibleFeatureIds } from '../data-layer/attachments-access.js';
+import { publicTierGeoLimit } from '../public/public-geo-limit.js';
+import type { GeoJsonGeometry } from '@gratis-gis/engine';
 import type { AssetKind } from './storage.service.js';
 import { StorageService } from './storage.service.js';
+import {
+  LARGE_UPLOAD_KINDS,
+  assertLargeGrantRoom,
+  recordUploadGrant,
+} from './key-ownership.js';
+import { contentDisposition } from '../common/content-disposition.js';
 
 // Kinds the browser may request a presigned PUT for. `map-icon` is
 // deliberately absent (its upload path sanitizes server-side and
@@ -70,11 +88,12 @@ const KEY_SHAPE =
 
 /**
  * Minting presigned URLs requires a valid auth token (the global JWT
- * guard handles that). Beyond auth, we don't gate by role here: any
- * authenticated user may upload imagery for entities they own, and the
- * PATCH endpoint that persists the URL is where we enforce ownership.
- * A leaked presigned URL just lets someone burn 5 MB of our storage,
- * which is a 60-second window and a clear abuse signal if it happens.
+ * guard handles that). Small kinds (avatars, thumbnails, attachments)
+ * are open to any signed-in user; the PATCH or attach that persists
+ * the key is where ownership is enforced. The large kinds (tile
+ * layers and point clouds, up to 8 GB per URL) need the publish
+ * capability, since only a contributor can create the item they
+ * belong to, and a user may hold only a few such URLs at once.
  */
 @ApiTags('storage')
 @ApiBearerAuth()
@@ -85,15 +104,39 @@ export class StorageController {
     private readonly prisma: PrismaService,
     private readonly items: ItemsService,
     private readonly sharing: SharingService,
+    private readonly engine: DataLayerEngine,
   ) {}
+
+  private async assertAttachmentFeatureVisible(
+    att: { itemId: string; layerId: string; featureId: string },
+    access: { shareScope: FeatureScopeFilter; isTable: boolean },
+  ): Promise<void> {
+    const visible = await visibleFeatureIds(
+      this.engine,
+      att.itemId,
+      att.layerId,
+      [att.featureId],
+      access,
+    );
+    if (!visible.has(att.featureId)) {
+      throw new NotFoundException('Attachment not found');
+    }
+  }
 
   @Post('presign-upload')
   async presignUpload(
-    @CurrentUser() _user: AuthUser,
+    @CurrentUser() user: AuthUser,
     @Body() dto: PresignUploadDto,
   ) {
+    if (LARGE_UPLOAD_KINDS.has(dto.kind) && !hasCapability(user, 'can_publish_items')) {
+      throw new ForbiddenException(
+        'Uploading tile layers and point clouds needs a contributor or admin role.',
+      );
+    }
+    await assertLargeGrantRoom(this.prisma, dto.kind, user.id);
+    let signed;
     try {
-      return await this.storage.presignUpload(
+      signed = await this.storage.presignUpload(
         dto.kind,
         dto.contentType,
         dto.sizeBytes,
@@ -102,6 +145,10 @@ export class StorageController {
       const msg = err instanceof Error ? err.message : 'Unable to sign upload';
       throw new BadRequestException(msg);
     }
+    // Record who was issued the key. Attach paths accept a key only
+    // from the user it was issued to (storage/key-ownership.ts).
+    await recordUploadGrant(this.prisma, dto.kind, signed.key, user.id);
+    return signed;
   }
 
   /**
@@ -138,6 +185,7 @@ export class StorageController {
     @Param('kind') kindParam: string,
     @Param('key') key: string,
     @Headers('range') rangeHeader: string | undefined,
+    @Query('inline') inlineParam: string | undefined,
     @Req() _req: Request,
     @Res() res: Response,
   ): Promise<void> {
@@ -156,12 +204,17 @@ export class StorageController {
     // Sharing check + filename for content-disposition.
     let filename = key;
     if (kind === 'feature-attachment') {
+      // Oldest row decides the ACL. Attach paths refuse a copied key
+      // now, but rows from before that check can share one, and the
+      // copy is always the newer row.
       const att = await this.prisma.featureAttachment.findFirst({
         where: { storageKey },
+        orderBy: { createdAt: 'asc' },
         select: {
           fileName: true,
           itemId: true,
           layerId: true,
+          featureId: true,
         },
       });
       if (!att) throw new NotFoundException('Attachment not found');
@@ -178,13 +231,39 @@ export class StorageController {
         if (!this.sharing.canDownload(user, item, shares)) {
           throw new ForbiddenException('Cannot download this attachment');
         }
+        // A direct key link must not reach further than the layer
+        // attachment routes: the feature has to be inside the
+        // caller's own-rows and geo limit.
+        const layer = attachmentLayer(item.data, att.layerId);
+        const scope = await this.sharing.featureScopeFor(user, item, shares, {
+          action: 'read',
+          layerPolicy: layer?.editingPolicy ?? 'all-rows',
+        });
+        if (isScopeLimited(scope)) {
+          await this.assertAttachmentFeatureVisible(att, {
+            shareScope: featureScopeFilter(scope),
+            isTable: layer?.geometryType === null,
+          });
+        }
       } else {
         const parent = await this.prisma.item.findFirst({
           where: { id: att.itemId, access: 'public', deletedAt: null },
-          select: { id: true },
+          select: { id: true, data: true, publicGeoBoundaryId: true },
         });
         if (!parent) {
           throw new ForbiddenException('Cannot download this attachment');
+        }
+        // The public tier boundary clips anonymous readers too.
+        const clip = await publicTierGeoLimit(
+          this.prisma,
+          parent.publicGeoBoundaryId,
+        );
+        if (clip !== undefined) {
+          const layer = attachmentLayer(parent.data, att.layerId);
+          await this.assertAttachmentFeatureVisible(att, {
+            shareScope: { geoLimit: clip as GeoJsonGeometry },
+            isTable: layer?.geometryType === null,
+          });
         }
       }
     } else if (
@@ -196,18 +275,18 @@ export class StorageController {
       // Both `item.data->>'storageKey'` and `item.storageRef` get
       // checked because different item types persist the key in
       // different places.
-      const item = await this.prisma.item.findFirst({
-        where: {
-          OR: [
-            { storageRef: storageKey },
-            { data: { path: ['storageKey'], equals: storageKey } },
-            { data: { path: ['pmtilesStorageKey'], equals: storageKey } },
-            { data: { path: ['cogStorageKey'], equals: storageKey } },
-          ],
-          deletedAt: null,
-        },
-        select: { id: true, type: true, data: true, access: true },
-      });
+      //
+      // Containment (`@>`) is what the item_data_gin index serves, and
+      // storage_ref has its own index, so this is a pair of index
+      // probes. The JSON path equality used before matched the same
+      // rows but scanned and detoasted every item on each download.
+      const ownerId = await findItemIdOwningKey(this.prisma, storageKey);
+      const item = ownerId
+        ? await this.prisma.item.findUnique({
+            where: { id: ownerId },
+            select: { id: true, type: true, data: true, access: true },
+          })
+        : null;
       if (!item) throw new NotFoundException('File not found');
       // Pull the filename when present in item.data.
       const data = (item.data ?? {}) as Record<string, unknown>;
@@ -242,11 +321,25 @@ export class StorageController {
     // downloads like any other active type.  Unknown or missing
     // types default to attachment.
     const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    // Tear down the S3 read stream when the client disconnects (or the
+    // response finishes) so its socket returns to the pool instead of
+    // draining to the end. `pipe` does not destroy the source on a
+    // destination close, and range-read viewers abort constantly.
+    // destroy() is idempotent, so firing on a normal finish is safe.
+    // Registered before any header is set, so a throw below cannot
+    // leave the stream open until the SDK's idle timeout.
+    res.on('close', () => upstream.body.destroy());
     const servedType = (upstream.contentType ?? '')
       .split(';')[0]!
       .trim()
       .toLowerCase();
     const inlineSafe = /^image\/(png|jpeg|webp|gif|avif)$/.test(servedType);
+    // `?inline=1` asks for a PDF to open in the page (the file item's
+    // preview frame) instead of downloading. A PDF can carry script
+    // and forms, so it is served under a sandbox CSP: no script, no
+    // same-origin access, nothing loaded from elsewhere. The browser's
+    // own PDF viewer still renders it. Other types ignore the flag.
+    const inlinePdf = inlineParam === '1' && servedType === 'application/pdf';
 
     res.status(upstream.statusCode);
     if (upstream.contentType) res.setHeader('Content-Type', upstream.contentType);
@@ -258,17 +351,56 @@ export class StorageController {
     res.setHeader('Accept-Ranges', upstream.acceptRanges ?? 'bytes');
     res.setHeader(
       'Content-Disposition',
-      `${inlineSafe ? 'inline' : 'attachment'}; filename="${filename.replace(/["\\\r\n]/g, '')}"`,
+      contentDisposition(inlineSafe || inlinePdf ? 'inline' : 'attachment', filename),
     );
+    if (inlinePdf) {
+      res.setHeader('Content-Security-Policy', INLINE_PDF_CSP);
+    }
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=60');
-
-    // Tear down the S3 read stream when the client disconnects (or the
-    // response finishes) so its socket returns to the pool instead of
-    // draining to the end. `pipe` does not destroy the source on a
-    // destination close, and range-read viewers abort constantly.
-    // destroy() is idempotent, so firing on a normal finish is safe.
-    res.on('close', () => upstream.body.destroy());
     upstream.body.pipe(res);
   }
+}
+
+/** Policy for a PDF served inline; see getPrivateAsset. */
+export const INLINE_PDF_CSP = "sandbox; default-src 'none'";
+
+/**
+ * The live item that references `storageKey`, oldest first, or null.
+ * Containment (`@>`) is what the item_data_gin index serves and
+ * storage_ref has its own index, so this is a set of index probes.
+ */
+export async function findItemIdOwningKey(
+  prisma: { $queryRaw: <T>(q: Prisma.Sql) => Promise<T> },
+  storageKey: string,
+): Promise<string | null> {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM "item"
+    WHERE deleted_at IS NULL
+      AND (
+        storage_ref = ${storageKey}
+        OR data_json @> jsonb_build_object('storageKey', ${storageKey}::text)
+        OR data_json @> jsonb_build_object('pmtilesStorageKey', ${storageKey}::text)
+        OR data_json @> jsonb_build_object('cogStorageKey', ${storageKey}::text)
+      )
+    ORDER BY created_at ASC
+    LIMIT 1`);
+  return rows[0]?.id ?? null;
+}
+
+/** The v3 layer an attachment hangs off, for its policy and type. */
+function attachmentLayer(
+  data: unknown,
+  layerId: string,
+):
+  | { editingPolicy?: 'all-rows' | 'own-rows-only'; geometryType?: string | null }
+  | undefined {
+  const layers = (data as {
+    layers?: Array<{
+      id: string;
+      editingPolicy?: 'all-rows' | 'own-rows-only';
+      geometryType?: string | null;
+    }>;
+  } | null)?.layers;
+  return layers?.find((l) => l.id === layerId);
 }
