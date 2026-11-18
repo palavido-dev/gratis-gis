@@ -242,6 +242,11 @@ export interface PostgisLiveService extends ServiceDataBase {
    *  a runaway query so a viewport scroll can't tie up the
    *  database. */
   statementTimeoutMs?: number;
+  /** TLS for the connection, as in libpq's sslmode: `require`
+   *  encrypts, `verify-full` also checks the certificate. Save stores
+   *  the mode that connected. Omitted on connections saved before the
+   *  setting existed, which connect without TLS. */
+  sslMode?: 'require' | 'verify-full' | 'disable';
 }
 
 /**

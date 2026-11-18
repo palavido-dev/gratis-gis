@@ -42,6 +42,9 @@ interface TablePreview {
   rowEstimate: number | null;
 }
 
+type SslMode = 'prefer' | 'require' | 'verify-full' | 'disable';
+const SSL_MODES: SslMode[] = ['prefer', 'require', 'verify-full', 'disable'];
+
 interface TestResult {
   ok: true;
   postgisVersion: string;
@@ -68,6 +71,9 @@ export function PostgisConnectionBuilder({
   const [role, setRole] = useState('');
   const [password, setPassword] = useState('');
   const [defaultSchema, setDefaultSchema] = useState('public');
+  // libpq's sslmode. Prefer, its default, tries TLS first, which
+  // hosted databases (Neon, Supabase, RDS) require.
+  const [sslMode, setSslMode] = useState<SslMode>('prefer');
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | TestError | null>(
     null,
@@ -89,6 +95,7 @@ export function PostgisConnectionBuilder({
           role,
           password,
           defaultSchema: defaultSchema || undefined,
+          sslMode,
         }),
       });
       if (!res.ok) {
@@ -126,6 +133,7 @@ export function PostgisConnectionBuilder({
           role,
           password,
           defaultSchema: defaultSchema || undefined,
+          sslMode,
         }),
       });
       if (!res.ok) {
@@ -239,6 +247,26 @@ export function PostgisConnectionBuilder({
           />
           <span className="mt-0.5 inline-block text-2xs text-muted">
             {t('postgisConnectionBuilder.defaultSchemaHint')}
+          </span>
+        </label>
+        <label className="text-xs sm:col-span-2">
+          {t('postgisConnectionBuilder.sslMode')}
+          <select
+            value={sslMode}
+            onChange={(e) => {
+              setSslMode(e.target.value as SslMode);
+              setTestResult(null);
+            }}
+            className="mt-1 h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm"
+          >
+            {SSL_MODES.map((m) => (
+              <option key={m} value={m}>
+                {t(`postgisConnectionBuilder.sslModes.${m}`)}
+              </option>
+            ))}
+          </select>
+          <span className="mt-0.5 inline-block text-2xs text-muted">
+            {t('postgisConnectionBuilder.sslModeHint')}
           </span>
         </label>
       </div>

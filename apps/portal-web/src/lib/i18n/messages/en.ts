@@ -859,6 +859,14 @@ export const en = {
   password: 'Password',
   defaultSchema: 'Default schema',
   defaultSchemaHint: 'Tables in this schema show up in the layer picker by default. Other schemas stay reachable via the detail page.',
+  sslMode: 'SSL',
+  sslModeHint: "Prefer tries an encrypted connection first, as QGIS and psql do. Hosted databases such as Neon or Supabase need Prefer or Require.",
+  sslModes: {
+    prefer: "Prefer (encrypt when the server allows)",
+    require: "Require (encrypt, do not check the certificate)",
+    "verify-full": "Verify (encrypt and check the certificate)",
+    disable: "Disable (no encryption)",
+  },
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:

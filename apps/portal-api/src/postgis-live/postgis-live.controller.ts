@@ -14,6 +14,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsArray,
+  IsIn,
   IsInt,
   Max,
   Min,
@@ -30,7 +31,11 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { PrintReadable } from '../auth/print-readable.decorator.js';
-import { PostgisLiveService_ } from './postgis-live.service.js';
+import {
+  POSTGIS_SSL_MODES,
+  PostgisLiveService_,
+  type PostgisSslMode,
+} from './postgis-live.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { CredentialService } from '../items/credential.service.js';
 import { assertCredentialKeyConfigured } from '../items/credential-cipher.js';
@@ -43,6 +48,8 @@ class TestConnectionDto {
   @IsString() @MaxLength(1024) password!: string;
   /** Optional schema for the capped geometry-table preview. */
   @IsOptional() @IsString() @MaxLength(63) defaultSchema?: string;
+  /** libpq-style SSL mode; `prefer` when omitted. */
+  @IsOptional() @IsIn(POSTGIS_SSL_MODES) sslMode?: PostgisSslMode;
 }
 
 class CreateConnectionDto {
@@ -54,6 +61,7 @@ class CreateConnectionDto {
   @IsString() @MinLength(1) @MaxLength(255) role!: string;
   @IsString() @MaxLength(1024) password!: string;
   @IsOptional() @IsString() @MaxLength(63) defaultSchema?: string;
+  @IsOptional() @IsIn(POSTGIS_SSL_MODES) sslMode?: PostgisSslMode;
 }
 
 class ReadFeaturesDto {
@@ -133,6 +141,7 @@ export class PostgisLiveController {
       role: dto.role,
       password: dto.password,
       ...(dto.defaultSchema ? { defaultSchema: dto.defaultSchema } : {}),
+      ...(dto.sslMode ? { sslMode: dto.sslMode } : {}),
     });
     if (!test.ok) {
       throw new BadRequestException(`Connection failed: ${test.error}`);
@@ -149,6 +158,8 @@ export class PostgisLiveController {
       database: dto.database,
       role: dto.role,
       ...(dto.defaultSchema ? { defaultSchema: dto.defaultSchema } : {}),
+      // The mode that just connected, so live reads connect alike.
+      sslMode: test.sslMode,
       layers: [],
       requiresAuth: true,
       statementTimeoutMs: 10_000,

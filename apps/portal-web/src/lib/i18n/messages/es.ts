@@ -815,6 +815,14 @@ export const es: Partial<CatalogShape> = {
   password: 'Password',
   defaultSchema: 'Default schema',
   defaultSchemaHint: 'Tables in this schema show up in the layer picker by default. Other schemas stay reachable via the detail page.',
+  sslMode: 'SSL',
+  sslModeHint: "Preferir intenta primero una conexión cifrada, como QGIS y psql. Las bases de datos alojadas como Neon o Supabase necesitan Preferir u Obligatorio.",
+  sslModes: {
+    prefer: "Preferir (cifrar si el servidor lo permite)",
+    require: "Obligatorio (cifrar sin comprobar el certificado)",
+    "verify-full": "Verificar (cifrar y comprobar el certificado)",
+    disable: "Desactivado (sin cifrado)",
+  },
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:

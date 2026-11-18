@@ -26,6 +26,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- PostgreSQL + PostGIS (live) connections can use SSL. The API always
+  connected unencrypted, so hosted databases that require SSL (Neon,
+  Supabase, Amazon RDS) refused it, and the wizard reported "The database
+  rejected that role or password." even with correct credentials. The
+  wizard has an SSL setting with libpq's modes (Prefer by default, as in
+  psql and QGIS), Save stores the mode that connected, and an SSL refusal
+  or certificate failure now gets its own message. Connections saved
+  before this keep connecting unencrypted.
 - PostgreSQL + PostGIS (live) connections can be added to a map. The
   Add layer dialog refused them as "not renderable" although the map
   draws them; it now adds every geometry table of the connection, read

@@ -53,6 +53,14 @@ Skip it when:
    - **Default schema** — the schema where the picker looks for
      tables by default. Other schemas stay reachable from the
      detail page.
+   - **SSL** - whether the connection is encrypted, as `sslmode`
+     in psql or QGIS. **Prefer**, the default, tries an encrypted
+     connection first and falls back to an unencrypted one only
+     when the server has no SSL. **Require** insists on
+     encryption, **Verify** also checks the server's certificate,
+     and **Disable** never encrypts. Hosted databases such as
+     Neon, Supabase or Amazon RDS accept only encrypted
+     connections. Save stores the mode that connected.
 4. Click **Test connection**. On success you see the PostGIS
    version and a capped preview of geometry tables in the default
    schema (name, geometry kind, SRID, and a planner row estimate

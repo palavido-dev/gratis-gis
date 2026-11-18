@@ -4,7 +4,9 @@ import type { MapLayerFilter } from '@gratis-gis/shared-types';
 
 import {
   compileFilter,
+  isSslUnsupported,
   normalizeStatementTimeout,
+  pgSslOption,
   safeConnectionError,
 } from './postgis-live.service.js';
 
@@ -143,5 +145,29 @@ describe('statement timeout and connection errors', () => {
     expect(safeConnectionError(new Error('connect ECONNREFUSED 172.18.0.2:5432'))).toBe(
       'Could not connect. Check the host, port, database, role, and password.',
     );
+  });
+});
+
+describe('SSL modes', () => {
+  it('maps libpq modes to the driver option, and no mode to plaintext', () => {
+    expect(pgSslOption('prefer')).toEqual({ rejectUnauthorized: false });
+    expect(pgSslOption('require')).toEqual({ rejectUnauthorized: false });
+    expect(pgSslOption('verify-full')).toEqual({ rejectUnauthorized: true });
+    expect(pgSslOption('disable')).toBe(false);
+    expect(pgSslOption(undefined)).toBe(false);
+  });
+
+  it('tells an SSL refusal apart from a bad password', () => {
+    // What Neon answers a plaintext connection with.
+    expect(
+      safeConnectionError({
+        code: '28000',
+        message: 'connection is insecure (try using `sslmode=require`)',
+      }),
+    ).toBe('The database only accepts encrypted connections. Set SSL to Prefer or Require.');
+    const noSsl = new Error('The server does not support SSL connections');
+    expect(isSslUnsupported(noSsl)).toBe(true);
+    expect(safeConnectionError(noSsl)).toMatch(/does not accept SSL/);
+    expect(safeConnectionError({ code: 'SELF_SIGNED_CERT_IN_CHAIN' })).toMatch(/certificate/);
   });
 });
