@@ -266,13 +266,22 @@ with open(dest, "w", encoding="utf-8") as fh:
     if not out.endswith("\n"):
         fh.write("\n")
 PY
+  # The directory needs the same treatment as the file. bootstrap.sh
+  # runs under umask 077, so mkdir -p above leaves it at 700 and
+  # Keycloak (uid 1000, gid 0) cannot enter it: --import-realm then
+  # fails with "directory not found" and keycloak restart-loops,
+  # holding caddy, portal-web and portal-api in "Created".
+  local dest_dir
+  dest_dir="$(dirname "$dest")"
   if [ "$(id -u)" -eq 0 ]; then
-    chown 0:0 "$dest"
+    chown 0:0 "$dest_dir" "$dest"
+    chmod 750 "$dest_dir"
     chmod 640 "$dest"
   else
     # Keycloak runs as uid 1000, gid 0. A 640 file owned by some
     # other group is unreadable in the container. 644 lets that uid
     # read it. Do not export this directory over a file share.
+    chmod 755 "$dest_dir"
     chmod 644 "$dest"
     echo "WARN: realm import is mode 644 because this user is not root. Keep this directory off shared folders." >&2
   fi
