@@ -20,6 +20,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- The Postgres image moves from `postgis/postgis:17-3.5` (Debian
+  bullseye, end of life, no OS security updates) to `17-3.6` (Debian
+  trixie). Postgres stays on 17 and the data volume opens as it is.
+  On first start the API rebuilds text indexes whose sort order may
+  have changed with the newer C library, and upgrades PostGIS to 3.6.
+  Take a backup before upgrading. See docs/UPGRADING.md (#748).
 - Map point icons regenerated from the installed lucide-react. 85
   shapes had changed upstream (for example the rounded star), so map
   symbols now match the same icons elsewhere in the app.

@@ -38,6 +38,10 @@ fi
 if [[ "${SKIP_MIGRATE:-}" == "true" ]]; then
   echo "[entrypoint] SKIP_MIGRATE=true; assuming portal-migrate ran first."
 else
+  # A new Postgres base image can change the C library's sort rules
+  # under existing text indexes (#748). Rebuild them before anything
+  # reads through them. A no-op when the databases are current.
+  node /app/dist/collation-refresh.main.js
   echo "[entrypoint] applying prisma migrations against $(echo "$DATABASE_URL" | sed -E 's#://[^@]+@#://***@#')"
   /app/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma
 fi

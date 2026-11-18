@@ -28,11 +28,11 @@ jobs:
     services:
       postgres:
         # Match what prod actually runs: infra/postgres/Dockerfile is
-        # FROM postgis/postgis:17-3.5 (PG 17 + PostGIS 3.5), and the
+        # FROM postgis/postgis:17-3.6 (PG 17 + PostGIS 3.6), and the
         # portal-api image ships postgresql-client-17 to pair with
         # it. Testing migrations against 16-3.4 stopped representing
         # reality when prod upgraded on 2026-05-25.
-        image: postgis/postgis:17-3.5
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_USER: gratisgis
           POSTGRES_PASSWORD: devpassword
@@ -177,7 +177,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgis/postgis:17-3.5
+        image: postgis/postgis:17-3.6
         env:
           POSTGRES_USER: gratisgis
           POSTGRES_PASSWORD: reviewonly
@@ -248,7 +248,7 @@ jobs:
             -e POSTGRES_PASSWORD=reviewonly \
             -e POSTGRES_USER=gratisgis \
             -e POSTGRES_DB=gratisgis \
-            postgis/postgis:17-3.5
+            postgis/postgis:17-3.6
           # The image runs its init scripts on a temporary server that
           # listens on the socket only, then restarts. pg_isready on the
           # socket can catch that temporary server, and a test command
