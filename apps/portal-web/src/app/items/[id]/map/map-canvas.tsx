@@ -2232,6 +2232,22 @@ const iconsInFlight = new WeakMap<maplibregl.Map, boolean>();
  *      path so they cost only one Object.keys + N hasImage checks.
  */
 /**
+ * `m.hasImage(id)`, or true once the map has no style: it was removed
+ * (the component unmounted) or a basemap swap is between styles.
+ *
+ * Icon loading awaits rasterising, SDF building and fetches between
+ * these checks, and the map can go away in the meantime. hasImage then
+ * reads `style.getImage` off an undefined style and throws ("Cannot
+ * read properties of undefined (reading 'getImage')"). Answering true
+ * makes every remaining step skip its addImage, so a late load just
+ * stops; the next styledata pass reloads icons on the new style.
+ */
+function hasImageOrGone(m: maplibregl.Map, id: string): boolean {
+  if (!m.style) return true;
+  return m.hasImage(id);
+}
+
+/**
  * Returns whether any icon registration WORK happened. Callers use
  * this to decide whether a re-sync is needed; the fast path (all
  * registered already) must return false or the caller's tick bump
@@ -2249,7 +2265,7 @@ async function loadAllIcons(m: maplibregl.Map): Promise<boolean> {
   let allLoaded = true;
   for (const name of Object.keys(MAP_ICONS)) {
     if (failed?.has(name)) continue;
-    if (!m.hasImage(iconImageId(name)) || !m.hasImage(iconSdfImageId(name))) {
+    if (!hasImageOrGone(m, iconImageId(name)) || !hasImageOrGone(m, iconSdfImageId(name))) {
       allLoaded = false;
       break;
     }
@@ -2284,12 +2300,12 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<number> {
     Object.keys(MAP_ICONS).map(async (name) => {
       const plainId = iconImageId(name);
       const sdfId = iconSdfImageId(name);
-      if (!m.hasImage(plainId)) {
+      if (!hasImageOrGone(m, plainId)) {
         try {
           const svg = renderIconSvg(name);
           if (svg) {
             const img = await rasterizeSvgIcon(svg);
-            if (!m.hasImage(plainId)) {
+            if (!hasImageOrGone(m, plainId)) {
               added += 1;
               m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
@@ -2298,12 +2314,12 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<number> {
           noteIconFailed(m, name);
         }
       }
-      if (!m.hasImage(sdfId)) {
+      if (!hasImageOrGone(m, sdfId)) {
         try {
           const svg = renderIconSvgForSdf(name);
           if (svg) {
             const sdf = await svgToSdf(svg);
-            if (!m.hasImage(sdfId)) {
+            if (!hasImageOrGone(m, sdfId)) {
               added += 1;
               m.addImage(sdfId, sdf, {
                 pixelRatio: ICON_IMAGE_PIXEL_RATIO,
@@ -2339,34 +2355,34 @@ async function loadAllIconsImpl(m: maplibregl.Map): Promise<number> {
         const plainId = iconImageId(refName);
         const sdfId = iconSdfImageId(refName);
         const raster = isRasterIconRef(refName);
-        if (m.hasImage(plainId) && (raster || m.hasImage(sdfId))) return;
+        if (hasImageOrGone(m, plainId) && (raster || hasImageOrGone(m, sdfId))) return;
         try {
           const fileResp = await fetch(row.storageUrl, { cache: 'no-store' });
           if (!fileResp.ok) return;
           if (raster) {
             const img = await rasterizeBitmapIcon(await fileResp.blob());
-            if (!m.hasImage(plainId)) {
+            if (!hasImageOrGone(m, plainId)) {
               added += 1;
               m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
             return;
           }
           const svgText = await fileResp.text();
-          if (!m.hasImage(plainId)) {
+          if (!hasImageOrGone(m, plainId)) {
             const img = await rasterizeSvgIcon(svgText);
-            if (!m.hasImage(plainId)) {
+            if (!hasImageOrGone(m, plainId)) {
               added += 1;
               m.addImage(plainId, img, { pixelRatio: ICON_IMAGE_PIXEL_RATIO });
             }
           }
-          if (!m.hasImage(sdfId)) {
+          if (!hasImageOrGone(m, sdfId)) {
             // SVGs uploaded as inline color don't tint cleanly
             // when SDF-rendered; the renderer falls back to the
             // plain image when SDF isn't available. We still
             // generate one so iconTint works for icons that
             // were authored with currentColor strokes.
             const sdf = await svgToSdf(svgText);
-            if (!m.hasImage(sdfId)) {
+            if (!hasImageOrGone(m, sdfId)) {
               added += 1;
               m.addImage(sdfId, sdf, {
                 pixelRatio: ICON_IMAGE_PIXEL_RATIO,

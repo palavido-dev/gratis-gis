@@ -26,6 +26,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A first install with `infra/bootstrap.sh` no longer stalls on a
+  restart-looping Keycloak. Under the script's `umask 077` the realm
+  import directory was created at mode 700, so Keycloak (uid 1000,
+  gid 0) could not enter it and `--import-realm` failed with "directory
+  not found", leaving caddy, portal-web and portal-api in "Created". The
+  directory now gets the same treatment as the file inside it.
+- Map: closing a map or swapping its basemap while icons were still
+  loading no longer throws "Cannot read properties of undefined
+  (reading 'getImage')". The icon loader stops once the map has no
+  style, and the next style reloads the icons as before.
 - PostgreSQL + PostGIS (live) connections can use SSL. The API always
   connected unencrypted, so hosted databases that require SSL (Neon,
   Supabase, Amazon RDS) refused it, and the wizard reported "The database
