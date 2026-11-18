@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
 done
 
 cat <<'EOF'
-Planned Postgres major upgrade. The running image stays postgis/postgis:17-3.5.
+Planned Postgres major upgrade. The running image stays postgis/postgis:17-3.6.
 
 1. Stop writers. Keep the current credential key, Keycloak secrets, and object store. They are not inside the SQL dump.
 2. Dump the portal database and the Keycloak database with the same major that wrote them.

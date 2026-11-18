@@ -104,6 +104,47 @@ Migrations are forward-only. Down migrations are not provided.
 
 Most releases need nothing beyond `deploy.sh`. The exceptions:
 
+**The first release after v1.6.1: Postgres base image moved to Debian
+trixie (#748).** The Postgres image is now `postgis/postgis:17-3.6`
+instead of `17-3.5`. The Postgres major stays 17, so the existing data
+volume opens as it is: no dump and restore. Two things change under
+it, and both are handled when the API starts:
+
+- glibc moves from 2.31 to 2.41, and text indexes are sorted by
+  glibc's rules. On the first start, portal-api rebuilds the indexes of
+  every database whose collation version changed and records the new
+  version, before it applies migrations. You will see
+  `[collation] collation version changed in gratisgis: rebuilding its
+  indexes` in the log of `portal-migrate` (VPS) or `portal-api` (NAS).
+  On the demo (about 330 MB) the rebuild took 6 seconds. Expect longer
+  on a large install; the API is not up until it finishes.
+- PostGIS moves from 3.5 to 3.6. The same step runs
+  `postgis_extensions_upgrade()`.
+
+Take a backup first (section 1). Nothing else is needed.
+
+If that step fails, the API does not start, and the log says
+`[collation] FAILED`. The likely cause is a unique index that, under the
+new sort rules, sees two values as equal. Postgres names the index and
+the value. Fix or remove the duplicate row with `psql`, then restart
+the API, and the step runs again.
+
+Rolling back to an earlier release after this step has run: the
+databases now record glibc 2.41, and the old image runs 2.31. Restore
+the backup you took first, or run the same rebuild by hand on the old
+image, as the superuser, for each database (`gratisgis`, `keycloak`,
+`postgres`, `template1`, `template_postgis`):
+
+```bash
+psql -U gratisgis -d <db> -c 'REINDEX DATABASE <db>' \
+  -c 'ALTER DATABASE <db> REFRESH COLLATION VERSION'
+```
+
+For a local development database (`infra/docker-compose.yml`), the
+API runs on the host and does not rebuild anything. After pulling and
+rebuilding the Postgres image, run the same two commands against the
+`gratis-gis-postgres` container, or reset the dev database.
+
 **v0.9.118 Postgres 18 image (do not deploy onto an existing PG17
 volume).** The tip briefly pointed `infra/postgres` at PostGIS 18 and
 moved the compose mount to `/var/lib/postgresql`. Existing installs

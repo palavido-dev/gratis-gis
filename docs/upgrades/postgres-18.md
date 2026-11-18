@@ -2,7 +2,7 @@
 
 This is a plan for a later release. Nothing here changes the running
 database. `infra/postgres/Dockerfile` stays on
-`postgis/postgis:17-3.5`, and the Compose files keep mounting the
+`postgis/postgis:17-3.6`, and the Compose files keep mounting the
 data volume at `/var/lib/postgresql/data`.
 
 Dependabot pull request
@@ -87,13 +87,15 @@ Two separate facts stack:
    hit this on the demo host and v0.9.119 put the 17 image back.
    See [UPGRADING.md](../UPGRADING.md).
 
-There is a third incompatibility that a same-Postgres PostGIS bump
-would also hit. `postgis/postgis:17-3.5` is Debian bullseye.
-`postgis/postgis:*-3.6` is Debian trixie. bullseye's glibc and
-trixie's glibc do not sort text the same way. The docker-postgis
-README warns that upgrading across that boundary can corrupt text
-indexes, and that a full dump and restore is the safe path. `pg_upgrade`
-copies index pages through. A restore rebuilds them.
+There was a third incompatibility, which the move to `17-3.6` already
+handled (#748). `17-3.5` was Debian bullseye and `*-3.6` is Debian
+trixie, and their glibc versions do not sort text the same way. The
+docker-postgis README warns that crossing that boundary can corrupt
+text indexes. portal-api now rebuilds every index of a database whose
+collation version changed, and records the new version, before it
+migrates (`src/maintenance/collation-refresh.ts`). An 18 upgrade on
+the same trixie base does not change glibc. `pg_upgrade` copies index
+pages through; a restore rebuilds them.
 
 ## PostGIS 3.6 against this codebase
 
@@ -777,13 +779,13 @@ Tiles:
 CI, in that same release:
 
 - `.github/workflows/ci.yml` service image, today
-  `postgis/postgis:17-3.5`. The comment above it names
+  `postgis/postgis:17-3.6`. The comment above it names
   `postgresql-client-17`.
 - `apps/portal-api/Dockerfile` client package, 17 to 18, or admin
   backups fail in production.
 - Comments in `data-layer.pg.spec.ts`, `search-index.pg.spec.ts`,
   and `search-index.service.ts` that tell a developer to run
-  `postgis/postgis:17-3.5`.
+  `postgis/postgis:17-3.6`.
 - The Dockerfile apt layer, as fixed for the failure below. The
   fresh-clone job builds that Dockerfile. The verify job does not.
   Updating only the `FROM` line turns the fresh-clone job red and

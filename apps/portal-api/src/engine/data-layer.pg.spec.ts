@@ -9,10 +9,10 @@
 // against the pre-fix filter-then-collapse SQL.
 //
 // Skipped unless TEST_DATABASE_URL is set, because it needs a live
-// PostGIS (matching prod: postgis/postgis:17-3.5):
+// PostGIS (matching prod: postgis/postgis:17-3.6):
 //
 //   docker run -d --name ggpg -e POSTGRES_PASSWORD=gg \
-//     -p 55432:5432 postgis/postgis:17-3.5
+//     -p 55432:5432 postgis/postgis:17-3.6
 //   TEST_DATABASE_URL=postgres://postgres:gg@localhost:55432/postgres \
 //     pnpm -C apps/portal-api test -- data-layer.pg
 //

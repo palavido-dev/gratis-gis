@@ -397,6 +397,7 @@ services:
       - sh
       - -c
       - >
+        node /app/dist/collation-refresh.main.js &&
         /app/node_modules/.bin/prisma generate --schema=/app/prisma/schema.prisma &&
         /app/node_modules/.bin/prisma migrate deploy --schema=/app/prisma/schema.prisma
     networks:

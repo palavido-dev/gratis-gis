@@ -1,7 +1,7 @@
 # GratisGIS Postgres image. Extends postgis/postgis with pg_partman
 # so the engine's `observation` table can be range-partitioned by
 # `tx_time` (see ROADMAP Phase 8 + the engine pivot doc). The base
-# image ships PostgreSQL 17 + PostGIS 3.5 + the PostgreSQL Global
+# image ships PostgreSQL 17 + PostGIS 3.6 + the PostgreSQL Global
 # Development Group's apt repository, so `apt-get install` resolves
 # the PG17-targeted partman package directly.
 #
@@ -19,50 +19,30 @@
 #
 # PG18 (#306) was attempted on the tip and aborted on the demo host
 # (2026-10-27): the official 18 image refuses a flat PG17 volume under
-# /var/lib/postgresql. Stay on 17-3.5. The deliberate upgrade (image,
+# /var/lib/postgresql. Stay on 17. The deliberate upgrade (image,
 # mount, and dump/restore) is docs/upgrades/postgres-18.md, linked from
-# docs/UPGRADING.md. Do not flip this tag on its own.
+# docs/UPGRADING.md. Do not flip this tag to 18 on its own.
 # infra/postgres/check-major.sh refuses a data directory whose
 # PG_VERSION does not match this image. It does not change the tag.
-FROM postgis/postgis:17-3.5
+#
+# Debian trixie (#748). Up to 1.6 this was 17-3.5, built on bullseye,
+# which is end of life: apt had to be pointed at archive.debian.org and
+# apt-archive.postgresql.org, and the base OS got no security updates.
+# 17-3.6 is built on postgres:17-trixie, so the stock Debian and PGDG
+# sources work again and partman and repack install from them.
+#
+# The move changes glibc under existing data directories (2.31 to
+# 2.41), and text indexes are sorted by glibc's rules. Postgres opens
+# the old directory (same major) and warns about the collation version.
+# portal-api rebuilds the indexes and records the new version before it
+# migrates (src/maintenance/collation-refresh.ts), and runs the PostGIS
+# extension upgrade (3.5 to 3.6) at the same point.
+#
+# Keep the tag exact. Moving it to another Debian release is the same
+# kind of change and needs the same care.
+FROM postgis/postgis:17-3.6
 
-# This image is bullseye based and bullseye reached end of life, which
-# broke every deploy here on 2026-09-08, on a layer that has nothing to
-# do with whatever was being released. Two separate failures, in order:
-#
-#   1. bullseye-security's Release file stopped being refreshed and
-#      expired, so apt-get update refused to proceed.
-#   2. With freshness relaxed, the .deb files themselves 404, because
-#      EOL suites are moved off deb.debian.org onto archive.debian.org.
-#
-# So the sources are repointed at the archive, which still carries
-# bullseye and bullseye-updates. The security lines are dropped rather
-# than repointed: the archive does not serve bullseye-security, and the
-# suite is EOL so there is nothing new in it to miss.
-#
-# Be clear about the tradeoff. This layer no longer receives Debian
-# security updates for the base OS. It does not receive them anywhere
-# else either, because none are being published for bullseye, so this
-# reflects reality rather than creating it. Check-Valid-Until stays off
-# because archive Release files are old by design. Signatures are still
-# verified. The two packages installed come from apt.postgresql.org,
-# which is current and untouched by any of this.
-#
-# The actual fix is moving off bullseye, and it is deliberately not
-# done here: postgis/postgis publishes no bookworm variant of 17-3.5
-# (checked 2026-09-10, only 17-3.5 and 17-3.5-alpine), so it is a base
-# image swap under the production database, which needs its own change
-# and its own dump-and-restore plan rather than riding along with a
-# release.
-#
-# PGDG dropped the live bullseye-pgdg suite as well (404 as of
-# 2026-10-02). The base image still points sources.list.d/pgdg.list at
-# apt.postgresql.org, which makes `apt-get update` fail before partman
-# can be installed. The archive still signs and serves those packages.
-RUN sed -i '/security/d' /etc/apt/sources.list \
-    && sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list \
-    && sed -i 's|http://apt.postgresql.org/pub/repos/apt/|https://apt-archive.postgresql.org/pub/repos/apt/|g' /etc/apt/sources.list.d/pgdg.list \
-    && apt-get -o Acquire::Check-Valid-Until=false update \
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         postgresql-17-partman \
         postgresql-17-repack \

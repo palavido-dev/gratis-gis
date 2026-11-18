@@ -237,7 +237,7 @@ WORKDIR /app
 #
 # postgresql-client-17 is required by BackupService.runPgDump (#277):
 # the nightly cron shells out to `pg_dump` against the prod Postgres 17
-# server (postgis/postgis:17-3.5, see infra/postgres/Dockerfile), so the
+# server (postgis/postgis:17-3.6, see infra/postgres/Dockerfile), so the
 # binary needs to be on PATH inside this image AND match the server's
 # major version (pg_dump refuses to dump a newer server; keep this in
 # lockstep with infra/postgres/Dockerfile's base image major version).

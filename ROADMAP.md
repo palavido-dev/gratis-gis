@@ -277,7 +277,7 @@ maintain.
 - [x] **`pg_partman` monthly partitioning of the `observation` table.**
       Landed 2026-05-08 (migration
       `20260508081000_partition_observation_table`). The infra
-      postgres image extends `postgis/postgis` (now `17-3.5`) with
+      postgres image extends `postgis/postgis` (now `17-3.6`) with
       pg_partman; the migration installs the extension,
       renames the unpartitioned table out of the way, recreates
       `observation` with composite `(id, tx_time)` PK partitioned
