@@ -26,6 +26,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- PostgreSQL + PostGIS (live) connections can be added to a map. The
+  Add layer dialog refused them as "not renderable" although the map
+  draws them; it now adds every geometry table of the connection, read
+  fresh from the database so tables created after the connection was
+  saved are included. The probe also refreshes the connection's stored
+  table list, which the live read checks, so such tables draw too.
+- Saving a PostGIS connection on a server without
+  `CREDENTIAL_ENCRYPTION_KEY` no longer leaves an empty connection
+  behind on each try: Save stops first with a message naming the
+  setting, and a connection that fails after creation is removed.
 - Recently deleted loads the item trash 100 at a time with Previous and
   Next, instead of every deleted item in the org at once. Select all
   and the bulk actions cover the page shown. `GET /items/trash` takes

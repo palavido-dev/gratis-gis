@@ -2554,6 +2554,10 @@ export const en = {
       featureCollectionRequired:
         'Paste a GeoJSON FeatureCollection (not a bare Feature or geometry).',
       loadItemFailed: 'Could not load {title}.',
+      postgisProbeFailed:
+        "Could not read the tables of {title}: {detail}",
+      postgisNoTables:
+        "{title} has no tables with a geometry column in its schema. Add one (from QGIS, say) or check the schema and GRANT SELECT, then try again.",
       protocolNotRenderable:
         "Map rendering for {protocol} services is coming in the next slice. The item appears in the picker for visibility, but can't be added to a map yet (track #305).",
       noServiceUrl:

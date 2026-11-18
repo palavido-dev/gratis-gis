@@ -63,13 +63,23 @@ Skip it when:
    the same set the preview listed, including any tables beyond
    the preview cap.
 
+   Saving needs the server's credential key
+   (`CREDENTIAL_ENCRYPTION_KEY`) so the password can be stored
+   encrypted. Without it Save stops with a message saying so and
+   nothing is created; an administrator sets the key and restarts
+   the API.
+
 ## Adding a layer to a map
 
-Once a connection is registered, you can drop any of its tables
-onto a map from the Add Layer dialog. Choose your saved
-connection, pick the table, and the layer appears with the
-correct geometry type. Every viewport move issues a bounding-box
-SELECT against the database; only intersecting rows come back.
+Once a connection is registered, add it to a map from the Add
+Layer dialog: pick the connection on the **Portal** tab and every
+geometry table in its schema is added, as one layer, or under a
+group named for the connection when there are several. The
+tables are read from the database at that moment, so a table
+created after the connection was saved (from QGIS, say) is
+included, and the connection's own table list is refreshed too.
+Every viewport move issues a bounding-box SELECT against the
+database; only intersecting rows come back.
 
 To narrow rows further, open the layer panel's **Filter** tab and
 build clauses there. The portal compiles those filters into

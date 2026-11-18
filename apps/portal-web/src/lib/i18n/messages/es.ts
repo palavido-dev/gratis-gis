@@ -2410,6 +2410,10 @@ export const es: Partial<CatalogShape> = {
       featureCollectionRequired:
         'Pega un FeatureCollection de GeoJSON (no una Feature o geometría suelta).',
       loadItemFailed: 'No se pudo cargar {title}.',
+      postgisProbeFailed:
+        "No se pudieron leer las tablas de {title}: {detail}",
+      postgisNoTables:
+        "{title} no tiene tablas con columna de geometría en su esquema. Añada una (desde QGIS, por ejemplo) o revise el esquema y GRANT SELECT, y vuelva a intentarlo.",
       protocolNotRenderable:
         'El renderizado de mapas para servicios {protocol} llegará en la siguiente entrega. El elemento aparece en el selector por visibilidad, pero aún no se puede añadir al mapa (sigue #305).',
       noServiceUrl:
