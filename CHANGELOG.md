@@ -8,6 +8,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- An hourly check that pg_partman keeps partitions ahead of the data.
+  The API logs an error when rows have landed in a default partition
+  and a warning when an active partition set is under one interval
+  from its last partition, with the command that fixes each.
+  `infra/doctor.sh` runs the same check. pg_partman's background worker
+  errors on every run on Postgres 17.12 (upstream bug), and this makes
+  sure nothing goes wrong quietly while that is open (#758).
 - AI caps and lock for public installs. Daily call limits per
   organization and per user, plus a per-minute limit per user, apply
   before every model call and answer 429 `ai_quota_exceeded` when
