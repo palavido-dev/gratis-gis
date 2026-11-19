@@ -27,6 +27,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- AI screens stay out of the way until an AI provider is connected.
+  The sidebar Build entry and the item page's AI draft panel are hidden
+  while no provider is set, and opening the Build address directly
+  shows a short notice (with a link to Admin, AI assistant for org
+  admins). Saving or clearing the provider updates the sidebar without
+  a reload.
 - Admin pages share one column with the breadcrumb, so every page
   starts at the same left edge. The old "Back to portal" links and
   "Admin" labels on each page are gone; the breadcrumb replaces them.

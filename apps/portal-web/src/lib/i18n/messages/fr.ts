@@ -1678,6 +1678,9 @@ export const fr: Partial<CatalogShape> = {
   buildPage: {
     title: 'Créer à partir d’une description',
     intro: 'Décrivez une couche, une carte, un formulaire ou une app. Un tableau de bord est un modèle d’application web, pas cette page. Rien n’est créé tant que vous ne choisissez pas de le créer.',
+    notConfigured:
+      "La construction a besoin d’un fournisseur d’IA, et aucun n’est connecté pour cette organisation.",
+    connectProvider: "Connecter un fournisseur dans Administration, Assistant IA",
   },
   fieldQueue: {
     rejectedChip:

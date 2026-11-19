@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { Loader2, Save, Trash2 } from 'lucide-react';
 import { useT } from '@/lib/i18n/locale-context';
+import { invalidateAiStatus } from '@/lib/ai-status';
 
 export type AiProviderId =
   | 'openai'
@@ -108,6 +109,8 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
         return;
       }
       setSettings(body);
+      // The sidebar's Build entry follows whether a provider is connected.
+      invalidateAiStatus();
       setApiKey('');
       setModel(body.model ?? '');
       setBaseUrl(body.baseUrl ?? '');
@@ -145,6 +148,7 @@ export function AiSettingsForm({ initial }: { initial: AiSettings }) {
       setApiKey('');
       setProvider('openai');
       setConfirmClear(false);
+      invalidateAiStatus();
       setNotice(t('adminAi.noticeCleared'));
     } catch {
       setError(t('adminAi.errClear'));

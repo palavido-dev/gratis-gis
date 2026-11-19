@@ -1677,6 +1677,9 @@ export const es: Partial<CatalogShape> = {
   buildPage: {
     title: 'Crear a partir de una descripción',
     intro: 'Describe una capa, un mapa, un formulario o una app. Un tablero es una plantilla de aplicación web, no esta página. No se crea nada hasta que elijas crearlo.',
+    notConfigured:
+      "Crear necesita un proveedor de IA y esta organización no tiene ninguno conectado.",
+    connectProvider: "Conectar un proveedor en Administración, Asistente de IA",
   },
   fieldQueue: {
     rejectedChip:
