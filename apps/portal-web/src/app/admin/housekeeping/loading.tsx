@@ -29,7 +29,7 @@ export default function Loading() {
         <div>
           <p className="text-xs text-muted">Admin</p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Housekeeping
+            Cleanup suggestions
           </h1>
           <p className="mt-0.5 text-sm text-muted">
             Loading items and accounts that look like they could be

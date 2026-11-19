@@ -13,29 +13,43 @@ related:
   - admin-roles
   - admin-branding
 ---
-![Admin section in the portal sidebar](/help/admin/users.png)
+Open **Admin** in the sidebar. The admin home lists every admin page
+as a card, grouped by what you want to do, with a search box at the
+top. Some limits are not pages at all: they are server settings that
+the person who runs the portal sets.
 
-There is no single organization settings page. Organization-wide
-settings are spread across the admin pages by topic, and some limits
-are server settings that the person who runs the portal sets.
+## Settings by group
 
-## Settings by page
+**People and access**
 
-- **Admin -> Branding**: organization name and the public landing
-  page.
-- **Admin -> Users**: invite people, set roles, disable or delete
-  accounts, and set auto-disable dates.
-- **Admin -> Sign-in**: add a work account provider people already
-  have, and require an authenticator at the next sign-in.
-- **Admin -> Notifications**: SMTP for outgoing email and the email
-  delivery queue.
-- **Admin -> Housekeeping**: stale content, quiet accounts and
-  scheduled cleanup.
-- **Admin -> Backup**: backup schedule, retention and restore.
-- **Admin -> AI**: optional connection to an AI provider.
-- **Admin -> Updates**: the running version and what is available.
-- **Admin -> Audit** and **Admin -> Permissions**: what admins did,
-  and who can reach which items.
+- **Users**: invite people, set roles, disable or delete accounts,
+  and set auto-disable dates.
+- **Sharing review**: who can reach which items right now.
+- **Audit log**: what admins changed.
+- **Sign-in**: add a work account provider people already have, and
+  require an authenticator at the next sign-in.
+
+**Your portal**
+
+- **Landing page**: organization name and the public front page.
+- **AI assistant**: optional connection to an AI provider.
+- **Feedback inbox**: what people sent from the portal.
+
+**Data**
+
+- **Imports and analyses**, **Field queues**, **Cleanup suggestions**
+  (stale content, quiet accounts and scheduled cleanup) and
+  **ArcGIS Online import and export**.
+
+**System**
+
+- **System health**, **Backup** (schedule, retention and restore),
+  **Updates** (the running version and what is available),
+  **Email delivery** (SMTP and the delivery queue) and
+  **Support bundle**.
+
+Sign-in, Feedback inbox, System health and Backup cover the whole
+install, so only admins of the organization that runs it see them.
 
 ## Limits that are server settings
 
@@ -55,4 +69,4 @@ These are environment variables on the server, not portal pages:
 
 There is no storage budget or storage alert, no per-user item quota,
 no allowed file type list, and no history of setting changes beyond
-the admin audit log. Watch disk use on Admin -> Housekeeping.
+the admin audit log. Watch disk use on **Admin -> Cleanup suggestions**.

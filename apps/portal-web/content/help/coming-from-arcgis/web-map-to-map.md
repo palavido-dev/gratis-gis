@@ -22,7 +22,7 @@ feature data into the portal.
 
 ## Where the import runs
 
-Admins use **Admin, Migrations, From ArcGIS Online**. That flow
+Admins use **Admin, ArcGIS Online import and export, From ArcGIS Online**. That flow
 signs in to a registered ArcGIS Online connection, previews items,
 and commits the ones you keep. The page skips apps, dashboards,
 and forms.

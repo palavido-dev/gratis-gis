@@ -70,7 +70,7 @@ fixed official host (or an admin-chosen OpenAI-compatible base).
    if this deployment does not already have one. The same value
    has to stay stable or previously saved secrets will not decrypt.
 2. Sign in as an organization admin.
-3. Open **Admin → AI** (`/admin/ai`).
+3. Open **Admin → AI assistant** (`/admin/ai`).
 4. Choose a provider and type the model id from that provider.
    For Ollama or another local server, choose
    OpenAI-compatible and set the base URL. If that server does

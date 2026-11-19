@@ -73,7 +73,7 @@ export default async function AdminFieldQueuesPage() {
         <div>
           <p className="text-xs text-muted">Admin</p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Field device queues
+            Field queues
           </h1>
           <p className="mt-0.5 text-sm text-muted">
             What every field device has queued offline, and when it last

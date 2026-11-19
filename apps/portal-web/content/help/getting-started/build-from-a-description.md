@@ -24,7 +24,7 @@ it creates an empty layer with the fields the description implied.
 It can also create a form and a viewer app in the same step.
 Open any of the links it shows to keep editing.
 
-An organization admin turns this on under **Admin → AI**. Until
+An organization admin turns this on under **Admin → AI assistant**. Until
 a provider is saved, Build explains that and stops.
 
 The same page has **Ask a layer**. Pick a data layer you can

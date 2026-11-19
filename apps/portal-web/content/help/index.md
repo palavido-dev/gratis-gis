@@ -39,7 +39,7 @@ Every page has the same shape:
 - **Print templates**. Page layout and parameters.
 - **Analysis**. Derived-layer steps grouped by job: select & calculate,
   proximity, overlay, geometry, summarize, generate.
-- **Admin**. Users, branding, backups, housekeeping.
+- **Admin**. Users, sign-in, landing page, backups and cleanup, all from the admin home.
 - **Reference**. Item types, expressions, API keys, Python, scripts,
   HTTP API, MCP, citations.
 

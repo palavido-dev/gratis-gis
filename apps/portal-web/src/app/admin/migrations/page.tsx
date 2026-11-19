@@ -47,7 +47,7 @@ export default async function AdminMigrationsPage() {
             {t('nav.admin', undefined, locale)}
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {t('nav.migrations', undefined, locale)}
+            {t('adminHome.cards.agoImport.title', undefined, locale)}
           </h1>
           <p className="mt-0.5 text-sm text-muted">
             {t('adminMigrations.pageIntro', undefined, locale)}

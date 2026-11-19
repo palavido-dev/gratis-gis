@@ -25,7 +25,10 @@ function userWithRole(role: 'viewer' | 'contributor' | 'admin'): AuthUser {
   };
 }
 
-function makeController(cfg?: Record<string, string>) {
+function makeController(
+  cfg?: Record<string, string>,
+  operatorOrg = '00000000-0000-0000-0000-0000000000bb',
+) {
   const prisma = {
     user: {
       findUnique: jest.fn().mockResolvedValue({
@@ -35,6 +38,8 @@ function makeController(cfg?: Record<string, string>) {
     },
     organization: {
       findUnique: jest.fn().mockResolvedValue({ name: 'Demo', slug: 'demo' }),
+      // The oldest organization, so the operator unless an env says otherwise.
+      findFirst: jest.fn().mockResolvedValue({ id: operatorOrg }),
     },
   } as unknown as PrismaService;
   const kc = {
@@ -78,6 +83,14 @@ describe('UsersController.me', () => {
     expect(out.capabilities).toContain('can_publish_items');
   });
 
+  it('says whether an admin belongs to the operator organization', async () => {
+    expect((await makeController().me(userWithRole('admin'))).operator).toBe(true);
+    const other = makeController(undefined, '00000000-0000-0000-0000-0000000000cc');
+    expect((await other.me(userWithRole('admin'))).operator).toBe(false);
+    // Only admins can be operators; nobody else pays the lookup.
+    expect((await makeController().me(userWithRole('contributor'))).operator).toBe(false);
+  });
+
   it('keeps every other field the web already reads', async () => {
     const out = await makeController().me(userWithRole('admin'));
     expect(out).toMatchObject({
@@ -104,6 +117,7 @@ describe('UsersController.updateMe identity fields', () => {
       },
       organization: {
         findUnique: jest.fn().mockResolvedValue({ name: 'Demo', slug: 'demo' }),
+        findFirst: jest.fn().mockResolvedValue({ id: '00000000-0000-0000-0000-0000000000bb' }),
       },
     } as unknown as PrismaService;
     const updateUser = jest.fn().mockResolvedValue({});
@@ -158,7 +172,10 @@ describe('UsersController avatar and Keycloak lookups', () => {
         findUnique: jest.fn().mockResolvedValue({ avatarUrl: null, fullName: 'Pat E' }),
         update,
       },
-      organization: { findUnique: jest.fn().mockResolvedValue({ name: 'Demo', slug: 'demo' }) },
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ name: 'Demo', slug: 'demo' }),
+        findFirst: jest.fn().mockResolvedValue({ id: '00000000-0000-0000-0000-0000000000bb' }),
+      },
     } as unknown as PrismaService;
     const kc = {
       isConfigured: jest.fn().mockReturnValue(true),
