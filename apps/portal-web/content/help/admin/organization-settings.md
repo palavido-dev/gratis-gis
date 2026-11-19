@@ -13,6 +13,8 @@ related:
   - admin-roles
   - admin-branding
 ---
+![The admin home: admin pages as cards in groups, with a search box](/help/admin/admin-home.png)
+
 Open **Admin** in the sidebar. The admin home lists every admin page
 as a card, grouped by what you want to do, with a search box at the
 top. Some limits are not pages at all: they are server settings that

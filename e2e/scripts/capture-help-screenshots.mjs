@@ -264,6 +264,7 @@ const SHOTS = [
   recipeShot('analysis/contour-analyze-guide.png', 'Contour from points', ID.facilities),
 
   // Admin
+  { file: 'admin/admin-home.png', as: 'admin', run: (page) => go(page, '/admin', 3000) },
   { file: 'admin/users.png', as: 'admin', run: (page) => go(page, '/admin/users', 3000) },
   { file: 'admin/branding.png', as: 'admin', run: (page) => go(page, '/admin/branding', 3000) },
   { file: 'admin/backup.png', as: 'admin', run: (page) => go(page, '/admin/backup', 3000) },
