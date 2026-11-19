@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, Shield } from 'lucide-react';
+import { AlertTriangle, Shield } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { adminUsersPageQuery, fetchAllAdminUsers } from '@/lib/admin-users-paging';
 import { t } from '@/lib/i18n';
@@ -99,22 +98,12 @@ export default async function AdminUsersPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
-      <Link
-        href="/items"
-        className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        {t('adminUsers.backToPortal', undefined, locale)}
-      </Link>
+    <div className="w-full max-w-6xl pb-10 pt-4">
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Shield className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">
-            {t('nav.admin', undefined, locale)}
-          </p>
           <h1 className="text-2xl font-semibold tracking-tight">
             {t('nav.users', undefined, locale)}
           </h1>

@@ -372,7 +372,10 @@ those buttons, so treat that role as trusted:
 - Give operator admin to people you would trust with network access
   from the server.
 - On a shared or demo install, do not publish an operator admin
-  login.
+  login. If the admin login itself is shared, set
+  `GRATIS_OPERATOR_ORG_ID=none` so nobody is the operator, and
+  `PORTAL_LOCK_ADMIN_TIER=1` so the shared login cannot create admins
+  or add sign-in providers.
 - The test email always goes to the signed-in admin's own account
   address. Error messages say only whether the connection, the login
   or the message failed. The full server reply goes to the API log.

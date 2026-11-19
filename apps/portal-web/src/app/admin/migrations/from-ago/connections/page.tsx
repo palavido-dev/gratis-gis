@@ -23,7 +23,7 @@ export default async function AdminAgoConnectionsPage() {
   // the live list on mount. Keeps initial paint fast without
   // round-tripping the connections endpoint on the server.
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+    <div className="w-full max-w-5xl pb-10 pt-4">
       <Link
         href="/admin/migrations/from-ago"
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"

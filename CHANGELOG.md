@@ -27,6 +27,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Admin pages share one column with the breadcrumb, so every page
+  starts at the same left edge. The old "Back to portal" links and
+  "Admin" labels on each page are gone; the breadcrumb replaces them.
+- `GRATIS_OPERATOR_ORG_ID=none` makes nobody the operator, with no
+  warning in the log. For installs whose admin login is shared.
 - Admin is now one sidebar entry that opens an admin home: every admin
   page as a card in four groups (People and access, Your portal, Data,
   System), with a search box and the setup checklist on top. Each

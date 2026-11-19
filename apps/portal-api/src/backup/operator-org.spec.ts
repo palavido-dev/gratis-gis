@@ -34,6 +34,21 @@ describe('operator organization', () => {
     await expect(operatorOrgId(prisma)).resolves.toBe('org-first');
   });
 
+  it('makes nobody the operator, quietly, when the id is none', async () => {
+    process.env.GRATIS_OPERATOR_ORG_ID = 'none';
+    resetOperatorOrgWarningForTests();
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const findFirst = jest.fn(async () => ({ id: 'org-first' }));
+    try {
+      await expect(operatorOrgId({ organization: { findFirst } })).resolves.toBeNull();
+      expect(findFirst).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      delete process.env.GRATIS_OPERATOR_ORG_ID;
+    }
+  });
+
   it('fails closed and warns once when the operator id is not a UUID', async () => {
     process.env.GRATIS_OPERATOR_ORG_ID = 'not-a-uuid';
     resetOperatorOrgWarningForTests();

@@ -21,7 +21,7 @@ export default async function AdminMigrateFromAgoPage() {
   if (me.orgRole !== 'admin') redirect('/items');
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
+    <div className="w-full max-w-5xl pb-10 pt-4">
       <Link
         href="/admin/migrations"
         className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ArrowLeft, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 
 /**
  * Next.js App Router renders this immediately on route transition
@@ -17,17 +17,12 @@ import { ArrowLeft, Sparkles } from 'lucide-react';
  */
 export default function Loading() {
   return (
-    <div className="mx-auto w-full max-w-5xl px-6 py-10">
-      <span className="mb-3 inline-flex items-center gap-1 text-xs text-muted">
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
-      </span>
+    <div className="w-full max-w-5xl pb-10 pt-4">
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Sparkles className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
           <h1 className="text-2xl font-semibold tracking-tight">
             Cleanup suggestions
           </h1>

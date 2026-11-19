@@ -22,7 +22,7 @@ export function AdminBreadcrumb() {
   return (
     <nav
       aria-label={t('adminHome.title')}
-      className="mx-auto w-full max-w-6xl px-6 pt-6 text-xs text-muted"
+      className="text-xs text-muted"
     >
       <ol className="flex flex-wrap items-center gap-1">
         <li>
