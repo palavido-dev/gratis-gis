@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 
-import { PostgisLiveController } from './postgis-live.controller.js';
+import { PostgisLiveController, sameJson } from './postgis-live.controller.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { _resetKeyCacheForTests } from '../items/credential-cipher.js';
 
@@ -16,7 +16,10 @@ function setup() {
   };
   const items = {
     create: jest.fn(async () => ({ id: SERVICE_ID })),
-    get: jest.fn(async () => ({ id: SERVICE_ID, data: { protocol: 'postgis_live', layers: [] } })),
+    get: jest.fn(async () => ({
+      id: SERVICE_ID,
+      data: { protocol: 'postgis_live', layers: [] as unknown[] },
+    })),
     update: jest.fn(async (_u: AuthUser, id: string, input: unknown) => ({
       id,
       ...(input as object),
@@ -80,10 +83,33 @@ describe('PostgisLiveController', () => {
       });
     });
 
+    it('leaves the item alone when the table list did not change', async () => {
+      const { controller, items } = setup();
+      // jsonb hands keys back in its own order.
+      items.get.mockResolvedValueOnce({
+        id: SERVICE_ID,
+        data: {
+          protocol: 'postgis_live',
+          layers: [{ title: 'parcels', geometryKind: 'Polygon', name: 'public.parcels' }],
+        },
+      });
+      await expect(controller.probe(author, SERVICE_ID)).resolves.toEqual([table]);
+      expect(items.update).not.toHaveBeenCalled();
+    });
+
     it('still returns the list to a user who may not edit the item', async () => {
       const { controller, items } = setup();
       items.update.mockRejectedValueOnce(new ForbiddenException());
       await expect(controller.probe(author, SERVICE_ID)).resolves.toEqual([table]);
     });
+  });
+});
+
+describe('sameJson', () => {
+  it('ignores key order but not values or array order', () => {
+    expect(sameJson({ a: 1, b: [1, { c: 2, d: 3 }] }, { b: [1, { d: 3, c: 2 }], a: 1 })).toBe(true);
+    expect(sameJson([1, 2], [2, 1])).toBe(false);
+    expect(sameJson({ a: 1 }, { a: 2 })).toBe(false);
+    expect(sameJson(undefined, [])).toBe(false);
   });
 });

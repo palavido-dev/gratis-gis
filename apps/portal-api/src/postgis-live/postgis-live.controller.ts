@@ -88,6 +88,25 @@ function assertUuid(name: string, value: string): void {
   }
 }
 
+/**
+ * Deep equality for JSON values, ignoring object key order: a jsonb
+ * column hands keys back in its own order, not the order they were
+ * written in.
+ */
+export function sameJson(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(
+            Object.keys(v as object)
+              .sort()
+              .map((k) => [k, canon((v as Record<string, unknown>)[k])]),
+          )
+        : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+}
+
 function assertCanAuthorPostgis(user: AuthUser): void {
   if (!hasCapability(user, 'can_publish_items')) {
     throw new ForbiddenException(
@@ -228,10 +247,13 @@ export class PostgisLiveController {
     // create, and the live read only serves tables on it, so a table
     // added afterwards (from QGIS, say) could never be drawn. Anyone
     // who may edit the item refreshes it by probing; anyone else just
-    // gets the fresh list back.
+    // gets the fresh list back. Only a changed list is written, so a
+    // probe that finds nothing new leaves the item and its updatedAt
+    // alone.
     try {
       const item = await this.items.get(user, serviceItemId);
       const data = (item.data ?? {}) as Record<string, unknown>;
+      if (sameJson(data.layers, layers)) return layers;
       await this.items.update(user, serviceItemId, {
         data: { ...data, layers } as unknown as never,
       });
