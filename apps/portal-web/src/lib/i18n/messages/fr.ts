@@ -813,6 +813,14 @@ export const fr: Partial<CatalogShape> = {
   password: 'Password',
   defaultSchema: 'Default schema',
   defaultSchemaHint: 'Tables in this schema show up in the layer picker by default. Other schemas stay reachable via the detail page.',
+  sslMode: 'SSL',
+  sslModeHint: "Préférer tente d’abord une connexion chiffrée, comme QGIS et psql. Les bases hébergées comme Neon ou Supabase demandent Préférer ou Obligatoire.",
+  sslModes: {
+    prefer: "Préférer (chiffrer si le serveur le permet)",
+    require: "Obligatoire (chiffrer sans vérifier le certificat)",
+    "verify-full": "Vérifier (chiffrer et vérifier le certificat)",
+    disable: "Désactivé (sans chiffrement)",
+  },
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:
@@ -2416,6 +2424,10 @@ export const fr: Partial<CatalogShape> = {
       featureCollectionRequired:
         'Collez un FeatureCollection GeoJSON (pas une Feature ou une géométrie seule).',
       loadItemFailed: 'Impossible de charger {title}.',
+      postgisProbeFailed:
+        "Impossible de lire les tables de {title} : {detail}",
+      postgisNoTables:
+        "{title} n’a aucune table avec une colonne géométrique dans son schéma. Ajoutez-en une (depuis QGIS, par exemple) ou vérifiez le schéma et GRANT SELECT, puis réessayez.",
       protocolNotRenderable:
         'Le rendu cartographique pour les services {protocol} arrive dans la prochaine livraison. L’élément apparaît dans le sélecteur pour visibilité, mais ne peut pas encore être ajouté à la carte (suivre #305).',
       noServiceUrl:

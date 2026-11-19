@@ -55,6 +55,16 @@ function loadKey(): Buffer {
 }
 
 /**
+ * Throw (with the same message encrypt would) unless the master key is
+ * set and valid. For callers that must know before they write anything
+ * that a credential will be storable, so they do not leave a half-made
+ * record behind when it is not.
+ */
+export function assertCredentialKeyConfigured(): void {
+  loadKey();
+}
+
+/**
  * Encrypt a plaintext string for storage. Returns the IV and the
  * combined ciphertext+tag, both base64-encoded so they can be
  * dropped straight into TEXT columns. `aad` is bound into the

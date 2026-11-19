@@ -811,6 +811,14 @@ export const ptBR: Partial<CatalogShape> = {
   password: 'Password',
   defaultSchema: 'Default schema',
   defaultSchemaHint: 'Tables in this schema show up in the layer picker by default. Other schemas stay reachable via the detail page.',
+  sslMode: 'SSL',
+  sslModeHint: "Preferir tenta primeiro uma conexão criptografada, como o QGIS e o psql. Bancos hospedados como Neon ou Supabase precisam de Preferir ou Obrigatório.",
+  sslModes: {
+    prefer: "Preferir (criptografar quando o servidor permitir)",
+    require: "Obrigatório (criptografar sem verificar o certificado)",
+    "verify-full": "Verificar (criptografar e verificar o certificado)",
+    disable: "Desativado (sem criptografia)",
+  },
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:
@@ -2404,6 +2412,10 @@ export const ptBR: Partial<CatalogShape> = {
       featureCollectionRequired:
         'Cole um FeatureCollection GeoJSON (não uma Feature ou geometria isolada).',
       loadItemFailed: 'Não foi possível carregar {title}.',
+      postgisProbeFailed:
+        "Não foi possível ler as tabelas de {title}: {detail}",
+      postgisNoTables:
+        "{title} não tem tabelas com coluna de geometria no seu esquema. Adicione uma (pelo QGIS, por exemplo) ou verifique o esquema e o GRANT SELECT e tente de novo.",
       protocolNotRenderable:
         'A renderização de mapas para serviços {protocol} chega na próxima entrega. O item aparece no seletor por visibilidade, mas ainda não pode ser adicionado ao mapa (acompanhe #305).',
       noServiceUrl:

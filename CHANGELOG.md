@@ -39,6 +39,34 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- A first install with `infra/bootstrap.sh` no longer stalls on a
+  restart-looping Keycloak. Under the script's `umask 077` the realm
+  import directory was created at mode 700, so Keycloak (uid 1000,
+  gid 0) could not enter it and `--import-realm` failed with "directory
+  not found", leaving caddy, portal-web and portal-api in "Created". The
+  directory now gets the same treatment as the file inside it.
+- Map: closing a map or swapping its basemap while icons were still
+  loading no longer throws "Cannot read properties of undefined
+  (reading 'getImage')". The icon loader stops once the map has no
+  style, and the next style reloads the icons as before.
+- PostgreSQL + PostGIS (live) connections can use SSL. The API always
+  connected unencrypted, so hosted databases that require SSL (Neon,
+  Supabase, Amazon RDS) refused it, and the wizard reported "The database
+  rejected that role or password." even with correct credentials. The
+  wizard has an SSL setting with libpq's modes (Prefer by default, as in
+  psql and QGIS), Save stores the mode that connected, and an SSL refusal
+  or certificate failure now gets its own message. Connections saved
+  before this keep connecting unencrypted.
+- PostgreSQL + PostGIS (live) connections can be added to a map. The
+  Add layer dialog refused them as "not renderable" although the map
+  draws them; it now adds every geometry table of the connection, read
+  fresh from the database so tables created after the connection was
+  saved are included. The probe also refreshes the connection's stored
+  table list, which the live read checks, so such tables draw too.
+- Saving a PostGIS connection on a server without
+  `CREDENTIAL_ENCRYPTION_KEY` no longer leaves an empty connection
+  behind on each try: Save stops first with a message naming the
+  setting, and a connection that fails after creation is removed.
 - Recently deleted loads the item trash 100 at a time with Previous and
   Next, instead of every deleted item in the org at once. Select all
   and the bulk actions cover the page shown. `GET /items/trash` takes

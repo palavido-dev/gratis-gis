@@ -366,9 +366,13 @@ export class PostgisLiveService_ {
     role: string;
     password: string;
     defaultSchema?: string;
+    sslMode?: PostgisSslMode;
   }): Promise<
     | {
         ok: true;
+        /** The mode that connected; `prefer` resolves to `require` or
+         *  `disable`. Save stores it so live reads connect the same way. */
+        sslMode: Exclude<PostgisSslMode, 'prefer'>;
         postgisVersion: string;
         schema: string;
         tables: PostgisTablePreview[];
@@ -397,16 +401,44 @@ export class PostgisLiveService_ {
       };
     }
     const port = Number.isFinite(args.port) && args.port > 0 ? args.port : 5432;
+    // `prefer` works as libpq's (and so QGIS's) default does: try TLS,
+    // and only when the server has no SSL at all, connect in the clear.
+    // Hosted databases such as Neon or Supabase refuse plaintext.
+    const mode = args.sslMode ?? 'prefer';
+    const tries: Array<Exclude<PostgisSslMode, 'prefer'>> =
+      mode === 'prefer' ? ['require', 'disable'] : [mode];
+    let result: Awaited<ReturnType<PostgisLiveService_['testConnection']>> = {
+      ok: false,
+      error: 'Could not connect.',
+    };
+    for (const sslMode of tries) {
+      const outcome = await this.tryConnection(args, port, schema, sslMode);
+      if (outcome.ok) return outcome;
+      result = { ok: false, error: safeConnectionError(outcome.err) };
+      if (!isSslUnsupported(outcome.err)) break;
+    }
+    return result;
+  }
+
+  private async tryConnection(
+    args: { host: string; database: string; role: string; password: string },
+    port: number,
+    schema: string,
+    sslMode: Exclude<PostgisSslMode, 'prefer'>,
+  ) {
     const pool = new Pool({
       host: args.host,
       port,
       database: args.database,
       user: args.role,
       password: args.password,
+      ssl: pgSslOption(sslMode),
       max: 1,
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 100,
     });
+    // An idle client's late error must not crash the process.
+    pool.on('error', () => undefined);
     try {
       const client = await pool.connect();
       try {
@@ -418,7 +450,8 @@ export class PostgisLiveService_ {
           MAX_TEST_CONNECTION_TABLES,
         );
         return {
-          ok: true,
+          ok: true as const,
+          sslMode,
           postgisVersion: res.rows[0]?.v ?? 'unknown',
           schema,
           tables: inventory.tables,
@@ -429,7 +462,7 @@ export class PostgisLiveService_ {
         client.release();
       }
     } catch (err) {
-      return { ok: false, error: safeConnectionError(err) };
+      return { ok: false as const, err };
     } finally {
       await pool.end().catch(() => undefined);
     }
@@ -473,6 +506,7 @@ export class PostgisLiveService_ {
       data.port,
       data.database,
       data.role,
+      data.sslMode ?? null,
       stamp ? new Date(stamp.updatedAt).getTime() : null,
     ]);
     const existing = this.pools.get(itemId);
@@ -490,6 +524,9 @@ export class PostgisLiveService_ {
       database: data.database,
       user: data.role,
       password: cred.password,
+      // Connections saved before the SSL setting existed connected in
+      // the clear and keep doing so.
+      ssl: pgSslOption(data.sslMode),
       max: 4,
       connectionTimeoutMillis: 5_000,
       idleTimeoutMillis: 30_000,
@@ -557,6 +594,52 @@ export function normalizeStatementTimeout(raw: unknown): number {
 }
 
 /**
+ * libpq-style SSL modes for a PostGIS connection. `prefer` is the
+ * wizard default and is resolved at Save to the mode that connected.
+ */
+export type PostgisSslMode = 'prefer' | 'require' | 'verify-full' | 'disable';
+export const POSTGIS_SSL_MODES: readonly PostgisSslMode[] = [
+  'prefer',
+  'require',
+  'verify-full',
+  'disable',
+];
+
+/**
+ * node-postgres's `ssl` option for a mode. As in libpq, `require` (and
+ * `prefer`) encrypt without checking the certificate; `verify-full`
+ * checks the chain and the host name. No mode, as on connections saved
+ * before the setting existed, means no TLS.
+ */
+export function pgSslOption(
+  mode: PostgisSslMode | undefined,
+): false | { rejectUnauthorized: boolean } {
+  switch (mode) {
+    case 'prefer':
+    case 'require':
+      return { rejectUnauthorized: false };
+    case 'verify-full':
+      return { rejectUnauthorized: true };
+    default:
+      return false;
+  }
+}
+
+/** node-postgres's error when the server answers the SSL request with "no". */
+export function isSslUnsupported(err: unknown): boolean {
+  return err instanceof Error && /does not support SSL/i.test(err.message);
+}
+
+const TLS_CERT_ERRORS = new Set([
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'CERT_HAS_EXPIRED',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+
+/**
  * A sentence a caller can see. The driver's own message can include
  * the server version, a file path, or the text of a query, so it
  * stays in the log and does not go out on the response.
@@ -566,6 +649,22 @@ export function safeConnectionError(err: unknown): string {
     err && typeof err === 'object' && 'code' in err
       ? String((err as { code?: unknown }).code ?? '')
       : '';
+  const message =
+    err && typeof err === 'object' && 'message' in err
+      ? String((err as { message?: unknown }).message ?? '')
+      : '';
+  if (isSslUnsupported(err)) {
+    return 'The server does not accept SSL connections. Set SSL to Prefer or Disable.';
+  }
+  if (code === '28000' && /insecure|ssl/i.test(message)) {
+    return 'The database only accepts encrypted connections. Set SSL to Prefer or Require.';
+  }
+  if (TLS_CERT_ERRORS.has(code)) {
+    return (
+      "The server's SSL certificate could not be verified. Set SSL to " +
+      'Require to encrypt without checking the certificate.'
+    );
+  }
   switch (code) {
     case '28P01':
     case '28000':

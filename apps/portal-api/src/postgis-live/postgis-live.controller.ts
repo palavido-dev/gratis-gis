@@ -8,11 +8,13 @@ import {
   Param,
   Post,
   Query,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsArray,
+  IsIn,
   IsInt,
   Max,
   Min,
@@ -29,9 +31,14 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { PrintReadable } from '../auth/print-readable.decorator.js';
-import { PostgisLiveService_ } from './postgis-live.service.js';
+import {
+  POSTGIS_SSL_MODES,
+  PostgisLiveService_,
+  type PostgisSslMode,
+} from './postgis-live.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { CredentialService } from '../items/credential.service.js';
+import { assertCredentialKeyConfigured } from '../items/credential-cipher.js';
 
 class TestConnectionDto {
   @IsString() @MinLength(1) @MaxLength(255) host!: string;
@@ -41,6 +48,8 @@ class TestConnectionDto {
   @IsString() @MaxLength(1024) password!: string;
   /** Optional schema for the capped geometry-table preview. */
   @IsOptional() @IsString() @MaxLength(63) defaultSchema?: string;
+  /** libpq-style SSL mode; `prefer` when omitted. */
+  @IsOptional() @IsIn(POSTGIS_SSL_MODES) sslMode?: PostgisSslMode;
 }
 
 class CreateConnectionDto {
@@ -52,6 +61,7 @@ class CreateConnectionDto {
   @IsString() @MinLength(1) @MaxLength(255) role!: string;
   @IsString() @MaxLength(1024) password!: string;
   @IsOptional() @IsString() @MaxLength(63) defaultSchema?: string;
+  @IsOptional() @IsIn(POSTGIS_SSL_MODES) sslMode?: PostgisSslMode;
 }
 
 class ReadFeaturesDto {
@@ -76,6 +86,25 @@ function assertUuid(name: string, value: string): void {
   if (!UUID_RE.test(value)) {
     throw new BadRequestException(`${name} must be a UUID`);
   }
+}
+
+/**
+ * Deep equality for JSON values, ignoring object key order: a jsonb
+ * column hands keys back in its own order, not the order they were
+ * written in.
+ */
+export function sameJson(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(
+            Object.keys(v as object)
+              .sort()
+              .map((k) => [k, canon((v as Record<string, unknown>)[k])]),
+          )
+        : v;
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 }
 
 function assertCanAuthorPostgis(user: AuthUser): void {
@@ -107,6 +136,20 @@ export class PostgisLiveController {
   @Post('create')
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateConnectionDto) {
     assertCanAuthorPostgis(user);
+    // 0. The password has to be stored encrypted, so a server with no
+    //    credential key cannot save a connection at all. Say so before
+    //    anything is written: otherwise the item is created and step 3
+    //    throws a bare 500, leaving an empty connection behind on every
+    //    press of Save.
+    try {
+      assertCredentialKeyConfigured();
+    } catch {
+      throw new ServiceUnavailableException(
+        'This server cannot store connection passwords yet: ' +
+          'CREDENTIAL_ENCRYPTION_KEY is not set. Ask an administrator ' +
+          'to set it and restart the API, then save again.',
+      );
+    }
     // 1. Test the connection BEFORE creating the item so a bad
     //    password / wrong port doesn't leave a half-configured
     //    service item lying around.
@@ -117,6 +160,7 @@ export class PostgisLiveController {
       role: dto.role,
       password: dto.password,
       ...(dto.defaultSchema ? { defaultSchema: dto.defaultSchema } : {}),
+      ...(dto.sslMode ? { sslMode: dto.sslMode } : {}),
     });
     if (!test.ok) {
       throw new BadRequestException(`Connection failed: ${test.error}`);
@@ -133,6 +177,8 @@ export class PostgisLiveController {
       database: dto.database,
       role: dto.role,
       ...(dto.defaultSchema ? { defaultSchema: dto.defaultSchema } : {}),
+      // The mode that just connected, so live reads connect alike.
+      sslMode: test.sslMode,
       layers: [],
       requiresAuth: true,
       statementTimeoutMs: 10_000,
@@ -144,22 +190,32 @@ export class PostgisLiveController {
       data: itemData,
       tags: ['postgis_live'],
     });
-    // 3. Store the password as a basic-auth credential against
-    //    the new item id.
-    await this.credentials.setCredential(item.id, user.id, {
-      kind: 'basic',
-      username: dto.role,
-      password: dto.password,
-    });
-    // 4. Probe for tables and write them onto the item's data.
-    const layers = await this.svc.probe(user, item.id);
-    const updated = await this.items.update(user, item.id, {
-      // Prisma typing wants InputJsonValue here; cast via unknown
-      // because PostgisLiveLayerSnapshot[] satisfies the JSON shape
-      // at runtime but TS doesn't see the structural match.
-      data: { ...itemData, layers } as unknown as never,
-    });
-    return updated;
+    try {
+      // 3. Store the password as a basic-auth credential against
+      //    the new item id.
+      await this.credentials.setCredential(item.id, user.id, {
+        kind: 'basic',
+        username: dto.role,
+        password: dto.password,
+      });
+      // 4. Probe for tables and write them onto the item's data.
+      const layers = await this.svc.probe(user, item.id);
+      return await this.items.update(user, item.id, {
+        // Prisma typing wants InputJsonValue here; cast via unknown
+        // because PostgisLiveLayerSnapshot[] satisfies the JSON shape
+        // at runtime but TS doesn't see the structural match.
+        data: { ...itemData, layers } as unknown as never,
+      });
+    } catch (err) {
+      // Do not leave a connection without its password or its tables:
+      // it would sit in the content list looking usable and fail on
+      // every map. Take it back out, then report the error.
+      await this.items
+        .remove(user, item.id)
+        .then(() => this.items.purge(user, item.id))
+        .catch(() => undefined);
+      throw err;
+    }
   }
 
   /**
@@ -181,12 +237,30 @@ export class PostgisLiveController {
    */
   @Post(':serviceItemId/probe')
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  probe(@CurrentUser() user: AuthUser, @Param('serviceItemId') serviceItemId: string) {
+  async probe(@CurrentUser() user: AuthUser, @Param('serviceItemId') serviceItemId: string) {
     assertUuid('serviceItemId', serviceItemId);
     // Same gate as create and test: a probe lists the whole schema
     // and runs a query per table on the owner's database.
     assertCanAuthorPostgis(user);
-    return this.svc.probe(user, serviceItemId);
+    const layers = await this.svc.probe(user, serviceItemId);
+    // Keep the item's table snapshot current. It is written once, at
+    // create, and the live read only serves tables on it, so a table
+    // added afterwards (from QGIS, say) could never be drawn. Anyone
+    // who may edit the item refreshes it by probing; anyone else just
+    // gets the fresh list back. Only a changed list is written, so a
+    // probe that finds nothing new leaves the item and its updatedAt
+    // alone.
+    try {
+      const item = await this.items.get(user, serviceItemId);
+      const data = (item.data ?? {}) as Record<string, unknown>;
+      if (sameJson(data.layers, layers)) return layers;
+      await this.items.update(user, serviceItemId, {
+        data: { ...data, layers } as unknown as never,
+      });
+    } catch (err) {
+      if (!(err instanceof ForbiddenException)) throw err;
+    }
+    return layers;
   }
 
   /**

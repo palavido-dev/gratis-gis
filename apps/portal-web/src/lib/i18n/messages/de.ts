@@ -813,6 +813,14 @@ export const de: Partial<CatalogShape> = {
   password: 'Password',
   defaultSchema: 'Default schema',
   defaultSchemaHint: 'Tables in this schema show up in the layer picker by default. Other schemas stay reachable via the detail page.',
+  sslMode: 'SSL',
+  sslModeHint: "Bevorzugen versucht zuerst eine verschlüsselte Verbindung, wie QGIS und psql. Gehostete Datenbanken wie Neon oder Supabase brauchen Bevorzugen oder Erforderlich.",
+  sslModes: {
+    prefer: "Bevorzugen (verschlüsseln, wenn der Server es erlaubt)",
+    require: "Erforderlich (verschlüsseln, Zertifikat nicht prüfen)",
+    "verify-full": "Prüfen (verschlüsseln und Zertifikat prüfen)",
+    disable: "Deaktiviert (keine Verschlüsselung)",
+  },
   testConnection: 'Test connection',
   postgisVersion: 'PostGIS {version}',
   tablesHeading:
@@ -2414,6 +2422,10 @@ export const de: Partial<CatalogShape> = {
       featureCollectionRequired:
         'Fügen Sie eine GeoJSON-FeatureCollection ein (kein einzelnes Feature oder eine Geometrie).',
       loadItemFailed: '{title} konnte nicht geladen werden.',
+      postgisProbeFailed:
+        "Die Tabellen von {title} konnten nicht gelesen werden: {detail}",
+      postgisNoTables:
+        "{title} hat in seinem Schema keine Tabellen mit Geometriespalte. Fügen Sie eine hinzu (etwa aus QGIS) oder prüfen Sie Schema und GRANT SELECT und versuchen Sie es erneut.",
       protocolNotRenderable:
         'Kartenrendering für {protocol}-Dienste kommt im nächsten Schritt. Das Element erscheint zur Sichtbarkeit im Picker, kann aber noch nicht zur Karte hinzugefügt werden (Issue #305).',
       noServiceUrl:
