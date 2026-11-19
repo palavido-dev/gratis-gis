@@ -1736,6 +1736,9 @@ export const en = {
   buildPage: {
     title: 'Build from a description',
     intro: 'Describe a layer, a map, a form, or an app. A dashboard is a web-app template, not this page. Nothing is created until you choose Build it.',
+    notConfigured:
+      "Build needs an AI provider, and none is connected for this organization.",
+    connectProvider: "Connect a provider in Admin, AI assistant",
   },
   // Offline queue rows the server refused for a reason a retry cannot
   // change. Shown from the field runtime header chip.

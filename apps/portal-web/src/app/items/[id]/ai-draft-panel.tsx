@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { Bot, Copy, Loader2 } from 'lucide-react';
+import { useAiConfigured } from '@/lib/ai-status';
 import { useT } from '@/lib/i18n/locale-context';
 
 interface DraftClause {
@@ -35,37 +36,14 @@ export function AiDraftPanel({
   isAdmin: boolean;
 }) {
   const t = useT();
-  const [configured, setConfigured] = useState<boolean | null>(null);
+  // Hidden entirely until the organization has a provider connected.
+  const aiConfigured = useAiConfigured();
   const [instruction, setInstruction] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unconfigured, setUnconfigured] = useState(false);
   const [draft, setDraft] = useState<AiDraft | null>(null);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const res = await fetch('/api/portal/ai/status');
-        if (!res.ok) {
-          if (!cancelled) setConfigured(false);
-          return;
-        }
-        const body = (await res.json()) as { configured?: boolean };
-        if (!cancelled) {
-          setConfigured(body.configured === true);
-          setUnconfigured(body.configured !== true);
-        }
-      } catch {
-        if (!cancelled) setConfigured(false);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   async function submit() {
     const text = instruction.trim();
@@ -85,7 +63,6 @@ export function AiDraftPanel({
         draft?: AiDraft;
       } | null;
       if (res.status === 409 || body?.code === 'ai_not_configured') {
-        setConfigured(false);
         setUnconfigured(true);
         setDraft(null);
         return;
@@ -117,7 +94,9 @@ export function AiDraftPanel({
     }
   }
 
-  const showUnconfigured = configured === false || unconfigured;
+  if (aiConfigured !== true) return null;
+  // The provider was removed while this page was open.
+  const showUnconfigured = unconfigured;
 
   return (
     <section className="mb-6 rounded-lg border border-border bg-surface-1 p-4 shadow-card">
@@ -125,9 +104,7 @@ export function AiDraftPanel({
         <Bot className="h-4 w-4 text-accent" />
         <h2 className="text-sm font-medium text-ink-0">{t('aiDraft.title')}</h2>
       </div>
-      {configured === null ? (
-        <p className="text-xs text-muted">{t('aiDraft.checking')}</p>
-      ) : showUnconfigured ? (
+      {showUnconfigured ? (
         <div className="text-sm text-ink-1">
           <p>{t('aiDraft.unconfigured')}</p>
           {isAdmin ? (

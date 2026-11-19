@@ -1674,6 +1674,9 @@ export const ptBR: Partial<CatalogShape> = {
   buildPage: {
     title: 'Criar a partir de uma descrição',
     intro: 'Descreva uma camada, um mapa, um formulário ou um app. Um painel é um modelo de aplicativo web, não esta página. Nada é criado até você escolher criar.',
+    notConfigured:
+      "Criar precisa de um provedor de IA, e nenhum está conectado para esta organização.",
+    connectProvider: "Conectar um provedor em Administração, Assistente de IA",
   },
   fieldQueue: {
     rejectedChip:

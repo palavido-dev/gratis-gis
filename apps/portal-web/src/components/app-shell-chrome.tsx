@@ -18,6 +18,7 @@ import {
 
 import { useSession } from 'next-auth/react';
 
+import { useAiConfigured } from '@/lib/ai-status';
 import { useT } from '@/lib/i18n/locale-context';
 import { NotificationsLink } from './notifications-link';
 import { isSessionStale } from '@/lib/session-state';
@@ -255,6 +256,9 @@ function NavList({
   // call site below.
   const cb = onNavigate;
   const t = useT();
+  // Build is AI: shown only once the organization has a provider
+  // connected, and not while that is still being checked.
+  const aiConfigured = useAiConfigured();
   return (
     <nav className="mt-4 flex flex-col gap-0.5 text-sm">
       <NavLink href="/" icon={<LayoutGrid className="h-4 w-4" />} onNavigate={cb}>
@@ -263,12 +267,14 @@ function NavList({
       <NavLink href="/items" icon={<MapIcon className="h-4 w-4" />} onNavigate={cb}>
         {t('nav.items')}
       </NavLink>
-      <NavLink href="/assistant" icon={<Bot className="h-4 w-4" />} onNavigate={cb}>
-        <span className="flex min-w-0 flex-col">
-          <span>{t('nav.build')}</span>
-          <span className="text-xs font-normal text-muted">{t('nav.buildHint')}</span>
-        </span>
-      </NavLink>
+      {aiConfigured ? (
+        <NavLink href="/assistant" icon={<Bot className="h-4 w-4" />} onNavigate={cb}>
+          <span className="flex min-w-0 flex-col">
+            <span>{t('nav.build')}</span>
+            <span className="text-xs font-normal text-muted">{t('nav.buildHint')}</span>
+          </span>
+        </NavLink>
+      ) : null}
       <NavLink
         href="/items?folders=open"
         icon={<FolderIcon className="h-4 w-4" />}

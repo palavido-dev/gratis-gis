@@ -1677,6 +1677,9 @@ export const de: Partial<CatalogShape> = {
   buildPage: {
     title: 'Aus einer Beschreibung erstellen',
     intro: 'Beschreiben Sie einen Layer, eine Karte, ein Formular oder eine App. Ein Dashboard ist eine Web-App-Vorlage, nicht diese Seite. Es wird nichts erstellt, bis Sie das auswählen.',
+    notConfigured:
+      "Erstellen braucht einen KI-Anbieter, und für diese Organisation ist keiner verbunden.",
+    connectProvider: "Einen Anbieter unter Admin, KI-Assistent verbinden",
   },
   fieldQueue: {
     rejectedChip:
