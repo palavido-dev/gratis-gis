@@ -39,7 +39,7 @@ export function DiagnosticsView() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <h1 className="text-xl font-semibold text-ink-0">{t('adminDiagnostics.title')}</h1>
+      <h1 className="text-xl font-semibold text-ink-0">{t('adminHome.cards.support.title')}</h1>
       <p className="mt-2 text-sm text-ink-1">{t('adminDiagnostics.intro')}</p>
       <div className="mt-4 flex flex-wrap gap-2">
         <button

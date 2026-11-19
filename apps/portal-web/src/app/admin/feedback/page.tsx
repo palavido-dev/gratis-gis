@@ -61,7 +61,7 @@ export default async function AdminFeedbackPage() {
             {t('nav.admin', undefined, locale)}
           </p>
           <h1 className="text-2xl font-semibold tracking-tight">
-            {t('nav.feedback', undefined, locale)}
+            {t('adminHome.cards.feedback.title', undefined, locale)}
           </h1>
           <p className="mt-0.5 text-sm text-muted">
             {t('adminFeedback.pageIntro', undefined, locale)}

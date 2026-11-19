@@ -46,7 +46,7 @@ export function AuditView() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-10">
-      <h1 className="text-xl font-semibold text-ink-0">{t('adminAudit.title')}</h1>
+      <h1 className="text-xl font-semibold text-ink-0">{t('adminHome.cards.audit.title')}</h1>
       <p className="mt-2 max-w-2xl text-sm text-ink-1">{t('adminAudit.intro')}</p>
       <button
         type="button"

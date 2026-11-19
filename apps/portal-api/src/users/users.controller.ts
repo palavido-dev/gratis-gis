@@ -28,6 +28,7 @@ import {
   DEFAULT_TRASH_RETENTION_DAYS,
   trashRetentionDays,
 } from '../maintenance/trash-retention.js';
+import { operatorOrgId } from '../backup/operator-org.js';
 
 /** How long /users/me reuses a user's Keycloak names. */
 const KC_NAME_CACHE_MS = 5 * 60_000;
@@ -120,7 +121,7 @@ export class UsersController {
 
   @Get('me')
   async me(@CurrentUser() user: AuthUser) {
-    const [row, org] = await Promise.all([
+    const [row, org, operatorOrg] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: user.id },
         select: { avatarUrl: true, fullName: true },
@@ -129,6 +130,8 @@ export class UsersController {
         where: { id: user.orgId },
         select: { name: true, slug: true },
       }),
+      // Only an admin can be an operator, so only an admin pays the lookup.
+      user.orgRole === 'admin' ? operatorOrgId(this.prisma) : Promise.resolve(null),
     ]);
     // Pull firstName/lastName from Keycloak so the /profile form can
     // prepopulate edit inputs. We tolerate Keycloak unreachability
@@ -156,6 +159,11 @@ export class UsersController {
       avatarUrl: row?.avatarUrl ?? null,
       orgName: org?.name ?? null,
       orgSlug: org?.slug ?? null,
+      // An admin of the operator organization: the admin home shows the
+      // install-wide tools (backup, sign-in, system health) only to them.
+      // The API still enforces it (OperatorOrgGuard); this only decides
+      // which cards to offer.
+      operator: user.orgRole === 'admin' && operatorOrg !== null && operatorOrg === user.orgId,
       // How long Trash keeps things, for the delete dialogs and the
       // Recently deleted page.
       trashRetentionDays:

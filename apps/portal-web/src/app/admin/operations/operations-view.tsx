@@ -36,7 +36,7 @@ export function OperationsView({
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 px-6 py-10">
       <div>
-        <h1 className="text-xl font-semibold text-ink-0">{t('opsPage.title')}</h1>
+        <h1 className="text-xl font-semibold text-ink-0">{t('adminHome.cards.health.title')}</h1>
         <p className="mt-2 text-sm text-ink-1">{t('opsPage.intro')}</p>
       </div>
       {!operator ? <p className="text-sm text-ink-1">{t('opsPage.operatorOnly')}</p> : null}

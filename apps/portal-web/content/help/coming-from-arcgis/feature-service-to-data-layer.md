@@ -20,7 +20,7 @@ copy is a separate step from importing a web map. A WebMap JSON
 import that only keeps the FeatureServer URL still draws from
 ArcGIS Online.
 
-Admins can run the copy from **Admin, Migrations, From ArcGIS
+Admins can run the copy from **Admin, ArcGIS Online import and export, From ArcGIS
 Online**. When the preview marks a hosted feature service for
 import, the commit copies schema and features into PostGIS and,
 if a web map in the same run referenced that service, rewrites
@@ -44,7 +44,7 @@ pointing at a FeatureServer, open it, select the layers you want,
 and click **Copy selected layers to data layer**. The portal
 creates a data layer (WGS84) and leaves the live pointer alone.
 Interactive copies stop at 50,000 features; for a full hosted
-service cutover use **Admin → Migrations → From ArcGIS Online**.
+service cutover use **Admin → ArcGIS Online import and export → From ArcGIS Online**.
 
 **Manual file path** (same outcome when you prefer a file):
 

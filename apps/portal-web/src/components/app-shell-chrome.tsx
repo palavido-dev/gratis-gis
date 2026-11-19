@@ -5,25 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  Activity,
-  Archive,
-  ArrowRightLeft,
-  Bell,
   Bot,
   ClipboardList,
-  ListChecks,
-  ScrollText,
-  Stethoscope,
   Folder as FolderIcon,
   LayoutGrid,
   Map as MapIcon,
   Menu as MenuIcon,
-  MessageSquarePlus,
-  Paintbrush,
-  RefreshCw,
-  Rocket,
-  Shield,
-  Sparkles,
+  Settings,
   Trash2,
   Users,
 } from 'lucide-react';
@@ -315,151 +303,23 @@ function NavList({
       >
         {t('nav.recentlyDeleted')}
       </NavLink>
-      {orgRole === 'admin' ? (
-        <>
-          <p className="mt-4 px-2 text-xs font-medium uppercase tracking-wide text-muted">
-            {t('nav.admin')}
-          </p>
-          <GettingStartedNavLink onNavigate={cb} />
-          <NavLink
-            href="/admin/users"
-            icon={<Shield className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.users')}
-          </NavLink>
-          <NavLink
-            href="/admin/branding"
-            icon={<Paintbrush className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.landingPage')}
-          </NavLink>
-          <NavLink
-            href="/admin/audit"
-            icon={<ScrollText className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.audit')}
-          </NavLink>
-          <NavLink
-            href="/admin/permissions"
-            icon={<ListChecks className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.permissions')}
-          </NavLink>
-          <NavLink
-            href="/admin/diagnostics"
-            icon={<Stethoscope className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.diagnostics')}
-          </NavLink>
-          <NavLink
-            href="/admin/jobs"
-            icon={<ClipboardList className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.jobs')}
-          </NavLink>
-          <NavLink
-            href="/admin/operations"
-            icon={<Activity className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.operations')}
-          </NavLink>
-          <NavLink
-            href="/admin/backup"
-            icon={<Archive className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.backup')}
-          </NavLink>
-          <NavLink
-            href="/admin/updates"
-            icon={<RefreshCw className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.updates')}
-          </NavLink>
-          <NavLink
-            href="/admin/housekeeping"
-            icon={<Sparkles className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.housekeeping')}
-          </NavLink>
-          <NavLink
-            href="/admin/notifications"
-            icon={<Bell className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.notifications')}
-          </NavLink>
-          <NavLink
-            href="/admin/ai"
-            icon={<Bot className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.ai')}
-          </NavLink>
-          <NavLink
-            href="/admin/security"
-            icon={<Shield className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.security')}
-          </NavLink>
-          {/* Not gated on the feedback flag: an operator who turned
-              the form off still needs to read what came in while it
-              was on. */}
-          <NavLink
-            href="/admin/feedback"
-            icon={<MessageSquarePlus className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.feedback')}
-          </NavLink>
-          <NavLink
-            href="/admin/field-queues"
-            icon={<ClipboardList className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.fieldQueues')}
-          </NavLink>
-          {/* Migrations sits at the bottom of Admin on purpose: it is
-              a real first-class admin task but a one-shot tool, not
-              part of daily ops. Bidirectional name leaves room for
-              "to AGO" / "to PostGIS" / etc. siblings on the same
-              landing page. */}
-          <NavLink
-            href="/admin/migrations"
-            icon={<ArrowRightLeft className="h-4 w-4" />}
-            onNavigate={cb}
-          >
-            {t('nav.migrations')}
-          </NavLink>
-        </>
-      ) : null}
+      {/* One entry for every admin page. The admin home groups them
+          as cards with a search; the sidebar used to list all sixteen. */}
+      {orgRole === 'admin' ? <AdminNavLink onNavigate={cb} /> : null}
     </nav>
   );
 }
 
 /**
- * "Getting started" admin nav entry (#147 Phase 3). Only renders
- * while the org still has open checklist items, with a count pill;
- * once everything is done or dismissed the entry disappears (the
- * page itself stays reachable by URL). Fetches its own status
- * client-side after mount rather than widening the /users/me
- * payload: the count costs a few queries that only admins should
- * ever pay, and only once per full page load since the chrome
- * survives client-side navigation. The getting-started page
- * broadcasts `gg:onboarding-changed` after each mutation so the
- * pill updates without a reload.
+ * The sidebar's single Admin entry, for admins. It opens the admin
+ * home, which groups every admin page. While the setup checklist (#147)
+ * still has open items it carries their count, the way the old
+ * Getting started entry did. It fetches the count client-side after
+ * mount rather than widening /users/me: only admins pay for it, once
+ * per full page load, and the getting-started page broadcasts
+ * `gg:onboarding-changed` after each change so the count updates.
  */
-function GettingStartedNavLink({
+function AdminNavLink({
   onNavigate,
 }: {
   onNavigate: (() => void) | undefined;
@@ -476,7 +336,7 @@ function GettingStartedNavLink({
         const body = (await res.json()) as { openCount: number };
         if (!cancelled) setOpenCount(body.openCount);
       } catch {
-        /* leave hidden; the nav must never break on a fetch error */
+        /* no count; the nav must never break on a fetch error */
       }
     }
     void load();
@@ -487,21 +347,24 @@ function GettingStartedNavLink({
     };
   }, []);
 
-  if (openCount === null || openCount === 0) return null;
-
   return (
     <Link
-      href="/admin/getting-started"
+      href="/admin"
       {...(onNavigate ? { onClick: onNavigate } : {})}
-      className="flex items-center gap-2 rounded-md px-2 py-2 text-ink-1 transition-colors hover:bg-surface-2"
+      className="mt-4 flex items-center gap-2 rounded-md px-2 py-2 text-ink-1 transition-colors hover:bg-surface-2"
     >
       <span className="text-muted">
-        <Rocket className="h-4 w-4" />
+        <Settings className="h-4 w-4" />
       </span>
-      {t('nav.gettingStarted')}
-      <span className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/15 px-1.5 text-xs font-medium text-accent">
-        {openCount}
-      </span>
+      {t('nav.admin')}
+      {openCount !== null && openCount > 0 ? (
+        <span
+          className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-accent/15 px-1.5 text-xs font-medium text-accent"
+          title={t('adminHome.gettingStartedTitle')}
+        >
+          {openCount}
+        </span>
+      ) : null}
     </Link>
   );
 }

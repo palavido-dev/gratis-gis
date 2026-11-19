@@ -284,7 +284,7 @@ On a VPS install, add `NOTIFICATIONS_ENABLED=true` to
 `infra/.env.prod` and run `./infra/deploy.sh`. On the NAS stack, set
 `NOTIFICATIONS_ENABLED=true` in Dockge's env box (or the app's
 environment in TrueNAS) and restart. Then enter the SMTP server on
-**Admin -> Notifications**. The `SMTP_*` and `PORTAL_NAME` values
+**Admin -> Email delivery**. The `SMTP_*` and `PORTAL_NAME` values
 below also pass through both stacks, as a fallback when the admin
 page has no SMTP saved.
 
@@ -359,7 +359,7 @@ via "Reset password" once SMTP is healthy.
 
 ### Who can reach what through the SMTP settings
 
-The SMTP host and port on **Admin -> Notifications** are used as
+The SMTP host and port on **Admin -> Email delivery** are used as
 given. The portal opens a connection to that address from the API
 container, and that includes hosts on your internal network and the
 other containers in the stack. That is on purpose, because a

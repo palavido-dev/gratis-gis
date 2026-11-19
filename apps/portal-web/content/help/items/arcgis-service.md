@@ -26,7 +26,7 @@ When you want a local PostGIS copy, open the item and use
 MapServer that has a FeatureServer twin). That creates a new
 **data layer** with the selected sublayers; the ArcGIS service
 item stays a live pointer. Interactive copies stop at 50,000
-features — use **Admin → Migrations → From ArcGIS Online** for a
+features — use **Admin → ArcGIS Online import and export → From ArcGIS Online** for a
 full hosted-service cutover.
 
 ## When to use this vs. a data layer

@@ -27,6 +27,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- Admin is now one sidebar entry that opens an admin home: every admin
+  page as a card in four groups (People and access, Your portal, Data,
+  System), with a search box and the setup checklist on top. Each
+  admin page shows a breadcrumb back to it. Pages that only the
+  operator organization can use (Sign-in, Feedback inbox, System
+  health, Backup) are hidden from other admins, and `/users/me` now
+  says whether an admin is an operator. Several pages have clearer
+  names: Sharing review (Permissions), Imports and analyses (Jobs),
+  Cleanup suggestions (Housekeeping), ArcGIS Online import and export
+  (Migrations), System health (Operations), Email delivery
+  (Notifications) and Support bundle (Diagnostics).
 - The Postgres image moves from `postgis/postgis:17-3.5` (Debian
   bullseye, end of life, no OS security updates) to `17-3.6` (Debian
   trixie). Postgres stays on 17 and the data volume opens as it is.

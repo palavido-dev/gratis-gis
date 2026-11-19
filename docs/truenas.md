@@ -167,7 +167,7 @@ default. In Dockge, add them to the env box, one `NAME=value` per
 line. In TrueNAS, add them to the app's environment. Then restart.
 
 - `NOTIFICATIONS_ENABLED=true` turns on email notifications. Enter
-  the SMTP server on **Admin -> Notifications**.
+  the SMTP server on **Admin -> Email delivery**.
 - `PORTAL_NAME` is the name used in email.
 - `NOMINATIM_URL` and `NOMINATIM_PUBLIC_FALLBACK=0` control address
   search (above).
