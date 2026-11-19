@@ -19,6 +19,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * unchanged. Admins of any later organization are not operators.
  * A set but malformed GRATIS_OPERATOR_ORG_ID fails closed: no
  * organization is the operator, and a warning is logged once.
+ * `none` says the same thing on purpose, with no warning: for an
+ * install whose admin login is shared, such as a public demo, where
+ * nobody signing in should hold install-wide powers.
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const logger = new Logger('OperatorOrg');
@@ -40,6 +43,7 @@ export async function operatorOrgId(prisma: {
 }): Promise<string | null> {
   const fromEnv = process.env.GRATIS_OPERATOR_ORG_ID?.trim();
   if (fromEnv) {
+    if (fromEnv.toLowerCase() === 'none') return null;
     if (!UUID_RE.test(fromEnv)) {
       if (!warnedInvalidEnv) {
         warnedInvalidEnv = true;

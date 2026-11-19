@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ArrowLeft, Rocket } from 'lucide-react';
+import { Rocket } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
 import {
@@ -33,20 +32,12 @@ export default async function AdminGettingStartedPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
-      <Link
-        href="/items"
-        className="mb-3 inline-flex items-center gap-1 text-xs text-muted hover:text-ink-0"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Back to portal
-      </Link>
+    <div className="w-full max-w-3xl pb-10 pt-4">
       <header className="mb-6 flex items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-md bg-accent/10 text-accent">
           <Rocket className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-xs text-muted">Admin</p>
           <h1 className="text-2xl font-semibold tracking-tight">
             Getting started
           </h1>

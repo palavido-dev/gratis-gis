@@ -87,7 +87,7 @@ export function AdminHome({ operator }: { operator: boolean }) {
   const searching = query.trim() !== '';
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-10">
+    <div className="w-full pb-10 pt-4">
       <header className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">{t('adminHome.title')}</h1>
         <p className="mt-0.5 text-sm text-muted">{t('adminHome.intro')}</p>

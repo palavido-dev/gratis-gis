@@ -40,7 +40,7 @@ export default async function AdminSecurityPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-10">
+    <div className="w-full max-w-3xl pb-10 pt-4">
       <h1 className="text-xl font-semibold text-ink-0">
         {t('nav.security', undefined, locale)}
       </h1>
