@@ -447,6 +447,36 @@ else
   warn "skipped migrate status (stack down)"
 fi
 
+section "Partition maintenance"
+# #758: pg_partman's background worker errors on every run on Postgres
+# 17.12, so check that partitions still run ahead of the data. Rows in
+# a default partition mean maintenance fell behind and cannot catch up
+# until they are moved.
+RUNWAY_SQL="${SCRIPT_DIR}/postgres/partition-runway.sql"
+if [ -n "${PG_CTR:-}" ] && [ -f "$RUNWAY_SQL" ]; then
+  RUNWAY_OUT="$(docker exec -i -e PGPASSWORD="${POSTGRES_PASSWORD:-}" "$PG_CTR" \
+    psql -U "${POSTGRES_USER:-gratisgis}" -d "${POSTGRES_DB:-gratisgis}" -At \
+    < "$RUNWAY_SQL" 2>/dev/null || true)"
+  if [ -z "$RUNWAY_OUT" ]; then
+    warn "no pg_partman partition sets found (or the query failed)"
+  else
+    while IFS='|' read -r parent in_default last_end short; do
+      [ -n "$parent" ] || continue
+      if [ "$in_default" = "t" ]; then
+        fail "$parent: rows in the default partition (remediation: CALL partman.partition_data_proc('$parent'); then CALL partman.run_maintenance_proc();)"
+      elif [ "$short" = "t" ]; then
+        warn "$parent: partitions end at ${last_end:-none}, under one interval ahead (fine if no new data arrives; otherwise CALL partman.run_maintenance_proc();)"
+      else
+        pass "$parent: partitions run to $last_end"
+      fi
+    done <<RUNWAY
+$RUNWAY_OUT
+RUNWAY
+  fi
+else
+  warn "skipped partition check (postgres not running or $RUNWAY_SQL missing)"
+fi
+
 section "Identity realm"
 # #198 Gap 5: expected clients present; users missing org attribute.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 \
