@@ -55,6 +55,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Admins outside the operator organization can use Cleanup
+  suggestions again. Its Review tab failed whole on the one
+  install-wide list it shows (storage by data layer); that card is now
+  left out for them, as the storage card already was. Updates no
+  longer offers them a backup button the API would refuse, and says
+  who can take one.
 - A first install with `infra/bootstrap.sh` no longer stalls on a
   restart-looping Keycloak. Under the script's `umask 077` the realm
   import directory was created at mode 700, so Keycloak (uid 1000,

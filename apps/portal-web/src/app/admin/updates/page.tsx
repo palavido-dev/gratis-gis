@@ -28,12 +28,16 @@ export default async function AdminUpdatesPage() {
   // GRATIS_DISABLE_BACKUP_UI: hide the "back up first" button, which
   // the API would refuse.
   let backupDisabled = false;
+  let backupOperatorOnly = false;
   try {
     backupDisabled = (
       await apiFetch<{ disabled: boolean }>('/api/admin/backup/availability')
     ).disabled;
-  } catch {
-    /* not an operator, or older API: keep the button */
+  } catch (err) {
+    // 403: backups belong to the operator organization, so this admin
+    // could not take one; say who can instead of offering a button
+    // that fails. Anything else (an older API): keep the button.
+    if ((err as { status?: number } | null)?.status === 403) backupOperatorOnly = true;
   }
 
   return (
@@ -50,7 +54,13 @@ export default async function AdminUpdatesPage() {
         </div>
       </header>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
-      {report ? <UpdatesView report={report} backupDisabled={backupDisabled} /> : null}
+      {report ? (
+        <UpdatesView
+          report={report}
+          backupDisabled={backupDisabled}
+          backupOperatorOnly={backupOperatorOnly}
+        />
+      ) : null}
     </div>
   );
 }

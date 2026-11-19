@@ -167,6 +167,8 @@ export const en = {
     downloadBackup: 'Download backup',
     backupPage: 'Open the backup page',
     backupFailed: 'Could not start a backup',
+    backupOperatorOnly:
+      "Backups are taken by admins of the organization that runs this install. Ask them for one before you upgrade.",
     loadFailed: 'Could not load update information',
     nasCompose:
       'Copy the new compose file for this channel:',

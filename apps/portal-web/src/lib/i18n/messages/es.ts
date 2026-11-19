@@ -154,6 +154,8 @@ export const es: Partial<CatalogShape> = {
     downloadBackup: 'Download backup',
     backupPage: 'Open the backup page',
     backupFailed: 'Could not start a backup',
+    backupOperatorOnly:
+      "Las copias de seguridad las hacen los administradores de la organización que gestiona esta instalación. Pídales una antes de actualizar.",
     loadFailed: 'Could not load update information',
     nasCompose: 'Copy the new compose file for this channel:',
     nasComposePaste: 'In TrueNAS, edit the app and paste the file, then Save. In Dockge, open the stack, paste the file, and Save. Keep GRATIS_HTTP_PORT if you changed it.',

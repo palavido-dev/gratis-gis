@@ -38,9 +38,12 @@ function latestLabel(report: UpdateReport): string {
 export function UpdatesView({
   report,
   backupDisabled = false,
+  backupOperatorOnly = false,
 }: {
   report: UpdateReport;
   backupDisabled?: boolean;
+  /** Backups are the operator organization's; this admin is not in it. */
+  backupOperatorOnly?: boolean;
 }) {
   const t = useT();
   const [backup, setBackup] = useState<{ id?: string; error?: string } | null>(null);
@@ -114,7 +117,9 @@ export function UpdatesView({
       </section>
 
       <ol className="list-decimal space-y-4 pl-5 text-sm">
-        {backupDisabled ? (
+        {backupOperatorOnly ? (
+          <li className="text-muted">{t('updates.backupOperatorOnly')}</li>
+        ) : backupDisabled ? (
           <li className="text-muted">{t('opsPage.backupUiDisabled')}</li>
         ) : (
           <li>
