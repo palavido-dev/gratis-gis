@@ -307,9 +307,14 @@ async function BundleSection() {
       apiFetch<HousekeepingBundle['storage']>(
         '/api/admin/housekeeping/storage',
       ).catch(() => null),
+      // Also install-wide and operator-only. A 403 hides the card;
+      // it used to fail the whole Review tab for other org admins.
       apiFetch<HousekeepingBundle['largestDataLayers']>(
         '/api/admin/housekeeping/largest-data-layers',
-      ),
+      ).catch((err: unknown) => {
+        if (isForbidden(err)) return null;
+        throw err;
+      }),
     ]);
     const bundle: HousekeepingBundle = {
       summary,

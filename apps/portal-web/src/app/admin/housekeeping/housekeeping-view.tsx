@@ -111,7 +111,9 @@ export interface HousekeepingBundle {
    *  breakdown so the admin can see "WV Parcels = 4.8 GB" at a
    *  glance. Bytes are approximate (prorated from partition size
    *  by row count); ranking is reliable. */
-  largestDataLayers: Array<{
+  /** Null for an admin outside the operator organization: the
+   *  breakdown is install-wide, so the API keeps it to the operator. */
+  largestDataLayers: null | Array<{
     itemId: string;
     layerId: string;
     itemTitle: string;
@@ -935,17 +937,19 @@ export function HousekeepingView({ bundle }: Props) {
           approximate (prorated from partition size by row count).
           Orphans -- scopes whose owning item is gone -- show up
           tagged so they can be cleaned up. */}
-      <Section
-        icon={<Layers className="h-4 w-4" />}
-        title={t('adminHousekeeping.sectionDataLayersTitle')}
-        empty={t('adminHousekeeping.sectionDataLayersEmpty')}
-        count={largestDataLayers.length}
-        caption={t('adminHousekeeping.sectionDataLayersCaption')}
-      >
-        {largestDataLayers.length === 0 ? null : (
-          <LargestDataLayersTable rows={largestDataLayers} />
-        )}
-      </Section>
+      {largestDataLayers ? (
+        <Section
+          icon={<Layers className="h-4 w-4" />}
+          title={t('adminHousekeeping.sectionDataLayersTitle')}
+          empty={t('adminHousekeeping.sectionDataLayersEmpty')}
+          count={largestDataLayers.length}
+          caption={t('adminHousekeeping.sectionDataLayersCaption')}
+        >
+          {largestDataLayers.length === 0 ? null : (
+            <LargestDataLayersTable rows={largestDataLayers} />
+          )}
+        </Section>
+      ) : null}
     </div>
   );
 }
@@ -1532,7 +1536,7 @@ function StorageCard({
 function LargestDataLayersTable({
   rows,
 }: {
-  rows: HousekeepingBundle['largestDataLayers'];
+  rows: NonNullable<HousekeepingBundle['largestDataLayers']>;
 }) {
   const fmt = useFormat();
   const t = useT();
