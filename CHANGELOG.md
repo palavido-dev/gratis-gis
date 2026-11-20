@@ -29,9 +29,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - Locate in the field app moved from the top right to the bottom
   corner, directly above the + collect button, so both can be reached
-  with the thumb of the hand holding the phone. A new setting in the
-  field app's More menu puts both buttons on the left for left-handed
-  use. It is saved per device (#772).
+  with the thumb of the hand holding the phone. Layers moved from the
+  top left to the other bottom corner, next to the panel it opens, and
+  Search takes the top left. A new setting in the field app's More
+  menu puts + and Locate on the left (and Layers on the right) for
+  left-handed use. It is saved per device (#772).
 - The field app is easier to read outdoors and to use with one hand.
   Text across the field screens is one size larger, the queued-edit
   and rejected-edit chips are bigger and bolder, and the GPS accuracy

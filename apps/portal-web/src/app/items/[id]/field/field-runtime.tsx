@@ -2284,17 +2284,25 @@ export function FieldRuntime({
           </div>
         ) : null}
 
-        {/* Layer-toggle button (top-left). MapLibre's NavigationControl
-            (zoom +/- + compass) plants itself at top-right via
-            map-canvas.tsx, so we keep this button on the opposite
-            side to avoid overlap. Compact icon-only and the panel
-            drops below when tapped. Hidden during active collect
-            (#249) so it doesn't compete with the form sheet. */}
+        {/* Layer-toggle button. Bottom corner opposite the + and
+            Locate stack, so it is in thumb reach without crowding the
+            collect button (#772), and next to the bottom sheet it
+            opens. Mirrors with the left-handed setting. Same bottom
+            rules as Locate. Hidden during active collect (#249) so it
+            doesn't compete with the form sheet. */}
         {showRuntimeChrome ? (
         <button
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
-          className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
+          className={`absolute ${handedness === 'left' ? 'right-3' : 'left-3'} z-10 inline-flex h-12 w-12 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2`}
+          style={{
+            bottom:
+              activeTemplate !== null
+                ? '1.25rem'
+                : templates.length > 0
+                  ? 'calc(1.25rem + env(safe-area-inset-bottom, 0px))'
+                  : 'calc(8rem + env(safe-area-inset-bottom, 0px))',
+          }}
           aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
         >
@@ -2371,7 +2379,7 @@ export function FieldRuntime({
         ) : null}
 
         {/* Address search overlay (#223.3, collapsed by default in #249.11).
-            Sits to the right of the Layers FAB at top-left. Default state
+            Sits at top-left (Layers moved to the bottom, #772). Default state
             is a magnifier icon; tapping expands an input. Right edge is
             held at right-14 when expanded so the input never extends
             under MapLibre's NavigationControl (zoom +/- + compass) at
@@ -2380,7 +2388,7 @@ export function FieldRuntime({
             sits where the search bar would otherwise extend. */}
         {showRuntimeChrome ? (
           searchExpanded ? (
-            <div className="absolute left-15 right-14 top-3 z-10">
+            <div className="absolute left-3 right-14 top-3 z-10">
               <div className="w-full max-w-xs">
                 <FieldAddressSearch
                   mapRef={mapRef}
@@ -2397,7 +2405,7 @@ export function FieldRuntime({
               type="button"
               onClick={() => setSearchExpanded(true)}
               aria-label={t('fieldRuntime.searchAddressAria')}
-              className="absolute left-15 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
+              className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
             >
               <Search className="h-5 w-5 text-ink-1" />
             </button>

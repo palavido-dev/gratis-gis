@@ -45,9 +45,11 @@ honest Field Maps / Survey123 mapping.
   someone fills it in on its own page.
 - **One-handed use**. The + button (collect) and Locate sit together
   in the bottom right corner, in reach of the thumb holding the
-  phone. For the left hand, open the **More** menu (the three dots at
+  phone. **Layers** sits in the other bottom corner, and Search at
+  the top left. For the left hand, open the **More** menu (the three dots at
   the top right) and turn on **Collect and locate buttons on the
-  left**. The setting is saved on that device.
+  left**. Layers then moves to the right. The setting is saved on
+  that device.
 - **Optional offline areas**. Prepared extents and detail levels
   for basemap / tile warm-up on the item page. Feature download for
   offline still happens on the device (see below).
