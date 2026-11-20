@@ -9,6 +9,12 @@
  * Tile and imagery hosts are chosen by the map author and may be
  * plain HTTP on a LAN, so images and connections allow http and
  * https rather than a host list.
+ *
+ * `worker-src` allows `data:` because geotiff, which decodes
+ * imagery and elevation COGs for the map, starts its decoder workers
+ * from a data: URL whenever a Buffer polyfill is bundled. Without it
+ * every cog:// layer stays blank. script-src already allows inline
+ * and blob scripts, so this opens nothing new.
  */
 export const PAGE_CSP = [
   "default-src 'self'",
@@ -23,7 +29,7 @@ export const PAGE_CSP = [
   "font-src 'self' data:",
   "media-src 'self' blob: https: http:",
   "connect-src 'self' https: http: ws: wss: blob: data:",
-  "worker-src 'self' blob:",
+  "worker-src 'self' blob: data:",
   "frame-src 'self' blob:",
 ].join('; ');
 

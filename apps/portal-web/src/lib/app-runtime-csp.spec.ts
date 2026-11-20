@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { APP_RUNTIME_PATH_RE, appRuntimeCsp } from './app-runtime-csp';
 
-const PAGE = "default-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:";
+const PAGE = "default-src 'self'; frame-src 'self' blob:; worker-src 'self' blob: data:";
 
 describe('appRuntimeCsp', () => {
   it('adds allowed origins to frame-src only', () => {
     expect(appRuntimeCsp(PAGE, ['https://dash.example.org', 'https://*.arcgis.com'])).toBe(
-      "default-src 'self'; frame-src 'self' blob: https://dash.example.org https://*.arcgis.com; worker-src 'self' blob:",
+      "default-src 'self'; frame-src 'self' blob: https://dash.example.org https://*.arcgis.com; worker-src 'self' blob: data:",
     );
   });
 
   it('drops anything that is not a bare origin', () => {
     expect(
       appRuntimeCsp(PAGE, ["https://a.org; script-src 'unsafe-inline'", '*', 'https://ok.org']),
-    ).toBe("default-src 'self'; frame-src 'self' blob: https://ok.org; worker-src 'self' blob:");
+    ).toBe("default-src 'self'; frame-src 'self' blob: https://ok.org; worker-src 'self' blob: data:");
   });
 
   it('keeps the page policy when the list is empty', () => {

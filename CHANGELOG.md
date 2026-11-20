@@ -101,6 +101,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Imagery and elevation layers stored as a single file (COG) draw on
+  the map again. The page security policy was blocking the workers
+  that decode them, so the layer stayed blank.
 - The "Your session expired" bar sits below the iPhone status bar in
   the installed app, so its Sign in button can be tapped, and the
   button is full size.
