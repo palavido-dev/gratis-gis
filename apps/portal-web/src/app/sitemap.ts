@@ -21,13 +21,21 @@ import { portalUrl } from '@/lib/portal-url';
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
+  // A public test instance keeps its home page out of search (see
+  // app/page.tsx), so it is left out of the sitemap too.
+  const homeEntry: MetadataRoute.Sitemap =
+    process.env.NEXT_PUBLIC_PUBLIC_TESTING === '1'
+      ? []
+      : [
+          {
+            url: portalUrl('/'),
+            lastModified: now,
+            changeFrequency: 'weekly',
+            priority: 1.0,
+          },
+        ];
   const staticEntries: MetadataRoute.Sitemap = [
-    {
-      url: portalUrl('/'),
-      lastModified: now,
-      changeFrequency: 'weekly',
-      priority: 1.0,
-    },
+    ...homeEntry,
     {
       url: portalUrl('/credits'),
       lastModified: now,
