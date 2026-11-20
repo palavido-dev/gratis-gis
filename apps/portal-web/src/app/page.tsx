@@ -14,9 +14,17 @@ import { GG_VERSION } from '@/lib/version';
 // The canonical link for the home page only. Declared in the root
 // layout it was inherited by every page that did not set its own, so
 // /credits and /whats-new told crawlers they were copies of /.
-export const metadata: Metadata = {
-  alternates: { canonical: '/' },
-};
+//
+// A public test instance (PUBLIC_TESTING=1, the project's demo) shows
+// the same project pitch as the project website. Left indexable, its
+// home page competes with that website for the project's own name, so
+// it asks search engines to skip it and follow its links instead. The
+// help pages on a test instance stay indexable.
+const IS_PUBLIC_TEST_INSTANCE = process.env.NEXT_PUBLIC_PUBLIC_TESTING === '1';
+
+export const metadata: Metadata = IS_PUBLIC_TEST_INSTANCE
+  ? { robots: { index: false, follow: true } }
+  : { alternates: { canonical: '/' } };
 
 /**
  * SoftwareApplication JSON-LD for the landing page (#SEO).  Makes
@@ -106,13 +114,15 @@ export default async function HomePage(
       {/* JSON-LD ships before the component so crawlers (which often
           read top-of-DOM before paint) pick it up reliably.  The
           script tag itself is invisible. */}
-      <script
-        type="application/ld+json"
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{
-          __html: serializeJsonLd(landingJsonLd()),
-        }}
-      />
+      {IS_PUBLIC_TEST_INSTANCE ? null : (
+        <script
+          type="application/ld+json"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{
+            __html: serializeJsonLd(landingJsonLd()),
+          }}
+        />
+      )}
       <PublicLanding
         data={data}
         whatsNew={whatsNew}

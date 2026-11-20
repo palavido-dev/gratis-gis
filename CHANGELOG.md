@@ -27,6 +27,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- A public test instance (`PUBLIC_TESTING=1`) asks search engines not
+  to index its home page and leaves it out of the sitemap, so the
+  project demo stops competing with gratisgis.org for the project's
+  name. Its help pages stay indexable. Other installs are unchanged.
 - The field app has its own look, tuned for reading outdoors: the
   phone's system font, a larger type scale (17 px body text), neutral
   greys with pure black behind dark mode, and one saturated teal for
