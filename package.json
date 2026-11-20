@@ -64,6 +64,7 @@
   },
   "pnpm": {
     "overrides": {
+      "effect": "^3.22.1",
       "glob": ">=14.0.2",
       "minimatch": ">=11.0.1",
       "path-scurry": "^2.0.0",
