@@ -39,7 +39,10 @@ honest Field Maps / Survey123 mapping.
   deployments appear in Add / edit flows. View-only layers still
   draw.
 - **Forms**. By default each editable layer uses a form drawn from
-  its schema. Optional per-layer form bindings override that.
+  its schema. Optional per-layer form bindings override that. The
+  map tap supplies the location, so a bound form's own location
+  question is hidden in the field app. The form still shows it when
+  someone fills it in on its own page.
 - **Optional offline areas**. Prepared extents and detail levels
   for basemap / tile warm-up on the item page. Feature download for
   offline still happens on the device (see below).
