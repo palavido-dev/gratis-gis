@@ -2238,6 +2238,9 @@ export function FieldRuntime({
           // sized to match Layers / Search / Locate / FAB. The default
           // 29px buttons looked tiny next to the 44px field controls.
           hideNavigationControl
+          // The scale and area square go in the corner opposite + and
+          // Locate, under Layers (#772).
+          scalePosition={handedness === 'left' ? 'bottom-right' : 'bottom-left'}
           // #253 fix: suppress MapLibre's HTML popup. The field
           // runtime now owns the click-on-feature surface via
           // FieldFeaturePopupSheet (a bottom sheet). Without this,
@@ -2287,21 +2290,22 @@ export function FieldRuntime({
         {/* Layer-toggle button. Bottom corner opposite the + and
             Locate stack, so it is in thumb reach without crowding the
             collect button (#772), and next to the bottom sheet it
-            opens. Mirrors with the left-handed setting. Same bottom
-            rules as Locate. Hidden during active collect (#249) so it
+            opens. Mirrors with the left-handed setting, as does the
+            map's scale under it. Hidden during active collect (#249) so it
             doesn't compete with the form sheet. */}
         {showRuntimeChrome ? (
         <button
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
           className={`absolute ${handedness === 'left' ? 'right-3' : 'left-3'} z-10 inline-flex h-12 w-12 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2`}
+          // Above the map's distance scale and area square, which
+          // share this corner (and, left-handed, the attribution).
+          // Above the "nothing to collect" notice when that shows.
           style={{
             bottom:
-              activeTemplate !== null
-                ? '1.25rem'
-                : templates.length > 0
-                  ? 'calc(1.25rem + env(safe-area-inset-bottom, 0px))'
-                  : 'calc(8rem + env(safe-area-inset-bottom, 0px))',
+              activeTemplate === null && templates.length === 0
+                ? 'calc(8rem + env(safe-area-inset-bottom, 0px))'
+                : '7rem',
           }}
           aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}

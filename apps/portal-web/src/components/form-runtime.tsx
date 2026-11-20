@@ -335,6 +335,11 @@ export function FormRuntime({
           </p>
         ) : null}
 
+        {/* With the parent owning Submit on a one-page form, this bar
+            has nothing to hold, and as a sticky empty strip it covered
+            the last lines of the form (#772). Multi-page forms keep it
+            for Back and Next. */}
+        {hideSubmitButton && !readOnly && pageIndex === 0 && pages.length <= 1 ? null : (
         <div className="sticky bottom-0 left-0 right-0 -mx-4 mt-6 flex items-center gap-2 border-t border-border bg-surface-1 px-4 py-3">
           {pageIndex > 0 ? (
             <button
@@ -384,6 +389,7 @@ export function FormRuntime({
             </button>
           )}
         </div>
+        )}
       </form>
     </div>
   );

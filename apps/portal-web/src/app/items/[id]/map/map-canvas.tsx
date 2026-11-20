@@ -268,6 +268,13 @@ interface Props {
    */
   hideNavigationControl?: boolean;
   /**
+   * Corner for the distance scale and area square. The field app
+   * passes the corner opposite its thumb controls (#772), so the +
+   * button never sits on the scale. Changing it moves the controls on
+   * the live map. Default bottom-left.
+   */
+  scalePosition?: 'bottom-left' | 'bottom-right';
+  /**
    * #154 Drawings overlay. Each `DrawingSet` carries its own
    * color, visibility flag, and an array of pin features. The
    * canvas adds a single GeoJSON source named `drawings:overlay`
@@ -389,6 +396,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     editClaimedLayerIds,
     onEditClaimedClick,
     hideNavigationControl = false,
+    scalePosition = 'bottom-left',
     drawings,
   }: Props,
   ref,
@@ -403,6 +411,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   const basemapsRef = useRef<CustomBasemap[]>(basemaps);
   basemapsRef.current = basemaps;
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // The scale controls, so a scalePosition change can move them. The
+  // ref holds the position they were last added at.
+  const scaleControlsRef = useRef<{
+    scale: maplibregl.IControl;
+    area: maplibregl.IControl;
+    at: 'bottom-left' | 'bottom-right';
+  } | null>(null);
+  const scalePositionRef = useRef(scalePosition);
+  scalePositionRef.current = scalePosition;
   const hoveredRef = useRef<{ sourceId: string; featureId: string | number } | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   // Hover popup (#74 follow-up). Separate from popupRef so a
@@ -832,8 +849,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
         scaleControl.setUnit(scaleUnitForAreaUnit(unit));
       },
     });
-    m.addControl(scaleControl, 'bottom-left');
-    m.addControl(areaScale, 'bottom-left');
+    const scaleAt = scalePositionRef.current;
+    m.addControl(scaleControl, scaleAt);
+    m.addControl(areaScale, scaleAt);
+    scaleControlsRef.current = { scale: scaleControl, area: areaScale, at: scaleAt };
     m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     const markCamera = (e: { originalEvent?: unknown }) => {
@@ -925,11 +944,25 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       teardownPointCloudOverlay(m);
       m.remove();
       mapRef.current = null;
+      scaleControlsRef.current = null;
     };
     // We intentionally create the map from initial props only; updates
     // are handled by the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Move the scale controls when scalePosition changes (the field
+  // app's left-handed setting). Scale first, then area, as at setup.
+  useEffect(() => {
+    const m = mapRef.current;
+    const c = scaleControlsRef.current;
+    if (!m || !c || c.at === scalePosition) return;
+    m.removeControl(c.area);
+    m.removeControl(c.scale);
+    m.addControl(c.scale, scalePosition);
+    m.addControl(c.area, scalePosition);
+    scaleControlsRef.current = { ...c, at: scalePosition };
+  }, [scalePosition]);
 
 
   // Basemap swap. Preserves camera + overlays so it feels seamless.
