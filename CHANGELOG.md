@@ -29,7 +29,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - The sample "Road and trail issue report" form asks whether a
   vehicle or hiker can get through, and its description hint asks for
-  a photo. Installs that already loaded sample data keep their copy.
+  a photo. Installs that already loaded sample data, including the
+  public demo's golden snapshot, keep their copy.
 - AI screens stay out of the way until an AI provider is connected.
   The sidebar Build entry and the item page's AI draft panel are hidden
   while no provider is set, and opening the Build address directly
