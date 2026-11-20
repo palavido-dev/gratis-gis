@@ -32,13 +32,16 @@ export function SessionExpiredNotice() {
   return (
     <div
       role="alert"
-      className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-warn/40 bg-warn/10 px-4 py-2 text-sm text-ink-1"
+      // Opaque, and padded below the iPhone status bar: in an
+      // installed PWA (viewport-fit=cover) the page starts under it,
+      // and a see-through bar at y=0 put Sign in behind the clock.
+      className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-3 gap-y-2 border-b border-warn/60 bg-surface-1 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] text-sm font-medium text-ink-0"
     >
       <span>{t('errors.sessionExpired')}</span>
       <button
         type="button"
         onClick={() => void signIn('keycloak')}
-        className="rounded-md border border-warn/40 bg-surface-1 px-3 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2"
+        className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-sm font-semibold text-accent-foreground hover:opacity-90"
       >
         {t('nav.signIn')}
       </button>

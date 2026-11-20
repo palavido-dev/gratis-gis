@@ -274,6 +274,9 @@ interface Props {
    * the live map. Default bottom-left.
    */
   scalePosition?: 'bottom-left' | 'bottom-right';
+  /** Corner for the attribution. Moves on the live map like
+   *  scalePosition. Default bottom-right. */
+  attributionPosition?: 'bottom-left' | 'bottom-right';
   /**
    * #154 Drawings overlay. Each `DrawingSet` carries its own
    * color, visibility flag, and an array of pin features. The
@@ -397,6 +400,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     onEditClaimedClick,
     hideNavigationControl = false,
     scalePosition = 'bottom-left',
+    attributionPosition = 'bottom-right',
     drawings,
   }: Props,
   ref,
@@ -420,6 +424,12 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
   } | null>(null);
   const scalePositionRef = useRef(scalePosition);
   scalePositionRef.current = scalePosition;
+  const attributionRef = useRef<{
+    control: maplibregl.IControl;
+    at: 'bottom-left' | 'bottom-right';
+  } | null>(null);
+  const attributionPositionRef = useRef(attributionPosition);
+  attributionPositionRef.current = attributionPosition;
   const hoveredRef = useRef<{ sourceId: string; featureId: string | number } | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
   // Hover popup (#74 follow-up). Separate from popupRef so a
@@ -853,7 +863,10 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     m.addControl(scaleControl, scaleAt);
     m.addControl(areaScale, scaleAt);
     scaleControlsRef.current = { scale: scaleControl, area: areaScale, at: scaleAt };
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    const attribution = new maplibregl.AttributionControl({ compact: true });
+    const attributionAt = attributionPositionRef.current;
+    m.addControl(attribution, attributionAt);
+    attributionRef.current = { control: attribution, at: attributionAt };
 
     const markCamera = (e: { originalEvent?: unknown }) => {
       if (!e.originalEvent) return;
@@ -945,6 +958,7 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
       m.remove();
       mapRef.current = null;
       scaleControlsRef.current = null;
+      attributionRef.current = null;
     };
     // We intentionally create the map from initial props only; updates
     // are handled by the effects below.
@@ -963,6 +977,15 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
     m.addControl(c.area, scalePosition);
     scaleControlsRef.current = { ...c, at: scalePosition };
   }, [scalePosition]);
+
+  useEffect(() => {
+    const m = mapRef.current;
+    const a = attributionRef.current;
+    if (!m || !a || a.at === attributionPosition) return;
+    m.removeControl(a.control);
+    m.addControl(a.control, attributionPosition);
+    attributionRef.current = { ...a, at: attributionPosition };
+  }, [attributionPosition]);
 
 
   // Basemap swap. Preserves camera + overlays so it feels seamless.

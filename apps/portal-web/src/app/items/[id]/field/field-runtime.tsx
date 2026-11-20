@@ -2238,9 +2238,11 @@ export function FieldRuntime({
           // sized to match Layers / Search / Locate / FAB. The default
           // 29px buttons looked tiny next to the 44px field controls.
           hideNavigationControl
-          // The scale and area square go in the corner opposite + and
-          // Locate, under Layers (#772).
+          // The scale, area square and attribution go in the corner
+          // opposite the thumb stack (Layers, Locate, +), so nothing
+          // sits under the + button (#772).
           scalePosition={handedness === 'left' ? 'bottom-right' : 'bottom-left'}
+          attributionPosition={handedness === 'left' ? 'bottom-right' : 'bottom-left'}
           // #253 fix: suppress MapLibre's HTML popup. The field
           // runtime now owns the click-on-feature surface via
           // FieldFeaturePopupSheet (a bottom sheet). Without this,
@@ -2287,29 +2289,24 @@ export function FieldRuntime({
           </div>
         ) : null}
 
-        {/* Layer-toggle button. Bottom corner opposite the + and
-            Locate stack, so it is in thumb reach without crowding the
-            collect button (#772), and next to the bottom sheet it
-            opens. Mirrors with the left-handed setting, as does the
-            map's scale under it. Hidden during active collect (#249) so it
+        {/* Layer-toggle button, top of the thumb stack above Locate
+            and + (#772), next to the bottom sheet it opens. Mirrors
+            with the left-handed setting. Hidden during active collect (#249) so it
             doesn't compete with the form sheet. */}
         {showRuntimeChrome ? (
         <button
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
-          className={`absolute ${handedness === 'left' ? 'right-3' : 'left-3'} z-10 inline-flex h-12 w-12 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2`}
-          // Above the map's distance scale and area square, which
-          // share this corner (and, left-handed, the attribution).
-          // Above the "nothing to collect" notice when that shows.
-          // Left-handed, the scale shares the bottom-right corner with
-          // the map attribution, which stands about 3rem taller.
+          className={`absolute ${handedness === 'left' ? 'left-4' : 'right-4'} z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border border-border bg-surface-1 shadow-card hover:bg-surface-2`}
+          // Top of the thumb stack, 0.75rem above Locate (h-12). Same
+          // three cases as Locate's bottom, plus 3.75rem.
           style={{
             bottom:
-              activeTemplate === null && templates.length === 0
-                ? 'calc(8rem + env(safe-area-inset-bottom, 0px))'
-                : handedness === 'left'
-                  ? '10.5rem'
-                  : '7rem',
+              activeTemplate !== null
+                ? '5rem'
+                : templates.length > 0
+                  ? 'calc(9.25rem + env(safe-area-inset-bottom, 0px))'
+                  : 'calc(11.75rem + env(safe-area-inset-bottom, 0px))',
           }}
           aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
@@ -2501,15 +2498,18 @@ export function FieldRuntime({
               setPickerOpen(true);
             }}
             aria-label={t('fieldRuntime.addFeatureAria')}
+            // #772: the light-theme brand teal with white ink and a
+            // white ring, in both themes. The dark theme's pale teal
+            // accent disappeared against the green of most basemaps.
             // #249.11: previous version applied paddingBottom for safe
             // area, which distorted the circle on iPhone (icon shoved
             // off-center). Move the inset onto `bottom` so the button
             // stays a perfect circle and just rides above the home
             // indicator instead of stretching.
-            className={`absolute ${thumbSide} z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-overlay hover:opacity-90 disabled:opacity-50`}
+            className={`absolute ${thumbSide} z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[hsl(177_82%_24%)] text-white shadow-overlay ring-3 ring-white hover:opacity-90 disabled:opacity-50`}
             style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
           >
-            <Plus className="h-7 w-7" />
+            <Plus className="h-8 w-8" strokeWidth={2.5} />
           </button>
         ) : null}
 

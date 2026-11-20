@@ -27,13 +27,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
-- Locate in the field app moved from the top right to the bottom
-  corner, directly above the + collect button, so both can be reached
-  with the thumb of the hand holding the phone. Layers moved from the
-  top left to the other bottom corner, next to the panel it opens, and
-  Search takes the top left. A new setting in the field app's More
-  menu puts + and Locate on the left (and Layers on the right) for
-  left-handed use. It is saved per device (#772).
+- Layers, Locate and the + collect button in the field app sit in one
+  stack in the bottom corner, in reach of the thumb holding the phone.
+  The + button is the saturated brand teal with a white ring, so it
+  stands out on green basemaps. The map scale and attribution move to
+  the other bottom corner, and Search takes the top left. A new
+  setting in the field app's More menu mirrors all of it for
+  left-handed use, saved per device (#772).
 - The field app is easier to read outdoors and to use with one hand.
   Text across the field screens is one size larger, the queued-edit
   and rejected-edit chips are bigger and bolder, and the GPS accuracy
@@ -79,6 +79,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The "Your session expired" bar sits below the iPhone status bar in
+  the installed app, so its Sign in button can be tapped, and the
+  button is full size.
 - The field app no longer asks for a location twice. When a layer's
   bound form has a location question, the field app hides it and takes
   the point from the map tap, and that answer is no longer saved as an
