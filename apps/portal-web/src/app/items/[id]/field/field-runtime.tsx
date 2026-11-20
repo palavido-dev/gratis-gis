@@ -2301,11 +2301,15 @@ export function FieldRuntime({
           // Above the map's distance scale and area square, which
           // share this corner (and, left-handed, the attribution).
           // Above the "nothing to collect" notice when that shows.
+          // Left-handed, the scale shares the bottom-right corner with
+          // the map attribution, which stands about 3rem taller.
           style={{
             bottom:
               activeTemplate === null && templates.length === 0
                 ? 'calc(8rem + env(safe-area-inset-bottom, 0px))'
-                : '7rem',
+                : handedness === 'left'
+                  ? '10.5rem'
+                  : '7rem',
           }}
           aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
@@ -6049,7 +6053,7 @@ function FieldMoreMenu({
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-surface-0 shadow-card transition-transform ${
+                  className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-card transition-transform ${
                     handedness === 'left' ? 'translate-x-[1.125rem]' : 'translate-x-0.5'
                   }`}
                 />
