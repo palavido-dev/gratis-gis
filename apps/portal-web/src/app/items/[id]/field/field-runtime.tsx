@@ -59,6 +59,11 @@ import {
 } from '../map/search-sources';
 import { FormRuntime } from '@/components/form-runtime';
 import { PwaInstallButton } from '@/components/pwa-install-button';
+import {
+  pickRowTitle,
+  withoutMapGeometryAnswer,
+  withoutMapGeometryQuestion,
+} from '@/lib/field-form';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
   countUnsyncedEdits,
@@ -4352,7 +4357,9 @@ function FormModal({
         },
       );
     }
-    return resolvePickListChoices(base, pickLists);
+    // The map supplies the geometry here, so the form's own location
+    // question would ask for it a second time (#769).
+    return resolvePickListChoices(withoutMapGeometryQuestion(base), pickLists);
   }, [modal.layer, boundForms, pickLists]);
 
   // Hydrate the initial response. Edit mode pre-fills from the tapped
@@ -4420,10 +4427,12 @@ function FormModal({
     // #268 / #269: this fix keeps the parentFK on the saved row so
     // the related-records list filter sees the correct value AND
     // re-opening the row doesn't show empty fields.
+    // The geometry is saved from the map, not as an attribute (#769).
+    const answers = withoutMapGeometryAnswer(form, response);
     const responseWithPresets: FormResponse =
       modal.mode === 'add'
-        ? { ...modal.presetAttributes, ...response }
-        : response;
+        ? { ...modal.presetAttributes, ...answers }
+        : answers;
     // Only when the point was put at the fix; see placedAtGpsFix.
     const gpsStamped: FormResponse =
       modal.mode === 'add' && placedAtGpsFix(activeGeometry, gpsPosition)
@@ -4966,7 +4975,7 @@ function FormModal({
                                 >
                                   <div className="min-w-0 flex-1">
                                     <p className="truncate text-base text-ink-0">
-                                      {pickRelatedRowTitle(row.properties) ??
+                                      {pickRowTitle(row.properties) ??
                                         row.id.slice(0, 8)}
                                       {pending ? (
                                         <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
@@ -5257,7 +5266,7 @@ function FieldFeaturePopupSheet({
             ) : (
               <>
                 <h2 className="truncate text-base font-semibold text-ink-0">
-                  {pickRelatedRowTitle(concrete.hit.properties) ??
+                  {pickRowTitle(concrete.hit.properties) ??
                     concrete.hit.layerLabel}
                 </h2>
                 <p className="truncate text-2xs text-muted">
@@ -5356,7 +5365,7 @@ function FieldFeaturePopupSheet({
                         {hit.layerLabel}
                       </p>
                       <p className="truncate text-base font-medium text-ink-0">
-                        {pickRelatedRowTitle(hit.properties) ??
+                        {pickRowTitle(hit.properties) ??
                           hit.globalId?.slice(0, 8) ??
                           t('fieldRuntime.sheetUnnamed')}
                       </p>
@@ -5495,7 +5504,7 @@ function FieldFeaturePopupSheet({
                                 >
                                   <div className="min-w-0 flex-1">
                                     <p className="truncate text-base text-ink-0">
-                                      {pickRelatedRowTitle(row.properties) ??
+                                      {pickRowTitle(row.properties) ??
                                         row.id.slice(0, 8)}
                                       {pending ? (
                                         <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
@@ -6598,33 +6607,6 @@ function FieldAddressSearch({
       ) : null}
     </div>
   );
-}
-
-/**
- * #247: pick a short human-friendly label for an existing related
- * row in the FormModal's child-list. Skips underscore-prefixed keys
- * (system metadata: _created_by, _edited_at, etc.), the parent FK
- * column itself (would always read as the parent's UUID), and falls
- * back to the first non-empty user-field value. Returns null when
- * nothing fits, so the caller can show the row's globalId prefix
- * instead.
- */
-function pickRelatedRowTitle(
-  properties: Record<string, unknown>,
-): string | null {
-  for (const [k, v] of Object.entries(properties)) {
-    if (k.startsWith('_')) continue;
-    if (v === null || v === undefined) continue;
-    const s = typeof v === 'string' ? v.trim() : String(v);
-    if (!s) continue;
-    // Don't echo the parent FK back as the row's title -- it's the
-    // same UUID for every row and reads as noise. Identifiable by
-    // the value being a 36-char hyphenated string (UUID v4 shape).
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s))
-      continue;
-    return s.length > 60 ? `${s.slice(0, 57)}...` : s;
-  }
-  return null;
 }
 
 /**

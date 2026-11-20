@@ -146,6 +146,12 @@ const ISSUE_TYPE_CHOICES = [
   { value: 'other', label: 'Other' },
 ];
 
+const PASSABLE_CHOICES = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'with-care', label: 'Yes, with care' },
+  { value: 'no', label: 'No, closed or blocked' },
+];
+
 const SEVERITY_CHOICES = [
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
@@ -1055,6 +1061,8 @@ export class SamplesService {
         id: 'location',
         type: 'geopoint',
         label: 'Where is the issue?',
+        // The field app hides this question and takes the point from
+        // the map tap (#769). It stays for the form's own web page.
         hint: 'Use your GPS position or tap the map.',
         required: true,
         capture: 'auto',
@@ -1074,10 +1082,16 @@ export class SamplesService {
         choices: SEVERITY_CHOICES.map((c) => ({ ...c })),
       },
       {
+        id: 'passable',
+        type: 'select-one',
+        label: 'Can a vehicle or hiker get through?',
+        choices: PASSABLE_CHOICES.map((c) => ({ ...c })),
+      },
+      {
         id: 'description',
         type: 'multiline',
         label: 'Description',
-        hint: 'What did you find, and where exactly?',
+        hint: 'What did you find? Add a photo if you can.',
         required: true,
         rows: 3,
       },
@@ -1127,6 +1141,19 @@ export class SamplesService {
         domain: {
           type: 'coded-value',
           values: SEVERITY_CHOICES.map((c) => ({
+            code: c.value,
+            label: c.label,
+          })),
+        },
+      },
+      {
+        name: 'passable',
+        type: 'string',
+        label: 'Passable',
+        nullable: true,
+        domain: {
+          type: 'coded-value',
+          values: PASSABLE_CHOICES.map((c) => ({
             code: c.value,
             label: c.label,
           })),
