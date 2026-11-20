@@ -33,6 +33,7 @@ import {
   MapPin,
   MoveRight,
   PencilLine,
+  Ruler,
   Plus,
   Slash,
   Type,
@@ -132,6 +133,16 @@ interface Props {
    * editing) takes over the clicks; the armed markup tool stands down.
    */
   standDownSignal?: number;
+}
+
+/**
+ * Whether a measurement label of this kind makes sense on a shape:
+ * side lengths on lines, arrows and polygons (a circle is 32 short
+ * sides), areas on polygons and circles.
+ */
+function dimensionKeyApplies(f: DrawingFeature, key: 'lengths' | 'area'): boolean {
+  if (key === 'lengths') return f.kind === 'line' || f.kind === 'arrow' || f.kind === 'polygon';
+  return f.kind === 'polygon' || f.kind === 'circle';
 }
 
 export function MarkupPanel({
@@ -555,6 +566,36 @@ export function MarkupPanel({
     [drawings, mapId, onDrawingsChange, t],
   );
 
+  // Measurement labels on a whole set: side lengths on its lines and
+  // shapes, areas on its shapes. Saved measurements arrive with these
+  // on; this turns them on or off for everything in the set.
+  const setDimensions = useCallback(
+    async (setId: string, key: 'lengths' | 'area', on: boolean) => {
+      const set = drawings.find((s) => s.id === setId);
+      if (!set || !canEditSet(set)) return;
+      const features = set.features.map((f) => {
+        if (!dimensionKeyApplies(f, key)) return f;
+        return { ...f, dimensions: { ...(f.dimensions ?? {}), [key]: on } };
+      });
+      setBusy(true);
+      setError(null);
+      try {
+        const updated = await portalJson<DrawingSet>(
+          `/api/portal/items/${mapId}/drawings/${setId}`,
+          { method: 'PATCH', body: JSON.stringify({ features }) },
+        );
+        const next = drawings.map((s) => (s.id === setId ? updated : s));
+        setDrawings(next);
+        onDrawingsChange(next);
+      } catch (e) {
+        setError(message(e, t('mapMarkup.somethingWrong')));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [drawings, canEditSet, mapId, onDrawingsChange, t],
+  );
+
   const removeSet = useCallback(
     async (setId: string) => {
       const set = drawings.find((s) => s.id === setId);
@@ -863,6 +904,36 @@ export function MarkupPanel({
                       >
                         {t('mapMarkup.dropPinShort')}
                       </button>
+                      {(['lengths', 'area'] as const).map((key) => {
+                        const applies = set.features.filter((f) =>
+                          dimensionKeyApplies(f, key),
+                        );
+                        if (applies.length === 0) return null;
+                        const on = applies.every((f) => f.dimensions?.[key] === true);
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            role="switch"
+                            aria-checked={on}
+                            onClick={() => void setDimensions(set.id, key, !on)}
+                            disabled={busy}
+                            className={`flex items-center gap-1 rounded border px-1.5 py-1 text-2xs disabled:opacity-50 ${
+                              on
+                                ? 'border-accent/50 bg-accent/15 text-ink-0'
+                                : 'border-border bg-surface-1 text-muted hover:bg-surface-2 hover:text-ink-1'
+                            }`}
+                            title={t(
+                              key === 'lengths'
+                                ? 'mapMarkup.dimLengthsTitle'
+                                : 'mapMarkup.dimAreasTitle',
+                            )}
+                          >
+                            <Ruler className="h-3 w-3" />
+                            {t(key === 'lengths' ? 'mapMarkup.dimLengths' : 'mapMarkup.dimAreas')}
+                          </button>
+                        );
+                      })}
                       <button
                         type="button"
                         onClick={() => exportSetGeoJson(set.id)}

@@ -391,6 +391,22 @@ describe('DrawingsService', () => {
       expect(f.style?.dashStyle).toBeUndefined();
     });
 
+    it('keeps known dimension flags and units, and drops the rest', async () => {
+      const poly = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] };
+      const set = await createWith([
+        {
+          kind: 'polygon',
+          geometry: poly,
+          dimensions: { lengths: true, area: 'yes', lengthUnit: 'feet', areaUnit: 'furlongs', x: 1 },
+        },
+        { kind: 'polygon', geometry: poly, dimensions: { lengths: false, areaUnit: 'acres' } },
+        { kind: 'polygon', geometry: poly, dimensions: 'on' },
+      ]);
+      expect(set.features[0]!.dimensions).toEqual({ lengths: true, lengthUnit: 'feet' });
+      expect(set.features[1]!.dimensions).toBeUndefined();
+      expect(set.features[2]!.dimensions).toBeUndefined();
+    });
+
     it('drops malformed coordinates and features over the vertex cap', async () => {
       const big = Array.from(
         { length: DRAWING_LIMITS.MAX_VERTICES_PER_FEATURE + 1 },
