@@ -1670,6 +1670,8 @@ export const ptBR: Partial<CatalogShape> = {
     createDeployment: 'Criar uma implantação',
     loadFailedTitle: 'Não foi possível carregar as implantações',
     loadFailedBody: 'O catálogo não respondeu. Isto não é uma lista vazia. Tente de novo em instantes.',
+    sectionDeployments: 'Implantações',
+    openPortal: 'Abrir o portal',
   },
   buildPage: {
     title: 'Criar a partir de uma descrição',

@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-19 - A field app that reads like a phone app
+The field app now uses your phone's own font, bigger text, cleaner greys and a brighter teal for buttons, so it is easier to read outside. The deployment list opens like a native app, with a large title and thumbnails.
+
 ## 2026-11-19 - Collect and Locate within thumb reach
 In the field app, Locate now sits right above the + button in the bottom corner, so you can collect and find yourself with one hand. Layers sits at the top of the same stack. Left-handed? Turn on "Collect and locate buttons on the left" in the More menu.
 

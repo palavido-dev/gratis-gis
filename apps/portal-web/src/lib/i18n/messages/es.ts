@@ -1673,6 +1673,8 @@ export const es: Partial<CatalogShape> = {
     createDeployment: 'Crear un despliegue',
     loadFailedTitle: 'No se pudieron cargar los despliegues',
     loadFailedBody: 'El catálogo no respondió. Esto no es una lista vacía. Inténtalo de nuevo en un momento.',
+    sectionDeployments: 'Despliegues',
+    openPortal: 'Abrir el portal',
   },
   buildPage: {
     title: 'Crear a partir de una descripción',

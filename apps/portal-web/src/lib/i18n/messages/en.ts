@@ -1732,6 +1732,8 @@ export const en = {
     createDeployment: 'Create a deployment',
     loadFailedTitle: 'Field deployments could not be loaded',
     loadFailedBody: 'The catalog did not answer. This is not an empty list. Try again in a moment.',
+    sectionDeployments: 'Deployments',
+    openPortal: 'Open the portal',
   },
   buildPage: {
     title: 'Build from a description',

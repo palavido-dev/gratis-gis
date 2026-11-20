@@ -2107,10 +2107,10 @@ export function FieldRuntime({
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-1 px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <Link
           href={backHref}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-accent hover:bg-surface-2"
           aria-label={t('fieldRuntime.backAria')}
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-6 w-6" strokeWidth={2.25} />
         </Link>
         {/* Single-line title. Subtitle ("Field deployment of <map>")
             moved into the More menu's header; field workers care
@@ -2118,7 +2118,7 @@ export function FieldRuntime({
             and the secondary line was eating vertical space + visual
             weight. */}
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold text-ink-0">
+          <h1 className="truncate text-base font-semibold text-ink-0">
             {title}
           </h1>
         </div>
@@ -2311,7 +2311,7 @@ export function FieldRuntime({
           aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
         >
-          <Layers className="h-5 w-5 text-ink-1" />
+          <Layers className="h-6 w-6 text-accent" />
         </button>
         ) : null}
 
@@ -2412,7 +2412,7 @@ export function FieldRuntime({
               aria-label={t('fieldRuntime.searchAddressAria')}
               className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
             >
-              <Search className="h-5 w-5 text-ink-1" />
+              <Search className="h-6 w-6 text-accent" />
             </button>
           )
         ) : null}
@@ -2498,15 +2498,15 @@ export function FieldRuntime({
               setPickerOpen(true);
             }}
             aria-label={t('fieldRuntime.addFeatureAria')}
-            // #772: the light-theme brand teal with white ink and a
-            // white ring, in both themes. The dark theme's pale teal
-            // accent disappeared against the green of most basemaps.
+            // #772 / #768: the field theme's saturated teal (dark ink
+            // in dark mode) with a white ring, so it stands out on the
+            // green of most basemaps.
             // #249.11: previous version applied paddingBottom for safe
             // area, which distorted the circle on iPhone (icon shoved
             // off-center). Move the inset onto `bottom` so the button
             // stays a perfect circle and just rides above the home
             // indicator instead of stretching.
-            className={`absolute ${thumbSide} z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[hsl(177_82%_24%)] text-white shadow-overlay ring-3 ring-white hover:opacity-90 disabled:opacity-50`}
+            className={`absolute ${thumbSide} z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-overlay ring-3 ring-white hover:opacity-90 disabled:opacity-50`}
             style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
           >
             <Plus className="h-8 w-8" strokeWidth={2.5} />
@@ -3403,7 +3403,7 @@ function TemplatePicker({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 border-b border-border px-3 py-2">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink-0">
+            <h2 className="text-xl font-bold text-ink-0">
               {t('fieldRuntime.addFeature')}
             </h2>
             <button
@@ -3600,14 +3600,14 @@ function LayerVisibilityPanel({
       className="fixed inset-x-0 bottom-0 z-30 flex max-h-[60dvh] flex-col overflow-hidden rounded-t-xl border-t border-border bg-surface-1 shadow-overlay pb-[env(safe-area-inset-bottom)]"
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2.5">
-        <h3 className="text-base font-semibold text-ink-0">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 pb-3 pt-4">
+        <h3 className="text-2xl font-bold text-ink-0">
           {panelT('fieldRuntime.layersHeading')}
         </h3>
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-10 w-10 items-center justify-center rounded text-ink-1 hover:bg-surface-2"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 text-muted hover:text-ink-0"
           aria-label={panelT('fieldRuntime.closeAria')}
         >
           <X className="h-5 w-5" />
@@ -5119,7 +5119,7 @@ function FieldLocateButton({
         ? 'bg-accent border-accent text-accent-foreground'
         : hasPosition
           ? 'bg-surface-1 border-border text-accent'
-          : 'bg-surface-1 border-border text-ink-1';
+          : 'bg-surface-1 border-border text-accent';
   const label =
     gpsStatus === 'idle'
       ? t('fieldGps.showMyLocation')
@@ -5657,14 +5657,14 @@ function FieldGpsStrip({
   const band = gpsAccuracyBand(accuracyM);
   const tone =
     band === 'excellent' || band === 'good'
-      ? 'bg-success/10 text-success border-success/30'
+      ? 'text-success'
       : band === 'fair'
-        ? 'bg-warn/10 text-warn border-warn/30'
-        : 'bg-danger/10 text-danger border-danger/30';
+        ? 'text-warn'
+        : 'text-danger';
   return (
     <div
       aria-live="polite"
-      className={`flex shrink-0 items-center justify-center gap-1.5 border-b px-3 py-1.5 text-sm font-semibold ${tone}`}
+      className={`flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-surface-1 px-3 py-2 text-sm font-semibold ${tone}`}
     >
       <LocateFixed className="h-4 w-4" aria-hidden="true" />
       {t('fieldGps.accuracy', {
@@ -5724,7 +5724,7 @@ function FieldNavCluster({
         aria-label={t('fieldRuntime.zoomInAria')}
         className="inline-flex h-11 w-11 items-center justify-center hover:bg-surface-2"
       >
-        <Plus className="h-5 w-5 text-ink-1" />
+        <Plus className="h-6 w-6 text-accent" />
       </button>
       <button
         type="button"
@@ -5732,7 +5732,7 @@ function FieldNavCluster({
         aria-label={t('fieldRuntime.zoomOutAria')}
         className="inline-flex h-11 w-11 items-center justify-center border-t border-border hover:bg-surface-2"
       >
-        <Minus className="h-5 w-5 text-ink-1" />
+        <Minus className="h-6 w-6 text-accent" />
       </button>
       <button
         type="button"
@@ -5749,7 +5749,7 @@ function FieldNavCluster({
       >
         <Compass
           className={`h-5 w-5 transition-colors ${
-            offNorth ? 'text-ink-0' : 'text-muted'
+            offNorth ? 'text-accent' : 'text-muted'
           }`}
           // The arrow rotates with the map bearing so the user sees
           // which direction is north at a glance. Negative because
@@ -5873,9 +5873,9 @@ function FieldMoreMenu({
         onClick={() => setOpen((v) => !v)}
         aria-label={t('fieldRuntime.moreOptionsAria')}
         aria-expanded={open}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full text-accent hover:bg-surface-2"
       >
-        <MoreVertical className="h-4 w-4" />
+        <MoreVertical className="h-6 w-6" strokeWidth={2.25} />
       </button>
       {open ? (
         <div
@@ -6046,15 +6046,15 @@ function FieldMoreMenu({
               </span>
               <span
                 aria-hidden="true"
-                className={`relative mt-0.5 inline-flex h-6 w-10 shrink-0 rounded-full border transition-colors ${
+                className={`relative mt-0.5 inline-flex h-[31px] w-[51px] shrink-0 rounded-full border transition-colors ${
                   handedness === 'left'
                     ? 'border-accent bg-accent'
                     : 'border-border bg-surface-2'
                 }`}
               >
                 <span
-                  className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-white shadow-card transition-transform ${
-                    handedness === 'left' ? 'translate-x-[1.125rem]' : 'translate-x-0.5'
+                  className={`absolute top-[1px] h-[27px] w-[27px] rounded-full bg-white shadow-card transition-transform ${
+                    handedness === 'left' ? 'translate-x-[21px]' : 'translate-x-[1px]'
                   }`}
                 />
               </span>
