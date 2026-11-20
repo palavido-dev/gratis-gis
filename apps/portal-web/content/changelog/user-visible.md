@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-19 - Collect and Locate within thumb reach
+In the field app, Locate now sits right above the + button in the bottom corner, so you can collect and find yourself with one hand. Left-handed? Turn on "Collect and locate buttons on the left" in the More menu.
+
 ## 2026-11-19 - Field app is easier to read and use one-handed
 Bigger text across the field screens, a bolder count of edits waiting to sync, and the Submit button now sits at the bottom of the form where your thumb can reach it.
 
