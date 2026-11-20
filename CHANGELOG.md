@@ -27,6 +27,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- The field app is easier to read outdoors and to use with one hand.
+  Text across the field screens is one size larger, the queued-edit
+  and rejected-edit chips are bigger and bolder, and the GPS accuracy
+  strip is easier to read. Submit on the collect form is now a
+  full-width button at the bottom of the sheet, within reach of the
+  thumb holding the phone, and the button that cancels a collect is a
+  full-size tap target (#768).
 - The sample "Road and trail issue report" form asks whether a
   vehicle or hiker can get through, and its description hint asks for
   a photo. Installs that already loaded sample data, including the

@@ -244,7 +244,7 @@ export function FieldAttachments({
   return (
     <div className="rounded-md border border-border bg-surface-0 p-2">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="inline-flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted">
+        <p className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
           <Paperclip className="h-3.5 w-3.5" />
           {total > 0
             ? t('fieldAttachments.headingCount', { count: total })
@@ -288,7 +288,7 @@ export function FieldAttachments({
       {error ? (
         <p
           role="alert"
-          className="mb-2 flex items-start gap-1 text-2xs text-danger"
+          className="mb-2 flex items-start gap-1 text-xs text-danger"
         >
           <AlertTriangle className="mt-px h-3 w-3 shrink-0" />
           {error}
@@ -296,7 +296,7 @@ export function FieldAttachments({
       ) : null}
 
       {total === 0 ? (
-        <p className="px-1 py-2 text-2xs text-muted">
+        <p className="px-1 py-2 text-xs text-muted">
           {canCapture
             ? t('fieldAttachments.emptyCanCapture')
             : t('fieldAttachments.emptyReadOnly')}
@@ -334,7 +334,7 @@ export function FieldAttachments({
                   </div>
                 )}
               </a>
-              <p className="truncate px-1.5 py-1 text-2xs text-muted">
+              <p className="truncate px-1.5 py-1 text-xs text-muted">
                 {formatBytes(a.sizeBytes)}
               </p>
             </li>
@@ -385,14 +385,14 @@ function PendingTile({
         </div>
       )}
       <span
-        className="absolute left-1 top-1 inline-flex items-center gap-1 rounded-full bg-warn/90 px-1.5 py-0.5 text-2xs font-medium text-white"
+        className="absolute left-1 top-1 inline-flex items-center gap-1 rounded-full bg-warn/90 px-1.5 py-0.5 text-xs font-medium text-white"
         title={t('fieldAttachments.pendingBadgeTitle')}
       >
         <CloudOff className="h-3 w-3" />
         {t('fieldAttachments.pendingBadge')}
       </span>
       <div className="flex items-center justify-between gap-1 px-1.5 py-1">
-        <span className="truncate text-2xs text-muted">
+        <span className="truncate text-xs text-muted">
           {formatBytes(row.sizeBytes)}
         </span>
         {onDiscard ? (

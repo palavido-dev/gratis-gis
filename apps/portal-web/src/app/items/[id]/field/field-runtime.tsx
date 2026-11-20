@@ -2124,10 +2124,10 @@ export function FieldRuntime({
           <button
             type="button"
             onClick={() => setRejectedOpen(true)}
-            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2 py-0.5 text-2xs font-medium text-danger hover:bg-danger/20"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-danger/40 bg-danger/15 px-3 text-sm font-semibold text-danger hover:bg-danger/20"
             title={t('fieldQueue.rejectedChipTitle')}
           >
-            <AlertTriangle className="h-3 w-3" />
+            <AlertTriangle className="h-4 w-4" />
             {t('fieldQueue.rejectedChip', { count: rejectedRecords.length })}
           </button>
         ) : null}
@@ -2386,7 +2386,7 @@ export function FieldRuntime({
             className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))]"
           >
             <span
-              className={`pointer-events-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium shadow-card backdrop-blur-xs ${
+              className={`pointer-events-auto inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium shadow-card backdrop-blur-xs ${
                 (() => {
                   const band = gpsAccuracyBand(gps.position.accuracyM);
                   if (band === 'excellent' || band === 'good') {
@@ -2477,10 +2477,10 @@ export function FieldRuntime({
             className="absolute inset-x-3 z-10 rounded-md border border-border bg-surface-1/95 p-2.5 shadow-overlay"
             style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
           >
-            <p className="text-xs font-medium text-ink-0">
+            <p className="text-sm font-medium text-ink-0">
               {t('fieldRuntime.nothingToCollectTitle')}
             </p>
-            <p className="mt-0.5 text-2xs text-muted">
+            <p className="mt-0.5 text-xs text-muted">
               {!currentUserId
                 ? t('fieldRuntime.nothingToCollectSignIn')
                 : editableLayers.length > 0
@@ -2588,7 +2588,7 @@ export function FieldRuntime({
       {(editableLayers.length === 0 || activeTemplate !== null) ? (
       <footer className="flex shrink-0 items-center gap-2 border-t border-border bg-surface-1 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {editableLayers.length === 0 ? (
-          <p className="flex-1 text-center text-xs text-muted">
+          <p className="flex-1 text-center text-sm text-muted">
             {t('fieldRuntime.noEditableLayersInMap')}
           </p>
         ) : activeTemplate ? (
@@ -2612,7 +2612,7 @@ export function FieldRuntime({
                     <p className="truncate text-sm font-medium text-ink-0">
                       {activeTemplate.label}
                     </p>
-                    <p className="truncate text-2xs text-muted">
+                    <p className="truncate text-xs text-muted">
                       {/* #273: in vertex-collection mode the
                           subtitle reports the in-progress vertex
                           count + the threshold so the worker knows
@@ -2636,10 +2636,10 @@ export function FieldRuntime({
                   <button
                     type="button"
                     onClick={() => setActiveTemplate(null)}
-                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-ink-1"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2"
                     aria-label={t('fieldRuntime.cancelCollectAria')}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
                 {/* #273: line/polygon path adds Undo + Finish to
@@ -3377,7 +3377,7 @@ function TemplatePicker({
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {groups.length === 0 ? (
-            <p className="p-4 text-center text-xs text-muted">
+            <p className="p-4 text-center text-sm text-muted">
               {templates.length === 0
                 ? t('fieldRuntime.noEditableLayers')
                 : t('fieldRuntime.noTemplatesMatch')}
@@ -3385,7 +3385,7 @@ function TemplatePicker({
           ) : (
             groups.map(([groupLabel, groupTemplates]) => (
               <div key={groupLabel} className="border-b border-border last:border-b-0">
-                <h3 className="bg-surface-0 px-3 py-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
+                <h3 className="bg-surface-0 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
                   {groupLabel}
                 </h3>
                 <ul>
@@ -3543,7 +3543,7 @@ function LayerVisibilityPanel({
     // the entry point. Default height ~60dvh; the panel scrolls
     // internally if content overflows.
     // #256: header + row text bumped to text-base for outdoor
-    // visibility (was text-xs / text-sm). Touch targets (close
+    // visibility (was text-sm / text-sm). Touch targets (close
     // button, basemap chip, layer rows) all read at >= 44 px tall.
     <div
       role="dialog"
@@ -3641,7 +3641,7 @@ function LayerVisibilityPanel({
               return (
                 <li
                   key={l.id}
-                  className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted"
+                  className="px-2 py-1.5 text-sm font-semibold uppercase tracking-wide text-muted"
                 >
                   {l.title}
                 </li>
@@ -3703,7 +3703,7 @@ function LayerVisibilityPanel({
                   panelT('fieldRuntime.basemapDefault'),
               })}
             </span>
-            <span className="shrink-0 text-xs uppercase tracking-wide text-muted">
+            <span className="shrink-0 text-sm uppercase tracking-wide text-muted">
               {basemapPickerOpen
                 ? panelT('fieldRuntime.basemapHide')
                 : panelT('fieldRuntime.basemapChange')}
@@ -3769,18 +3769,18 @@ function LayerVisibilityPanel({
             and the answer (delete the prepared area) is nothing a
             collector should be steered toward. */}
         {offlineBasemap.areas.some((a) => a.current) ? null : (<>
-        <p className="mb-1.5 text-2xs font-semibold uppercase tracking-wide text-muted">
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
           {panelT('fieldOffline.mapDetailToCache')}
         </p>
         <div className="grid grid-cols-2 gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-2xs uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               {panelT('fieldOffline.leastDetail')}
             </span>
             <select
               value={tileZoomMin}
               onChange={(e) => onTileZoomMinChange(Number(e.target.value))}
-              className="h-9 rounded-md border border-border bg-surface-0 px-2 text-xs text-ink-0"
+              className="h-9 rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0"
             >
               {ZOOM_PICKER_OPTIONS.filter((z) => z <= tileZoomMax).map((z) => (
                 <option key={z} value={z}>
@@ -3790,13 +3790,13 @@ function LayerVisibilityPanel({
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-2xs uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               {panelT('fieldOffline.mostDetail')}
             </span>
             <select
               value={tileZoomMax}
               onChange={(e) => onTileZoomMaxChange(Number(e.target.value))}
-              className="h-9 rounded-md border border-border bg-surface-0 px-2 text-xs text-ink-0"
+              className="h-9 rounded-md border border-border bg-surface-0 px-2 text-sm text-ink-0"
             >
               {ZOOM_PICKER_OPTIONS.filter((z) => z >= tileZoomMin).map((z) => (
                 <option key={z} value={z}>
@@ -3814,14 +3814,14 @@ function LayerVisibilityPanel({
             warning first told the user their basemap would not work
             offline moments before a download made it work offline. */}
         {offlineBasemap.areas.some((a) => a.current) ? (
-          <p className="mt-1.5 text-2xs text-muted">
+          <p className="mt-1.5 text-xs text-muted">
             {offlineBasemap.areas.filter((a) => a.current).length === 1
               ? panelT('offlineBasemap.preparedNoticeOne')
               : panelT('offlineBasemap.preparedNoticeMany')}
           </p>
         ) : blockedTileSources.length > 0 ? (
           <div className="mt-1.5 rounded-md border border-warn/30 bg-warn/10 p-2">
-            <p className="text-2xs font-medium text-warn">
+            <p className="text-xs font-medium text-warn">
               {panelT('fieldOffline.basemapUnavailableOffline')}
             </p>
             {/* One line per distinct provider, not per template: a
@@ -3829,17 +3829,17 @@ function LayerVisibilityPanel({
                 identical sentences reads like a bug. */}
             {[...new Map(blockedTileSources.map((s) => [s.host, s])).values()].map(
               (s) => (
-                <p key={s.host} className="mt-0.5 text-2xs text-muted">
+                <p key={s.host} className="mt-0.5 text-xs text-muted">
                   {s.reason}
                 </p>
               ),
             )}
-            <p className="mt-1 text-2xs text-muted">
+            <p className="mt-1 text-xs text-muted">
               {panelT('fieldOffline.basemapUnavailableTail')}
             </p>
           </div>
         ) : (
-          <p className="mt-1.5 text-2xs text-muted">
+          <p className="mt-1.5 text-xs text-muted">
             {panelT('fieldOffline.tilesEstimate', {
               count: fmt.number(estimatedTileCount),
               cap: fmt.number(200_000),
@@ -3863,11 +3863,11 @@ function LayerVisibilityPanel({
             ? panelT('fieldOffline.refreshOfflineCache')
             : panelT('fieldOffline.downloadForOffline')}
         </button>
-        <p className="mt-1.5 text-2xs text-ink-1">
+        <p className="mt-1.5 text-xs text-ink-1">
           {panelT('fieldOffline.deviceOnlyWarning')}
         </p>
         {cachedDeployment ? (
-          <p className="mt-1 text-2xs text-muted">
+          <p className="mt-1 text-xs text-muted">
             {panelT('fieldOffline.cachedSummary', {
               when: fmt.relativeTime(cachedDeployment.cachedAt),
               size: formatBytes(cachedDeployment.estimatedSize),
@@ -3879,7 +3879,7 @@ function LayerVisibilityPanel({
             reads before deciding to drive out of signal, and it used
             to report a cache with holes in it as simply "Cached". */}
         {cachedDeployment?.partial ? (
-          <p className="mt-1 flex items-start gap-1 text-2xs text-warn">
+          <p className="mt-1 flex items-start gap-1 text-xs text-warn">
             <AlertTriangle
               className="mt-px h-3 w-3 shrink-0"
               aria-hidden="true"
@@ -3906,24 +3906,24 @@ function LayerVisibilityPanel({
       {storage && storage.available ? (
         <div className="border-b border-border px-3 py-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-2xs font-medium uppercase tracking-wide text-muted">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted">
               {panelT('fieldRuntime.storage')}
             </span>
             {persistentState === 'best-effort' ? (
               <button
                 type="button"
                 onClick={onRequestPersist}
-                className="text-2xs text-accent hover:underline"
+                className="text-xs text-accent hover:underline"
               >
                 {panelT('fieldOffline.makePersistent')}
               </button>
             ) : persistentState === 'persistent' ? (
-              <span className="text-2xs text-success">
+              <span className="text-xs text-success">
                 {panelT('fieldRuntime.storagePersistent')}
               </span>
             ) : null}
           </div>
-          <div className="mt-1 flex items-center justify-between gap-2 text-2xs text-ink-1">
+          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-ink-1">
             <span>{formatBytes(storage.usage)}</span>
             <span className="text-muted">
               {panelT('fieldOffline.storageOf', {
@@ -3952,7 +3952,7 @@ function LayerVisibilityPanel({
             />
           </div>
           {storage.usagePercent >= 0.95 ? (
-            <p className="mt-1 text-2xs text-danger">
+            <p className="mt-1 text-xs text-danger">
               {panelT('fieldOffline.storageNearlyFull')}
             </p>
           ) : null}
@@ -3963,7 +3963,7 @@ function LayerVisibilityPanel({
               features + queued edits stay put because they're
               load-bearing for offline work. */}
           {tileCache && tileCache.count > 0 ? (
-            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-2xs text-muted">
+            <div className="mt-2 flex items-center justify-between gap-2 border-t border-border pt-2 text-xs text-muted">
               <span>
                 {panelT('fieldOffline.mapTilesBreakdown', {
                   count: fmt.number(tileCache.count),
@@ -3973,7 +3973,7 @@ function LayerVisibilityPanel({
               <button
                 type="button"
                 onClick={onClearTiles}
-                className="text-2xs text-accent hover:underline"
+                className="text-xs text-accent hover:underline"
               >
                 {panelT('fieldOffline.clearTiles')}
               </button>
@@ -4706,13 +4706,11 @@ function FormModal({
       dismissOnDrag={false}
     >
       {/* #249: Field Maps-style three-section header for the active
-          collect. Cancel (left, text button) | layer-name title
-          (center) | Submit (right, text button). The Submit button
-          doesn't sit inside the FormRuntime tree -- it associates
-          via the formId prop / HTML form attribute, so the click
-          triggers the form's existing onSubmit + validation. The
-          FormRuntime's own submit button stays at the bottom of
-          the scroll for users who reach the end of a long form. */}
+          collect: Cancel and the layer name. Submit is in the
+          footer, for one-handed use. It sits outside the FormRuntime
+          tree and associates via the formId prop / HTML form
+          attribute, so the click triggers the form's existing
+          onSubmit + validation. */}
       {/* input and change both bubble, so one listener here sees any
           interaction anywhere in the form without FormRuntime having
           to report dirtiness. */}
@@ -4737,19 +4735,15 @@ function FormModal({
                     layer: modal.layer.layerLabel,
                   })}
             </h2>
-            <p className="truncate text-2xs text-muted">
+            <p className="truncate text-xs text-muted">
               {modal.layer.dataLayerTitle}
             </p>
           </div>
-          <button
-            type="submit"
-            form={`field-form-${modal.layer.layerKey}`}
-            disabled={submitting}
-            aria-busy={submitting}
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md px-3 text-base font-semibold text-accent hover:bg-surface-2 active:bg-surface-3 disabled:opacity-50"
-          >
-            {t('fieldCollect.submit')}
-          </button>
+          {/* Submit moved to the footer, within reach of a thumb.
+              This keeps the title centered against Cancel. */}
+          <span aria-hidden="true" className="invisible inline-flex h-11 shrink-0 px-3 text-base font-medium">
+            {t('fieldCollect.cancel')}
+          </span>
         </header>
         {/* #249: Field Maps-style location bar. Shows the current
             position of the feature (lat/lon) and lets the worker
@@ -4762,7 +4756,7 @@ function FormModal({
         {modal.mode === 'add' && modal.layer.geometryType === 'point' ? (
           <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-0 px-3 py-2">
             <div className="min-w-0 flex-1">
-              <p className="text-2xs font-medium uppercase tracking-wide text-muted">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">
                 {t('fieldRuntime.location')}
               </p>
               <p className="truncate font-mono text-sm tabular-nums text-ink-0">
@@ -4835,7 +4829,7 @@ function FormModal({
           {error ? (
             <p
               role="alert"
-              className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger"
+              className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
             >
               {error}
             </p>
@@ -4901,7 +4895,7 @@ function FormModal({
                           <p className="flex items-center gap-2 truncate text-base font-semibold text-ink-0">
                             {c.layerLabel}
                             {state && !state.loading && !state.error ? (
-                              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-2 px-1.5 text-xs font-semibold text-ink-1">
+                              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-2 px-1.5 text-sm font-semibold text-ink-1">
                                 {count}
                               </span>
                             ) : null}
@@ -4978,7 +4972,7 @@ function FormModal({
                                       {pickRowTitle(row.properties) ??
                                         row.id.slice(0, 8)}
                                       {pending ? (
-                                        <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
+                                        <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-sm font-medium text-warn">
                                           {t('fieldRuntime.relatedUnsynced')}
                                         </span>
                                       ) : null}
@@ -5016,6 +5010,21 @@ function FormModal({
               </div>
             </div>
           ) : null}
+        </div>
+        {/* Submit sits at the bottom of the sheet so it can be reached
+            with the thumb of the hand holding the phone. A button at
+            the top corner needs a second hand. */}
+        <div className="shrink-0 border-t border-border bg-surface-1 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <button
+            type="submit"
+            form={`field-form-${modal.layer.layerKey}`}
+            disabled={submitting}
+            aria-busy={submitting}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-md bg-accent px-4 text-base font-semibold text-accent-foreground shadow-card hover:opacity-90 active:opacity-80 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : null}
+            {t('fieldCollect.submit')}
+          </button>
         </div>
       </div>
     </FieldSheet>
@@ -5269,7 +5278,7 @@ function FieldFeaturePopupSheet({
                   {pickRowTitle(concrete.hit.properties) ??
                     concrete.hit.layerLabel}
                 </h2>
-                <p className="truncate text-2xs text-muted">
+                <p className="truncate text-xs text-muted">
                   {concrete.hit.layerLabel}
                 </p>
               </>
@@ -5361,7 +5370,7 @@ function FieldFeaturePopupSheet({
                     className="flex w-full items-start gap-3 px-3 py-3 text-left hover:bg-surface-2"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-2xs font-semibold uppercase tracking-wide text-muted">
+                      <p className="truncate text-xs font-semibold uppercase tracking-wide text-muted">
                         {hit.layerLabel}
                       </p>
                       <p className="truncate text-base font-medium text-ink-0">
@@ -5383,7 +5392,7 @@ function FieldFeaturePopupSheet({
               <dl className="divide-y divide-border">
                 {Object.entries(concrete.hit.properties).map(([k, v]) => (
                   <div key={k} className="px-3 py-2">
-                    <dt className="text-2xs uppercase tracking-wide text-muted">
+                    <dt className="text-xs uppercase tracking-wide text-muted">
                       {k}
                     </dt>
                     <dd className="mt-0.5 wrap-break-word text-sm text-ink-0">
@@ -5459,11 +5468,11 @@ function FieldFeaturePopupSheet({
                         className="border-t border-border first:border-t-0 px-3 py-3"
                       >
                         <div className="mb-2 flex items-baseline justify-between gap-2">
-                          <h3 className="text-2xs font-semibold uppercase tracking-wide text-muted">
+                          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
                             {c.layerLabel}
                           </h3>
                           {rowsState && !rowsState.loading ? (
-                            <span className="text-2xs text-muted">
+                            <span className="text-xs text-muted">
                               {t('fieldRuntime.relatedRowCount', {
                                 count: rowsState.rows.length,
                               })}
@@ -5507,7 +5516,7 @@ function FieldFeaturePopupSheet({
                                       {pickRowTitle(row.properties) ??
                                         row.id.slice(0, 8)}
                                       {pending ? (
-                                        <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-xs font-medium text-warn">
+                                        <span className="ml-2 inline-flex items-center rounded bg-warn/25 px-1.5 py-0.5 text-sm font-medium text-warn">
                                           {t('fieldRuntime.relatedUnsynced')}
                                         </span>
                                       ) : null}
@@ -5588,9 +5597,9 @@ function FieldGpsStrip({
     return (
       <div
         aria-live="polite"
-        className="flex shrink-0 items-center justify-center gap-1.5 border-b border-warn/30 bg-warn/10 px-3 py-1 text-xs font-medium text-warn"
+        className="flex shrink-0 items-center justify-center gap-1.5 border-b border-warn/30 bg-warn/10 px-3 py-1.5 text-sm font-semibold text-warn"
       >
-        <CircleSlash className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <CircleSlash className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0 truncate">
           {gpsStatus === 'denied'
             ? t('fieldGps.denied')
@@ -5610,9 +5619,9 @@ function FieldGpsStrip({
   return (
     <div
       aria-live="polite"
-      className={`flex shrink-0 items-center justify-center gap-1.5 border-b px-3 py-1 text-xs font-medium ${tone}`}
+      className={`flex shrink-0 items-center justify-center gap-1.5 border-b px-3 py-1.5 text-sm font-semibold ${tone}`}
     >
-      <LocateFixed className="h-3.5 w-3.5" aria-hidden="true" />
+      <LocateFixed className="h-4 w-4" aria-hidden="true" />
       {t('fieldGps.accuracy', {
         meters: accuracyM < 1 ? '<1' : String(Math.round(accuracyM)),
       })}
@@ -5825,13 +5834,13 @@ function FieldMoreMenu({
           className="absolute right-0 top-full z-30 mt-1 w-64 overflow-hidden rounded-md border border-border bg-surface-1 shadow-overlay"
         >
           <div className="border-b border-border px-3 py-2">
-            <p className="text-2xs font-medium uppercase tracking-wide text-muted">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted">
               {t('fieldRuntime.mapHeading')}
             </p>
             <p className="mt-0.5 truncate text-sm text-ink-0">{mapTitle}</p>
           </div>
           <ul className="px-1 py-1 text-sm">
-            <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+            <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
               <span className="text-muted">
                 {t('fieldRuntime.connection')}
               </span>
@@ -5840,7 +5849,7 @@ function FieldMoreMenu({
               </span>
             </li>
             {cachedAt ? (
-              <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+              <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
                 <span className="text-muted">
                   {t('fieldRuntime.lastCached')}
                 </span>
@@ -5850,7 +5859,7 @@ function FieldMoreMenu({
               </li>
             ) : null}
             {persistentState !== 'unknown' ? (
-              <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+              <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
                 <span className="text-muted">{t('fieldRuntime.storage')}</span>
                 <span
                   className={
@@ -5872,7 +5881,7 @@ function FieldMoreMenu({
                 active; idle = the user hasn't asked for location yet
                 and we shouldn't pretend to know anything. */}
             {gpsStatus !== 'idle' ? (
-              <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+              <li className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm">
                 <span className="text-muted">{t('fieldGps.label')}</span>
                 <span
                   className={
@@ -5920,7 +5929,7 @@ function FieldMoreMenu({
                 them the option to sync first. With an empty queue,
                 refresh runs straight through. */}
             {confirmingRefresh && hasCache && queueCount > 0 ? (
-              <p className="px-2 pt-1 text-2xs text-warn">
+              <p className="px-2 pt-1 text-xs text-warn">
                 {t('fieldOffline.refreshUnsyncedWarn', { count: queueCount })}
               </p>
             ) : null}
@@ -5966,7 +5975,7 @@ function FieldMoreMenu({
                     : t('fieldOffline.downloadForOffline')}
               </span>
             </button>
-            <p className="px-2 pt-1 text-2xs text-ink-1">
+            <p className="px-2 pt-1 text-xs text-ink-1">
               {t('fieldOffline.deviceOnlyWarning')}
             </p>
             <button
@@ -5991,7 +6000,7 @@ function FieldMoreMenu({
             {hasCache ? (
               <>
                 {confirmingRemove && queueCount + parkedForOthers > 0 ? (
-                  <p className="px-2 pt-1 text-2xs text-danger">
+                  <p className="px-2 pt-1 text-xs text-danger">
                     {t('fieldOffline.removeWillLose', {
                       count: queueCount + parkedForOthers,
                     })}
@@ -6072,10 +6081,10 @@ function QueueBadge({
   if (!isOnline) {
     return (
       <span
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-2xs font-medium text-muted"
+        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-sm font-semibold text-ink-1"
         title={t('fieldOffline.waitingOfflineTitle', { count })}
       >
-        <CloudOff className="h-3 w-3" />
+        <CloudOff className="h-4 w-4" />
         {t('fieldOffline.queuedCount', { count })}
       </span>
     );
@@ -6085,13 +6094,13 @@ function QueueBadge({
       type="button"
       disabled={syncing}
       onClick={onSync}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-2xs font-medium text-warn hover:bg-warn/20 disabled:opacity-60"
+      className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-warn/40 bg-warn/15 px-3 text-sm font-semibold text-warn hover:bg-warn/20 disabled:opacity-60"
       title={t('fieldOffline.waitingOnlineTitle', { count })}
     >
       {syncing ? (
-        <Loader2 className="h-3 w-3 animate-spin" />
+        <Loader2 className="h-4 w-4 animate-spin" />
       ) : (
-        <CloudDownload className="h-3 w-3 rotate-180" />
+        <CloudDownload className="h-4 w-4 rotate-180" />
       )}
       {syncing
         ? t('fieldOffline.syncing')
@@ -6144,14 +6153,14 @@ function DownloadProgressModal({
                 : t('fieldOffline.downloadingForOfflineTitle')}
           </DialogTitle>
         </div>
-        <DialogDescription className="mt-2 text-xs text-muted">
+        <DialogDescription className="mt-2 text-sm text-muted">
           {formatOfflineMessage(t, progress.message)}
         </DialogDescription>
         {/* Layers leads the breakdown so the user sees a non-zero
             number even on a fresh deployment with no features yet.
             Features, Forms, and Pick lists below are secondary
             detail. */}
-        <dl className="mt-3 grid grid-cols-4 gap-2 text-2xs">
+        <dl className="mt-3 grid grid-cols-4 gap-2 text-xs">
           <div className="rounded border border-border bg-surface-0 p-2 text-center">
             <dt className="text-muted">
               {t('fieldRuntime.downloadLayers')}
@@ -6186,14 +6195,14 @@ function DownloadProgressModal({
           </div>
         </dl>
         {progress.estimatedSize > 0 ? (
-          <p className="mt-2 text-2xs text-muted">
+          <p className="mt-2 text-xs text-muted">
             {t('fieldOffline.cachedSizeApprox', {
               size: formatBytes(progress.estimatedSize),
             })}
           </p>
         ) : null}
         {progress.error ? (
-          <p className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+          <p className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
             {progress.error}
           </p>
         ) : null}
@@ -6206,7 +6215,7 @@ function DownloadProgressModal({
           <button
             type="button"
             onClick={finished ? onClose : onCancel}
-            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-xs font-medium text-ink-1 hover:bg-surface-2"
+            className="h-9 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
           >
             {finished
               ? t('fieldRuntime.closeAria')
@@ -6545,7 +6554,7 @@ function FieldAddressSearch({
           {anyLayerSearchable && featureResults.length > 0
             ? groupFeatureResultsByLayer(featureResults).map((group) => (
                 <li key={`layer-${group.layerId}`}>
-                  <div className="border-b border-border bg-surface-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-muted">
+                  <div className="border-b border-border bg-surface-2 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
                     {group.layerTitle}
                   </div>
                   {group.results.map((r, i) => (
@@ -6557,11 +6566,11 @@ function FieldAddressSearch({
                     >
                       <Tag className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs text-ink-0">
+                        <div className="truncate text-sm text-ink-0">
                           {r.kind === 'feature' ? r.label : ''}
                         </div>
                         {r.kind === 'feature' && r.subtitle ? (
-                          <div className="truncate text-2xs text-muted">
+                          <div className="truncate text-xs text-muted">
                             {r.subtitle}
                           </div>
                         ) : null}
@@ -6579,7 +6588,7 @@ function FieldAddressSearch({
           anyLayerSearchable &&
           featureResults.length > 0 ? (
             <li>
-              <div className="border-b border-border bg-surface-2 px-3 py-1 text-2xs font-semibold uppercase tracking-wide text-muted">
+              <div className="border-b border-border bg-surface-2 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-muted">
                 {t('fieldRuntime.searchPlaces')}
               </div>
             </li>
@@ -6592,14 +6601,14 @@ function FieldAddressSearch({
                 className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-surface-2"
               >
                 <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
-                <span className="min-w-0 flex-1 truncate text-xs text-ink-0">
+                <span className="min-w-0 flex-1 truncate text-sm text-ink-0">
                   {r.label}
                 </span>
               </button>
             </li>
           ))}
           {loading && placeResults.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-muted">
+            <li className="px-3 py-2 text-sm text-muted">
               {t('fieldRuntime.searching')}
             </li>
           ) : null}

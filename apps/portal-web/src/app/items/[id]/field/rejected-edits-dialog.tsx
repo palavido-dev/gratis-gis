@@ -122,12 +122,12 @@ export function RejectedEditsDialog({
                     </p>
                     <time
                       dateTime={record.queuedAt}
-                      className="shrink-0 text-2xs text-muted"
+                      className="shrink-0 text-xs text-muted"
                     >
                       {fmt.dateTime(record.queuedAt)}
                     </time>
                   </div>
-                  <p className="mt-1 text-xs text-danger">
+                  <p className="mt-1 text-sm text-danger">
                     {record.failure
                       ? formatOfflineMessage(t, record.failure)
                       : t('fieldQueue.noReason')}
@@ -137,7 +137,7 @@ export function RejectedEditsDialog({
                       type="button"
                       disabled={busy}
                       onClick={() => void retry(record)}
-                      className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-xs font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-60"
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-1 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-60"
                     >
                       <RotateCcw className="h-3 w-3" />
                       {t('fieldQueue.retry')}
@@ -146,7 +146,7 @@ export function RejectedEditsDialog({
                       type="button"
                       disabled={busy}
                       onClick={() => void discard(record)}
-                      className="inline-flex items-center gap-1 rounded-md border border-danger/30 px-2 py-1 text-xs font-medium text-danger hover:bg-danger/10 disabled:opacity-60"
+                      className="inline-flex items-center gap-1 rounded-md border border-danger/30 px-2 py-1 text-sm font-medium text-danger hover:bg-danger/10 disabled:opacity-60"
                     >
                       <Trash2 className="h-3 w-3" />
                       {t('fieldQueue.discard')}
