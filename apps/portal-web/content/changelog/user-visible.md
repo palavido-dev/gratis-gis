@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-19 - Field app is easier to read and use one-handed
+Bigger text across the field screens, a bolder count of edits waiting to sync, and the Submit button now sits at the bottom of the form where your thumb can reach it.
+
 ## 2026-11-19 - Field forms ask for the location once
 In the field app, the point you place on the map is the location. A form's own location question is now hidden there, so crews no longer pick the spot twice.
 

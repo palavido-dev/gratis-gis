@@ -33,7 +33,7 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
 
   return (
     <div className="mt-3 border-t border-border pt-3">
-      <p className="mb-2 text-2xs font-medium uppercase tracking-wide text-muted">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
         {ready.length === 1
           ? t('offlineBasemap.preparedMap')
           : t('offlineBasemap.preparedMaps')}
@@ -48,7 +48,7 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm text-ink-0">{area.name}</p>
-                <p className="text-2xs text-muted">
+                <p className="text-xs text-muted">
                   {stored ? (
                     <span className="text-success">
                       {t('offlineBasemap.onThisDevice')}
@@ -82,7 +82,7 @@ export function OfflineBasemapRow({ state }: { state: OfflineBasemapState }) {
           );
         })}
       </ul>
-      <p className="mt-1.5 text-2xs text-muted">
+      <p className="mt-1.5 text-xs text-muted">
         {state.supported
           ? t('offlineBasemap.explainer')
           : t('offlineBasemap.unsupported')}
