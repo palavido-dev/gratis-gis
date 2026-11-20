@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-20 - Measurements you can move, size and keep
+Measure now labels each side and the area right on the map. Drag a finished measurement to move or reshape it, type an exact size like 10 acres, and save it to markup with its labels.
+
 ## 2026-11-19 - A field app that reads like a phone app
 The field app now uses your phone's own font, bigger text, cleaner greys and a brighter teal for buttons, so it is easier to read outside. The deployment list opens like a native app, with a large title and thumbnails.
 

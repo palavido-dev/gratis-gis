@@ -8,6 +8,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- The map builder's Measure tool shows a length on each side and the
+  area in the middle of the shape, with a switch for each. A finished
+  measurement stays selected, so it can be dragged, reshaped and
+  given new corners, and the numbers follow. **Set area** scales an
+  area to an exact size, and **Save to markup** keeps a measurement
+  with its labels. Markup sets gain **Lengths** and **Areas**
+  switches that label every line and shape in the set. Labels are
+  worked out from the geometry, so they stay right after an edit.
 - An hourly check that pg_partman keeps partitions ahead of the data.
   The API logs an error when rows have landed in a default partition
   and a warning when an active partition set is under one interval

@@ -64,8 +64,36 @@ export interface DrawingFeature {
    *  comments work supersedes this with a real thread; until then,
    *  it's a simple single-string note for fast scribbling. */
   note?: string;
+  /**
+   * Measurement labels drawn on the shape: a length on each segment
+   * and the area in the middle. The numbers are worked out from the
+   * geometry at render time, so they stay right after an edit. Set
+   * when a measurement is saved to markup, or from the markup panel.
+   */
+  dimensions?: DrawingDimensions;
   createdAt: string;
   updatedAt: string;
+}
+
+export const DRAWING_LENGTH_UNITS = ['meters', 'kilometers', 'feet', 'miles'] as const;
+export type DrawingLengthUnit = (typeof DRAWING_LENGTH_UNITS)[number];
+export const DRAWING_AREA_UNITS = [
+  'square-meters',
+  'hectares',
+  'square-kilometers',
+  'square-feet',
+  'acres',
+  'square-miles',
+] as const;
+export type DrawingAreaUnit = (typeof DRAWING_AREA_UNITS)[number];
+
+export interface DrawingDimensions {
+  /** Show a length label on each segment. */
+  lengths?: boolean;
+  /** Show the area in the middle of a polygon or circle. */
+  area?: boolean;
+  lengthUnit?: DrawingLengthUnit;
+  areaUnit?: DrawingAreaUnit;
 }
 
 export interface DrawingSet {

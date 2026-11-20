@@ -9,6 +9,8 @@
  *   - drawings:line: LineString stroke (line + arrow)
  *   - drawings:arrow-head: tip marker for kind=arrow
  *   - drawings:poly-fill / drawings:poly-outline: Polygon (polygon + circle)
+ *   - drawings:dimensions: length and area labels for shapes that
+ *     have `dimensions` set (saved measurements)
  *
  * Color comes from each feature's properties (`color`), stamped at
  * flatten time from the parent drawing set. Visibility on a set
@@ -16,6 +18,7 @@
  */
 import type * as maplibregl from 'maplibre-gl';
 import type { DrawingSet } from '@gratis-gis/shared-types';
+import { dimensionLabelFeatures } from './measure-labels';
 
 /**
  * Minimal projection of a DrawingSet the renderer needs. Keeps the
@@ -34,6 +37,7 @@ export const DRAWINGS_LINE_LAYER_ID = 'drawings:line';
 export const DRAWINGS_ARROW_HEAD_LAYER_ID = 'drawings:arrow-head';
 export const DRAWINGS_POLY_FILL_LAYER_ID = 'drawings:poly-fill';
 export const DRAWINGS_POLY_OUTLINE_LAYER_ID = 'drawings:poly-outline';
+export const DRAWINGS_DIMENSIONS_LAYER_ID = 'drawings:dimensions';
 
 /** Bottom-to-top paint order used when re-asserting z-order. */
 export const DRAWINGS_LAYER_IDS = [
@@ -44,6 +48,7 @@ export const DRAWINGS_LAYER_IDS = [
   DRAWINGS_STROKE_LAYER_ID,
   DRAWINGS_FILL_LAYER_ID,
   DRAWINGS_TEXT_LAYER_ID,
+  DRAWINGS_DIMENSIONS_LAYER_ID,
 ] as const;
 
 export interface FlattenedDrawings {
@@ -79,6 +84,24 @@ export function flattenDrawingSets(
         geometry: f.geometry as GeoJSON.Geometry,
         properties: props,
       });
+      // Measurement labels, worked out from the geometry so they
+      // stay right after the shape is edited. A circle is a 32-sided
+      // polygon, so it gets its area but not 32 side lengths.
+      if (f.dimensions && (f.dimensions.lengths || f.dimensions.area)) {
+        const labels = dimensionLabelFeatures(f.geometry, {
+          lengths: f.dimensions.lengths === true && f.kind !== 'circle',
+          area: f.dimensions.area === true,
+          lengthUnit: f.dimensions.lengthUnit ?? 'feet',
+          areaUnit: f.dimensions.areaUnit ?? 'acres',
+        });
+        labels.forEach((label, i) => {
+          features.push({
+            ...label,
+            id: `${f.id}:dim:${i}`,
+            properties: { ...label.properties, setId: set.id, color, kind: 'dimension' },
+          });
+        });
+      }
       // Arrow tip: a Point at the last vertex so we can paint a
       // rotated chevron without a custom SDF icon.
       if (f.kind === 'arrow') {
@@ -295,6 +318,25 @@ export function syncDrawings(
     m.setFilter(DRAWINGS_ARROW_HEAD_LAYER_ID, arrowHeadFilter);
   }
 
+  const dimensionFilter: maplibregl.FilterSpecification = [
+    'all',
+    ['==', ['geometry-type'], 'Point'],
+    ['==', ['get', 'kind'], 'dimension'],
+    visibilityFilter as never,
+  ];
+  if (!m.getLayer(DRAWINGS_DIMENSIONS_LAYER_ID)) {
+    m.addLayer({
+      id: DRAWINGS_DIMENSIONS_LAYER_ID,
+      type: 'symbol',
+      source: DRAWINGS_SOURCE_ID,
+      filter: dimensionFilter,
+      layout: dimensionLabelLayout(),
+      paint: dimensionLabelPaint(),
+    });
+  } else {
+    m.setFilter(DRAWINGS_DIMENSIONS_LAYER_ID, dimensionFilter);
+  }
+
   const polyFilter: maplibregl.FilterSpecification = [
     'all',
     ['==', ['geometry-type'], 'Polygon'],
@@ -341,4 +383,33 @@ export function raiseDrawingsLayers(m: maplibregl.Map): void {
       // Concurrent sync may have removed it; next run re-adds on top.
     }
   }
+}
+
+/**
+ * Layout and paint for measurement labels, shared with the Measure
+ * tool's live labels. Labels may not overlap: when sides are too
+ * short on screen to fit their lengths, MapLibre drops some, keeping
+ * the area or total first (`sort`).
+ */
+export function dimensionLabelLayout(): NonNullable<maplibregl.SymbolLayerSpecification['layout']> {
+  return {
+    'text-field': ['get', 'text'],
+    'text-size': ['case', ['==', ['get', 'role'], 'segment'], 12, 14],
+    'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+    'text-rotate': ['get', 'rotate'],
+    'text-rotation-alignment': 'map',
+    'text-offset': ['case', ['==', ['get', 'role'], 'segment'], ['literal', [0, -0.8]], ['literal', [0, 0]]],
+    'text-anchor': ['case', ['==', ['get', 'role'], 'total'], 'bottom-left', 'center'],
+    'text-padding': 2,
+    'text-allow-overlap': false,
+    'symbol-sort-key': ['get', 'sort'],
+  };
+}
+
+export function dimensionLabelPaint(): NonNullable<maplibregl.SymbolLayerSpecification['paint']> {
+  return {
+    'text-color': '#111827',
+    'text-halo-color': '#ffffff',
+    'text-halo-width': 2,
+  };
 }

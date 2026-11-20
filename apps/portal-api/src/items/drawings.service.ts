@@ -7,8 +7,11 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import {
+  DRAWING_AREA_UNITS,
+  DRAWING_LENGTH_UNITS,
   defaultDrawingSetTitle,
   nextDrawingSetColor,
+  type DrawingDimensions,
   type DrawingFeature,
   type DrawingSet,
 } from '@gratis-gis/shared-types';
@@ -608,9 +611,30 @@ function sanitizeFeature(
     ...(typeof raw.note === 'string'
       ? { note: raw.note.slice(0, 2000) }
       : {}),
+    ...cleanDimensions(raw.dimensions),
     createdAt: isIsoDate(raw.createdAt) ? raw.createdAt : now,
     updatedAt: now,
   };
+}
+
+/**
+ * Keep only the known flags and units. Returns nothing when neither
+ * label is on, so a shape with labels turned off stores no key.
+ */
+function cleanDimensions(raw: unknown): { dimensions?: DrawingDimensions } {
+  if (!raw || typeof raw !== 'object') return {};
+  const d = raw as Record<string, unknown>;
+  const out: DrawingDimensions = {};
+  if (d.lengths === true) out.lengths = true;
+  if (d.area === true) out.area = true;
+  if (!out.lengths && !out.area) return {};
+  if ((DRAWING_LENGTH_UNITS as readonly unknown[]).includes(d.lengthUnit)) {
+    out.lengthUnit = d.lengthUnit as NonNullable<DrawingDimensions['lengthUnit']>;
+  }
+  if ((DRAWING_AREA_UNITS as readonly unknown[]).includes(d.areaUnit)) {
+    out.areaUnit = d.areaUnit as NonNullable<DrawingDimensions['areaUnit']>;
+  }
+  return { dimensions: out };
 }
 
 function clampStyle(s: NonNullable<DrawingFeature['style']>): NonNullable<DrawingFeature['style']> {
