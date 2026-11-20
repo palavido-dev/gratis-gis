@@ -1870,6 +1870,8 @@ export const en = {
     location: 'Location',
     notSet: 'Not set',
     updatePoint: 'Update Point',
+    leftHandedControls: 'Collect and locate buttons on the left',
+    leftHandedControlsHint: 'For holding the phone in your left hand. Saved on this device.',
     saveFeature: 'Save feature',
     saveChanges: 'Save changes',
     relatedUnsynced: 'unsynced',

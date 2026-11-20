@@ -1801,6 +1801,8 @@ export const es: Partial<CatalogShape> = {
     location: 'Ubicación',
     notSet: 'Sin definir',
     updatePoint: 'Actualizar punto',
+    leftHandedControls: 'Botones de captura y ubicación a la izquierda',
+    leftHandedControlsHint: 'Para sostener el teléfono con la mano izquierda. Se guarda en este dispositivo.',
     saveFeature: 'Guardar entidad',
     saveChanges: 'Guardar cambios',
     relatedUnsynced: 'sin sincronizar',

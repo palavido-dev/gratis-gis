@@ -1802,6 +1802,8 @@ export const de: Partial<CatalogShape> = {
     location: 'Standort',
     notSet: 'Nicht gesetzt',
     updatePoint: 'Punkt aktualisieren',
+    leftHandedControls: 'Erfassen- und Standort-Schaltflächen links',
+    leftHandedControlsHint: 'Zum Halten des Telefons in der linken Hand. Auf diesem Gerät gespeichert.',
     saveFeature: 'Feature speichern',
     saveChanges: 'Änderungen speichern',
     relatedUnsynced: 'nicht synchronisiert',

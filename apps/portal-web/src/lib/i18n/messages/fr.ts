@@ -1803,6 +1803,8 @@ export const fr: Partial<CatalogShape> = {
     location: 'Emplacement',
     notSet: 'Non défini',
     updatePoint: 'Mettre à jour le point',
+    leftHandedControls: 'Boutons de saisie et de localisation à gauche',
+    leftHandedControlsHint: 'Pour tenir le téléphone de la main gauche. Enregistré sur cet appareil.',
     saveFeature: 'Enregistrer l’entité',
     saveChanges: 'Enregistrer les modifications',
     relatedUnsynced: 'non synchronisé',

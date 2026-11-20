@@ -1799,6 +1799,8 @@ export const ptBR: Partial<CatalogShape> = {
     location: 'Localização',
     notSet: 'Não definido',
     updatePoint: 'Atualizar ponto',
+    leftHandedControls: 'Botões de coleta e localização à esquerda',
+    leftHandedControlsHint: 'Para segurar o telefone com a mão esquerda. Salvo neste dispositivo.',
     saveFeature: 'Salvar feição',
     saveChanges: 'Salvar alterações',
     relatedUnsynced: 'não sincronizado',

@@ -64,6 +64,11 @@ import {
   withoutMapGeometryAnswer,
   withoutMapGeometryQuestion,
 } from '@/lib/field-form';
+import {
+  readHandedness,
+  writeHandedness,
+  type Handedness,
+} from '@/lib/field-handedness';
 import { removeDeploymentFromDevice } from '@/lib/offline-remove';
 import {
   countUnsyncedEdits,
@@ -562,6 +567,17 @@ export function FieldRuntime({
   // top-right zoom controls. Tapping the magnifier expands an input;
   // tapping the X collapses it again.
   const [searchExpanded, setSearchExpanded] = useState(false);
+  // Which side the thumb controls (+ and Locate) sit on (#772). Read
+  // after mount: localStorage does not exist during server render.
+  const [handedness, setHandedness] = useState<Handedness>('right');
+  useEffect(() => {
+    setHandedness(readHandedness(window.localStorage));
+  }, []);
+  const changeHandedness = useCallback((next: Handedness) => {
+    setHandedness(next);
+    writeHandedness(window.localStorage, next);
+  }, []);
+  const thumbSide = handedness === 'left' ? 'left-3' : 'right-3';
 
   // #249.16 / #253: Field-Maps-style feature popup state. Both shapes
   // live in ./field-surfaces now; declaring them in this function body
@@ -2158,6 +2174,8 @@ export function FieldRuntime({
           gpsAccuracyM={gps.position?.accuracyM ?? null}
           onDownload={() => void startDownload()}
           onRemoveCache={() => void removeCache()}
+          handedness={handedness}
+          onHandednessChange={changeHandedness}
         />
       </header>
       ) : null}
@@ -2220,6 +2238,9 @@ export function FieldRuntime({
           // sized to match Layers / Search / Locate / FAB. The default
           // 29px buttons looked tiny next to the 44px field controls.
           hideNavigationControl
+          // The scale and area square go in the corner opposite + and
+          // Locate, under Layers (#772).
+          scalePosition={handedness === 'left' ? 'bottom-right' : 'bottom-left'}
           // #253 fix: suppress MapLibre's HTML popup. The field
           // runtime now owns the click-on-feature surface via
           // FieldFeaturePopupSheet (a bottom sheet). Without this,
@@ -2266,17 +2287,26 @@ export function FieldRuntime({
           </div>
         ) : null}
 
-        {/* Layer-toggle button (top-left). MapLibre's NavigationControl
-            (zoom +/- + compass) plants itself at top-right via
-            map-canvas.tsx, so we keep this button on the opposite
-            side to avoid overlap. Compact icon-only and the panel
-            drops below when tapped. Hidden during active collect
-            (#249) so it doesn't compete with the form sheet. */}
+        {/* Layer-toggle button. Bottom corner opposite the + and
+            Locate stack, so it is in thumb reach without crowding the
+            collect button (#772), and next to the bottom sheet it
+            opens. Mirrors with the left-handed setting, as does the
+            map's scale under it. Hidden during active collect (#249) so it
+            doesn't compete with the form sheet. */}
         {showRuntimeChrome ? (
         <button
           type="button"
           onClick={() => setLayerPanelOpen((v) => !v)}
-          className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
+          className={`absolute ${handedness === 'left' ? 'right-3' : 'left-3'} z-10 inline-flex h-12 w-12 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2`}
+          // Above the map's distance scale and area square, which
+          // share this corner (and, left-handed, the attribution).
+          // Above the "nothing to collect" notice when that shows.
+          style={{
+            bottom:
+              activeTemplate === null && templates.length === 0
+                ? 'calc(8rem + env(safe-area-inset-bottom, 0px))'
+                : '7rem',
+          }}
           aria-label={t('fieldRuntime.toggleLayersAria')}
           aria-pressed={layerPanelOpen}
         >
@@ -2298,10 +2328,11 @@ export function FieldRuntime({
           <FieldNavCluster mapRef={mapRef} />
         ) : null}
 
-        {/* Locate-me FAB. Sits top-right under MapLibre's zoom +
-            compass cluster (#249.13: moved from bottom-left so the
-            map's right rail groups all viewport controls together,
-            matching the natural left-to-right top-to-bottom scan).
+        {/* Locate-me FAB. Sits in the thumb corner, directly above
+            the + collect button, so the two actions a collector uses
+            most are both reachable with the hand holding the phone
+            (#772). It used to sit top-right under the zoom cluster
+            (#249.13). The side follows the left-handed setting.
             Three-state interaction:
               - idle             -> tap requests permission + starts watch
               - watching, no follow -> tap centers on current fix
@@ -2317,6 +2348,19 @@ export function FieldRuntime({
           hasPosition={gps.position !== null}
           follow={gps.follow}
           accuracyM={gps.position?.accuracyM ?? null}
+          sideClassName={handedness === 'left' ? 'left-4' : 'right-4'}
+          // Above the + button when it shows (bottom 1.25rem, 3.5rem
+          // tall, 0.75rem gap). Above the "nothing to collect" notice
+          // when that shows instead. In the corner when a template is
+          // armed: the footer then sits below the canvas and already
+          // clears the home indicator.
+          bottom={
+            activeTemplate !== null
+              ? '1.25rem'
+              : templates.length > 0
+                ? 'calc(5.5rem + env(safe-area-inset-bottom, 0px))'
+                : 'calc(8rem + env(safe-area-inset-bottom, 0px))'
+          }
           onTap={() => {
             const map = mapRef.current;
             if (gps.status === 'idle') {
@@ -2339,7 +2383,7 @@ export function FieldRuntime({
         ) : null}
 
         {/* Address search overlay (#223.3, collapsed by default in #249.11).
-            Sits to the right of the Layers FAB at top-left. Default state
+            Sits at top-left (Layers moved to the bottom, #772). Default state
             is a magnifier icon; tapping expands an input. Right edge is
             held at right-14 when expanded so the input never extends
             under MapLibre's NavigationControl (zoom +/- + compass) at
@@ -2348,7 +2392,7 @@ export function FieldRuntime({
             sits where the search bar would otherwise extend. */}
         {showRuntimeChrome ? (
           searchExpanded ? (
-            <div className="absolute left-15 right-14 top-3 z-10">
+            <div className="absolute left-3 right-14 top-3 z-10">
               <div className="w-full max-w-xs">
                 <FieldAddressSearch
                   mapRef={mapRef}
@@ -2365,7 +2409,7 @@ export function FieldRuntime({
               type="button"
               onClick={() => setSearchExpanded(true)}
               aria-label={t('fieldRuntime.searchAddressAria')}
-              className="absolute left-15 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
+              className="absolute left-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-md border border-border bg-surface-1 shadow-card hover:bg-surface-2"
             >
               <Search className="h-5 w-5 text-ink-1" />
             </button>
@@ -2458,7 +2502,7 @@ export function FieldRuntime({
             // off-center). Move the inset onto `bottom` so the button
             // stays a perfect circle and just rides above the home
             // indicator instead of stretching.
-            className="absolute right-3 z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-overlay hover:opacity-90 disabled:opacity-50"
+            className={`absolute ${thumbSide} z-10 inline-flex h-14 w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-overlay hover:opacity-90 disabled:opacity-50`}
             style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
           >
             <Plus className="h-7 w-7" />
@@ -5049,12 +5093,18 @@ function FieldLocateButton({
   hasPosition,
   follow,
   accuracyM,
+  sideClassName,
+  bottom,
   onTap,
 }: {
   gpsStatus: import('./use-geolocation').GpsStatus;
   hasPosition: boolean;
   follow: boolean;
   accuracyM: number | null;
+  /** `right-4` or `left-4`, from the left-handed setting. */
+  sideClassName: string;
+  /** CSS `bottom`, so the button stacks above the + button. */
+  bottom: string;
   onTap: () => void;
 }) {
   const t = useT();
@@ -5099,21 +5149,12 @@ function FieldLocateButton({
         gpsStatus === 'denied' ||
         gpsStatus === 'unavailable'
       }
-      // #249.13: locate button moved from bottom-left to top-right,
-      // anchored just below the zoom + compass cluster. Per Matt:
-      // most users scan a map left-to-right across the top then down
-      // the right rail, so grouping the GPS affordance with the zoom
-      // controls matches that flow.
-      // #249.14: sized to h-11 w-11 to match the Layers + Search
-      // buttons at top-left -- consistent thumb target across all
-      // map controls. The locate button keeps the rounded-full
-      // shape (not square like the other two) because its filled
-      // accent state needs to read as "live tracking" -- a circle
-      // is the conventional shape for that.
-      // #249.15: top-44 = 11rem clears the three-button zoom cluster
-      // (top-3 + 3 * h-11 + a few pixels of internal border) with
-      // the same 8-12px breathing room the rest of the layout uses.
-      className={`absolute right-3 top-44 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border shadow-card transition-colors disabled:opacity-50 ${tone}`}
+      // #772: bottom corner, above the + button, side from the
+      // left-handed setting. Kept a circle because the filled accent
+      // state reads as "live tracking". h-12 at right-4 / left-4
+      // centers it over the h-14 + button at right-3 / left-3.
+      style={{ bottom }}
+      className={`absolute ${sideClassName} z-10 inline-flex h-12 w-12 items-center justify-center rounded-full border shadow-card transition-colors disabled:opacity-50 ${tone}`}
     >
       {gpsStatus === 'requesting' ? (
         <Loader2 className="h-5 w-5 animate-spin" />
@@ -5744,6 +5785,8 @@ function FieldMoreMenu({
   onDownload,
   onRemoveCache,
   onSaveCopy,
+  handedness,
+  onHandednessChange,
 }: {
   mapTitle: string;
   isOnline: boolean;
@@ -5763,6 +5806,8 @@ function FieldMoreMenu({
   onDownload: () => void;
   onRemoveCache: () => void;
   onSaveCopy: () => void;
+  handedness: Handedness;
+  onHandednessChange: (next: Handedness) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -5978,6 +6023,38 @@ function FieldMoreMenu({
             <p className="px-2 pt-1 text-xs text-ink-1">
               {t('fieldOffline.deviceOnlyWarning')}
             </p>
+            {/* #772: thumb controls on the left. Leaves the menu open
+                so the collector sees the buttons move behind it. */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={handedness === 'left'}
+              onClick={() =>
+                onHandednessChange(handedness === 'left' ? 'right' : 'left')
+              }
+              className="flex w-full items-start gap-3 rounded px-2 py-2 text-left text-sm text-ink-0 hover:bg-surface-2"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block">{t('fieldRuntime.leftHandedControls')}</span>
+                <span className="block text-xs text-ink-1">
+                  {t('fieldRuntime.leftHandedControlsHint')}
+                </span>
+              </span>
+              <span
+                aria-hidden="true"
+                className={`relative mt-0.5 inline-flex h-6 w-10 shrink-0 rounded-full border transition-colors ${
+                  handedness === 'left'
+                    ? 'border-accent bg-accent'
+                    : 'border-border bg-surface-2'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-surface-0 shadow-card transition-transform ${
+                    handedness === 'left' ? 'translate-x-[1.125rem]' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+            </button>
             <button
               type="button"
               onClick={() => {
