@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-19 - Field forms ask for the location once
+In the field app, the point you place on the map is the location. A form's own location question is now hidden there, so crews no longer pick the spot twice.
+
 ## 2026-11-17 - Help is easier to browse
 The help home page now leads with task cards (new here, publish, collect, analyze, build apps, automate, admin). The sidebar stays collapsed until you open a section, and Analysis / Items are grouped by job instead of one long flat list.
 

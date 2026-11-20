@@ -62,6 +62,7 @@ function syncedPairedLayerData(): Record<string, unknown> {
           { name: 'severity', type: 'string', label: 'Severity' },
           { name: 'description', type: 'string', label: 'Description' },
           { name: 'reporter', type: 'string', label: 'Reporter name' },
+          { name: 'passable', type: 'string', label: 'Passable' },
         ],
         editingEnabled: false,
         attachmentsEnabled: true,

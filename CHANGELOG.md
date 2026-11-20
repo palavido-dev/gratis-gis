@@ -27,6 +27,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- The sample "Road and trail issue report" form asks whether a
+  vehicle or hiker can get through, and its description hint asks for
+  a photo. Installs that already loaded sample data, including the
+  public demo's golden snapshot, keep their copy.
 - AI screens stay out of the way until an AI provider is connected.
   The sidebar Build entry and the item page's AI draft panel are hidden
   while no provider is set, and opening the Build address directly
@@ -60,6 +64,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   symbols now match the same icons elsewhere in the app.
 
 ### Fixed
+
+- The field app no longer asks for a location twice. When a layer's
+  bound form has a location question, the field app hides it and takes
+  the point from the map tap, and that answer is no longer saved as an
+  attribute next to the geometry. The form still shows the question on
+  its own page. A feature whose first value is an object (a location or
+  a list) no longer shows "[object Object]" as its title in the field
+  app (#767, #769).
 
 - Admins outside the operator organization can use Cleanup
   suggestions again. Its Review tab failed whole on the one
