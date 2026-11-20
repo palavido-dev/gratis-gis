@@ -1673,6 +1673,8 @@ export const de: Partial<CatalogShape> = {
     createDeployment: 'Einsatz erstellen',
     loadFailedTitle: 'Feldeinsätze konnten nicht geladen werden',
     loadFailedBody: 'Der Katalog hat nicht geantwortet. Das ist keine leere Liste. Versuchen Sie es gleich noch einmal.',
+    sectionDeployments: 'Einsätze',
+    openPortal: 'Portal öffnen',
   },
   buildPage: {
     title: 'Aus einer Beschreibung erstellen',

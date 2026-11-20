@@ -27,6 +27,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- The field app has its own look, tuned for reading outdoors: the
+  phone's system font, a larger type scale (17 px body text), neutral
+  greys with pure black behind dark mode, and one saturated teal for
+  everything tappable, including the header and map control icons.
+  Sheet titles are large and bold, the GPS accuracy strip is a neutral
+  band with coloured text, and switches are full size. The /field
+  deployment list drops the portal's search bar and sidebar for a
+  large title, a portal button at the top left, and full-width rows
+  with the deployment's thumbnail. The rest of the portal is unchanged
+  (#768).
 - Layers, Locate and the + collect button in the field app sit in one
   stack in the bottom corner, in reach of the thumb holding the phone.
   The + button is the saturated brand teal with a white ring, so it

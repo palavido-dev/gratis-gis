@@ -10,7 +10,6 @@ import {
   ChevronRight,
   Loader2,
   Trash2,
-  Wifi,
 } from 'lucide-react';
 import {
   listDeployments,
@@ -39,6 +38,8 @@ export interface FieldDeploymentRow {
   description: string;
   ownerLabel: string | null;
   updatedAt: string;
+  /** Uploaded or designed item thumbnail, when the item has one. */
+  thumbnailUrl: string | null;
   mapId: string | null;
 }
 
@@ -76,8 +77,11 @@ interface DeploymentOverlay {
 export function FieldCatalog({
   rows,
   currentUserId,
+  sectionLabel,
 }: {
   rows: FieldDeploymentRow[];
+  /** Small grey heading above the list, from the server locale. */
+  sectionLabel: string;
   /** The signed-in account's portal user id, from the server render.
    *  Every queue read and the per-row drain run as this account. */
   currentUserId: string;
@@ -216,39 +220,26 @@ export function FieldCatalog({
   });
 
   return (
-    <div className="space-y-4">
-      {/* Connectivity banner: a thin reminder at the top so the
-          worker knows whether sync is going to run on tap. */}
-      <div
-        className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${
-          isOnline
-            ? 'border-success/30 bg-success/10 text-success'
-            : 'border-warn/30 bg-warn/10 text-warn'
-        }`}
-      >
-        {isOnline ? (
-          <>
-            <Wifi className="h-3.5 w-3.5" />
-            <span>Online. Tap a deployment to open.</span>
-          </>
-        ) : (
-          <>
-            <CloudOff className="h-3.5 w-3.5" />
-            <span>
-              Offline. Cached deployments are still openable; queued edits
-              will sync when you reconnect.
-            </span>
-          </>
-        )}
-      </div>
+    <div className="space-y-3">
+      {/* Offline banner. Online is the normal case and needs no
+          banner; offline changes what the list can do, so it says so. */}
+      {isOnline ? null : (
+        <div className="flex items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2.5 text-sm font-medium text-warn">
+          <CloudOff className="h-4 w-4 shrink-0" />
+          <span>
+            Offline. Cached deployments are still openable; queued edits
+            will sync when you reconnect.
+          </span>
+        </div>
+      )}
 
-      {/* Field Maps style row layout (#226). On mobile each row is
-          a tap target that opens the deployment, with a compact
-          status dot for cache state and a tiny pill for queued
-          edits. Desktop keeps the previous denser layout via sm:
-          breakpoints because there's room for the description and
-          the explicit Open button there. */}
-      <ul className="divide-y divide-border overflow-hidden rounded-md border border-border bg-surface-1 sm:border-0">
+      {/* List styled after native field apps (#768): a small bold
+          grey section heading, full-width rows with a thumbnail, a
+          large title and hairline dividers, no card box around it. */}
+      <h2 className="border-b border-border pb-1.5 text-base font-semibold text-muted">
+        {sectionLabel}
+      </h2>
+      <ul className="-mt-3 divide-y divide-border border-b border-border">
         {sorted.map((row) => {
           const overlay = overlays[row.id] ?? {
             cached: null,
@@ -263,19 +254,29 @@ export function FieldCatalog({
             <li key={row.id}>
               <Link
                 href={`/items/${row.id}/field?from=field`}
-                className="flex w-full items-center gap-3 p-3 transition-colors hover:bg-surface-2 active:bg-surface-2"
+                className="flex w-full items-center gap-4 py-3 transition-colors hover:bg-surface-2/60 active:bg-surface-2"
               >
                 <span
                   aria-hidden="true"
-                  className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-accent/10 text-accent sm:h-9 sm:w-9"
+                  className="relative flex h-16 w-24 shrink-0 items-center justify-center overflow-visible rounded-lg border border-border bg-surface-2 text-accent"
                 >
-                  <ClipboardList className="h-4 w-4" />
+                  {row.thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={row.thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full rounded-lg object-cover"
+                    />
+                  ) : (
+                    <ClipboardList className="h-7 w-7" />
+                  )}
                   {/* Cache status dot, lower-right of the thumbnail.
                       Green = cached, gray = not cached. Mobile reads
                       the dot at a glance instead of a wordy pill. */}
                   <span
                     aria-hidden="true"
-                    className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface-1 ${
+                    className={`absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full border-2 border-surface-0 ${
                       cached ? 'bg-success' : 'bg-muted/50'
                     }`}
                     title={
@@ -288,13 +289,13 @@ export function FieldCatalog({
                   />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-sm font-semibold text-ink-0">
+                  <h3 className="line-clamp-2 text-lg font-medium leading-snug text-ink-0">
                     {row.title}
-                  </h2>
+                  </h3>
                   {/* Description hides on mobile to keep rows
                       single-line. Desktop sees it on a second line. */}
                   {row.description ? (
-                    <p className="hidden truncate text-2xs text-muted sm:block">
+                    <p className="hidden truncate text-sm text-muted sm:block">
                       {row.description}
                     </p>
                   ) : null}
@@ -305,7 +306,7 @@ export function FieldCatalog({
                       Both stop propagation so the row's primary tap
                       keeps opening the deployment. */}
                   {(overlay.queueCount > 0 || cached) ? (
-                    <div className="mt-1 flex flex-wrap items-center gap-1 text-2xs">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm">
                       {overlay.queueCount > 0 ? (
                         isOnline ? (
                           <button
@@ -316,20 +317,20 @@ export function FieldCatalog({
                               e.stopPropagation();
                               void syncOne(row.id);
                             }}
-                            className="inline-flex items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-warn hover:bg-warn/20 disabled:opacity-60"
+                            className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/15 px-2.5 py-1 font-semibold text-warn hover:bg-warn/20 disabled:opacity-60"
                           >
                             {syncing[row.id] ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
-                              <CloudDownload className="h-3 w-3 rotate-180" />
+                              <CloudDownload className="h-3.5 w-3.5 rotate-180" />
                             )}
                             {syncing[row.id]
                               ? 'Syncing...'
                               : `Sync ${overlay.queueCount}`}
                           </button>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-muted">
-                            <CloudOff className="h-3 w-3" />
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 font-medium text-ink-1">
+                            <CloudOff className="h-3.5 w-3.5" />
                             {overlay.queueCount} queued
                           </span>
                         )
@@ -348,10 +349,10 @@ export function FieldCatalog({
                             }
                             void removeOne(row.id);
                           }}
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 disabled:opacity-60 ${
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 disabled:opacity-60 ${
                             confirmingId === row.id
                               ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
-                              : 'border-border bg-surface-2 text-muted hover:bg-surface-1'
+                              : 'border-border bg-surface-2 text-ink-1 hover:bg-surface-1'
                           }`}
                           title={
                             confirmingId === row.id
@@ -364,9 +365,9 @@ export function FieldCatalog({
                           }
                         >
                           {removing[row.id] ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           )}
                           {removing[row.id]
                             ? 'Removing...'
@@ -380,10 +381,10 @@ export function FieldCatalog({
                     </div>
                   ) : null}
                   {overlay.syncNote ? (
-                    <p className="mt-1 text-2xs text-warn">{overlay.syncNote}</p>
+                    <p className="mt-1 text-sm text-warn">{overlay.syncNote}</p>
                   ) : null}
                 </div>
-                <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+                <ChevronRight className="h-5 w-5 shrink-0 text-muted" />
               </Link>
             </li>
           );

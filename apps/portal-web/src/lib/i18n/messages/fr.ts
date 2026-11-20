@@ -1674,6 +1674,8 @@ export const fr: Partial<CatalogShape> = {
     createDeployment: 'Créer un déploiement',
     loadFailedTitle: 'Les déploiements n’ont pas pu être chargés',
     loadFailedBody: 'Le catalogue n’a pas répondu. Ce n’est pas une liste vide. Réessayez dans un instant.',
+    sectionDeployments: 'Déploiements',
+    openPortal: 'Ouvrir le portail',
   },
   buildPage: {
     title: 'Créer à partir d’une description',

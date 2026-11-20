@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { FieldThemeScope } from '@/components/field-theme-scope';
 
 /**
  * Layout segment for /field. Its only job is to override the root
@@ -19,5 +20,10 @@ export const metadata: Metadata = {
 };
 
 export default function FieldLayout({ children }: { children: ReactNode }) {
-  return <>{children}</>;
+  return (
+    <>
+      <FieldThemeScope />
+      {children}
+    </>
+  );
 }

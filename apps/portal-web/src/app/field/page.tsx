@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import Link from 'next/link';
-import { ClipboardList, LogIn } from 'lucide-react';
+import { CircleUserRound, ClipboardList, LogIn } from 'lucide-react';
 import type { ItemWithShares } from '@gratis-gis/shared-types';
 import { apiFetch } from '@/lib/api';
 import { EmptyState } from '@/components/empty-state';
@@ -74,6 +74,7 @@ export default async function FieldCatalogPage() {
     description: item.description,
     ownerLabel: typeof item.owner === 'string' ? item.owner : null,
     updatedAt: item.updatedAt,
+    thumbnailUrl: item.thumbnailUrl ?? null,
     // The data_collection's bound map id, when present. Resolved
     // client-side to "Map: <map title>" (the client already pulls
     // the deployment manifest for cache state, so adding a map
@@ -88,23 +89,21 @@ export default async function FieldCatalogPage() {
 
   const locale = await getServerLocale();
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
-      {/* Mobile: just the title -- this is a field worker's
-          launchpad, nothing else. The descriptive copy and the
-          "New deployment" button are author affordances and only
-          surface from sm: up. Saves vertical real estate on
-          iPhone where every row of the deployment list matters
-          more than the marketing line. */}
-      <header className="mb-4 flex items-end justify-between gap-4">
-        <div>
-          <p className="text-sm text-muted">{t('field.eyebrow', undefined, locale)}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">
-            {t('field.nav', undefined, locale)}
-          </h1>
-          <p className="mt-1 hidden text-sm text-muted sm:block">
-            {t('field.intro', undefined, locale)}
-          </p>
-        </div>
+    <div className="mx-auto w-full max-w-5xl px-4 pb-10 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6">
+      {/* The installed field app's home screen (#768): no portal
+          chrome, a large title, and one way back to the portal at
+          the top left, the way native field apps open on a list of
+          maps. The "New deployment" button is an author affordance
+          and only shows from sm: up. */}
+      <div className="flex h-11 items-center justify-between">
+        <Link
+          href="/"
+          aria-label={t('field.openPortal', undefined, locale)}
+          title={t('field.openPortal', undefined, locale)}
+          className="-ml-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-accent hover:bg-surface-2"
+        >
+          <CircleUserRound className="h-8 w-8" strokeWidth={1.75} />
+        </Link>
         <Link
           href="/items/new?type=data_collection"
           className="hidden h-9 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground shadow-card hover:opacity-90 sm:inline-flex"
@@ -112,6 +111,14 @@ export default async function FieldCatalogPage() {
           <ClipboardList className="h-4 w-4" />
           {t('field.newDeployment', undefined, locale)}
         </Link>
+      </div>
+      <header className="mb-4 mt-1">
+        <h1 className="text-3xl font-bold tracking-tight text-ink-0">
+          {t('field.nav', undefined, locale)}
+        </h1>
+        <p className="mt-1 hidden text-sm text-muted sm:block">
+          {t('field.intro', undefined, locale)}
+        </p>
       </header>
 
       {sessionExpired ? (
@@ -163,7 +170,11 @@ export default async function FieldCatalogPage() {
           }
         />
       ) : (
-        <FieldCatalog rows={rows} currentUserId={currentUserId} />
+        <FieldCatalog
+          rows={rows}
+          currentUserId={currentUserId}
+          sectionLabel={t('field.sectionDeployments', undefined, locale)}
+        />
       )}
     </div>
   );

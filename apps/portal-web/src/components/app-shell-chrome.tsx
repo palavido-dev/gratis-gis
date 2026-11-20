@@ -107,6 +107,10 @@ export function AppShellChrome({
   // Rendering bare lets a shared link open the runtime as the
   // entire viewport, just like AGOL Web App Builder.
   const isFieldRuntime = /^\/items\/[^/]+\/field(?:\/|$)/.test(pathname);
+  // The /field catalog is the installed field app's home screen. It
+  // renders its own small top bar with a way back to the portal, so
+  // the portal's search bar and sidebar stay out of it (#768).
+  const isFieldCatalog = pathname === '/field';
   // Web-app runtimes that own their own header + chrome. Viewer,
   // editor, and custom each ship a configure-back link in their
   // own header, so layering the portal sidebar on top makes a
@@ -144,6 +148,7 @@ export function AppShellChrome({
   }
   if (
     isFieldRuntime ||
+    isFieldCatalog ||
     isAppRuntime ||
     isResponsesViewer ||
     isFormRespond ||

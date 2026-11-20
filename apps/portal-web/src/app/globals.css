@@ -184,6 +184,68 @@
     --brand-index: 214 18% 80%;
   }
 
+  /* Field app theme (#768, #772). Set on <html> while a field route
+     is mounted (FieldThemeScope), so sheets and dialogs portalled to
+     <body> pick it up too. Modelled on how native field apps read
+     outdoors: the phone's own system font, an iOS-like type scale
+     (13/15/17), neutral greys with no blue cast, pure black behind
+     dark content, and one saturated accent for everything tappable.
+     Dark accent #14b8a6 takes dark ink (8.4:1 on it, 6.9:1 as text on
+     #1c1c1e); light accent #0b7a70 takes white ink (5.2:1). */
+  .field-theme {
+    --font-sans:
+      -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI',
+      Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --text-xs: 0.8125rem;
+    --text-xs--line-height: 1.125rem;
+    --text-sm: 0.9375rem;
+    --text-sm--line-height: 1.25rem;
+    --text-base: 1.0625rem;
+    --text-base--line-height: 1.375rem;
+    --text-lg: 1.25rem;
+    --text-lg--line-height: 1.5625rem;
+    --text-xl: 1.375rem;
+    --text-xl--line-height: 1.75rem;
+    --text-2xl: 1.75rem;
+    --text-2xl--line-height: 2.125rem;
+    --text-3xl: 2.125rem;
+    --text-3xl--line-height: 2.5625rem;
+
+    --surface-0: 240 24% 96%;       /* #f2f2f7 */
+    --surface-0-ink: 0 0% 0%;
+    --surface-1: 0 0% 100%;
+    --surface-1-ink: 0 0% 0%;
+    --surface-2: 240 6% 90%;        /* #e5e5ea */
+    --surface-2-ink: 0 0% 0%;
+    --muted: 240 3% 44%;            /* 5.1:1 on white */
+    --muted-ink: 0 0% 0%;
+    --accent: 175 84% 26%;
+    --accent-ink: 0 0% 100%;
+    --focus-ring: 175 84% 26%;
+    --border: 240 3% 78%;           /* #c6c6c8 */
+  }
+
+  .dark.field-theme {
+    --surface-0: 0 0% 0%;
+    --surface-0-ink: 0 0% 100%;
+    --surface-1: 240 3% 11%;        /* #1c1c1e */
+    --surface-1-ink: 0 0% 100%;
+    --surface-2: 240 2% 18%;        /* #2c2c2e */
+    --surface-2-ink: 0 0% 100%;
+    --muted: 240 4% 60%;            /* #8e8e93-ish, 5.8:1 on #1c1c1e */
+    --muted-ink: 0 0% 100%;
+    --accent: 173 80% 40%;          /* #14b8a6 */
+    --accent-ink: 0 0% 0%;
+    --focus-ring: 173 80% 40%;
+    --border: 240 2% 23%;           /* #38383a */
+  }
+
+  .field-theme body {
+    font-family: var(--font-sans);
+    font-feature-settings: normal;
+    -webkit-font-smoothing: antialiased;
+  }
+
   html,
   body {
     @apply h-full;
