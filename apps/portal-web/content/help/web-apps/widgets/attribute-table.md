@@ -1,6 +1,7 @@
 ---
 id: widget-attribute-table
 title: Attribute table widget
+seoTitle: "Attribute table widget for web map apps"
 summary: A bottom panel that shows feature rows in a sortable, filterable table tied to one or more map layers.
 category: web-apps/widgets
 order: 40

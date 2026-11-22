@@ -1,6 +1,7 @@
 ---
 id: analysis-top-n
 title: Top N
+seoTitle: "Top N: keep the features with the highest or lowest values"
 summary: Keep the N rows with the highest or lowest numeric attribute value. Geometry and attributes pass through.
 category: analysis/summarize
 order: 40
@@ -22,8 +23,8 @@ pass through unchanged.
 
 Useful for "ten largest parcels" or "five smallest
 `nearest_distance_m`" after a
-[Nearest neighbor](analysis-nearest-neighbor) or
-[Calculate geometry](analysis-calculate) step.
+[Nearest neighbor](/help/analysis/nearest-neighbor) or
+[Calculate geometry](/help/analysis/calculate) step.
 
 ## Inputs
 

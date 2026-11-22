@@ -1,6 +1,7 @@
 ---
 id: items-layer-package
 title: Layer package
+seoTitle: "Layer packages: move a layer between GIS portals"
 summary: An archive item that bundles a data layer's schema, styling, and (optionally) features into one downloadable file for sharing with other portals.
 category: items/data
 order: 180

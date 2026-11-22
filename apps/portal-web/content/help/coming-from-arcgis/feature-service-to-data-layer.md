@@ -1,6 +1,7 @@
 ---
 id: coming-from-arcgis-feature-service
 title: Feature service to data layer
+seoTitle: "Migrate an ArcGIS Online hosted feature layer to GratisGIS"
 summary: Move an ArcGIS Online hosted feature service into a GratisGIS data layer. Schema, symbology, and features all come over.
 category: getting-started/coming-from-arcgis
 order: 20

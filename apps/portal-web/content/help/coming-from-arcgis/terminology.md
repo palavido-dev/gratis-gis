@@ -1,6 +1,7 @@
 ---
 id: coming-from-arcgis-terminology
 title: Terminology map
+seoTitle: "ArcGIS Online terms and their GratisGIS equivalents"
 summary: Word-for-word mapping between ArcGIS Online vocabulary and GratisGIS vocabulary.
 category: getting-started/coming-from-arcgis
 order: 10
@@ -44,10 +45,15 @@ Esri vocabulary was already the clear word.
 | AGO role | GratisGIS role | Notes |
 |---|---|---|
 | Viewer | **Viewer** | Read-only access to shared items. |
-| Data Editor | **Data editor** | Read + edit features on shared layers. |
-| User | **User** | Standard signed-in user; same as AGO User. |
+| Data Editor | **Viewer**, plus a **can edit** share on the layer | Editing comes from a share on the item, not from the role. |
+| User | **Contributor** | Creates and shares their own items. |
 | Publisher | **Contributor** | Renamed because "publish" already means "make public." |
 | Administrator | **Admin** | Full org control. |
+
+There are three roles and no custom roles. An admin can grant or
+remove a single capability for one person on the Users page. See
+[Roles](/help/admin/roles) and
+[Sharing and roles](/help/coming-from-arcgis/sharing-and-roles).
 
 ## Sharing levels
 

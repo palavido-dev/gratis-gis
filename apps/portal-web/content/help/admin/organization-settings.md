@@ -1,6 +1,7 @@
 ---
 id: admin-organization-settings
 title: Organization settings
+seoTitle: "Organization settings for a self-hosted GIS portal"
 summary: Where the organization-wide settings live, and which limits come from the server rather than a page.
 category: admin
 order: 40

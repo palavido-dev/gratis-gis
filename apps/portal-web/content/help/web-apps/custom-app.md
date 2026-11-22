@@ -1,6 +1,7 @@
 ---
 id: web-apps-custom-app
 title: Custom Web App
+seoTitle: "Custom web app builder: drag-and-drop map apps"
 summary: The drag-and-drop builder for the Custom web app template. Layout, widgets, theme, and configuration on one canvas.
 category: web-apps
 order: 10

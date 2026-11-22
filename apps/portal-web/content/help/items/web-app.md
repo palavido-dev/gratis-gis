@@ -1,6 +1,7 @@
 ---
 id: items-web-app
 title: Web app
+seoTitle: "Web apps: build a map application without code"
 summary: A standalone web page built from a map plus widgets. Nearby to Web AppBuilder. Not an Experience Builder drop-in.
 category: items/maps-and-apps
 order: 50

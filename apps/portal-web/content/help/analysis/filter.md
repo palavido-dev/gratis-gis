@@ -1,6 +1,7 @@
 ---
 id: analysis-filter
 title: Filter
+seoTitle: "Filter features by attribute (select by attributes)"
 summary: Keep rows from a source layer that match a {{field}} expression. The simplest derived-layer step.
 category: analysis/select-and-calculate
 order: 10
@@ -21,7 +22,7 @@ Boolean expression. The output is the same schema, the same
 geometry type, with fewer rows.
 
 Expressions use the shared
-[expression language](reference-expression-language): field
+[expression language](/help/reference/expression-language): field
 references need double braces (`{{status}}`), not bare SQL column
 names.
 
@@ -36,7 +37,7 @@ you want a permanently-filtered subset as its own item.
 - **Expression**: a non-empty Boolean expression in the shared
   dialect (max 2000 characters). Example:
   `{{status}} = 'needs-repair'`. See
-  [Expression language](reference-expression-language).
+  [Expression language](/help/reference/expression-language).
 
 ## Output
 
@@ -81,4 +82,4 @@ itself to be a shareable, named, citable item.
   `{{field}} is not null` are explicit. `{{field}} = null` is
   always false, like SQL.
 - **Not Calculate.** Filter only keeps or drops rows. To add a
-  computed column, use [Calculate](analysis-calculate).
+  computed column, use [Calculate](/help/analysis/calculate).

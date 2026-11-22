@@ -1,6 +1,7 @@
 ---
 id: getting-started-connecting-postgis
 title: Connecting to a PostgreSQL + PostGIS database
+seoTitle: "Connect a PostgreSQL and PostGIS database to a web GIS"
 summary: Register a live connection to your PostGIS database so maps read tables on demand without copying data into the portal.
 category: getting-started
 order: 40
@@ -138,6 +139,6 @@ without it the query is a sequential scan and the map will lag.
 
 ## Related
 
-- [Data layer](items-data-layer) for portal-managed feature data
+- [Data layer](/help/items/data-layer) for portal-managed feature data
   (the alternative when you'd rather copy the rows into the
   portal database).

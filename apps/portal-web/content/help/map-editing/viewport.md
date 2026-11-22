@@ -1,6 +1,7 @@
 ---
 id: map-editing-viewport
 title: Viewport
+seoTitle: "Map viewport and bookmarks: set the default view"
 summary: The default center, zoom, bearing, and pitch a map opens at, plus optional bookmarks for saved views.
 category: map-editing
 order: 50

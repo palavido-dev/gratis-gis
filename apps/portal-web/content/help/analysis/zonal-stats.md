@@ -1,6 +1,7 @@
 ---
 id: analysis-zonal-stats
 title: Zonal statistics
+seoTitle: "Zonal statistics: summarize a raster inside polygons"
 summary: Summarize a raster inside polygon zones (mean, min, max, sum, count).
 category: analysis/summarize
 order: 55
@@ -37,6 +38,6 @@ server-heavy analysis worker must be enabled on the portal
 
 ## Related
 
-- [Contour](analysis-contour) for elevation isolines from the same
+- [Contour](/help/analysis/contour) for elevation isolines from the same
   terrain stack.
-- [Data layer](items-data-layer) for what the output item is.
+- [Data layer](/help/items/data-layer) for what the output item is.

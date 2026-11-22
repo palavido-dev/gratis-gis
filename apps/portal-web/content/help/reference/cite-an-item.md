@@ -1,6 +1,7 @@
 ---
 id: reference-cite-an-item
 title: Cite a public item
+seoTitle: "Cite a dataset: BibTeX, RIS and JSON-LD"
 summary: Download BibTeX, RIS, or Schema.org JSON-LD for a public catalogue item.
 category: reference
 order: 49
@@ -46,5 +47,5 @@ license field until a dedicated DOI field exists.
 
 ## Related
 
-- [The HTTP API](reference-api) for the full public catalog surface
-- [Data layer](items-data-layer) for the most common citable item type
+- [The HTTP API](/help/reference/api) for the full public catalog surface
+- [Data layer](/help/items/data-layer) for the most common citable item type

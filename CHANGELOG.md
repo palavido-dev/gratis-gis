@@ -35,6 +35,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- The help is published on the project website at
+  gratisgis.org/help. Help pages on a portal name that copy as their
+  canonical URL, and the public demo (`NEXT_PUBLIC_PUBLIC_TESTING=1`)
+  now asks search engines not to index any of its pages.
+
 - A public test instance (`PUBLIC_TESTING=1`) asks search engines not
   to index its home page and leaves it out of the sitemap, so the
   project demo stops competing with gratisgis.org for the project's
@@ -182,6 +187,18 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   the item's extent.
 
 ### Documentation
+
+- Help pages for moving from ArcGIS Online: sharing and roles, Field
+  Maps to data collection, Arcade to expressions, and analysis tools
+  compared. The terminology map's roles table now matches the three
+  roles the portal has.
+- The expression language reference now matches what the Filter and
+  Calculate field steps accept (`==`, `~~`, `if()` and the rest). It
+  used to list SQL syntax the parser refuses.
+- Help links that named a page by its id (110 of them) were broken
+  in the portal. They now use the page's full path.
+- Every help page has a search title (`seoTitle`) and a summary short
+  enough for search results.
 
 - Help: task-shaped landing hub, collapsed sidebar, and nested Analysis / Items / Coming-from-ArcGIS groups (URLs unchanged).
 - Help: real UI screenshots for getting-started, form designer, map editing (markup/comments/symbology), admin surfaces, web app detail, and analysis derived-layer recipes (Buffer, Clip, and the other guided steps).

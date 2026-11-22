@@ -1,7 +1,8 @@
 ---
 id: reference-mcp-server
 title: MCP server
-summary: A small Model Context Protocol server that lets MCP-compatible AI clients read your portal (including the public Records catalog and a capped OpenStreetMap query) and, with a write-capable API key, run tools or create a data layer from GeoJSON.
+seoTitle: "MCP server: connect AI clients to your GIS portal"
+summary: "A Model Context Protocol server that lets AI clients read your portal and, with a write-capable API key, run tools or create data layers from GeoJSON."
 category: reference
 order: 50
 complexity: advanced
@@ -148,8 +149,8 @@ bypass any portal rules.
 
 ## Related
 
-- [Item types](reference-item-types) for what you can ask
+- [Item types](/help/reference/item-types) for what you can ask
   list_items to filter by.
-- [API keys](reference-api-keys) for minting and revoking keys.
-- [HTTP API](reference-api) for the public OGC Records catalog
+- [API keys](/help/reference/api-keys) for minting and revoking keys.
+- [HTTP API](/help/reference/api) for the public OGC Records catalog
   mount that `search_catalog` calls.

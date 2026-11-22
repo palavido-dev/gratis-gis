@@ -1,6 +1,7 @@
 ---
 id: getting-started-qgis-stac
 title: Browse public rasters from QGIS with STAC
+seoTitle: "Open published rasters in QGIS with the STAC browser"
 summary: Point QGIS 3.42+ Data Source Manager at the portal's public STAC API to discover and open published rasters without a plugin.
 category: getting-started
 order: 50

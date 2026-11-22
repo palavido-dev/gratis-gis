@@ -1,6 +1,7 @@
 ---
 id: sharing-an-item
 title: Sharing an item
+seoTitle: "Share maps and layers: private, organization or public"
 summary: Every item carries its own ACL.  This page shows you the three sharing tiers and how to change them.
 category: getting-started
 order: 30

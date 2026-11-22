@@ -1,6 +1,7 @@
 ---
 id: symbology-graduated
 title: Graduated symbology
+seoTitle: "Graduated colors and sizes: class breaks and color ramps"
 summary: Drive a feature's color (or size) by a numeric field, using class breaks or a continuous ramp.
 category: map-editing/symbology
 order: 30

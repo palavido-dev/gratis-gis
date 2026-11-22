@@ -1,6 +1,7 @@
 ---
 id: creating-your-first-map
 title: Creating your first map
+seoTitle: "Create your first web map in GratisGIS"
 summary: Start a new map item, add a layer, save.  The single shortest path from "I just signed in" to "I have a map I can share."
 category: getting-started
 order: 20
@@ -10,7 +11,6 @@ prerequisites:
 related:
   - items-map
   - sharing-an-item
-  - adding-a-layer
 ---
 
 A **map** is an item that combines one or more layers with a

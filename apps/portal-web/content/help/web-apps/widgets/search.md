@@ -1,6 +1,7 @@
 ---
 id: widget-search
 title: Search widget
+seoTitle: "Search widget: find addresses and features"
 summary: A search bar that finds locations (via a geocoder) and / or features (via field-text search).
 category: web-apps/widgets
 order: 20

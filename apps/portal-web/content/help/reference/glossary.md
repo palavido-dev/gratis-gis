@@ -1,6 +1,7 @@
 ---
 id: reference-glossary
 title: Glossary
+seoTitle: "GratisGIS glossary of terms"
 summary: Quick lookup of GratisGIS-specific terms. Each entry one or two sentences.
 category: reference
 order: 30

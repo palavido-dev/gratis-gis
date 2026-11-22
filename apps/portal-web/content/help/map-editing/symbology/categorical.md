@@ -1,6 +1,7 @@
 ---
 id: symbology-categorical
 title: Categorical symbology
+seoTitle: "Categorical symbology: style features by unique values"
 summary: Render each feature differently based on the value of one field. Status colors, asset types, land use classes.
 category: map-editing/symbology
 order: 20

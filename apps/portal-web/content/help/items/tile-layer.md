@@ -1,6 +1,7 @@
 ---
 id: items-tile-layer
 title: Tile layer
+seoTitle: "Tile layers: serve PMTiles, GeoTIFF and COG files"
 summary: An item that wraps a pre-rendered tile container (PMTiles) or a raw raster (GeoTIFF / COG / JP2), served by range request.
 category: items/data
 order: 120

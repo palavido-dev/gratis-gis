@@ -1,6 +1,7 @@
 ---
 id: admin-backups
 title: Backups
+seoTitle: "Back up and restore a GratisGIS portal"
 summary: What an admin backup contains, how to restore it, and what it does not cover.
 category: admin
 order: 30

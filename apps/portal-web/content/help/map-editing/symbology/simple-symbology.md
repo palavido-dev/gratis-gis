@@ -1,6 +1,7 @@
 ---
 id: symbology-simple
 title: Simple symbology
+seoTitle: "Simple symbology: one style for every feature"
 summary: Render every feature of a layer with the same fill, stroke, and size. The default and the right starting point.
 category: map-editing/symbology
 order: 10

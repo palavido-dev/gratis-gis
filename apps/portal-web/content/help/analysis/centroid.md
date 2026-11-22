@@ -1,6 +1,7 @@
 ---
 id: analysis-centroid
 title: Centroid
+seoTitle: "Centroid tool: convert polygons and lines to points"
 summary: Replace each feature's geometry with a single point at its geometric center.
 category: analysis/geometry
 order: 70

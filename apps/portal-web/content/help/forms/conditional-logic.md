@@ -1,6 +1,7 @@
 ---
 id: forms-conditional-logic
 title: Conditional logic
+seoTitle: "Form conditional logic: show or hide questions"
 summary: Show or hide form questions based on the answers to earlier questions. Same expression dialect as filters and calculate steps.
 category: forms
 order: 30

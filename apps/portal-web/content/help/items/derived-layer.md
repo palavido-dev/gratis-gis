@@ -1,6 +1,7 @@
 ---
 id: items-derived-layer
 title: Derived layer
+seoTitle: "Derived layers: live GIS analysis computed in PostGIS"
 summary: An item that stores an analysis recipe and computes features on every read from a source data layer (or another derived layer) via PostGIS.
 category: items/data
 order: 140
@@ -50,13 +51,13 @@ derived layers whose source is this data layer. **Re-run** posts
 a new private item with the same recipe; **Edit & re-run** opens
 the matching guided form (`?tool=` deep link) when that tool has
 an Analyze shortcut. This is not a job ledger or recipe DAG.
-See [Buffer](analysis-buffer), [Bounding box](analysis-bbox),
-[Vertices](analysis-vertices), [Calculate](analysis-calculate),
-[Simplify](analysis-simplify), [Densify](analysis-densify),
-[Nearest neighbor](analysis-nearest-neighbor),
-[Fishnet](analysis-fishnet), [Contour](analysis-contour),
-[Group by](analysis-group-by), [Top N](analysis-top-n), and
-[Random sample](analysis-random-sample).
+See [Buffer](/help/analysis/buffer), [Bounding box](/help/analysis/bbox),
+[Vertices](/help/analysis/vertices), [Calculate](/help/analysis/calculate),
+[Simplify](/help/analysis/simplify), [Densify](/help/analysis/densify),
+[Nearest neighbor](/help/analysis/nearest-neighbor),
+[Fishnet](/help/analysis/fishnet), [Contour](/help/analysis/contour),
+[Group by](/help/analysis/group-by), [Top N](/help/analysis/top-n), and
+[Random sample](/help/analysis/random-sample).
 
 ## Pipeline model
 
@@ -66,51 +67,51 @@ set as the derived-layer builder / tool registry):
 
 ### Attribute and sampling
 
-- **[Filter](analysis-filter)**. Keep rows matching a `{{field}}`
+- **[Filter](/help/analysis/filter)**. Keep rows matching a `{{field}}`
   expression.
-- **[Calculate field](analysis-calculate)** /
-  **[Calculate geometry](analysis-calculate)**. Add a computed
+- **[Calculate field](/help/analysis/calculate)** /
+  **[Calculate geometry](/help/analysis/calculate)**. Add a computed
   attribute column, or length / perimeter / area from geometry.
-- **[Group by](analysis-group-by)**. Roll up rows with aggregates;
+- **[Group by](/help/analysis/group-by)**. Roll up rows with aggregates;
   geometry is always `ST_Union` per group.
-- **[Top N](analysis-top-n)**. Keep the N highest or lowest
+- **[Top N](/help/analysis/top-n)**. Keep the N highest or lowest
   numeric values.
-- **[Random sample](analysis-random-sample)**. Deterministic
+- **[Random sample](/help/analysis/random-sample)**. Deterministic
   percentage or count sample with a stable seed.
-- **[Nearest neighbor](analysis-nearest-neighbor)**. Add
+- **[Nearest neighbor](/help/analysis/nearest-neighbor)**. Add
   `nearest_distance_m` to the closest other feature in the same
   layer.
 
 ### Geometry transform
 
-- **[Buffer](analysis-buffer)**. Expand each geometry by a
+- **[Buffer](/help/analysis/buffer)**. Expand each geometry by a
   meter-honest distance.
-- **[Simplify](analysis-simplify)**. Drop vertices within a
+- **[Simplify](/help/analysis/simplify)**. Drop vertices within a
   tolerance (`ST_Simplify`).
-- **[Densify](analysis-densify)**. Add vertices so no segment
+- **[Densify](/help/analysis/densify)**. Add vertices so no segment
   exceeds a max length (`ST_Segmentize` on geography).
-- **[Centroid](analysis-centroid)**. Replace each geometry with
+- **[Centroid](/help/analysis/centroid)**. Replace each geometry with
   its centroid.
-- **[Convex hull](analysis-convex-hull)**. Per-feature convex
+- **[Convex hull](/help/analysis/convex-hull)**. Per-feature convex
   hull (`ST_ConvexHull`).
-- **[Bounding box](analysis-bbox)**. Replace each geometry with
+- **[Bounding box](/help/analysis/bbox)**. Replace each geometry with
   its envelope (`ST_Envelope`).
-- **[Vertices](analysis-vertices)**. Explode geometries to point
+- **[Vertices](/help/analysis/vertices)**. Explode geometries to point
   vertices (`ST_DumpPoints` + `vertex_index`).
-- **[Dissolve](analysis-dissolve)**. Union every input into one
+- **[Dissolve](/help/analysis/dissolve)**. Union every input into one
   feature (attributes dropped; keyed dissolve stays on group-by).
 
 ### Overlay and generate
 
-- **[Spatial join](analysis-spatial-join)**. Attach a count or
+- **[Spatial join](/help/analysis/spatial-join)**. Attach a count or
   selected attributes from another data layer (within /
   intersects / nearest).
-- **[Spatial filter](analysis-spatial-filter)**. Keep rows by
+- **[Spatial filter](/help/analysis/spatial-filter)**. Keep rows by
   spatial predicate against another source (no attribute join).
-- **[Clip](analysis-clip)**. Trim features to a mask polygon.
-- **[Erase](analysis-erase)**. Subtract a mask from features.
-- **[Fishnet](analysis-fishnet)**. Square grid over an extent.
-- **[Contour](analysis-contour)**. Iso-lines from a numeric
+- **[Clip](/help/analysis/clip)**. Trim features to a mask polygon.
+- **[Erase](/help/analysis/erase)**. Subtract a mask from features.
+- **[Fishnet](/help/analysis/fishnet)**. Square grid over an extent.
+- **[Contour](/help/analysis/contour)**. Iso-lines from a numeric
   column (TIN path).
 
 Steps feed forward in order. The last step's output is the
@@ -176,11 +177,11 @@ shared without upstream rights.
 
 ## See also
 
-- **[Buffer](analysis-buffer)**. The simplest one-step recipe
+- **[Buffer](/help/analysis/buffer)**. The simplest one-step recipe
   with a distance.
-- **[Spatial join](analysis-spatial-join)** /
-  **[Spatial filter](analysis-spatial-filter)**. Decorate vs
+- **[Spatial join](/help/analysis/spatial-join)** /
+  **[Spatial filter](/help/analysis/spatial-filter)**. Decorate vs
   keep/drop by location.
-- **[Group by](analysis-group-by)**. Aggregates with unioned
+- **[Group by](/help/analysis/group-by)**. Aggregates with unioned
   geometry.
-- **[Workflows](analysis-workflows)**. Multi-step patterns.
+- **[Workflows](/help/analysis/workflows)**. Multi-step patterns.

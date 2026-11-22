@@ -1,6 +1,7 @@
 ---
 id: items-point-cloud
 title: Point cloud
+seoTitle: "Point clouds: view lidar COPC files in the browser"
 summary: A 3D lidar COPC item. Viewers stream octree nodes in view with size-aware density tiers; not Potree or Tile3D yet.
 category: items/data
 order: 125

@@ -1,6 +1,7 @@
 ---
 id: items-dashboard
 title: Dashboard
+seoTitle: "Build a GIS dashboard with KPIs, charts and a map"
 summary: Dashboards are web apps started from the KPI Dashboard or Operations Board template. There is no dashboard item type.
 category: items/maps-and-apps
 order: 60

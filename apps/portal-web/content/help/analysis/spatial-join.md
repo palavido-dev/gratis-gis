@@ -1,6 +1,7 @@
 ---
 id: analysis-spatial-join
 title: Spatial join
+seoTitle: "Spatial join: count points in polygons or join attributes"
 summary: Attach a count or selected attributes from a second data layer onto each input feature via within, intersects, or nearest.
 category: analysis/select-and-calculate
 order: 30
@@ -50,7 +51,7 @@ explode into multiple output rows. Use attribute strategy
 **Not options:** Contains, Within distance as its own predicate,
 one-to-many cardinality, or "bring all join fields by default".
 Distance filtering beyond nearest's max meters belongs on a
-separate [Spatial filter](analysis-spatial-filter) step when you
+separate [Spatial filter](/help/analysis/spatial-filter) step when you
 need it (including **contains** / **touches** / **near**).
 
 ## Output
@@ -92,7 +93,7 @@ need it (including **contains** / **touches** / **near**).
 
 - **No cartesian explode.** If a parcel intersects three
   hydrants, **count** returns `3` on one row; it does not emit
-  three parcel copies. Pair with [Group by](analysis-group-by)
+  three parcel copies. Pair with [Group by](/help/analysis/group-by)
   only when you need aggregates on attributes you already joined.
 - **Other source is data_layer only.** Derived-layer-as-join-side
   is not shipped.

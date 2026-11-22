@@ -1,6 +1,7 @@
 ---
 id: web-apps-templates
 title: Templates
+seoTitle: "Web app templates: pick a starting layout"
 summary: The four built-in web app templates and which is the right fit for each use case.
 category: web-apps
 order: 20

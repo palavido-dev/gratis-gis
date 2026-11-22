@@ -1,6 +1,7 @@
 ---
 id: widget-chart
 title: Chart widget
+seoTitle: "Chart widget: bar, line and pie charts from map layers"
 summary: Render a bar, line, or pie chart bound to a layer or derived layer. Updates live as the map filters.
 category: web-apps/widgets
 order: 80

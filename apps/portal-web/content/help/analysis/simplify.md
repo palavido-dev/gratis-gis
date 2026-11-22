@@ -1,6 +1,7 @@
 ---
 id: analysis-simplify
 title: Simplify
+seoTitle: "Simplify tool: reduce vertices in lines and polygons"
 summary: Drop vertices within a tolerance of a straight line via PostGIS ST_Simplify. Attributes are kept.
 category: analysis/geometry
 order: 65

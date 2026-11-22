@@ -1,6 +1,7 @@
 ---
 id: items-geo-boundary
 title: Geo boundary
+seoTitle: "Geo boundaries: reusable polygons for limits and filters"
 summary: A reusable polygon (or multipolygon) referenced by share geo limits, map viewports, and dashboard filters.
 category: items/data
 order: 100

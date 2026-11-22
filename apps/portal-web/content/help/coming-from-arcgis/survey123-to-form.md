@@ -1,6 +1,7 @@
 ---
 id: coming-from-arcgis-survey123
 title: Survey123 to form
+seoTitle: "Move a Survey123 survey to an open source form (XLSForm)"
 summary: Bring a Survey123 survey over by exporting its XLSForm and importing into a GratisGIS form item.
 category: getting-started/coming-from-arcgis
 order: 40
@@ -12,7 +13,7 @@ tags:
   - xlsform
 related:
   - items-form
-  - forms-xlsform-import
+  - form-xlsform-import
   - coming-from-arcgis-terminology
 ---
 

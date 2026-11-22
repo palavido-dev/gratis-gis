@@ -1,6 +1,7 @@
 ---
 id: admin-geocoders
 title: Geocoders
+seoTitle: "Add a geocoder: address search from your own data or ArcGIS"
 summary: Make a geocoding service item from your own data or an ArcGIS GeocodeServer, and use it in a map's search bar.
 category: admin
 order: 20

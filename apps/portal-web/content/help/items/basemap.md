@@ -1,6 +1,7 @@
 ---
 id: items-basemap
 title: Basemap
+seoTitle: "Basemaps: add a vector style, XYZ tiles or WMS"
 summary: An item that wraps a single base-layer reference (style URL, tile URL, or WMS). Maps pick one.
 category: items/data
 order: 110

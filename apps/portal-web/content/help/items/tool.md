@@ -1,6 +1,7 @@
 ---
 id: items-tool
 title: Tool
+seoTitle: "Tool items: reusable actions and analysis recipes"
 summary: A reusable named action or analysis recipe, with a canvas that arranges the recipe as one chain.
 category: items/maps-and-apps
 order: 170
@@ -27,13 +28,13 @@ it. The detail page edits one of these kinds:
   selection cap) returned more features than the response keeps —
   do not treat a capped overlay as a complete census of the AOI.
   A recipe does **not** create a new derived layer or data layer
-  as its sink — create a [derived layer](items-derived-layer)
+  as its sink — create a [derived layer](/help/items/derived-layer)
   item, or use a data layer's **Analyze** guided actions (Buffer,
   Clip, Erase, Centroids, Convex hulls, Bounding boxes, Dissolve,
   Simplify, Densify, Vertices, Calculate geometry, Nearest
   neighbor, Fishnet on polygons, Contour on points, Group by
   (one key, count/sum/avg), Top N, Random sample; see
-  [Derived layer](items-derived-layer)), when you want a saved
+  [Derived layer](/help/items/derived-layer)), when you want a saved
   spatial pipeline. Filter, Spatial filter, Spatial join, and
   Calculate field stay on Create → Derived layer (no Analyze
   shortcut).
@@ -53,5 +54,5 @@ at the global ceiling; expect HTTP 429 when you exceed it.
 
 ## See also
 
-- [Derived layer](items-derived-layer). A computed layer, not a
+- [Derived layer](/help/items/derived-layer). A computed layer, not a
   reusable button action — and the full Analyze shortcut list.

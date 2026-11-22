@@ -1,6 +1,7 @@
 ---
 id: analysis-workflows
 title: Workflows (graphs of analysis steps)
+seoTitle: "Analysis workflows: chain GIS analysis steps"
 summary: Arrange an analysis recipe as a chain of steps. The canvas saves positions and order. Branching execution is not available.
 category: analysis
 order: 5
@@ -86,10 +87,10 @@ The list remains, and editing a step there updates the box.
 Recipe **output** is Selection or OSM features on the map.
 The runner does not materialise a new layer from a tool
 recipe. For a layer you can map and share, create a
-[derived layer](items-derived-layer) or use the Analyze
+[derived layer](/help/items/derived-layer) or use the Analyze
 shortcuts on a data layer.
 
 ## Related
 
-- [Tool item](items-tool) for the tool item type itself.
-- [Derived layer](items-derived-layer) for saved spatial pipelines.
+- [Tool item](/help/items/tool) for the tool item type itself.
+- [Derived layer](/help/items/derived-layer) for saved spatial pipelines.

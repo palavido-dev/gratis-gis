@@ -1,6 +1,7 @@
 ---
 id: forms-form-designer
 title: Form designer
+seoTitle: "Form designer: build a data collection form"
 summary: The visual builder for a form item. Drag in questions, set validation, preview, publish.
 category: forms
 order: 5
@@ -12,7 +13,7 @@ related:
   - items-form
   - forms-question-types
   - forms-conditional-logic
-  - forms-xlsform-import
+  - form-xlsform-import
 ---
 
 The **form designer** is the visual builder that defines a form

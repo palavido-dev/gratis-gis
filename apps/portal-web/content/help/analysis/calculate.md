@@ -1,6 +1,7 @@
 ---
 id: analysis-calculate
 title: Calculate
+seoTitle: "Calculate field and calculate geometry (length, area)"
 summary: Add a computed column from field expressions, or add length / perimeter / area via Calculate geometry.
 category: analysis/select-and-calculate
 order: 20
@@ -35,7 +36,7 @@ in the dialect.
 - **Source layer**.
 - **Output field name**.
 - **Expression** using the
-  [expression language](reference-expression-language). Field
+  [expression language](/help/reference/expression-language). Field
   references use `{{name}}` braces.
 
 ### Output

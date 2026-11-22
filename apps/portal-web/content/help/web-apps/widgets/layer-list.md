@@ -1,6 +1,7 @@
 ---
 id: widget-layer-list
 title: Layer list widget
+seoTitle: "Layer list widget: toggle layers and opacity"
 summary: A panel that lists the map's layers with toggle-on / toggle-off, opacity, and per-layer actions.
 category: web-apps/widgets
 order: 10

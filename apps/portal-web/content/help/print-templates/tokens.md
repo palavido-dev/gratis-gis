@@ -1,6 +1,7 @@
 ---
 id: print-templates-tokens
 title: Template tokens
+seoTitle: "Print template text tokens: dynamic text on a layout"
 summary: Parameter and dynamic chips in print-template text elements — not mustache report syntax or DOCX merge fields.
 category: print-templates
 order: 30
@@ -21,14 +22,14 @@ with resolved values.
 
 This is not a `{{ ... }}` mustache language, not a `for` /
 `query(...)` report engine, and not DOCX mail-merge. Those belong
-to the unbuilt [report template](items-report-template) design.
+to the unbuilt [report template](/help/items/report-template) design.
 
 ## Binding sources
 
 A binding chip has a **source** and a **token id**:
 
 - **Parameter.** Resolves to a declared
-  [parameter](print-templates-parameters)'s value (`tokenId` =
+  [parameter](/help/print-templates/parameters)'s value (`tokenId` =
   parameter id).
 - **Dynamic.** Resolves to a built-in filled at print time.
 

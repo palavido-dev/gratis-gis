@@ -1,6 +1,7 @@
 ---
 id: bundle-export
 title: Bundle export
+seoTitle: "Export a layer with related tables and attachments (ZIP)"
 summary: Pack a data layer (and optionally its related tables and feature attachments) into a single ZIP archive.
 category: map-editing
 order: 25

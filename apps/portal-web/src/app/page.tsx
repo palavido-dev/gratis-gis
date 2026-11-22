@@ -10,6 +10,7 @@ import { loadWhatsNewEntries } from '@/lib/whats-new';
 import { PublicLanding } from './public-landing';
 import { forwardedForHeader } from '@/lib/api';
 import { GG_VERSION } from '@/lib/version';
+import { IS_PUBLIC_TEST_INSTANCE } from '@/lib/seo';
 
 // The canonical link for the home page only. Declared in the root
 // layout it was inherited by every page that did not set its own, so
@@ -19,8 +20,7 @@ import { GG_VERSION } from '@/lib/version';
 // the same project pitch as the project website. Left indexable, its
 // home page competes with that website for the project's own name, so
 // it asks search engines to skip it and follow its links instead. The
-// help pages on a test instance stay indexable.
-const IS_PUBLIC_TEST_INSTANCE = process.env.NEXT_PUBLIC_PUBLIC_TESTING === '1';
+// root layout does the same for every other page on such an instance.
 
 export const metadata: Metadata = IS_PUBLIC_TEST_INSTANCE
   ? { robots: { index: false, follow: true } }

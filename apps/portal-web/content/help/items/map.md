@@ -1,6 +1,7 @@
 ---
 id: items-map
 title: Map
+seoTitle: "Maps: combine layers, a basemap and a starting view"
 summary: An item that composes layers, a viewport, and a basemap.  Maps are what web apps render and what print templates print against.
 category: items/maps-and-apps
 order: 10
@@ -12,7 +13,6 @@ related:
   - items-data-layer
   - items-data-collection
   - creating-your-first-map
-  - adding-a-layer
   - symbology-simple
 ---
 

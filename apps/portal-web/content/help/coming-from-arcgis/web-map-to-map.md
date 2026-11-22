@@ -1,6 +1,7 @@
 ---
 id: coming-from-arcgis-web-map
 title: Web map to map
+seoTitle: "Import an ArcGIS Online web map (WebMap JSON)"
 summary: What WebMap JSON import and export move, and what stays on ArcGIS Online until you stage hosted feature services as portal data layers.
 category: getting-started/coming-from-arcgis
 order: 30
