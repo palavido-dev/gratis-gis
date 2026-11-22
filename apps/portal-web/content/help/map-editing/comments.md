@@ -1,6 +1,7 @@
 ---
 id: map-editing-comments
 title: Comments and conversations
+seoTitle: "Comment on map features and markup with your team"
 summary: Threaded comments on a map, optionally anchored to a selected feature or markup sketch so reviewers can talk about a specific place.
 category: map-editing
 order: 41
@@ -17,7 +18,7 @@ related:
 
 Comments let you have a real conversation about a map without
 leaving the map. Open a thread, reply, resolve it when the
-question is answered. Pairs naturally with [markup](map-editing-markup):
+question is answered. Pairs naturally with [markup](/help/map-editing/markup):
 draw a redline, then open a comment thread about it.
 
 ## Opening the Comments panel

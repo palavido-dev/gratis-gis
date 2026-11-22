@@ -1,6 +1,7 @@
 ---
 id: analysis-clip
 title: Clip
+seoTitle: "Clip tool: cut features to a boundary polygon"
 summary: Keep only the parts of input features that fall inside a clip polygon. Cookie-cutter style.
 category: analysis/overlay
 order: 80

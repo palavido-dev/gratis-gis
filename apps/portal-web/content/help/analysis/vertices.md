@@ -1,6 +1,7 @@
 ---
 id: analysis-vertices
 title: Vertices
+seoTitle: "Feature vertices to points: one point per vertex"
 summary: Explode each geometry into one point per vertex via PostGIS ST_DumpPoints. Adds vertex_index; row count can grow a lot.
 category: analysis/geometry
 order: 67
@@ -22,8 +23,8 @@ through, and each output row gains a numeric `vertex_index`
 (0-based within that input feature).
 
 Use for "show me the corners," densify prep, or point-density
-views of traced lines. Pair with [Densify](analysis-densify) when
-you need more vertices first, or [Simplify](analysis-simplify)
+views of traced lines. Pair with [Densify](/help/analysis/densify) when
+you need more vertices first, or [Simplify](/help/analysis/simplify)
 when you need fewer.
 
 ## Inputs

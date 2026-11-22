@@ -1,6 +1,7 @@
 ---
 id: analysis-random-sample
 title: Random sample
+seoTitle: "Random sample: select a random subset of features"
 summary: Keep a deterministic random subset by percentage or exact count, keyed by a stable seed.
 category: analysis/generate
 order: 41
@@ -73,5 +74,5 @@ seed keeps the sample stable across later reads.
   not roll a new sample unless you change the seed.
 - **Not stratified sampling.** There is no group-by or stratum
   control on this step.
-- Pair with [Filter](analysis-filter) first when the sample should
+- Pair with [Filter](/help/analysis/filter) first when the sample should
   only come from a subset.

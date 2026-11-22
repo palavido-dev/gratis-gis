@@ -5,6 +5,7 @@ import { Geist_Mono, Inter } from 'next/font/google';
 import { AppShell } from '@/components/app-shell';
 import { SwRegistrar } from '@/components/sw-registrar';
 import { getPortalUrl } from '@/lib/portal-url';
+import { IS_PUBLIC_TEST_INSTANCE } from '@/lib/seo';
 import { getServerLocale } from '@/lib/i18n/server';
 import { getPortalFeatures } from '@/lib/portal-features';
 import { Providers } from './providers';
@@ -47,19 +48,23 @@ export const metadata: Metadata = {
     title: 'GratisGIS — open-source self-hosted geospatial portal',
     description: SITE_DESCRIPTION,
   },
-  // Help robots understand we want every public page indexed.
-  // Page-level overrides (e.g. signin) can set noindex inline.
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      'max-image-preview': 'large',
-      'max-snippet': -1,
-      'max-video-preview': -1,
-    },
-  },
+  // Every public page is indexable on a real portal. Page-level
+  // overrides (e.g. signin) can set noindex inline. The project's demo
+  // is kept out of search entirely: the project website carries the
+  // pitch and the help, and the demo would only compete with it.
+  robots: IS_PUBLIC_TEST_INSTANCE
+    ? { index: false, follow: true, googleBot: { index: false, follow: true } }
+    : {
+        index: true,
+        follow: true,
+        googleBot: {
+          index: true,
+          follow: true,
+          'max-image-preview': 'large',
+          'max-snippet': -1,
+          'max-video-preview': -1,
+        },
+      },
   // PWA install hints for iOS Safari. iOS doesn't auto-prompt; users
   // tap Share -> Add to Home Screen. These tags tell iOS to render
   // the installed instance in standalone mode (no browser chrome)

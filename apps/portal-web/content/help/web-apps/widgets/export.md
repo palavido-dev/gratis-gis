@@ -1,6 +1,7 @@
 ---
 id: widget-export
 title: Export widget
+seoTitle: "Export widget: download features as CSV or Excel"
 summary: Toolbar tool that downloads the visible features of the bound map as CSV or Excel.
 category: web-apps/widgets
 order: 30
@@ -14,7 +15,7 @@ tags:
 related:
   - widget-print
   - bundle-export
-  - apps-custom-designer
+  - web-apps-custom-app
 ---
 
 The **Export widget** is the toolbar twin of the Print widget. It

@@ -1,6 +1,7 @@
 ---
 id: items-pick-list
 title: Pick list
+seoTitle: "Pick lists: coded value domains shared by layers and forms"
 summary: A reusable list of coded values with labels, referenced by fields on data layers and forms.
 category: items/data
 order: 90

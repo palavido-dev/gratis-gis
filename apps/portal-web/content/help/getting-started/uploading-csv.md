@@ -1,6 +1,7 @@
 ---
 id: getting-started-uploading-csv
 title: Uploading a CSV
+seoTitle: "Map a CSV file: latitude and longitude or addresses"
 summary: Pick a CSV on the New Data Layer page. A latitude / longitude pair is mapped directly. An address column is mapped through the local geocoder.
 category: getting-started
 order: 35

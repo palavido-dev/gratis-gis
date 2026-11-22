@@ -1,6 +1,7 @@
 ---
 id: reference-api-keys
 title: API keys
+seoTitle: "API keys: connect scripts and notebooks to the portal"
 summary: Connect scripts, notebooks, and scheduled jobs to your portal without signing in through a browser.
 category: reference
 order: 45

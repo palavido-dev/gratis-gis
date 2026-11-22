@@ -1,6 +1,7 @@
 ---
 id: reference-python-client
 title: Python client
+seoTitle: "Python client: read, edit and export GIS layers"
 summary: Read, filter, create, and export layers from Python, with the same code on your laptop and on the server.
 category: reference
 order: 46

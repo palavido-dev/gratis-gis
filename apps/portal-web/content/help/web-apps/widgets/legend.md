@@ -1,6 +1,7 @@
 ---
 id: widget-legend
 title: Legend widget
+seoTitle: "Legend widget for web map apps"
 summary: Render the visible layers' symbology as a labeled list. The thing viewers use to understand what colors mean.
 category: web-apps/widgets
 order: 60

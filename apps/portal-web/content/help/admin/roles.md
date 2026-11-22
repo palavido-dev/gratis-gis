@@ -1,6 +1,7 @@
 ---
 id: admin-roles
 title: Roles
+seoTitle: "User roles and permissions: Viewer, Contributor, Admin"
 summary: The three roles, who can do what, and how to change a role or disable an account.
 category: admin
 order: 50

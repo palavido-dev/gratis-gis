@@ -1,7 +1,8 @@
 ---
 id: items-form
 title: Form
-summary: Collect features or non-spatial responses from people in the field or at their desks. Close to what Survey123 covers for many surveys, with a different designer and sync model.
+seoTitle: "Forms: collect field data like Survey123, open source"
+summary: "Collect features or non-spatial responses in the field or at a desk. Covers what Survey123 does for many surveys, with its own designer and sync."
 category: items/field-and-forms
 order: 30
 complexity: basic
@@ -14,7 +15,7 @@ related:
   - items-data-layer
   - items-data-collection
   - forms-form-designer
-  - forms-xlsform-import
+  - form-xlsform-import
 ---
 ![Form designer canvas](/help/forms/form-designer-canvas.png)
 

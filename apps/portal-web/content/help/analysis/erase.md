@@ -1,6 +1,7 @@
 ---
 id: analysis-erase
 title: Erase
+seoTitle: "Erase tool: remove the parts of features inside a mask"
 summary: Keep only the parts of input features that fall outside an erase mask. The geometric inverse of clip.
 category: analysis/overlay
 order: 81

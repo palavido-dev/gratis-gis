@@ -1,6 +1,7 @@
 ---
 id: widget-print
 title: Print widget
+seoTitle: "Print widget: print a web app map to PDF"
 summary: Open a print template against the bound map, fill parameters, and print or save as PDF from the browser.
 category: web-apps/widgets
 order: 30
@@ -26,7 +27,7 @@ browser Print dialog (Save as PDF is the usual path).
 
 This is map-on-paper output. It is not a data-driven document
 report (that item type is not built; see
-[Report template](items-report-template)).
+[Report template](/help/items/report-template)).
 
 ## What it produces
 
@@ -80,7 +81,7 @@ In the widget properties:
   cross-origin rules as the on-screen map; a failed snapshot
   still prints the template chrome with a map placeholder.
 - **For paper from the map editor** without a web app, use
-  [Print this map](print-templates-print-this-map).
+  [Print this map](/help/print-templates/print-this-map).
 - **For per-feature inspection PDFs / DOCX from layer rows**,
   that is a report template — not built. Use a print template
   when the deliverable is "this map view on paper."

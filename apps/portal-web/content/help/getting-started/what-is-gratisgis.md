@@ -1,7 +1,8 @@
 ---
 id: what-is-gratisgis
 title: What is GratisGIS
-summary: GratisGIS is a self-hosted open-source portal for publishing maps, datasets, forms, and apps. Familiar niche for teams coming from ArcGIS Online, without commercial licensing or a drop-in clone claim.
+seoTitle: "What is GratisGIS? Open source, self-hosted GIS portal"
+summary: "GratisGIS is a free, open source GIS portal you host yourself, for publishing maps, data layers, forms and apps. Familiar if you come from ArcGIS Online."
 category: getting-started
 order: 10
 complexity: basic
@@ -10,7 +11,7 @@ tags:
   - intro
 related:
   - creating-your-first-map
-  - coming-from-arcgis-online
+  - coming-from-arcgis-overview
 ---
 
 GratisGIS is a portal you run yourself. It holds maps, datasets,

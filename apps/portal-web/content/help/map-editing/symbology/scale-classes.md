@@ -1,6 +1,7 @@
 ---
 id: symbology-scale-classes
 title: Scale classes
+seoTitle: "Scale-dependent styling: change style by zoom level"
 summary: Render one layer with different colors at different zoom levels without forking it into two layers.
 category: map-editing/symbology
 order: 40
@@ -15,7 +16,6 @@ tags:
   - zoom
   - scale
 related:
-  - layer-scale-visibility
   - symbology-simple
 ---
 

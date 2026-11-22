@@ -1,6 +1,7 @@
 ---
 id: form-xlsform-import
 title: Importing an XLSForm
+seoTitle: "Import an XLSForm from Survey123, ODK or KoboToolbox"
 summary: Bring a Survey123, ODK, or KoboToolbox XLSForm into a GratisGIS form item.  The form designer's Import button accepts .xlsx alongside .json.
 category: forms
 order: 30

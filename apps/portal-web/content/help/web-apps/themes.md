@@ -1,6 +1,7 @@
 ---
 id: web-apps-themes
 title: Themes
+seoTitle: "Web app themes: colors, fonts and logo"
 summary: Per-web-app color, font, and logo overrides. Picks up the org brand by default; lets one app stand out.
 category: web-apps
 order: 90

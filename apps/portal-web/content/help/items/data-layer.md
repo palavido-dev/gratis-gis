@@ -1,7 +1,8 @@
 ---
 id: items-data-layer
 title: Data layer
-summary: An item that holds one or more PostGIS-backed feature tables, with OGC Features and public API surfaces. Same niche as a hosted feature service for many layers, not an ArcGIS FeatureServer drop-in.
+seoTitle: "Data layers: PostGIS feature layers with OGC API access"
+summary: "An item holding one or more PostGIS feature tables, served through OGC API Features and a public API. Fills the role of a hosted feature layer."
 category: items/data
 order: 20
 complexity: basic
@@ -13,7 +14,6 @@ related:
   - items-map
   - items-data-collection
   - reference-api
-  - adding-a-layer
   - bundle-export
 ---
 
@@ -122,7 +122,7 @@ is gone) next to Discard, with a confirm that compares queued vs
 server-now before writing.
 
 Field collectors usually first see parked edits on a
-[Data collection](items-data-collection) deployment (queue badge /
+[Data collection](/help/items/data-collection) deployment (queue badge /
 rejected list). Resolve the durable conflict cards here on the
 **Layer data** panel of the paired data layer. This is optimistic
 concurrency review, not multi-user CRDT merge on drawings.
@@ -142,8 +142,8 @@ concurrency review, not multi-user CRDT merge on drawings.
 
 ## Related
 
-- [Data collection](items-data-collection) for offline queue,
+- [Data collection](/help/items/data-collection) for offline queue,
   dry-run push, and where collectors open the field PWA.
-- [HTTP API](reference-api) for `checkOnly=true`, `delta?since=N`,
+- [HTTP API](/help/reference/api) for `checkOnly=true`, `delta?since=N`,
   and the `syncConflicts` shape.
-- [Map](items-map) for how maps reference this item.
+- [Map](/help/items/map) for how maps reference this item.

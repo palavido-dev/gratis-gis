@@ -1,6 +1,7 @@
 ---
 id: analysis-dissolve
 title: Dissolve
+seoTitle: "Dissolve tool: merge all features into one shape"
 summary: Merge every input geometry into one combined feature via PostGIS ST_Union. Attributes are dropped.
 category: analysis/geometry
 order: 60
@@ -25,7 +26,7 @@ or a single mask polygon for a later clip / erase.
 
 If you need one polygon **per attribute value** (land-use
 categories, ownership, zoning) plus counts or sums, use
-[Group by](analysis-group-by) (always `ST_Union` per group) instead.
+[Group by](/help/analysis/group-by) (always `ST_Union` per group) instead.
 That is the shipped keyed path.
 
 ## Inputs

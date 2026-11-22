@@ -1,6 +1,7 @@
 ---
 id: widget-filter
 title: Filter widget
+seoTitle: "Filter widget: narrow charts, tables and maps together"
 summary: Pick categories from a layer field to narrow charts, indicators, maps, and tables on the same dashboard page.
 category: web-apps/widgets
 order: 81

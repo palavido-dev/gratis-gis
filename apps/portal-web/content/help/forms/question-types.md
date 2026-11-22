@@ -1,6 +1,7 @@
 ---
 id: forms-question-types
 title: Question types
+seoTitle: "Form question types and matching field types"
 summary: The catalog of form question types and which backing field types they're compatible with.
 category: forms
 order: 20

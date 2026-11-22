@@ -1,6 +1,7 @@
 ---
 id: items-data-collection
 title: Data collection
+seoTitle: "Field data collection deployments with offline sync"
 summary: A field deployment that opens a map plus editable layers and forms on a phone or tablet, with offline download, sync, and QR / link share.
 category: items/field-and-forms
 order: 35
@@ -98,7 +99,7 @@ Queued **updates** and **deletes** dry-run with `checkOnly=true`
 before the real write. A conflict or schema refusal parks that edit
 on the device with the server reason. New creates upload without a
 dry-run. Review recent conflicts on the paired
-[Data layer](items-data-layer) item (**Layer data** panel):
+[Data layer](/help/items/data-layer) item (**Layer data** panel):
 **Re-apply** or **Dismiss**. That page's **Sync versions and
 conflicts** section is the full Re-apply / Dismiss guide.
 
@@ -117,6 +118,6 @@ conflicts** section is the full Re-apply / Dismiss guide.
 
 - **Map** — the deployed composition.
 - **Form** — custom bindings and survey-style capture.
-- [Data layer](items-data-layer) — sync versions, delta refresh,
+- [Data layer](/help/items/data-layer) — sync versions, delta refresh,
   **Layer data** conflict **Re-apply** / **Dismiss**.
 - **Item types** — catalog one-liner for this type.

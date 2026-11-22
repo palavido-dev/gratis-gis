@@ -1,6 +1,7 @@
 ---
 id: items-form-submission-collection
 title: Form submission collection
+seoTitle: "Form submission collection (non-spatial responses)"
 summary: A non-spatial item type that stores form responses when those responses don't map onto a feature.
 category: items/field-and-forms
 order: 40

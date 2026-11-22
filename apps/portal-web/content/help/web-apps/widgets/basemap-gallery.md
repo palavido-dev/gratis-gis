@@ -1,6 +1,7 @@
 ---
 id: widget-basemap-gallery
 title: Basemap gallery widget
+seoTitle: "Basemap gallery widget: switch basemaps"
 summary: Let viewers switch the map's basemap from a curated list. Streets, imagery, topographic, your custom basemap.
 category: web-apps/widgets
 order: 50

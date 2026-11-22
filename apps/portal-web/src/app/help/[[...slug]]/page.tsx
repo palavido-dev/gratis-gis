@@ -10,6 +10,7 @@ import {
   categoryRank,
   prettyCategoryLabel,
 } from '@/lib/help/content';
+import { IS_PUBLIC_TEST_INSTANCE, publicHelpUrl } from '@/lib/seo';
 import { HelpSearchBox } from './search-box';
 import { HelpSidebarNav } from './sidebar-nav';
 
@@ -19,8 +20,20 @@ import { HelpSidebarNav } from './sidebar-nav';
  * title, which makes Google show the same snippet for fifty
  * different pages and tanks click-through.  Reads the same
  * frontmatter the page body uses, so authoring one doc covers
- * both rendering and SEO.
+ * both rendering and SEO.  `seoTitle` (optional) is the longer
+ * title for the browser tab and search results; `title` stays the
+ * short sidebar label.
+ *
+ * Canonical: the project website publishes the same docs at
+ * gratisgis.org/help/<slug>, so every portal names that page as the
+ * canonical copy. The project's demo is noindex instead (root
+ * layout), and a page should not be both noindex and canonical to
+ * another URL, so it sets no canonical.
  */
+function helpCanonical(slugPath: string): Metadata['alternates'] {
+  return IS_PUBLIC_TEST_INSTANCE ? undefined : { canonical: publicHelpUrl(slugPath) };
+}
+
 export async function generateMetadata(
   props: { params: Promise<{ slug?: string[] }> },
 ): Promise<Metadata> {
@@ -30,7 +43,7 @@ export async function generateMetadata(
       title: 'Help',
       description:
         'GratisGIS user guide: getting started, item types, map editing, forms, app builder, admin, and analysis tools.',
-      alternates: { canonical: '/help' },
+      alternates: helpCanonical(''),
     };
   }
   const doc = await loadDocBySlug(params.slug);
@@ -41,12 +54,13 @@ export async function generateMetadata(
     };
   }
   const slugPath = params.slug.join('/');
+  const title = doc.frontmatter.seoTitle ?? doc.frontmatter.title;
   return {
-    title: doc.frontmatter.title,
+    title,
     description: doc.frontmatter.summary,
-    alternates: { canonical: `/help/${slugPath}` },
+    alternates: helpCanonical(slugPath),
     openGraph: {
-      title: doc.frontmatter.title,
+      title,
       description: doc.frontmatter.summary,
       type: 'article',
       url: `/help/${slugPath}`,

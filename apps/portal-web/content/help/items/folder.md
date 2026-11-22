@@ -1,6 +1,7 @@
 ---
 id: items-folder
 title: Folder
+seoTitle: "Folders: organize maps, layers and apps"
 summary: An item that groups other items into a named collection. An item can live in more than one folder at once.
 category: items/organize
 order: 150

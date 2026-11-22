@@ -1,6 +1,7 @@
 ---
 id: analysis-convex-hull
 title: Convex hull
+seoTitle: "Convex hull tool: minimum bounding geometry per feature"
 summary: Replace each feature's geometry with its convex hull via PostGIS ST_ConvexHull. Attributes are kept.
 category: analysis/geometry
 order: 75
@@ -21,8 +22,8 @@ kept; row count is unchanged.
 
 This is **per feature**, not one hull for the whole layer. For a
 single combined outline of every feature, use
-[Dissolve](analysis-dissolve) (attributes dropped) or
-[Group by](analysis-group-by) with empty keys when you also need
+[Dissolve](/help/analysis/dissolve) (attributes dropped) or
+[Group by](/help/analysis/group-by) with empty keys when you also need
 aggregates.
 
 ## Inputs

@@ -1,6 +1,7 @@
 ---
 id: analysis-buffer
 title: Buffer
+seoTitle: "Buffer tool: create buffer polygons around features"
 summary: Expand each input feature outward (or inward) by a fixed distance to produce a polygon at that offset.
 category: analysis/proximity
 order: 40

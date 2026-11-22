@@ -1,6 +1,7 @@
 ---
 id: build-from-a-description
 title: Build from a description
+seoTitle: "Create maps, layers and apps from a plain description"
 summary: Describe a layer, map, form, or app in a sentence, or say it out loud, and GratisGIS creates the items.
 category: getting-started
 order: 25

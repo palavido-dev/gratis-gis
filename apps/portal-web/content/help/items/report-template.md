@@ -1,6 +1,7 @@
 ---
 id: items-report-template
 title: Report template
+seoTitle: "Report templates: what exists and what to use instead"
 summary: Document report templates are not built. Use a print template for paper output from a web app.
 category: items/maps-and-apps
 order: 70
@@ -25,9 +26,9 @@ button.
 
 Paper output that does ship is a **print template**: a page layout
 for the Print tool inside a web app (and the map editor Print
-button). See [Print template](items-print-template).
+button). See [Print template](/help/items/print-template).
 
 ## See also
 
-- [Print template](items-print-template). The shipped paper layout.
+- [Print template](/help/items/print-template). The shipped paper layout.
 - **Dashboard**. KPI and operations boards, which are web apps.

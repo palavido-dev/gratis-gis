@@ -1,6 +1,7 @@
 ---
 id: map-editing-filters
 title: Filters
+seoTitle: "Filter map layers by attribute without changing data"
 summary: Show only the features of a layer that match a condition, without altering the underlying data.
 category: map-editing
 order: 30

@@ -1,6 +1,7 @@
 ---
 id: items-file
 title: File
+seoTitle: "File items: share documents and other files in the portal"
 summary: An item that wraps an arbitrary uploaded file. Use for reference documents, archived deliverables, or anything that doesn't fit a more specific item type.
 category: items/data
 order: 80

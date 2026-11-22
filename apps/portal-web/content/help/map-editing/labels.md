@@ -1,6 +1,7 @@
 ---
 id: map-editing-labels
 title: Labels
+seoTitle: "Label map features from field values"
 summary: Render a text label per feature, computed from one or more fields, with placement and visibility controls.
 category: map-editing
 order: 20

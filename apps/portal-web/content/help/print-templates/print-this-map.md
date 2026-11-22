@@ -1,6 +1,7 @@
 ---
 id: print-templates-print-this-map
 title: Print this map
+seoTitle: "Print a web map or export it to PDF"
 summary: Print or PDF-export a map directly from its editor without first building a custom web app wrapper.
 category: print-templates
 order: 1
@@ -66,5 +67,5 @@ markup paints through the same MapLibre overlay the editor uses
 
 ## Related
 
-- [Print template item](items-print-template) for the designer
+- [Print template item](/help/items/print-template) for the designer
   and the element vocabulary.

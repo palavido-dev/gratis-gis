@@ -1,7 +1,8 @@
 ---
 id: items-arcgis-service
 title: ArcGIS service
-summary: An item that points at an external ArcGIS REST feature service or map service. Lets you reference AGO or Pro-published data from a GratisGIS map without copying it.
+seoTitle: "Use an ArcGIS REST feature or map service in GratisGIS"
+summary: "Reference an ArcGIS REST feature service or map service from a GratisGIS map without copying the data. Works with ArcGIS Online and Enterprise services."
 category: items/data
 order: 130
 complexity: intermediate

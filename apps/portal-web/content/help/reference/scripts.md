@@ -1,6 +1,7 @@
 ---
 id: reference-scripts
 title: Scripts
+seoTitle: "Run and schedule Python scripts on the portal"
 summary: Run Python on the portal, by hand or on a schedule, with a run history you can read afterwards.
 category: reference
 order: 47

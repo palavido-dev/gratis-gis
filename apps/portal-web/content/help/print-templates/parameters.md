@@ -1,6 +1,7 @@
 ---
 id: print-templates-parameters
 title: Parameters
+seoTitle: "Print template parameters: prompt for values at print time"
 summary: Inputs a print template declares; the Print widget form prompts for them at print time.
 category: print-templates
 order: 20

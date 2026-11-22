@@ -1,6 +1,7 @@
 ---
 id: map-editing-presence
 title: Live presence
+seoTitle: "Live presence: see who else is viewing a map"
 summary: See who else is looking at the same map right now and where their cursor is.
 category: map-editing
 order: 42
@@ -75,6 +76,6 @@ Cursors still use the presence WebSocket above.
 
 ## Related
 
-- [Markup](map-editing-markup) for leaving persistent pins on
+- [Markup](/help/map-editing/markup) for leaving persistent pins on
   the map.
-- [Comments](map-editing-comments) for threaded conversations.
+- [Comments](/help/map-editing/comments) for threaded conversations.

@@ -1,7 +1,8 @@
 ---
 id: map-editing-markup
 title: Markup and redlining
-summary: Draw colored pins, lines, polygons, text, arrows, and circles on a shared map to flag issues or call out places for the team to discuss, then download a set as GeoJSON or promote it into a real data layer when you are ready.
+seoTitle: "Markup and redlining on a shared web map"
+summary: "Draw pins, lines, polygons, text and arrows on a shared map to flag issues for the team. Download the markup as GeoJSON or turn it into a data layer."
 category: map-editing
 order: 40
 complexity: basic
@@ -28,7 +29,7 @@ layer — that still needs a signed-in account.
 
 When two signed-in people edit the same markup set at once, the
 portal merges their sketches live (see
-[Live presence](map-editing-presence)). Anonymous markup does not
+[Live presence](/help/map-editing/presence)). Anonymous markup does not
 use that path.
 
 The classic use case: a project manager opens a shared parcel map,
@@ -137,5 +138,5 @@ only saved measurements.
   want styling, sharing, OGC access, or derived-layer pipelines on
   the result.
 - Comments threaded against the map and against individual pins
-  pair nicely with markup. See [Comments](map-editing-comments)
+  pair nicely with markup. See [Comments](/help/map-editing/comments)
   for the conversation side.

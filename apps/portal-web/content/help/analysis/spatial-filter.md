@@ -1,6 +1,7 @@
 ---
 id: analysis-spatial-filter
 title: Spatial filter
+seoTitle: "Spatial filter: select features by location"
 summary: Keep input rows whose geometry matches a predicate against another data layer (or inline geometry). No attribute join.
 category: analysis/select-and-calculate
 order: 31
@@ -22,7 +23,7 @@ rows that pass through are unchanged: same attributes, same
 geometry, no row multiplication.
 
 This is the filtering counterpart to
-[Spatial join](analysis-spatial-join). Spatial join decorates with
+[Spatial join](/help/analysis/spatial-join). Spatial join decorates with
 counts or attributes; spatial filter only drops non-matching rows.
 
 ## Inputs

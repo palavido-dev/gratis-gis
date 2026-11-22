@@ -37,5 +37,13 @@ Order is controlled in `apps/portal-web/src/lib/help/content.ts`
 
 - Set `category` to the nested path that matches the table above.
 - Set `order` within that group (lower = earlier).
-- Keep `title` + `summary` search-friendly.
+- Keep `title` short: it is the sidebar label and the page heading.
+- Set `seoTitle` to what the page is about in the words people search
+  with, in about 60 characters. It is the browser tab and search
+  result title, here and on gratisgis.org/help.
+- Keep `summary` under about 160 characters. It is the search result
+  description.
+- Link to other help pages with the full path, `/help/<slug>`. The
+  same files build gratisgis.org/help, so links have to work there
+  too.
 - If the page names a UI control, add a screenshot.

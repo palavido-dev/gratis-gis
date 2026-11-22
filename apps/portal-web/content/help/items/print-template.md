@@ -1,6 +1,7 @@
 ---
 id: items-print-template
 title: Print template
+seoTitle: "Print templates: map layouts for PDF printing"
 summary: A paper layout (page size, map frame, legend, text, parameters) that a web app's Print tool or the map editor Print button fills in and renders for PDF.
 category: items/maps-and-apps
 order: 55
@@ -25,7 +26,7 @@ A **print template** is a first-class item that defines one paper
 page for the Print tool. It is not a document report and it is
 not Word/DOCX. Create one from **Create → Print template**, or
 from a map editor's **Print** button (see
-[Print this map](print-templates-print-this-map)).
+[Print this map](/help/print-templates/print-this-map)).
 
 Every org gets five starter layouts on first sign-in (Letter
 portrait / landscape, Letter landscape with large legend, Tabloid
@@ -42,7 +43,7 @@ The item's blueprint (`print_template` data) holds:
 - **Parameters.** Inputs the Print form prompts for at run time
   (title, author, notes, and anything else you declare). Types
   are text, long text, number, date, and dropdown. See
-  [Parameters](print-templates-parameters).
+  [Parameters](/help/print-templates/parameters).
 - **Elements.** Free-positioned boxes on the page: **text**,
   **image**, **map**, **legend**, **scalebar**, **north-arrow**,
   **line**, and **rectangle**. Map / legend / scalebar /
@@ -58,7 +59,7 @@ The item's blueprint (`print_template` data) holds:
    widget, and optionally allowlist which print templates appear.
    At run time the user picks a template, fills parameters, and
    opens a print page that triggers the browser Print dialog
-   (Save as PDF). See [Print widget](widget-print).
+   (Save as PDF). See [Print widget](/help/web-apps/widgets/print).
 2. **From a map editor.** The toolbar **Print** chooser opens an
    existing template or creates a new one pre-bound to that map.
 
@@ -77,10 +78,10 @@ snapshot of the live map when available.
 
 ## See also
 
-- [Print template overview](print-templates-overview) for the
+- [Print template overview](/help/print-templates/overview) for the
   authoring workflow.
-- [Parameters](print-templates-parameters) and
-  [Template tokens](print-templates-tokens) for the form and
+- [Parameters](/help/print-templates/parameters) and
+  [Template tokens](/help/print-templates/tokens) for the form and
   text chips.
-- [Report template](items-report-template) for the document
+- [Report template](/help/items/report-template) for the document
   report that is not built.

@@ -1,7 +1,8 @@
 ---
 id: help-landing
 title: Welcome to GratisGIS Help
-summary: Documentation for the open-source GratisGIS portal. Find what you need, fast, with one concept per page.
+seoTitle: "GratisGIS help and documentation"
+summary: "Documentation for GratisGIS, the open source, self-hosted GIS portal: getting started, maps, data layers, forms, web apps, analysis and admin."
 order: 0
 ---
 

@@ -1,6 +1,7 @@
 ---
 id: admin-housekeeping
 title: Housekeeping
+seoTitle: "Housekeeping: find stale items, inactive users and orphans"
 summary: The admin dashboard that surfaces stale items, quiet users, and orphaned dependencies, with bulk actions to clean up.
 category: admin
 order: 10

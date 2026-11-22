@@ -1,6 +1,7 @@
 ---
 id: analysis-nearest-neighbor
 title: Nearest neighbor
+seoTitle: "Nearest neighbor distance between features (near tool)"
 summary: Add nearest_distance_m — geographic meters to the closest other feature in the same layer.
 category: analysis/proximity
 order: 42
@@ -23,7 +24,7 @@ input (self-join on geography). Geometry is unchanged.
 
 There is **no second layer** and **no K** (k-nearest list). For
 distance to another layer, use
-[Spatial join](analysis-spatial-join) with predicate **nearest**.
+[Spatial join](/help/analysis/spatial-join) with predicate **nearest**.
 
 ## Inputs
 
@@ -59,7 +60,7 @@ instant browser result.
 ## Examples
 
 - **Isolation score**. Source: wells. Output adds meters to the
-  nearest other well. Follow with [Top N](analysis-top-n) on
+  nearest other well. Follow with [Top N](/help/analysis/top-n) on
   `nearest_distance_m` ascending to list the most clustered, or
   descending for the most isolated.
 - **QA for duplicates**. Very small `nearest_distance_m` values

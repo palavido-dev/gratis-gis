@@ -1,6 +1,7 @@
 ---
 id: reference-item-types
 title: Item types
+seoTitle: "Item types: every kind of content in the portal"
 summary: The full catalog of GratisGIS item types in one place, with one-line descriptions and links to each item's detail page.
 category: reference
 order: 10

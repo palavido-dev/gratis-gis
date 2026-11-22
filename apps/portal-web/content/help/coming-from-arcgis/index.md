@@ -1,6 +1,7 @@
 ---
 id: coming-from-arcgis-overview
 title: Coming from ArcGIS Online
+seoTitle: "Moving from ArcGIS Online to an open source GIS portal"
 summary: Orientation for ArcGIS Online users. GratisGIS covers portal, sharing, field collection, and QGIS. It is not a full ArcGIS Online replacement.
 category: getting-started/coming-from-arcgis
 order: 0
@@ -11,8 +12,11 @@ tags:
   - terminology
 related:
   - coming-from-arcgis-terminology
+  - coming-from-arcgis-sharing
   - coming-from-arcgis-feature-service
   - coming-from-arcgis-web-map
+  - coming-from-arcgis-field-maps
+  - coming-from-arcgis-analysis
 ---
 
 GratisGIS is a self-hosted portal, a field PWA, and a QGIS plugin
@@ -51,14 +55,27 @@ What's different:
 The pages in this section walk through the most common
 "how do I do the AGO thing" questions:
 
-- **Terminology map**. Which AGO term maps to which GratisGIS
- term. Print this and keep it next to your monitor for week one.
-- **Feature service to data layer**. Moving a layer's content
- (or just its schema and symbology) over.
-- **Web map to map**. Importing an AGO web map JSON.
-- **Survey123 to form**. Importing an XLSForm.
-- **App Builder comparison**. Where Experience Builder, Web
- AppBuilder, and Dashboard Designer concepts land here.
+- [Terminology map](/help/coming-from-arcgis/terminology). Which
+  AGO term maps to which GratisGIS term. Print this and keep it next
+  to your monitor for week one.
+- [Sharing and roles](/help/coming-from-arcgis/sharing-and-roles).
+  Roles, user types, groups and sharing levels.
+- [Feature service to data layer](/help/coming-from-arcgis/feature-service-to-data-layer).
+  Moving a layer's content (or just its schema and symbology) over.
+- [Web map to map](/help/coming-from-arcgis/web-map-to-map).
+  Importing an AGO web map JSON.
+- [Field Maps to data collection](/help/coming-from-arcgis/field-maps-to-data-collection).
+  Offline field collection with the field app.
+- [Survey123 to form](/help/coming-from-arcgis/survey123-to-form).
+  Importing an XLSForm.
+- [Arcade to expressions](/help/coming-from-arcgis/arcade-to-expressions).
+  Translating common Arcade patterns.
+- [App builders comparison](/help/coming-from-arcgis/app-builder-comparison).
+  Where Experience Builder, Web AppBuilder, and Dashboard Designer
+  concepts land here.
+- [Analysis tools compared](/help/coming-from-arcgis/analysis-tools).
+  Which step does the job of Buffer, Dissolve, Spatial Join and the
+  rest.
 
 ## What's NOT here
 
@@ -70,4 +87,4 @@ The pages in this section walk through the most common
 - **Hybrid mode.** GratisGIS can reference an external AGO
  service as an **ArcGIS service** item (the data stays on AGO,
  you proxy through). That's a real ongoing pattern, not a
- migration step. See **ArcGIS service** under Items.
+ migration step. See [ArcGIS service](/help/items/arcgis-service).

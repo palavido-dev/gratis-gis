@@ -1,7 +1,8 @@
 ---
 id: reference-expression-language
 title: Expression language
-summary: The SQL-like dialect used across filters, calculate steps, conditional visibility, and template tokens. One vocabulary, many surfaces.
+seoTitle: "Expression language for filters and calculated fields"
+summary: "The expression syntax for derived-layer Filter and Calculate field steps and the attribute table's Calculate field: operators, functions, and what is not supported."
 category: reference
 order: 20
 complexity: intermediate
@@ -16,133 +17,114 @@ related:
   - forms-conditional-logic
 ---
 
-GratisGIS uses one expression dialect across several surfaces:
+This page is the reference for the expressions you type into:
 
-- **Map layer filters** ("show only features where...").
-- **Derived layer Filter step** (the same condition, applied in
- the live pipeline).
-- **Derived layer Calculate step** (compute a new column).
-- **Form conditional visibility** ("show this question if...").
-- **Report template tokens** (Boolean conditionals inside the
- body).
+- The **Filter** step of a [derived layer](/help/items/derived-layer).
+- The **Calculate field** step of a derived layer.
+- **Calculate field** in a data layer's attribute table.
 
-Same syntax everywhere. This page is the reference.
+Form conditional logic has its own syntax. See
+[Conditional logic](/help/forms/conditional-logic). Labels and
+popups do not evaluate expressions; they fill in `{field}` values.
 
 ## Literals
 
-- **Numbers**: `1`, `3.14`, `-42`.
-- **Strings**: single quotes, `'open'`, `'needs repair'`. To
- embed a quote: `'it''s'`.
-- **Dates**: ISO 8601 strings, `'2026-01-01'`.
-- **Datetimes**: `'2026-01-01T10:30:00Z'`.
+- **Numbers**: `1`, `3.14`. Negative numbers use a minus sign:
+  `-42`.
+- **Text**: single quotes, `'open'`, `'needs repair'`. To put an
+  apostrophe inside, escape it with a backslash: `'it\'s'`.
 - **Booleans**: `true`, `false`.
-- **NULL**: `null`.
+- **Null**: `null`. See the note on empty values below.
 
 ## Field references
 
 Field references use double braces: `{{status}}`,
-`{{created_at}}`. Names must match the schema allowlist
-(letters, digits, underscore).
+`{{created_at}}`. Names are letters, digits and underscores, start
+with a letter or underscore, and are case-sensitive: `{{Status}}`
+does not match a field named `status`.
 
 ## Operators
 
-### Comparison
+| Kind | Operators | Example |
+|---|---|---|
+| Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=` | `{{acres}} >= 5` |
+| Boolean | `AND`, `OR`, `NOT` | `{{status}} == 'open' AND NOT {{archived}}` |
+| Arithmetic | `+`, `-`, `*`, `/`, `%` | `{{acres}} * 0.4047` |
+| Text join | `~~` | `{{first}} ~~ ' ' ~~ {{last}}` |
 
-`=`, `!=`, `<`, `<=`, `>`, `>=`.
-
-`like`, `ilike`. String matching with `%` wildcard
-(`name like 'A%'`).
-
-`in (...)`. Membership (`priority in ('high', 'critical')`).
-
-`between ... and ...`. Range, inclusive
-(`acres between 0 and 5`).
-
-`is null`, `is not null`, NULL checks. `x = null` is always
-false, like SQL.
-
-### Boolean
-
-`and`, `or`, `not`. Standard precedence: `not` binds tightest,
-then `and`, then `or`. Parenthesize when in doubt.
-
-### Arithmetic
-
-`+`, `-`, `*`, `/`, `%`. Integer / decimal handled like SQL.
-NULL propagates: `1 + null = null`.
-
-### String
-
-`||` concatenation: `first || ' ' || last`.
-
-## Conditional
-
-```
-case when <cond> then <val>
-     when <cond> then <val>
-     else <val>
-end
-```
-
-Returns the first matching branch's value, or the `else` if none
-match. Use for "label by status," "tier by acreage."
+- Equality is `==`. A single `=` is a syntax error.
+- `AND`, `OR` and `NOT` are case-insensitive. Comparisons are
+  worked out first, then `NOT`, then `AND`, then `OR`. Use
+  parentheses when in doubt.
+- Text joins use `~~` (or `concat`), not `||`, so `||` is never
+  mistaken for "or".
+- Dividing by zero, or taking `%` of zero, gives an empty value
+  instead of failing the whole layer.
 
 ## Functions
 
-### String
+Function names are case-insensitive.
 
-- `upper(x)` / `lower(x)`: case conversion.
-- `length(x)`: character count.
-- `trim(x)` / `ltrim(x)` / `rtrim(x)`: whitespace trim.
-- `substring(x, start, len)`: substring (1-indexed start).
-- `replace(x, find, repl)`: string replace.
+| Function | Returns | Notes |
+|---|---|---|
+| `upper(x)`, `lower(x)` | text | Change case. |
+| `length(x)` | number | Number of characters. |
+| `concat(a, b, ...)` | text | Joins any number of values. |
+| `coalesce(a, b, ...)` | first non-empty value | At least two arguments. |
+| `abs(x)` | number | Absolute value. |
+| `round(x)` | number | Rounds to a whole number. One argument only. |
+| `floor(x)`, `ceil(x)` | number | Round down or up. |
+| `if(condition, then, else)` | the type of `then` | Exactly three arguments. Nest for more branches. |
 
-### Numeric
+Examples:
 
-- `round(x, n)`: round to `n` decimals.
-- `floor(x)`, `ceil(x)`.
-- `abs(x)`.
+- Hectares from acres: `{{acres}} * 0.4047`
+- Two decimal places: `round({{ratio}} * 100) / 100`
+- Full name: `concat({{first}}, ' ', {{last}})`
+- Size class: `if({{acres}} > 5, 'Large', if({{acres}} > 1, 'Medium', 'Small'))`
 
-### Date
+## Types
 
-- `today()`, `now()`.
-- `year(x)`, `month(x)`, `day(x)`.
-- `date_diff(x, y, 'days')`: difference in days (or `'months'`,
- `'years'`, `'hours'`).
-- `date_add(x, n, 'days')`: add a duration.
+Each field has a type from the layer's schema, and the expression
+is checked before it runs:
 
-### Null handling
+- **Numbers** take arithmetic and compare with numbers.
+- **Text** compares with text and joins with `~~` or `concat`.
+  Arithmetic on text is refused.
+- **Dates** are ISO 8601 text. They compare with other dates and
+  with text literals, so `{{inspected}} >= '2026-01-01'` works.
+  Arithmetic on a date is refused.
+- **Multi-select fields** support only `==` and `!=` against a text
+  value, meaning "is exactly this selection."
 
-- `coalesce(x, y, z, ...)`: first non-NULL value.
-- `nullif(x, y)`: NULL if `x = y`, else `x`. Useful for
- "treat empty string as missing": `nullif(name, '')`.
+## Empty values
 
-### Type
+Like SQL, comparing anything with an empty value never matches.
+`{{owner}} == null` is never true. To test for an empty field,
+compare through `coalesce`:
 
-- `cast(x as integer)` / `cast(x as decimal)` /
- `cast(x as text)` / `cast(x as date)`.
+- Empty: `coalesce({{owner}}, '') == ''`
+- Not empty: `coalesce({{owner}}, '') != ''`
 
-## What's NOT in the dialect
+## Not supported
 
-- **Geometry helpers** (`area_m2()`, `length_m()`,
-  `centroid_x()`, `bbox_*`, …). Those are not expression
-  functions. Use the derived-layer **Calculate geometry** step
-  (measurement length / perimeter / area + unit + field name).
-  See [Calculate](analysis-calculate).
-- **Spatial predicates** (`ST_Intersects`, `ST_Within`). Use a
- derived layer with a Clip or Spatial join step.
-- **Arcade expressions.** Imports from AGO drop Arcade with a
- warning; rewrite using this dialect.
-- **Custom functions defined by users.** Not in v1.
-- **Subqueries.** Express as a derived layer instead.
+- **Date functions and date arithmetic.** There is no `today()`,
+  `now()` or date difference in this syntax yet.
+- **`case when`, `in (...)`, `like`, `between` and `is null`.** Use
+  `if`, chains of `==` joined with `OR`, and the `coalesce` pattern
+  above.
+- **Type conversion** (`cast`).
+- **Geometry functions** such as area or length. Use the
+  **Calculate geometry** step. See [Calculate](/help/analysis/calculate).
+- **Spatial predicates.** Use a **Clip**, **Spatial filter** or
+  **Spatial join** step.
+- **Arcade.** Imports from ArcGIS Online drop Arcade with a warning.
+  See [Arcade to expressions](/help/coming-from-arcgis/arcade-to-expressions).
+- **Subqueries and user-defined functions.** Chain derived-layer
+  steps instead.
 
-## Notes
+## Performance
 
-- **Identifiers are case-sensitive.** A field named `Status`
- won't match `status`. The schema editor preserves case.
-- **NULL-safety**: most arithmetic, comparison, and string ops
- return NULL on NULL input. Use `coalesce` to defend.
-- **Performance**: filter expressions on indexed fields run
- fast. Asking for `like '%foo%'` (wildcard at the start) bypasses
- the index; ask an admin to add a trigram index if the pattern
- is permanent.
+A derived layer recomputes on every read, so a long chain of steps
+over a large layer costs time on each request. Filter early in the chain to keep later steps
+small.

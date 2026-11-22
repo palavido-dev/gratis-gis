@@ -1,6 +1,7 @@
 ---
 id: analysis-group-by
 title: Group by
+seoTitle: "Group by: dissolve by field with count, sum and average"
 summary: Roll up rows by group keys with count/sum/avg/min/max/first aggregates; geometry is always ST_Union per group.
 category: analysis/summarize
 order: 50
@@ -25,7 +26,7 @@ are the group keys plus your declared aggregates.
 Use after a spatial-join, after a filter, or directly on a source
 layer when you want a keyed summary. If you only need **one**
 union of the whole layer with no keys and no aggregates, use the
-plain [Dissolve](analysis-dissolve) step instead.
+plain [Dissolve](/help/analysis/dissolve) step instead.
 
 ## Inputs
 
@@ -99,6 +100,6 @@ server job, not an instant browser result.
 - **Cardinality drops**. Output row count is the number of
   distinct key combinations (or 1 when keys are empty).
 - **Keyed dissolve lives here.** The no-param
-  [Dissolve](analysis-dissolve) step unions everything and drops
+  [Dissolve](/help/analysis/dissolve) step unions everything and drops
   attributes. For one polygon per attribute value plus counts or
   sums, use this step.

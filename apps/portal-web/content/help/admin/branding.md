@@ -1,6 +1,7 @@
 ---
 id: admin-branding
 title: Branding
+seoTitle: "Brand your GIS portal: organization name and landing page"
 summary: Set the organization name and what visitors see on the public landing page.
 category: admin
 order: 60

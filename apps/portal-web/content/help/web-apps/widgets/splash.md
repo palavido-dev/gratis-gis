@@ -1,6 +1,7 @@
 ---
 id: widget-splash
 title: Splash widget
+seoTitle: "Splash screen widget: welcome message or terms of use"
 summary: A modal dialog that opens when a Custom Web App loads.  Use for welcome messages, disclaimers, or required terms of use.
 category: web-apps/widgets
 order: 50
@@ -13,8 +14,7 @@ tags:
   - splash
   - modal
 related:
-  - widget-text
-  - apps-custom-designer
+  - web-apps-custom-app
 ---
 
 The **Splash widget** renders a portal-rooted modal dialog every

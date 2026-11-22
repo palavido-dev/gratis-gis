@@ -1,6 +1,7 @@
 ---
 id: reference-api
 title: The HTTP API
+seoTitle: "GratisGIS REST API reference"
 summary: The routes the Python client calls, for anyone working in another language.
 category: reference
 order: 48
@@ -70,7 +71,7 @@ optimistic concurrency (`baseObservationId`) and schema without
 writing. A `409` conflict response includes the losing-side edit;
 the portal also keeps a capped `syncConflicts` list on the layer
 for later review in the Layer data panel (see
-[Data layer](items-data-layer) help: **Sync versions and
+[Data layer](/help/items/data-layer) help: **Sync versions and
 conflicts**). Editors can re-apply a losing edit from that list
 (PATCH / DELETE with a live `baseObservationId`, or POST recreate
 when the feature is gone). The field PWA offline drain (and Android

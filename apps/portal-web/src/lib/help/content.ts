@@ -99,8 +99,13 @@ export interface HelpFrontmatter {
   /** Stable id used in URLs, control data-help attributes, and
    *  cross-page refs.  Defaults to the file slug if omitted. */
   id?: string;
-  /** Page title.  Required.  Used in nav + browser title. */
+  /** Page title.  Required.  Used in nav, the page heading, and the
+   *  browser title when `seoTitle` is not set. */
   title: string;
+  /** Longer title for the browser tab and search results (optional).
+   *  Say what the page is about in the words people search with,
+   *  in about 60 characters; " · GratisGIS" is added after it. */
+  seoTitle?: string;
   /** One-paragraph summary.  Required.  Drives search + AI
    *  retrieval; should make sense without the body. */
   summary: string;
