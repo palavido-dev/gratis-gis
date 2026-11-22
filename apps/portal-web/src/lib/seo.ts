@@ -22,7 +22,8 @@ export const IS_PUBLIC_TEST_INSTANCE = process.env.NEXT_PUBLIC_PUBLIC_TESTING ==
  */
 export const PUBLIC_HELP_ORIGIN = 'https://gratisgis.org';
 
-/** Canonical URL of a help page on the project website. Empty slug = /help. */
+/** Canonical URL of a help page on the project website. Empty slug = /help/.
+ *  The trailing slash matches the URLs the website serves. */
 export function publicHelpUrl(slug: string): string {
-  return slug ? `${PUBLIC_HELP_ORIGIN}/help/${slug}` : `${PUBLIC_HELP_ORIGIN}/help`;
+  return slug ? `${PUBLIC_HELP_ORIGIN}/help/${slug}/` : `${PUBLIC_HELP_ORIGIN}/help/`;
 }
