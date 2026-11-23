@@ -7,6 +7,11 @@ import {
   geolocationErrorOutcome,
   INSECURE_GEOLOCATION_MESSAGE,
 } from '@/lib/geolocation-context';
+import {
+  ExternalGnssConnection,
+  externalGnssSupported,
+} from '@/lib/external-gnss';
+import { FIX_TYPES, type GnssFix } from '@/lib/nmea';
 
 /**
  * Field-runtime geolocation hook. Wraps navigator.geolocation.watchPosition
@@ -55,6 +60,70 @@ export interface GpsPosition {
   speedMps: number | null;
   /** When the fix was acquired (browser-supplied epoch ms). */
   fixAt: number;
+  /** Set when the fix came from an external GNSS receiver. */
+  gnss?: GnssDetails;
+}
+
+/** What an external receiver reports beyond a browser fix. */
+export interface GnssDetails {
+  receiver: string;
+  /** GGA fix quality code (Esri's esrignss_fixtype). */
+  fixType: number;
+  fixTypeLabel: string;
+  satellites: number | null;
+  hdop: number | null;
+  pdop: number | null;
+  vdop: number | null;
+  correctionAgeS: number | null;
+  stationId: string | null;
+  hRmsM: number | null;
+  vRmsM: number | null;
+  /** True when accuracyM is the receiver's own estimate, not one from HDOP. */
+  accuracyFromReceiver: boolean;
+}
+
+export type ExternalGnssStatus = 'off' | 'connecting' | 'waiting' | 'connected' | 'error';
+
+export interface ExternalGnssState {
+  /** The browser can reach a receiver (Web Serial). */
+  supported: boolean;
+  status: ExternalGnssStatus;
+  receiver: string | null;
+  errorMessage: string | null;
+}
+
+/**
+ * A browser fix arriving while a receiver is connected is ignored
+ * unless the receiver has gone quiet for this long.
+ */
+const EXTERNAL_STALE_MS = 5000;
+
+/** A receiver fix as a position. */
+export function positionFromGnss(fix: GnssFix, receiver: string): GpsPosition {
+  return {
+    lon: fix.lon,
+    lat: fix.lat,
+    accuracyM: fix.accuracyM,
+    altitudeM: fix.altitudeM,
+    altitudeAccuracyM: fix.vRmsM,
+    headingDeg: fix.courseDeg,
+    speedMps: fix.speedMps,
+    fixAt: fix.fixAt,
+    gnss: {
+      receiver,
+      fixType: fix.fixType,
+      fixTypeLabel: FIX_TYPES[fix.fixType] ?? `Type ${fix.fixType}`,
+      satellites: fix.satellites,
+      hdop: fix.hdop,
+      pdop: fix.pdop,
+      vdop: fix.vdop,
+      correctionAgeS: fix.correctionAgeS,
+      stationId: fix.stationId,
+      hRmsM: fix.hRmsM,
+      vRmsM: fix.vRmsM,
+      accuracyFromReceiver: fix.accuracyFromReceiver,
+    },
+  };
 }
 
 export interface GeolocationState {
@@ -76,6 +145,12 @@ export interface UseGeolocation extends GeolocationState {
   stop: () => void;
   /** Toggle follow-me mode. Implicitly calls start() if not already. */
   toggleFollow: () => void;
+  /** External receiver state. */
+  external: ExternalGnssState;
+  /** Pick and connect a receiver. Must run from a tap. */
+  connectExternal: () => Promise<void>;
+  /** Disconnect the receiver and go back to the device's location. */
+  disconnectExternal: () => void;
 }
 
 export function useGeolocation(): UseGeolocation {
@@ -86,6 +161,15 @@ export function useGeolocation(): UseGeolocation {
     follow: false,
   });
   const watchIdRef = useRef<number | null>(null);
+  const [external, setExternal] = useState<ExternalGnssState>(() => ({
+    supported: externalGnssSupported(),
+    status: 'off',
+    receiver: null,
+    errorMessage: null,
+  }));
+  const externalRef = useRef<ExternalGnssConnection | null>(null);
+  /** Epoch ms of the last receiver fix; 0 when none. */
+  const lastExternalAtRef = useRef(0);
 
   const stop = useCallback(() => {
     if (watchIdRef.current !== null && typeof navigator !== 'undefined') {
@@ -123,6 +207,8 @@ export function useGeolocation(): UseGeolocation {
     setState((prev) => ({ ...prev, status: 'requesting', errorMessage: null }));
     watchIdRef.current = navigator.geolocation.watchPosition(
       (geo) => {
+        // A connected receiver that is still sending wins.
+        if (externalRef.current && Date.now() - lastExternalAtRef.current < EXTERNAL_STALE_MS) return;
         setState((prev) => ({
           ...prev,
           status: 'watching',
@@ -188,6 +274,65 @@ export function useGeolocation(): UseGeolocation {
     });
   }, [start]);
 
+  const disconnectExternal = useCallback(() => {
+    const conn = externalRef.current;
+    externalRef.current = null;
+    lastExternalAtRef.current = 0;
+    void conn?.disconnect();
+    setExternal((prev) => ({ ...prev, status: 'off', receiver: null, errorMessage: null }));
+  }, []);
+
+  const connectExternal = useCallback(async () => {
+    if (externalRef.current) return;
+    setExternal((prev) => ({ ...prev, status: 'connecting', errorMessage: null }));
+    // Set once connect() resolves; lines read before then are ignored.
+    let conn: ExternalGnssConnection | null = null;
+    try {
+      conn = await ExternalGnssConnection.connect({
+        onFix: (fix) => {
+          if (!conn || externalRef.current !== conn) return;
+          const receiver = conn.name;
+          lastExternalAtRef.current = Date.now();
+          setExternal((prev) => (prev.status === 'connected' ? prev : { ...prev, status: 'connected' }));
+          setState((prev) => ({
+            ...prev,
+            status: 'watching',
+            errorMessage: null,
+            position: positionFromGnss(fix, receiver),
+          }));
+        },
+        onNoFix: () => {
+          if (!conn || externalRef.current !== conn) return;
+          setExternal((prev) => ({ ...prev, status: 'waiting' }));
+        },
+        onClose: (error) => {
+          if (!conn || externalRef.current !== conn) return;
+          externalRef.current = null;
+          lastExternalAtRef.current = 0;
+          setExternal((prev) => ({
+            ...prev,
+            status: error ? 'error' : 'off',
+            receiver: null,
+            errorMessage: error,
+          }));
+          // Drop the receiver's last fix; the device watch refills it.
+          setState((prev) => (prev.position?.gnss ? { ...prev, position: null } : prev));
+        },
+      });
+      externalRef.current = conn;
+      const name = conn.name;
+      setExternal((prev) => ({ ...prev, status: 'waiting', receiver: name }));
+    } catch (e) {
+      // Closing the picker is not an error.
+      const cancelled = e instanceof DOMException && e.name === 'NotFoundError';
+      setExternal((prev) => ({
+        ...prev,
+        status: cancelled ? 'off' : 'error',
+        errorMessage: cancelled ? null : e instanceof Error ? e.message : String(e),
+      }));
+    }
+  }, []);
+
   // Cleanup on unmount.
   useEffect(() => {
     return () => {
@@ -195,6 +340,8 @@ export function useGeolocation(): UseGeolocation {
         navigator.geolocation?.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
+      void externalRef.current?.disconnect();
+      externalRef.current = null;
     };
   }, []);
 
@@ -203,6 +350,9 @@ export function useGeolocation(): UseGeolocation {
     start,
     stop,
     toggleFollow,
+    external,
+    connectExternal,
+    disconnectExternal,
   };
 }
 

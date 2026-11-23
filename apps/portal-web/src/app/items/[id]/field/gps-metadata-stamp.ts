@@ -47,10 +47,15 @@
  * layers rely on today. capture_method is always 'point-collected'
  * for the same reason: nothing else reaches the stamp.
  *
- * The Esri schema also defines pdop/hdop/vdop, sat_count, fix_type,
- * corr_age, station_id, dgps_age, gnss_provider; navigator.geolocation
- * doesn't expose those, so we leave them alone (admins on a real GNSS
- * receiver via the Web Bluetooth path can extend this later).
+ * Receiver details (fix type, satellites, DOP, correction age, base
+ * station, error estimates, receiver name) come only from an external
+ * GNSS receiver; the browser's location has none of them, so those
+ * columns stay empty on a phone's own fix. Field Maps' `esrignss_*`
+ * names are recognised too, so a layer moved from ArcGIS Online fills
+ * the same columns it did there. Codes follow Esri: `esrignss_fixtype`
+ * is the GGA fix quality, `esrignss_positionsourcetype` is 2 for the
+ * device's own location and 3 for an external receiver, and
+ * `esrignss_speed` is km/h.
  */
 
 import type { FeatureField } from '@gratis-gis/shared-types';
@@ -67,12 +72,24 @@ type GpsSlot =
   | 'speed'
   | 'fix_at'
   | 'src_type'
-  | 'capture';
+  | 'src_type_code'
+  | 'capture'
+  | 'receiver'
+  | 'fix_type'
+  | 'num_sats'
+  | 'pdop'
+  | 'hdop'
+  | 'vdop'
+  | 'corr_age'
+  | 'station_id'
+  | 'h_rms'
+  | 'v_rms'
+  | 'speed_kmh';
 
 // Generic aliases stay; see "The generic names" in the header.
 const ALIASES: Record<GpsSlot, string[]> = {
-  longitude: ['lon', 'longitude', 'x', 'gps_lon', '_gps_lon'],
-  latitude: ['lat', 'latitude', 'y', 'gps_lat', '_gps_lat'],
+  longitude: ['lon', 'longitude', 'x', 'gps_lon', '_gps_lon', 'esrignss_longitude'],
+  latitude: ['lat', 'latitude', 'y', 'gps_lat', '_gps_lat', 'esrignss_latitude'],
   h_accuracy: [
     'h_accuracy',
     'horizontal_accuracy',
@@ -81,7 +98,7 @@ const ALIASES: Record<GpsSlot, string[]> = {
     'gps_accuracy_m',
     '_gps_accuracy_m',
   ],
-  altitude: ['altitude', 'alt', 'alt_m', 'z', 'gps_altitude_m', '_gps_altitude_m'],
+  altitude: ['altitude', 'alt', 'alt_m', 'z', 'gps_altitude_m', '_gps_altitude_m', 'esrignss_altitude'],
   v_accuracy: [
     'v_accuracy',
     'vertical_accuracy',
@@ -90,7 +107,7 @@ const ALIASES: Record<GpsSlot, string[]> = {
     'gps_altitude_accuracy_m',
     '_gps_altitude_accuracy_m',
   ],
-  heading: ['heading', 'heading_deg', 'gps_heading_deg', '_gps_heading_deg'],
+  heading: ['heading', 'heading_deg', 'gps_heading_deg', '_gps_heading_deg', 'esrignss_direction'],
   speed: ['speed', 'speed_mps', 'gps_speed_mps', '_gps_speed_mps'],
   fix_at: [
     'fix_at',
@@ -98,9 +115,22 @@ const ALIASES: Record<GpsSlot, string[]> = {
     'gps_fix_at',
     '_gps_fix_at',
     'position_timestamp',
+    'esrignss_fixdatetime',
   ],
   src_type: ['position_source_type'],
+  src_type_code: ['esrignss_positionsourcetype'],
   capture: ['capture_method'],
+  receiver: ['gnss_receiver', 'esrignss_receiver'],
+  fix_type: ['fix_type', 'gnss_fix_type', 'esrignss_fixtype'],
+  num_sats: ['num_sats', 'sat_count', 'esrignss_numsats'],
+  pdop: ['pdop', 'esrignss_pdop'],
+  hdop: ['hdop', 'esrignss_hdop'],
+  vdop: ['vdop', 'esrignss_vdop'],
+  corr_age: ['corr_age', 'correction_age', 'dgps_age', 'esrignss_correctionage'],
+  station_id: ['station_id', 'esrignss_stationid'],
+  h_rms: ['h_rms', 'esrignss_h_rms'],
+  v_rms: ['v_rms', 'esrignss_v_rms'],
+  speed_kmh: ['esrignss_speed'],
 };
 
 // Reverse lookup: lowercased alias → slot. Built once at module load.
@@ -130,7 +160,11 @@ export function classifyGpsField(name: string): GpsSlot | null {
   return null;
 }
 
-function valueForSlot(slot: GpsSlot, pos: GpsPosition): unknown {
+/** Field types that hold numbers. */
+const NUMERIC = new Set(['number']);
+
+function valueForSlot(slot: GpsSlot, pos: GpsPosition, fieldType: string): unknown {
+  const g = pos.gnss;
   switch (slot) {
     case 'longitude':
       return pos.lon;
@@ -149,9 +183,34 @@ function valueForSlot(slot: GpsSlot, pos: GpsPosition): unknown {
     case 'fix_at':
       return new Date(pos.fixAt).toISOString();
     case 'src_type':
-      return 'browser-geolocation';
+      return g ? 'external-gnss' : 'browser-geolocation';
+    case 'src_type_code':
+      return g ? 3 : 2;
     case 'capture':
       return 'point-collected';
+    case 'receiver':
+      return g?.receiver;
+    case 'fix_type':
+      if (!g) return undefined;
+      return NUMERIC.has(fieldType) ? g.fixType : g.fixTypeLabel;
+    case 'num_sats':
+      return g?.satellites;
+    case 'pdop':
+      return g?.pdop;
+    case 'hdop':
+      return g?.hdop;
+    case 'vdop':
+      return g?.vdop;
+    case 'corr_age':
+      return g?.correctionAgeS;
+    case 'station_id':
+      return g?.stationId;
+    case 'h_rms':
+      return g?.hRmsM;
+    case 'v_rms':
+      return g?.vRmsM;
+    case 'speed_kmh':
+      return pos.speedMps === null ? null : pos.speedMps * 3.6;
   }
 }
 
@@ -177,7 +236,7 @@ export function stampGpsMetadata(
     if (out[f.name] !== undefined && out[f.name] !== null && out[f.name] !== '') {
       continue;
     }
-    const v = valueForSlot(slot, position);
+    const v = valueForSlot(slot, position, String(f.type));
     if (v === null || v === undefined) continue;
     out[f.name] = v as FormResponse[string];
   }

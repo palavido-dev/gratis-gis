@@ -1934,6 +1934,17 @@ export const en = {
   // refusal gets a line of the viewport rather than a tooltip.
   fieldGps: {
     accuracy: 'GPS accuracy {meters} m',
+    receiverAccuracy: '{fixType} · {sats} sats · ±{meters} m',
+    receiverAccuracyEstimated: '{fixType} · {sats} sats · about ±{meters} m',
+    receiverWaiting: 'Receiver connected, waiting for a fix',
+    receiverTitle: 'GNSS receiver',
+    receiverConnect: 'Connect a GNSS receiver',
+    receiverConnectHint: 'Bluetooth or USB receiver that sends NMEA. Pair it in the phone settings first.',
+    receiverConnecting: 'Connecting',
+    receiverDisconnect: 'Disconnect receiver',
+    receiverInUse: '{receiver} in use',
+    receiverUnsupported: 'Connecting a receiver needs Chrome on Android or a desktop browser. Other browsers use the device location, which an app on the phone can feed from a receiver.',
+    receiverError: 'Receiver: {message}',
     denied:
       'Location is blocked. Allow it in your browser settings to capture at your position.',
     unavailable:

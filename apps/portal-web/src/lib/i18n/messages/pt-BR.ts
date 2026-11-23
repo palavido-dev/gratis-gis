@@ -1856,6 +1856,17 @@ export const ptBR: Partial<CatalogShape> = {
     relatedRowCount: '{count, plural, one {# linha} other {# linhas}}',
   },
   fieldGps: {
+    receiverAccuracy: '{fixType} · {sats} sat. · ±{meters} m',
+    receiverAccuracyEstimated: '{fixType} · {sats} sat. · cerca de ±{meters} m',
+    receiverWaiting: 'Receptor conectado, aguardando posição',
+    receiverTitle: 'Receptor GNSS',
+    receiverConnect: 'Conectar um receptor GNSS',
+    receiverConnectHint: 'Receptor Bluetooth ou USB que envia NMEA. Pareie primeiro nas configurações do telefone.',
+    receiverConnecting: 'Conectando',
+    receiverDisconnect: 'Desconectar receptor',
+    receiverInUse: '{receiver} em uso',
+    receiverUnsupported: 'Conectar um receptor exige o Chrome no Android ou um navegador de desktop. Outros navegadores usam a localização do aparelho, que um app no telefone pode alimentar a partir de um receptor.',
+    receiverError: 'Receptor: {message}',
     accuracy: 'Precisão do GPS {meters} m',
     denied:
       'A localização está bloqueada. Permita-a nas configurações do navegador para capturar na sua posição.',
