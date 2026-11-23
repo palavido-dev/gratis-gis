@@ -34,7 +34,7 @@
  * that writes progress to an ago_import_job row. POST /run still
  * runs it inside the request for API callers.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { EsriWebMap } from '@gratis-gis/engine';
 import { DEFAULT_FILE, DEFAULT_FOLDER } from '@gratis-gis/shared-types';
@@ -54,6 +54,7 @@ import {
   type CreatedExtra,
 } from './field-maps-collection.js';
 import { AgoHostedFsImportService, redactToken } from './hosted-fs.js';
+import { AgoPeopleImportService, type PeopleMaps, type PeopleOptions, type PeopleReport } from './people.js';
 import { classifyAgoType, sortByImportOrder } from './type-mapping.js';
 
 /**
@@ -99,6 +100,8 @@ export interface ImportReport {
   startedAt: string;
   completedAt: string;
   durationMs: number;
+  /** Users and groups, when the run imported them. */
+  people?: PeopleReport;
 }
 
 /** One folder the importer created. The dialog uses this to show
@@ -137,6 +140,7 @@ export class AgoImportService {
     private readonly webMapImport: WebMapJsonImportService,
     private readonly hostedFs: AgoHostedFsImportService,
     private readonly storage: StorageService,
+    @Optional() private readonly people?: AgoPeopleImportService,
   ) {}
 
   /**
@@ -150,6 +154,8 @@ export class AgoImportService {
     portalUrl: string;
     token: string;
     report: DryRunReport;
+    /** Bring the organization's users and groups over first. */
+    people?: PeopleOptions;
     /** Per-item callback so the dialog / async job runner can
      *  stream progress without buffering. May be async; the
      *  importer awaits it before moving to the next item. The
@@ -169,6 +175,12 @@ export class AgoImportService {
       portalUrl: args.portalUrl,
       token: args.token,
     });
+
+    // Users and groups first, so items can be shared with the groups.
+    let people: { report: PeopleReport; maps: PeopleMaps } | null = null;
+    if (args.people?.import && this.people) {
+      people = await this.people.run({ user: args.user, client, options: args.people });
+    }
 
     // Phase 6: pre-create one portal folder per AGO folder that
     // actually contains at least one importable item. Skipping
@@ -320,6 +332,37 @@ export class AgoImportService {
       }
     }
 
+    // Share each imported item with the groups it was shared with in
+    // ArcGIS, now that both exist here.
+    if (people && people.maps.groupIdByAgo.size > 0) {
+      for (const r of results) {
+        if (r.status !== 'created' || !r.portalItemId) continue;
+        let groups: Array<{ id: string }>;
+        try {
+          groups = await client.itemGroups(r.agoId);
+        } catch {
+          continue;
+        }
+        const ids = [r.portalItemId, ...(r.alsoCreated ?? []).map((c) => c.portalItemId)];
+        for (const g of groups) {
+          const groupId = people.maps.groupIdByAgo.get(g.id);
+          if (!groupId) continue;
+          for (const itemId of ids) {
+            try {
+              await this.items.share(args.user, itemId, {
+                principalType: 'group',
+                principalId: groupId,
+                permission: 'view',
+              });
+              people.report.sharesAdded += 1;
+            } catch (e) {
+              r.warnings.push(`Sharing with a group failed: ${errorMessage(e)}`);
+            }
+          }
+        }
+      }
+    }
+
     // Skipped items from the report (willImport=false) are
     // recorded in the result so the dialog can render a single
     // unified table without re-merging with the dry-run.
@@ -372,6 +415,7 @@ export class AgoImportService {
       startedAt: startedAt.toISOString(),
       completedAt: completedAt.toISOString(),
       durationMs: completedAt.getTime() - startedAt.getTime(),
+      ...(people ? { people: people.report } : {}),
     };
     if (stopped) throw new ImportStoppedError(stopped.error, report);
     return report;

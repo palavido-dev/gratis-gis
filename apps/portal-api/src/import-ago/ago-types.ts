@@ -126,3 +126,27 @@ export interface AgoErrorEnvelope {
     details?: string[];
   };
 }
+
+/** A member of an ArcGIS organization, from /portals/self/users. */
+export interface AgoOrgUser {
+  username: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  /** org_admin, org_publisher or org_user. */
+  role?: string;
+  /** Custom or built-in role id; iAAAAAAAAAAAAAAA is Viewer. */
+  roleId?: string;
+  disabled?: boolean;
+}
+
+/** An ArcGIS group. */
+export interface AgoGroup {
+  id: string;
+  title: string;
+  description?: string | null;
+  snippet?: string | null;
+  access?: string;
+  owner?: string;
+}

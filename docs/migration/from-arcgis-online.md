@@ -27,7 +27,8 @@ and what doesn't.
 | Hosted Feature Layer | `data_layer` item | From ArcGIS Online importer (copies features), or a file upload (see below) |
 | Hosted Tile Layer | `basemap` item OR `data_layer` ingested as features | Manual; AGO tile services don't export |
 | Service URL (Living Atlas etc.) | Connected service (`service` item) | Paste URL in the new-item wizard. Older rows may still be `arcgis_service`. |
-| Group | `group` (one-for-one) | Manual recreation; no bulk import yet |
+| User | Keycloak account + `user` row | From ArcGIS Online importer ("Also import users and groups"), or invite from Admin, Users |
+| Group | `group` (one-for-one) | From ArcGIS Online importer, with members; or recreate by hand |
 | Sharing settings | `item_share` rows + `access` field on each item | Per-item; cascade through folders |
 | Folder | `folder` item with `childItemIds` | Manual recreation; bulk folder import is a v2 candidate |
 | Symbology / popups | `MapData.layers[].style` + `popup` | Comes through WebMap import; usually needs an admin polish |
@@ -269,8 +270,10 @@ Before pointing real users at the new portal:
   GDAL command-line `ogr2ogr -f GeoJSON out.geojson in.gpkg` as
   a workaround if you hit a "couldn't open" error during
   import.
-- **Sharing settings don't migrate automatically.** Per-item
-  sharing has to be re-applied in GratisGIS after import. The
+- **Sharing settings migrate only with users and groups.** When the
+  importer brings groups over, each item is shared with the same
+  groups (view permission). Item access levels (private, org,
+  public) and edit-group sharing still need a check after import. The
   portal's housekeeping dashboard surfaces "items with no
   shares" so you can find anything left private by mistake.
 - **Domain-coded field values come across as the *codes*, not

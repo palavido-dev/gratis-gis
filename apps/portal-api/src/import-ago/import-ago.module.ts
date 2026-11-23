@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 
 import { AdminModule } from '../admin/admin.module.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
+import { GroupsModule } from '../groups/groups.module.js';
 import { ItemsModule } from '../items/items.module.js';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { StorageModule } from '../storage/storage.module.js';
@@ -12,6 +13,7 @@ import { AgoDryRunService } from './dry-run.js';
 import { AgoHostedFsImportService } from './hosted-fs.js';
 import { AgoImportService } from './import.js';
 import { AgoImportJobsService } from './jobs.service.js';
+import { AgoPeopleImportService } from './people.js';
 import { ImportAgoController } from './import-ago.controller.js';
 import { OperatorOrgGuard } from '../backup/operator-org.js';
 
@@ -32,6 +34,7 @@ import { OperatorOrgGuard } from '../backup/operator-org.js';
     AdminModule,
     PrismaModule,
     DataLayerFeaturesModule,
+    GroupsModule,
     StorageModule,
   ],
   controllers: [ImportAgoController],
@@ -42,6 +45,7 @@ import { OperatorOrgGuard } from '../backup/operator-org.js';
     AgoHostedFsImportService,
     AgoImportService,
     AgoImportJobsService,
+    AgoPeopleImportService,
   ],
   exports: [
     AgoConnectionsService,
