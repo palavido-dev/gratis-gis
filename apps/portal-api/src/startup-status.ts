@@ -13,8 +13,7 @@
  * no-op. Writing is best effort: a full disk or a read-only mount
  * must never stop the portal from starting.
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 /** Phases the status page knows how to describe. */
 export const STARTUP_PHASES = [
@@ -123,7 +122,10 @@ export function writeStartupStatus(phase: StartupPhase, opts: WriteOptions = {})
     if (opts.detail) status.detail = redact(opts.detail, env);
     if (opts.log) status.log = redact(tailLines(opts.log), env);
     if (lastFailure) status.lastFailure = lastFailure;
-    mkdirSync(dirname(file), { recursive: true });
+    // No mkdir: the NAS bootstrap creates the status folder. When it is
+    // missing this is not a status-page install, so write nothing.
+    // (A recursive mkdir also never returns on some special file
+    // systems, which would hang startup.)
     const tmp = `${file}.tmp`;
     writeFileSync(tmp, `${JSON.stringify(status)}\n`, { mode: 0o644 });
     renameSync(tmp, file);

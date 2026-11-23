@@ -71,9 +71,9 @@ describe('startup status', () => {
     expect(out).toBe('line 57\nline 58\nline 59');
   });
 
-  it('never throws when the file cannot be written', () => {
-    expect(() =>
-      writeStartupStatus('starting', { env: { GG_STATUS_FILE: '/proc/nope/api.json' } }),
-    ).not.toThrow();
+  it('writes nothing and never throws when the folder is missing', () => {
+    const missing = join(dir, 'no-such-folder', 'api.json');
+    expect(() => writeStartupStatus('starting', { env: { GG_STATUS_FILE: missing } })).not.toThrow();
+    expect(existsSync(join(dir, 'no-such-folder'))).toBe(false);
   });
 });
