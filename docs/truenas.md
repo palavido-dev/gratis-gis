@@ -43,8 +43,17 @@ Images are `ghcr.io/palavido-dev/gratis-gis/*` (linux/amd64), tag
    GratisGIS?**, click **Yes, use this address**. That happens when
    the stack cannot see your NAS address by itself (see below).
 
-6. Open the **bootstrap** logs for the first admin password. They look
-   like this:
+6. The page then asks you to **choose your admin password**. Type it
+   twice and click **Save and finish setup**. When setup is done, the
+   page opens GratisGIS. Sign in as `admin` with that password.
+
+   The password you choose is never written to disk or printed in a
+   log. If setting it fails, the bootstrap log prints a first-start
+   password to sign in with instead.
+
+   Installing from a script, or with `GRATIS_UNATTENDED=1`? The page
+   does not ask, and the first-start password is in the **bootstrap**
+   log instead:
 
 ```
 ========== GratisGIS ==========
@@ -54,18 +63,14 @@ Password:           (a long random password)
 This log contains the admin password. Do not post it publicly.
 ```
 
-Open that address from a computer on your home network. Sign in as
-`admin`. Keycloak asks you to choose your own password.
-
-The password appears in the bootstrap log only on that first start.
-Copy it before you change it. A later restart does not print it
-again, and it is not saved as a file on the volume. Do not post the
-first-start log on a forum, in a GitHub issue, or in a screenshot.
-If you already changed the password, you do not need that log.
+   Keycloak asks you to change that one on your first sign-in. It is
+   printed only on the first start. Do not post that log on a forum,
+   in a GitHub issue, or in a screenshot. A public install
+   (`GRATIS_MODE=public`) always uses the log, because it is on the
+   internet before anyone has signed in.
 
 Dockge works the same way: create a stack, paste the same file,
-leave the env box empty, deploy. Then open the web page and read
-the bootstrap logs.
+leave the env box empty, deploy, then open the web page.
 
 ## The status page
 

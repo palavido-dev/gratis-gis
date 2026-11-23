@@ -202,6 +202,73 @@ class ResolveUrlsTests(unittest.TestCase):
             worker.join(timeout=5)
             self.assertEqual(result.get("url"), "http://192.168.1.20:8080")
 
+    def test_check_admin_password(self):
+        check = self.mod.check_admin_password
+        self.assertEqual(check("my garden map 2026", "my garden map 2026"), "")
+        self.assertIn("10", check("short", "short"))
+        self.assertIn("not the same", check("my garden map 2026", "my garden map 2025"))
+        self.assertIn("easy to guess", check("password12", "password12"))
+
+    def test_setup_questions_only_for_interactive_lan(self):
+        import os
+        from unittest import mock
+
+        ask = self.mod.wants_setup_questions
+        with mock.patch.dict(os.environ, {"GRATIS_UNATTENDED": "", "GRATIS_SKIP_PATCH": ""}):
+            self.assertTrue(ask({"GRATIS_MODE": "lan"}))
+            self.assertFalse(ask({"GRATIS_MODE": "public"}))
+        with mock.patch.dict(os.environ, {"GRATIS_UNATTENDED": "1"}):
+            self.assertFalse(ask({"GRATIS_MODE": "lan"}))
+
+    def test_admin_password_round_trip(self):
+        import tempfile
+        import threading
+        import time
+        import urllib.request
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.mod.STATUS_DIR = Path(tmp)
+            self.mod.SETUP_PORT = 18098
+            result = {}
+            worker = threading.Thread(
+                target=lambda: result.setdefault("pw", self.mod.ask_admin_password_in_browser()),
+                daemon=True,
+            )
+            worker.start()
+            self.assertTrue(self._wait_for(Path(tmp) / "bootstrap.json"))
+            self.assertEqual(json.loads((Path(tmp) / "bootstrap.json").read_text())["phase"], "need-admin")
+
+            def post(body):
+                req = urllib.request.Request(
+                    "http://127.0.0.1:18098/__gg_setup/admin",
+                    data=json.dumps(body).encode(),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        return resp.status, json.loads(resp.read())
+                except urllib.error.HTTPError as err:
+                    return err.code, json.loads(err.read())
+
+            deadline = time.time() + 5
+            while True:
+                try:
+                    code, body = post({"password": "short", "confirm": "short"})
+                    break
+                except OSError:
+                    if time.time() > deadline:
+                        raise
+                    time.sleep(0.1)
+            self.assertEqual(code, 400)
+            code, _ = post({"password": "my garden map 2026", "confirm": "my garden map 2026"})
+            self.assertEqual(code, 200)
+            worker.join(timeout=5)
+            self.assertEqual(result.get("pw"), "my garden map 2026")
+            # The password is never written to the status files.
+            self.assertNotIn("garden", (Path(tmp) / "bootstrap.json").read_text())
+
     @staticmethod
     def _wait_for(path, seconds=5.0):
         import time
