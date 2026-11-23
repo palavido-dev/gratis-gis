@@ -94,8 +94,29 @@ Two more limits can sit on a share:
 
 ## Moving users over
 
-There is no import of ArcGIS Online users or groups. Invite people
-from **Admin -> Users**, pick their role there, and recreate the
-groups you need. The invite email asks them to set their own
-password, so email has to be set up first (**Admin ->
-Notifications**).
+The ArcGIS Online importer can bring users and groups over. In
+**Admin**, **ArcGIS Online import and export**, sign in as an ArcGIS
+Online administrator and tick **Also import users and groups** before
+**Run import**.
+
+- **Users** get an account with the same username in lower case,
+  their name and email. A username or email already in the portal
+  is matched instead of duplicated, and a member with no email
+  address is skipped.
+- **Roles:** Administrator becomes Admin, the built-in Viewer role
+  becomes Viewer, and every other role (User, Publisher, Data Editor
+  and custom roles) becomes Contributor. Check custom roles by hand
+  afterward.
+- **Groups** come over with their title, description, sharing level
+  and members. The ArcGIS group owner and managers become group
+  admins. A group with the same title as one already here is reused.
+- **Sharing:** each imported item is shared with the same groups it
+  was shared with in ArcGIS Online, with view permission.
+- **Passwords** never leave ArcGIS Online. Tick **Email new users a
+  link to set their password**, or leave it off and send the links
+  later from **Admin -> Users**. Email has to be set up first under
+  **Admin -> Email delivery**. If
+  your people sign in through a work account (single sign-on), set
+  that up under **Sign-in** instead.
+
+You can still invite people one at a time from **Admin -> Users**.

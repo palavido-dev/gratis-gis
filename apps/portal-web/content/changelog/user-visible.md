@@ -21,6 +21,8 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-23 - Bring ArcGIS Online users and groups over
+The ArcGIS Online importer can now create accounts for your organization's members, recreate groups with their members, and share imported items with the same groups.
 ## 2026-11-23 - Connect a GNSS receiver in the field app
 The field app can now connect to a Bluetooth or USB GNSS receiver in Chrome. It shows the fix type, satellites and accuracy, and fills Field Maps style columns such as fix type, satellites, DOP and correction age on new points.
 

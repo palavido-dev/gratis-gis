@@ -11,11 +11,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  ValidateNested,
 } from 'class-validator';
 import { randomBytes } from 'node:crypto';
 
@@ -48,6 +51,14 @@ class AgoPreviewDto {
   username?: string;
 }
 
+class AgoPeopleDto {
+  @IsBoolean()
+  import!: boolean;
+
+  @IsBoolean()
+  sendSetupEmail!: boolean;
+}
+
 class AgoRunDto {
   @IsString()
   portalUrl!: string;
@@ -57,6 +68,12 @@ class AgoRunDto {
 
   @IsObject()
   report!: DryRunReport;
+
+  /** Bring the organization's users and groups over first. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AgoPeopleDto)
+  people?: AgoPeopleDto;
 }
 
 class CreateConnectionDto {
@@ -254,6 +271,7 @@ export class ImportAgoController {
       portalUrl: dto.portalUrl,
       token: dto.token,
       report: dto.report,
+      ...(dto.people ? { people: dto.people } : {}),
     });
   }
 
@@ -291,6 +309,7 @@ export class ImportAgoController {
       portalUrl: dto.portalUrl,
       token: dto.token,
       report: dto.report,
+      ...(dto.people ? { people: dto.people } : {}),
     });
   }
 

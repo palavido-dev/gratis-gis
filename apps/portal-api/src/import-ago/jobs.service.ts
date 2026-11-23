@@ -17,6 +17,7 @@ import {
   type ImportReport,
 } from './import.js';
 import type { DryRunReport } from './dry-run.js';
+import type { PeopleOptions } from './people.js';
 
 /** How often the runner beats last_heartbeat_at while a job runs. A
  *  long single-item Feature Service copy produces no per-item progress
@@ -71,6 +72,8 @@ export interface StartJobInput {
   portalUrl: string;
   token: string;
   report: DryRunReport;
+  /** Bring the organization's users and groups over first. */
+  people?: PeopleOptions;
 }
 
 /**
@@ -401,6 +404,7 @@ export class AgoImportJobsService
         portalUrl: input.portalUrl,
         token: input.token,
         report: input.report,
+        ...(input.people ? { people: input.people } : {}),
         // Per-item progress callback. The runner uses this to bump
         // done + currentItem on the row so the polling endpoint
         // can render a smooth progress bar. Cheap UPDATE; no need

@@ -35,7 +35,9 @@ import { safeFetch } from '../common/net-guards.js';
 
 import type {
   AgoErrorEnvelope,
+  AgoGroup,
   AgoItem,
+  AgoOrgUser,
   AgoPortalSelf,
   AgoUserContentResponse,
 } from './ago-types.js';
@@ -265,6 +267,50 @@ export class AgoClient {
       `/content/items/${encodeURIComponent(itemId)}/data`,
       {},
     );
+  }
+
+  /** Every member of the signed-in user's organization. Needs an admin token. */
+  async orgUsers(): Promise<AgoOrgUser[]> {
+    return this.pageAll<AgoOrgUser>('/portals/self/users', {}, 'users');
+  }
+
+  /** Every group in an organization. */
+  async orgGroups(orgId: string): Promise<AgoGroup[]> {
+    return this.pageAll<AgoGroup>('/community/groups', { q: `orgid:${orgId}` }, 'results');
+  }
+
+  /** A group's owner, managers and members, by username. */
+  async groupUsers(groupId: string): Promise<{ owner?: string; admins?: string[]; users?: string[] }> {
+    return this.fetchJson(`/community/groups/${encodeURIComponent(groupId)}/users`, {});
+  }
+
+  /** The groups an item is shared with. */
+  async itemGroups(itemId: string): Promise<AgoGroup[]> {
+    const res = await this.fetchJson<{ admin?: AgoGroup[]; member?: AgoGroup[]; other?: AgoGroup[] }>(
+      `/content/items/${encodeURIComponent(itemId)}/groups`,
+      {},
+    );
+    return [...(res.admin ?? []), ...(res.member ?? []), ...(res.other ?? [])];
+  }
+
+  /** Follow AGO's start/nextStart paging to the end. */
+  private async pageAll<T>(path: string, params: Record<string, string>, key: string): Promise<T[]> {
+    const out: T[] = [];
+    let start = 1;
+    // A bound on pages, so a portal answering with a bad nextStart cannot loop.
+    for (let page = 0; page < 1000 && start > 0; page += 1) {
+      const res = await this.fetchJson<Record<string, unknown> & { nextStart?: number }>(path, {
+        ...params,
+        start: String(start),
+        num: '100',
+      });
+      const rows = res[key];
+      if (Array.isArray(rows)) out.push(...(rows as T[]));
+      const next = typeof res.nextStart === 'number' ? res.nextStart : -1;
+      if (next <= start) break;
+      start = next;
+    }
+    return out;
   }
 
   /**
