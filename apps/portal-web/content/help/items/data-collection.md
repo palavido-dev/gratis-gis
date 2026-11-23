@@ -69,6 +69,48 @@ Collectors must be able to sign in (or already have a session) on
 that phone. Sharing the data collection item controls who can open
 the deployment; editing still follows each data layer's permissions.
 
+## GNSS receivers and location details
+
+The field app uses the phone's own location by default. For better
+accuracy, connect an external GNSS receiver:
+
+1. Pair the receiver with the phone or computer in its Bluetooth
+   settings, or plug in a USB receiver on a computer.
+2. In the field app, open the **More** menu and tap **Connect a GNSS
+   receiver**, then pick the receiver.
+3. The strip under the header shows the fix type, satellites and
+   accuracy, for example "RTK fixed · 18 sats · ±0.02 m". When the
+   receiver does not send its own error estimate (an NMEA GST
+   sentence), the accuracy is a rough figure from HDOP and reads
+   "about".
+
+Connecting a receiver needs Chrome on Android, or Chrome or Edge on a
+computer. Other browsers, including every browser on iPhone and
+iPad, cannot reach a receiver directly. There, use the receiver
+maker's app to feed the device's own location (a mock location app
+on Android, or the receiver's app on iOS), and the field app picks it
+up like any other location.
+
+**Location details on new points.** When a point is collected at the
+current location, the app fills these columns if the layer has them,
+and leaves them alone otherwise:
+
+| Detail | Column names |
+|---|---|
+| Latitude, longitude, altitude | `lat`, `lon`, `altitude`, `esrignss_latitude`, `esrignss_longitude`, `esrignss_altitude` and similar |
+| Horizontal and vertical accuracy | `h_accuracy`, `v_accuracy`, `esrignss_h_rms`, `esrignss_v_rms` |
+| Fix type | `fix_type`, `esrignss_fixtype` (a code in a number column, text in a text column) |
+| Satellites | `num_sats`, `esrignss_numsats` |
+| PDOP, HDOP, VDOP | `pdop`, `hdop`, `vdop`, `esrignss_pdop`, `esrignss_hdop`, `esrignss_vdop` |
+| Correction age and base station | `corr_age`, `station_id`, `esrignss_correctionage`, `esrignss_stationid` |
+| Receiver and source | `gnss_receiver`, `position_source_type`, `esrignss_receiver`, `esrignss_positionsourcetype` |
+| Fix time | `fix_at`, `esrignss_fixdatetime` |
+
+The `esrignss_` names are the ones ArcGIS Field Maps uses, so a layer
+moved from ArcGIS Online keeps filling the same columns. Receiver
+details stay empty when the point came from the phone's own location.
+A value the form already has is never overwritten.
+
 ## Offline: Download and Refresh
 
 In the field runtime **More** menu (and on the Layers sheet):

@@ -2220,6 +2220,11 @@ export function FieldRuntime({
           parkedForOthers={parkedForOthers}
           gpsStatus={gps.status}
           gpsAccuracyM={gps.position?.accuracyM ?? null}
+          receiver={gps.external}
+          onConnectReceiver={() => {
+            void gps.connectExternal();
+          }}
+          onDisconnectReceiver={gps.disconnectExternal}
           onDownload={() => void startDownload()}
           onRemoveCache={() => void removeCache()}
           handedness={handedness}
@@ -2260,6 +2265,8 @@ export function FieldRuntime({
         <FieldGpsStrip
           gpsStatus={gps.status}
           accuracyM={gps.position?.accuracyM ?? null}
+          gnss={gps.position?.gnss ?? null}
+          receiverStatus={gps.external.status}
         />
       ) : null}
 
@@ -5675,11 +5682,27 @@ function FieldFeaturePopupSheet({
 function FieldGpsStrip({
   gpsStatus,
   accuracyM,
+  gnss,
+  receiverStatus,
 }: {
   gpsStatus: import('./use-geolocation').GpsStatus;
   accuracyM: number | null;
+  /** Receiver details when the fix came from an external receiver. */
+  gnss: import('./use-geolocation').GnssDetails | null;
+  receiverStatus: import('./use-geolocation').ExternalGnssStatus;
 }) {
   const t = useT();
+  if (receiverStatus === 'waiting' && !gnss) {
+    return (
+      <div
+        aria-live="polite"
+        className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-surface-1 px-3 py-2 text-sm font-semibold text-warn"
+      >
+        <LocateFixed className="h-4 w-4" aria-hidden="true" />
+        {t('fieldGps.receiverWaiting')}
+      </div>
+    );
+  }
   // A refused or missing fix has to be VISIBLE. It used to live only
   // in the locate button's `title` and `aria-label`, neither of which
   // a thumb can reach: the button greyed out, tapping it did nothing,
@@ -5715,11 +5738,24 @@ function FieldGpsStrip({
       className={`flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-surface-1 px-3 py-2 text-sm font-semibold ${tone}`}
     >
       <LocateFixed className="h-4 w-4" aria-hidden="true" />
-      {t('fieldGps.accuracy', {
-        meters: accuracyM < 1 ? '<1' : String(Math.round(accuracyM)),
-      })}
+      {gnss
+        ? t(gnss.accuracyFromReceiver ? 'fieldGps.receiverAccuracy' : 'fieldGps.receiverAccuracyEstimated', {
+            fixType: gnss.fixTypeLabel,
+            sats: gnss.satellites === null ? '?' : String(gnss.satellites),
+            meters: formatReceiverMeters(accuracyM),
+          })
+        : t('fieldGps.accuracy', {
+            meters: accuracyM < 1 ? '<1' : String(Math.round(accuracyM)),
+          })}
     </div>
   );
+}
+
+/** Receiver accuracy: centimeters matter, so keep two decimals under 1 m. */
+function formatReceiverMeters(m: number): string {
+  if (m < 1) return m.toFixed(2);
+  if (m < 10) return m.toFixed(1);
+  return String(Math.round(m));
 }
 
 /**
@@ -5834,6 +5870,9 @@ function FieldMoreMenu({
   parkedForOthers,
   gpsStatus,
   gpsAccuracyM,
+  receiver,
+  onConnectReceiver,
+  onDisconnectReceiver,
   onDownload,
   onRemoveCache,
   onSaveCopy,
@@ -5855,6 +5894,9 @@ function FieldMoreMenu({
   parkedForOthers: number;
   gpsStatus: import('./use-geolocation').GpsStatus;
   gpsAccuracyM: number | null;
+  receiver: import('./use-geolocation').ExternalGnssState;
+  onConnectReceiver: () => void;
+  onDisconnectReceiver: () => void;
   onDownload: () => void;
   onRemoveCache: () => void;
   onSaveCopy: () => void;
@@ -6075,6 +6117,51 @@ function FieldMoreMenu({
             <p className="px-2 pt-1 text-xs text-ink-1">
               {t('fieldOffline.deviceOnlyWarning')}
             </p>
+            {/* External GNSS receiver over Web Serial. */}
+            <div className="px-2 pt-2 text-xs font-semibold uppercase tracking-wide text-muted">
+              {t('fieldGps.receiverTitle')}
+            </div>
+            {!receiver.supported ? (
+              <p className="px-2 py-1 text-xs text-ink-1">{t('fieldGps.receiverUnsupported')}</p>
+            ) : receiver.status === 'off' || receiver.status === 'error' || receiver.status === 'connecting' ? (
+              <button
+                type="button"
+                disabled={receiver.status === 'connecting'}
+                onClick={onConnectReceiver}
+                className="flex w-full items-start gap-2 rounded px-2 py-2 text-left text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-50"
+              >
+                <LocateFixed className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block">
+                    {receiver.status === 'connecting'
+                      ? t('fieldGps.receiverConnecting')
+                      : t('fieldGps.receiverConnect')}
+                  </span>
+                  <span className="block text-xs text-ink-1">{t('fieldGps.receiverConnectHint')}</span>
+                  {receiver.status === 'error' && receiver.errorMessage ? (
+                    <span className="block text-xs text-danger">
+                      {t('fieldGps.receiverError', { message: receiver.errorMessage })}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onDisconnectReceiver}
+                className="flex w-full items-start gap-2 rounded px-2 py-2 text-left text-sm text-ink-0 hover:bg-surface-2"
+              >
+                <LocateFixed className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  <span className="block">{t('fieldGps.receiverDisconnect')}</span>
+                  <span className="block text-xs text-ink-1">
+                    {receiver.status === 'waiting'
+                      ? t('fieldGps.receiverWaiting')
+                      : t('fieldGps.receiverInUse', { receiver: receiver.receiver ?? '' })}
+                  </span>
+                </span>
+              </button>
+            )}
             {/* #772: thumb controls on the left. Leaves the menu open
                 so the collector sees the buttons move behind it. */}
             <button

@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-23 - Connect a GNSS receiver in the field app
+The field app can now connect to a Bluetooth or USB GNSS receiver in Chrome. It shows the fix type, satellites and accuracy, and fills Field Maps style columns such as fix type, satellites, DOP and correction age on new points.
+
 ## 2026-11-23 - Field Maps maps import ready for crews
 The ArcGIS Online importer now turns a web map set up for Field Maps into a data collection. Each layer's Field Maps form becomes a form with its groups, labels and show or required rules, and offline map areas become offline areas.
 
