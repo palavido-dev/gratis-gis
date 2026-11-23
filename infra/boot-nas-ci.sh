@@ -47,6 +47,10 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT
+# Name the command that failed. Without it a red run only says "exit
+# code 255" and the logs above show a healthy stack (PR #787's run).
+set -E
+trap 'echo "boot-nas-ci: failed at line ${LINENO} (exit $?): ${BASH_COMMAND}" >&2' ERR
 
 # A previous run may have left the fixed bootstrap container name.
 docker rm -f gratis-gis-bootstrap >/dev/null 2>&1 || true
