@@ -620,13 +620,13 @@ def check_browser_address(url: str) -> str:
     return ""
 
 
-def ask_address_in_browser(port: str) -> str:
-    """Wait for the status page to send the address the browser used.
+def _ask_in_browser(path: str, phase: str, accept, **status_extra: str) -> str:
+    """Wait for the status page to answer one setup question.
 
-    Runs only when no address could be detected or was set. The status
-    page shows the address in the browser's own address bar and a button
-    to use it. Caddy forwards /__gg_setup/* here on the compose network.
-    The port is not published.
+    Serves POST <path> on SETUP_PORT (Caddy forwards /__gg_setup/* here
+    on the compose network; the port is not published). accept(data)
+    returns (problem, value): a problem goes back to the page, a value
+    ends the wait and is returned. The answer stays in memory.
     """
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import threading
@@ -644,36 +644,47 @@ def ask_address_in_browser(port: str) -> str:
             self.wfile.write(data)
 
         def do_POST(self) -> None:  # noqa: N802 - http.server API
-            if self.path.rstrip("/") != "/__gg_setup/address":
-                self._send(404, {"error": "not found"})
+            if self.path.rstrip("/") != path:
+                self._send(404, {"error": "This question was already answered. Refresh the page."})
                 return
             if "application/json" not in (self.headers.get("Content-Type") or ""):
                 self._send(415, {"error": "send JSON"})
                 return
             length = int(self.headers.get("Content-Length") or 0)
-            if length <= 0 or length > 2048:
+            if length <= 0 or length > 4096:
                 self._send(400, {"error": "bad request"})
                 return
             try:
                 data = json.loads(self.rfile.read(length).decode("utf-8"))
-                url = str(data.get("url", "")).strip().rstrip("/")
-            except (ValueError, AttributeError):
+                if not isinstance(data, dict):
+                    raise ValueError
+            except (ValueError, UnicodeDecodeError):
                 self._send(400, {"error": "bad request"})
                 return
-            problem = check_browser_address(url)
+            problem, value = accept(data)
             if problem:
                 self._send(400, {"error": problem})
                 return
             if not chosen:
-                chosen["url"] = url
-            self._send(200, {"ok": True, "url": chosen["url"]})
+                chosen["value"] = value
+            self._send(200, {"ok": True})
             threading.Thread(target=server.shutdown, daemon=True).start()
 
         def log_message(self, format: str, *args: object) -> None:  # noqa: A002
             return
 
     server = ThreadingHTTPServer(("0.0.0.0", SETUP_PORT), Handler)
-    write_boot_status("need-address", port=port)
+    write_boot_status(phase, **status_extra)
+    server.serve_forever()
+    server.server_close()
+    return chosen["value"]
+
+
+def ask_address_in_browser(port: str) -> str:
+    """The address from the browser's address bar, confirmed on the page.
+
+    Used only when no address could be detected or was set.
+    """
     print(
         "\n========== GratisGIS ==========\n"
         "Open this app's web page in a browser to finish setup.\n"
@@ -682,9 +693,113 @@ def ask_address_in_browser(port: str) -> str:
         "===============================\n",
         flush=True,
     )
-    server.serve_forever()
-    server.server_close()
-    return chosen["url"]
+
+    def accept(data: dict) -> tuple[str, str]:
+        url = str(data.get("url", "")).strip().rstrip("/")
+        problem = check_browser_address(url)
+        return problem, url
+
+    return _ask_in_browser("/__gg_setup/address", "need-address", accept, port=port)
+
+
+ADMIN_PASSWORD_MIN = 10
+
+
+def check_admin_password(password: str, confirm: str) -> str:
+    """The problem to show, or '' when the password can be used."""
+    if len(password) < ADMIN_PASSWORD_MIN:
+        return f"Use at least {ADMIN_PASSWORD_MIN} characters. A short sentence is easy to remember."
+    if len(password) > 256:
+        return "That password is too long."
+    if password != confirm:
+        return "The two passwords are not the same. Type them again."
+    if password.strip().lower() in ("admin12345", "password12", "1234567890", "qwertyuiop"):
+        return "That password is too easy to guess. Pick another one."
+    return ""
+
+
+def ask_admin_password_in_browser() -> str:
+    """The admin password, chosen on the status page on the first start.
+
+    Kept in memory only, then set in Keycloak by set_admin_password()
+    once sign-in is running. The boot volume only ever holds the random
+    first-start password, which this replaces.
+    """
+    print(
+        "\n========== GratisGIS ==========\n"
+        "Open this app's web page in a browser and choose the admin\n"
+        "password there to finish setup.\n"
+        "===============================\n",
+        flush=True,
+    )
+
+    def accept(data: dict) -> tuple[str, str]:
+        password = str(data.get("password", ""))
+        confirm = str(data.get("confirm", ""))
+        return check_admin_password(password, confirm), password
+
+    return _ask_in_browser("/__gg_setup/admin", "need-admin", accept)
+
+
+def wants_setup_questions(values: dict[str, str]) -> bool:
+    """Ask on the status page only for an interactive LAN install.
+
+    A public install is reachable from the internet before anyone has
+    signed in, so its first password stays in the bootstrap log.
+    GRATIS_UNATTENDED=1 (CI, scripted installs) skips the questions too.
+    """
+    if os.environ.get("GRATIS_UNATTENDED", "").strip() in ("1", "true", "yes"):
+        return False
+    if os.environ.get("GRATIS_SKIP_PATCH") == "1":
+        return False
+    return values.get("GRATIS_MODE", "lan") != "public"
+
+
+def set_admin_password(values: dict[str, str], password: str, wait_seconds: int = 600) -> bool:
+    """Make `password` the admin's permanent password in Keycloak."""
+    internal = values["KEYCLOAK_INTERNAL_URL"].rstrip("/")
+    deadline = time.time() + wait_seconds
+    while True:
+        try:
+            form = urllib.parse.urlencode(
+                {
+                    "client_id": "admin-cli",
+                    "username": "admin",
+                    "password": values["KEYCLOAK_ADMIN_PASSWORD"],
+                    "grant_type": "password",
+                }
+            ).encode()
+            status, raw = _request(
+                f"{internal}/realms/master/protocol/openid-connect/token",
+                "POST",
+                form,
+                {"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if status == 200:
+                token = json.loads(raw).get("access_token") or ""
+                auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+                status, raw = _request(
+                    f"{internal}/admin/realms/gratis-gis/users?username=admin&exact=true",
+                    "GET",
+                    None,
+                    auth,
+                )
+                users = json.loads(raw) if status == 200 else []
+                if users:
+                    user_url = f"{internal}/admin/realms/gratis-gis/users/{users[0]['id']}"
+                    put = {**auth, "Content-Type": "application/json"}
+                    body = json.dumps({"type": "password", "value": password, "temporary": False}).encode()
+                    status, _ = _request(f"{user_url}/reset-password", "PUT", body, put)
+                    if status in (200, 204):
+                        # The first-start password was temporary, which left
+                        # a forced password change on the account. Clear it.
+                        _request(user_url, "PUT", json.dumps({"requiredActions": []}).encode(), put)
+                        return True
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, KeyError):
+            pass
+        if time.time() > deadline:
+            return False
+        time.sleep(5)
 
 
 STATUS_PAGE_HTML = """<!doctype html>
@@ -724,6 +839,13 @@ STATUS_PAGE_HTML = """<!doctype html>
   summary { cursor: pointer; font-weight: 600; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
   a { color: var(--accent); }
+  form { display: grid; gap: 8px; }
+  label { font-weight: 600; margin-top: 6px; }
+  label.check { font-weight: 400; display: flex; align-items: center; gap: 8px; }
+  input[type=password], input[type=text] { font: 19px/1.3 system-ui, sans-serif; padding: 12px 14px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--bg); color: var(--ink); width: 100%; }
+  input[type=checkbox] { width: 22px; height: 22px; }
+  form button { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -905,6 +1027,51 @@ STATUS_PAGE_HTML = """<!doctype html>
     showWorking(step[0], text, since, extra);
   }
 
+  function showAdmin() {
+    view.replaceChildren();
+    view.appendChild(el('h1', null, 'Choose your admin password'));
+    view.appendChild(el('p', null, 'You will sign in to GratisGIS with the user name admin and this password. Write it down somewhere safe.'));
+    var form = el('form');
+    var label1 = el('label', { 'for': 'gg-pw' }, 'Password');
+    var pw = el('input', { id: 'gg-pw', type: 'password', autocomplete: 'new-password', minlength: '10', required: 'required' });
+    var label2 = el('label', { 'for': 'gg-pw2' }, 'Type it again');
+    var pw2 = el('input', { id: 'gg-pw2', type: 'password', autocomplete: 'new-password', required: 'required' });
+    var showRow = el('label', { 'class': 'check' });
+    var show = el('input', { type: 'checkbox' });
+    show.addEventListener('change', function () { pw.type = pw2.type = show.checked ? 'text' : 'password'; });
+    showRow.appendChild(show);
+    showRow.appendChild(document.createTextNode(' Show the password'));
+    var tip = el('p', { 'class': 'muted' }, 'At least 10 characters. A short sentence works well, for example: my garden map 2026');
+    var msg = el('p', { 'class': 'bad', role: 'alert' });
+    var btn = el('button', { type: 'submit' }, 'Save and finish setup');
+    [label1, pw, label2, pw2, showRow, tip, btn, msg].forEach(function (n) { form.appendChild(n); });
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      msg.textContent = '';
+      if (pw.value.length < 10) { msg.textContent = 'Use at least 10 characters.'; pw.focus(); return; }
+      if (pw.value !== pw2.value) { msg.textContent = 'The two passwords are not the same. Type them again.'; pw2.focus(); return; }
+      btn.disabled = true;
+      btn.textContent = 'Saving';
+      fetch('/__gg_setup/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw.value, confirm: pw2.value })
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (body) {
+          if (!r.ok) { throw new Error(body.error || 'Setup did not answer. Wait a moment and try again.'); }
+          showWorking(STEPS['setting-up'][0], STEPS['setting-up'][1] + ' Then sign in as admin with the password you chose.', null);
+          timer = setTimeout(tick, 3000);
+        });
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Save and finish setup';
+        msg.textContent = err.message;
+      });
+    });
+    view.appendChild(form);
+    pw.focus();
+  }
+
   var timer = null;
   function tick() {
     // When the portal answers, this request gets the real page: reload.
@@ -920,6 +1087,7 @@ STATUS_PAGE_HTML = """<!doctype html>
         var boot = res[0] || {};
         var api = res[1];
         if (boot.phase === 'need-address') { showAddress(boot); return; }
+        if (boot.phase === 'need-admin') { showAdmin(); return; }
         render(boot, api);
         timer = setTimeout(tick, 4000);
       });
@@ -1705,6 +1873,12 @@ def main() -> None:
         write_boot_status("setting-up" if previous is None else "starting")
         urls = resolve_urls(None)
     values = assemble(urls, secret)
+    # First start only: let the person choose the admin password on the
+    # status page instead of copying a random one out of a log.
+    chosen_password = ""
+    if previous is None and wants_setup_questions(values):
+        chosen_password = ask_admin_password_in_browser()
+        write_boot_status("setting-up")
     write_env(env_path, values)
     write_service_envs(boot, values)
     realm = build_realm(values)
@@ -1728,7 +1902,9 @@ def main() -> None:
     caddy_path.write_text(caddy, encoding="utf-8")
     caddy_path.chmod(0o644)
     first_boot = previous is None
-    text = banner(values, reveal_password=first_boot)
+    text = banner(values, reveal_password=first_boot and not chosen_password)
+    if chosen_password:
+        text += "Admin password: the one chosen on the setup page.\n"
     if previous and previous.get("PUBLIC_URL") not in (None, values["PUBLIC_URL"]):
         text += (
             "WARN: the sign-in address changed after the first start.\n"
@@ -1758,6 +1934,18 @@ def main() -> None:
         patch_keycloak(values)
     except Exception as exc:  # noqa: BLE001 - keep the stack up
         print(f"WARN: Keycloak setup did not finish: {exc}")
+    if chosen_password:
+        if set_admin_password(values, chosen_password):
+            print("The admin password chosen on the setup page is set.", flush=True)
+        else:
+            # Fall back to the first-start password so nobody is locked out.
+            print(
+                "WARN: could not set the admin password chosen on the setup page.\n"
+                "WARN: Sign in with this first-start password instead:\n"
+                f"Password:           {values['INITIAL_USER_PASSWORD']}\n",
+                flush=True,
+            )
+        chosen_password = ""
     # Stay up so TrueNAS shows this container as running and the
     # password remains in `docker logs`.
     _pause_or_return()

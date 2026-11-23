@@ -35,6 +35,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- NAS stack: on the first start, the status page asks you to choose
+  the admin password, so you no longer copy one out of the bootstrap
+  log. The chosen password stays in memory and is set in Keycloak once
+  sign-in is running; it is never written to disk. Public installs and
+  `GRATIS_UNATTENDED=1` keep the old log password.
+
 - NAS stack: the web address shows a status page from the first
   minute: setting up, updating the database, starting, or the error
   when a start fails, in plain words with details to copy. When the
