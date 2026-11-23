@@ -604,12 +604,10 @@ export default async function ItemDetailPage(props: Props) {
   // both are things you check before you change or share something.
   const accessBody = (
     <>
-      {/* Dependency panel runs above Sharing for everyone: knowing
-          what else will break if you touch this item is the same
-          shape of question whether you're the owner or a viewer. */}
-      <section className="mb-8">
-        <ItemDependencies itemId={item.id} />
-      </section>
+      {/* Sharing comes first: it's the control owners reach for most
+          on this tab, and the dependency list can run long enough to
+          push it off a phone screen. Viewers without manage rights
+          see only the dependency panel. */}
       {canManage ? (
         <section id="sharing" className="mb-8">
           <h2 className="mb-4 flex items-center gap-2 text-sm font-medium text-muted">
@@ -680,6 +678,9 @@ export default async function ItemDetailPage(props: Props) {
           />
         </section>
       ) : null}
+      <section className="mb-8">
+        <ItemDependencies itemId={item.id} />
+      </section>
     </>
   );
 
