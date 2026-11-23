@@ -15,7 +15,16 @@ async function main(): Promise<void> {
     async (database) => {
       const target = new URL(url);
       if (database !== null) target.pathname = `/${encodeURIComponent(database)}`;
-      const client = new Client({ connectionString: target.toString() });
+      // No time limit for this connection. The app role carries a 30 s
+      // statement_timeout (migration 20260518150000) so one bad query
+      // cannot hang the portal, but REINDEX DATABASE on a few GB of
+      // layers takes minutes, and hitting the limit left the API
+      // refusing to start on every try (#766). Same exemption as the
+      // migrate step (prisma.config.ts).
+      const client = new Client({
+        connectionString: target.toString(),
+        options: '-c statement_timeout=0 -c lock_timeout=0',
+      });
       await client.connect();
       return client;
     },

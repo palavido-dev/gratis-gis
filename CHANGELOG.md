@@ -127,6 +127,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- After the Postgres image moved to Debian trixie, portal-api could
+  refuse to start on every try ("portal-api is unhealthy"): rebuilding
+  the database's indexes ran into the app role's 30 s statement
+  timeout on larger databases and was cancelled (#766). The rebuild
+  now runs with no time limit, like the migrate step. Nothing was lost:
+  update and start again, and the rebuild finishes on its own.
+
 - The first-run welcome panel (make a map, upload data, load sample
   data) never showed on a new portal: the first admin owns the
   basemaps and templates every org starts with, so "My items" was
