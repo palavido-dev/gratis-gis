@@ -6,7 +6,44 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-23
+
+Minor release: a full expression language with data access, Field
+Maps and users-and-groups import from ArcGIS Online, external GNSS
+receivers in the field app, and report templates.
+
 ### Added
+
+- **Expressions that work like Arcade.** Dates (`date_add`,
+  `date_diff`, `format_date`, `today()`), lists and `IN`, `BETWEEN`,
+  `LIKE`, `CASE`, and text, math and geometry functions. Expressions
+  can read other data: `related()`, `layer()`, `filter()`, `count()`,
+  `nearest()` and `within_distance()`, under the viewer's own access.
+  A **Convert from Arcade** button translates common Arcade. Map layers
+  get an **Expressions** tab for fields that labels and popups use,
+  and the field app works them out offline. Layers an expression reads
+  show under the item's dependencies and travel with sharing.
+- Organization time zone (Admin, Branding) for `today()` and dates in
+  expressions.
+- **Field Maps import.** A web map set up for Field Maps also becomes a
+  data collection, with a form for each layer's Field Maps form
+  (groups, labels, controls, and show, required, editable and
+  calculated rules converted from Arcade where they fit) and an offline
+  area for each offline map area. Arcade labels and popups in imported
+  web maps are converted too.
+- **Users and groups import** from ArcGIS Online (optional, needs an
+  ArcGIS administrator). Accounts with mapped roles, groups with their
+  members, and imported items shared with the same groups. Existing
+  users and groups are matched, not duplicated.
+- **External GNSS receivers** in the field app: connect a Bluetooth or
+  USB receiver in Chrome (Android and desktop) from the More menu. The
+  status strip shows fix type, satellites and accuracy, and new points
+  fill fix type, satellites, DOP, correction age, base station and
+  error columns, including Field Maps' `esrignss_*` names.
+- **Report templates.** A new item that fills a Markdown template with
+  `{{field}}`, `{{= expression }}` and `{{photos}}` placeholders once
+  per feature or form submission and downloads a PDF (up to 100 at a
+  time). Uses the print service's Chromium (`CHROMIUM_WS_ENDPOINTS`).
 
 - The map builder's Measure tool shows a length on each side and the
   area in the middle of the shape, with a switch for each. A finished
@@ -35,6 +72,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- `area()` in expressions measures on the WGS84 ellipsoid, like
+  `ST_Area(geography)`. Results differ from 1.6 by about 0.25%.
+- ArcGIS Online import: a hosted layer that allowed editing keeps
+  editing on as a data layer, and imported web map layers stay
+  editable unless the web map turned editing off. Who can edit still
+  follows sharing. Before, every imported layer had editing off.
+- The item page shows Sharing above Depends on.
 - The open-source project section on the home page (what GratisGIS is
   and is not) is off by default, in the published images and in
   `docker-compose.prod.yml`. On your own portal it read as the

@@ -21,6 +21,8 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## [1.7.0] - 2026-11-23
+
 ## 2026-11-23 - Reports for each feature or form submission
 Report templates are here. Write a document with field placeholders, expressions and photos, preview it, and download a PDF with one report per feature or form submission, like an inspection report.
 
