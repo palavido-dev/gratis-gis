@@ -1129,8 +1129,8 @@ export function encodeTileExpressions(exprs: readonly MapLayerExpression[] | und
 }
 
 /** Inverse of encodeTileExpressions; null when malformed. */
-export function decodeTileExpressions(raw: string): Array<{ name: string; expression: string }> | null {
-  if (raw.length > 40_000) return null;
+export function decodeTileExpressions(raw: unknown): Array<{ name: string; expression: string }> | null {
+  if (typeof raw !== 'string' || raw.length > 40_000) return null;
   const text = b64urlDecode(raw);
   if (text === null) return null;
   let parsed: unknown;

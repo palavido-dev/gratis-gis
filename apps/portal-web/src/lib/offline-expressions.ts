@@ -135,7 +135,7 @@ export function applyOfflineExpressionFields(
 /** What a vector tile would hold: text, numbers and true/false. */
 function toTileValue(v: unknown): unknown {
   if (v === null || v === undefined) return null;
-  if (typeof v === 'object' && v !== null && 'ms' in v) {
+  if (typeof v === 'object' && 'ms' in v) {
     const d = new Date((v as { ms: number }).ms);
     const iso = d.toISOString();
     return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : `${iso.slice(0, 19)}Z`;
