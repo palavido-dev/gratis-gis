@@ -1118,11 +1118,12 @@ services:
         # Next.js inlines them into the client bundle. Setting these
         # only in `environment:` below would not reach the static
         # output that the standalone server serves.
-        # Defaults to "1" for the canonical demo.gratisgis.org deploy so
-        # the open-source project section renders below the Hero. A
-        # per-tenant fork can pass PROJECT_LANDING= in .env.prod (or
-        # explicitly export PROJECT_LANDING=0) to suppress it.
-        NEXT_PUBLIC_PROJECT_LANDING: ${PROJECT_LANDING:-1}
+        # The open-source project section (what GratisGIS is, what it
+        # is not) below the Hero. Off by default: on someone's own
+        # portal it reads as our sales copy. The project's demo turns
+        # it on with PROJECT_LANDING=1 (or NEXT_PUBLIC_PROJECT_LANDING=1,
+        # the name its .env.prod already uses) in .env.prod.
+        NEXT_PUBLIC_PROJECT_LANDING: ${PROJECT_LANDING:-${NEXT_PUBLIC_PROJECT_LANDING:-}}
         NEXT_PUBLIC_GITHUB_REPO: ${GITHUB_REPO:-palavido-dev/gratis-gis}
         # #141: when set to "1", the landing page renders the
         # public-testing banner (three documented test credentials +

@@ -35,6 +35,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- The open-source project section on the home page (what GratisGIS is
+  and is not) is off by default, in the published images and in
+  `docker-compose.prod.yml`. On your own portal it read as the
+  project's sales copy. Set `PROJECT_LANDING=1` to turn it back on.
+
 - NAS stack: on the first start, the status page asks you to choose
   the admin password, so you no longer copy one out of the bootstrap
   log. The chosen password stays in memory and is set in Keycloak once

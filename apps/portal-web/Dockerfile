@@ -76,11 +76,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 
 # #274: NEXT_PUBLIC_* env vars must be present at build time so
 # Next.js can inline them into the client bundle. Setting them in
-# the runtime container env doesn't reach client components. The
-# canonical demo.gratisgis.org deployment passes
-# NEXT_PUBLIC_PROJECT_LANDING=1 as a build arg from compose so the
-# project marketing section renders below the Hero. Per-tenant
-# deployments leave it unset and the Hero stands alone.
+# the runtime container env doesn't reach client components. Off by
+# default: the project's demo passes NEXT_PUBLIC_PROJECT_LANDING=1 as
+# a build arg from compose so the project section renders below the
+# Hero. Everyone else's portal, and the published images, leave it
+# unset and the Hero stands alone.
 ARG NEXT_PUBLIC_PROJECT_LANDING=
 ENV NEXT_PUBLIC_PROJECT_LANDING=$NEXT_PUBLIC_PROJECT_LANDING
 ARG NEXT_PUBLIC_GITHUB_REPO=
