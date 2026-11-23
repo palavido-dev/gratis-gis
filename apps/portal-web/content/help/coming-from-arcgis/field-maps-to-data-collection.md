@@ -2,7 +2,7 @@
 id: coming-from-arcgis-field-maps
 title: Field Maps to data collection
 seoTitle: "ArcGIS Field Maps alternative: open source offline data collection"
-summary: "How a Field Maps workflow maps onto a GratisGIS data collection item and the field app. Offline download, forms and sync carry over. Projects do not import."
+summary: "How a Field Maps workflow maps onto a GratisGIS data collection item and the field app. The ArcGIS Online importer brings over Field Maps maps, forms and offline areas."
 category: getting-started/coming-from-arcgis
 order: 35
 complexity: basic
@@ -26,8 +26,9 @@ field app. The field app runs in the phone's browser and can be
 added to the home screen, so there is nothing to install from an
 app store.
 
-It is not a drop-in for Field Maps. The setup is done again in
-GratisGIS, and a Field Maps project does not import.
+It is not a drop-in for Field Maps, but the ArcGIS Online importer
+brings most of the setup over. See
+[What the importer brings over](#what-the-importer-brings-over).
 
 ## What lines up
 
@@ -41,7 +42,42 @@ GratisGIS, and a Field Maps project does not import.
 | Sharing the map to a field group | Sharing the **data collection** item | Who can edit still follows each data layer's own sharing. |
 | App link or QR code | **QR code** and **copy link** on the item page | Collectors sign in on their own phone. |
 
-## Moving a Field Maps workflow over
+## What the importer brings over
+
+When the importer copies a web map that was set up for Field Maps,
+it also makes:
+
+- **A data collection** that opens the imported map in the field app.
+- **A form for each layer that had a Field Maps form.** The form
+  keeps the fields, their order, labels, groups and text. Radio
+  buttons, drop-downs, multi-line text, barcode scanning and date
+  pickers carry over.
+- **Form rules.** Show, required and editable rules, and calculated
+  values, are converted from Arcade. Rules that compare fields, check
+  for empty values, use `IIf`, `IsEmpty`, `Includes` or simple text
+  and number functions convert. A rule that reads other layers or
+  uses more Arcade than the form rules support is dropped, and the
+  import report says which field it was on and what happens instead.
+- **Offline areas** from the map's offline map areas. Build each one
+  on the data collection's page before crews download.
+- **Editing settings.** A layer that allowed editing in ArcGIS Online
+  allows it here, unless the web map turned editing off for it.
+
+A web map counts as set up for Field Maps when Field Maps is not
+turned off for it, it has a layer crews can edit, and it has a Field
+Maps form or the keywords ArcGIS Online adds to maps used for field
+editing or offline work.
+
+The importer does not bring over attachment and related records
+elements, Field Maps layer templates, geofences, tracking, or
+Field Maps Designer settings stored outside the web map. Photos still
+attach through the field app when the layer has attachments turned
+on.
+
+## Moving a Field Maps workflow over by hand
+
+If you used the importer, check the data collection it made and skip
+to step 5. Otherwise:
 
 1. Move the layers first. See
    [Feature service to data layer](/help/coming-from-arcgis/feature-service-to-data-layer).

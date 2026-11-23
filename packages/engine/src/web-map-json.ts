@@ -441,6 +441,17 @@ export function webMapJsonToLenses(json: EsriWebMap): {
     if (layer.popupInfo && typeof layer.popupInfo === 'object') {
       (lens.query as { agoPopup?: unknown }).agoPopup = layer.popupInfo;
     }
+    // The Field Maps form and whether the map lets this layer be
+    // edited, for the import to build a data collection from.
+    const formInfo = (layer as { formInfo?: unknown }).formInfo;
+    if (formInfo && typeof formInfo === 'object') {
+      (lens.query as { agoFormInfo?: unknown }).agoFormInfo = formInfo;
+    }
+    const capabilities = (layer.layerDefinition as { capabilities?: unknown } | undefined)
+      ?.capabilities;
+    if (typeof capabilities === 'string') {
+      (lens.query as { agoCapabilities?: string }).agoCapabilities = capabilities;
+    }
     // Same for the layer's own visibility and opacity, so a hidden or
     // faded layer stays that way after import.
     if (typeof layer.visibility === 'boolean') {

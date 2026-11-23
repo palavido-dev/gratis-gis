@@ -21,6 +21,12 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-23 - Field Maps maps import ready for crews
+The ArcGIS Online importer now turns a web map set up for Field Maps into a data collection. Each layer's Field Maps form becomes a form with its groups, labels and show or required rules, and offline map areas become offline areas.
+
+## 2026-11-23 - Expressions that work like Arcade
+Expressions now handle dates, lists and IN, and can look up related records, count features nearby or find the nearest one. Add them to a map layer as fields for labels and popups, convert Arcade with one button, and they keep working offline in the field app.
+
 ## 2026-11-20 - Measurements you can move, size and keep
 Measure now labels each side and the area right on the map. Drag a finished measurement to move or reshape it, type an exact size like 10 acres, and save it to markup with its labels.
 

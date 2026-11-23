@@ -48,6 +48,11 @@ import { WebMapJsonImportService } from '../items/web-map-json-import.service.js
 import { AgoApiError, AgoClient } from './ago-client.js';
 import { agoTokenMayGoTo, agoTokenOrigins } from './ago-url.js';
 import { agoAccessToPortal, type DryRunItem, type DryRunReport } from './dry-run.js';
+import {
+  createFieldMapsCollection,
+  isFieldMapsMap,
+  type CreatedExtra,
+} from './field-maps-collection.js';
 import { AgoHostedFsImportService, redactToken } from './hosted-fs.js';
 import { classifyAgoType, sortByImportOrder } from './type-mapping.js';
 
@@ -70,6 +75,9 @@ export interface ImportResult {
   warnings: string[];
   /** Set when status is 'failed'. */
   error?: string;
+  /** Items made alongside the main one, e.g. a Field Maps web map's
+   *  data collection and forms. */
+  alsoCreated?: CreatedExtra[];
 }
 
 /**
@@ -287,7 +295,9 @@ export class AgoImportService {
         item.ownerFolder &&
         folderChildIds.has(item.ownerFolder)
       ) {
-        folderChildIds.get(item.ownerFolder)!.push(result.portalItemId);
+        folderChildIds
+          .get(item.ownerFolder)!
+          .push(result.portalItemId, ...(result.alsoCreated ?? []).map((c) => c.portalItemId));
       }
       // Progress hook fires AFTER folder bookkeeping so the runner
       // sees the final state for this item. The callback can also
@@ -635,13 +645,33 @@ export class AgoImportService {
     } catch (e) {
       return failed(row, `Fetching WebMap JSON failed: ${errorMessage(e)}`);
     }
+    const access = agoAccessToPortal(row.access);
     const result = await this.webMapImport.import({
       user,
       webMap,
       title: row.title,
-      access: agoAccessToPortal(row.access),
+      access,
       agoDataLayerLookup: agoUrlToPortalDataLayer,
     });
+    // A map set up for Field Maps also becomes a data collection,
+    // with its Field Maps forms and offline areas.
+    let fieldMaps: Awaited<ReturnType<typeof createFieldMapsCollection>> | null = null;
+    if (isFieldMapsMap(row.agoTypeKeywords ?? [], result.fieldLayers ?? [])) {
+      try {
+        fieldMaps = await createFieldMapsCollection({
+          items: this.items,
+          client,
+          user,
+          agoMapId: row.agoId,
+          title: row.title,
+          mapItemId: result.itemId,
+          access,
+          layers: result.fieldLayers,
+        });
+      } catch (e) {
+        result.warnings.push(`The Field Maps data collection was not created: ${errorMessage(e)}`);
+      }
+    }
     return {
       agoId: row.agoId,
       agoType: row.agoType,
@@ -656,7 +686,16 @@ export class AgoImportService {
             ]
           : []),
         ...result.warnings,
+        ...(fieldMaps
+          ? [
+              `Also created a data collection for Field Maps${
+                fieldMaps.created.length > 1 ? ` with ${fieldMaps.created.length - 1} form(s)` : ''
+              }.`,
+              ...fieldMaps.warnings,
+            ]
+          : []),
       ],
+      ...(fieldMaps ? { alsoCreated: fieldMaps.created } : {}),
     };
   }
 

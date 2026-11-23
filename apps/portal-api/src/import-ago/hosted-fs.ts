@@ -88,6 +88,8 @@ interface AgoLayerDescribe {
   spatialReference?: { wkid?: number; latestWkid?: number };
   objectIdField?: string;
   globalIdField?: string;
+  /** e.g. "Create,Delete,Query,Update,Editing"; Query alone is read only. */
+  capabilities?: string;
 }
 
 /** Paginated `query` response when `f=geojson`. */
@@ -565,7 +567,9 @@ export class AgoHostedFsImportService {
       name: sanitizeSublayerId(layer.name ?? `layer_${layer.id}`),
       geometryType,
       fields,
-      editingEnabled: false,
+      // Editing carries over when the ArcGIS layer allows it. Who may
+      // edit still follows the data layer's sharing.
+      editingEnabled: /\b(create|update|editing)\b/i.test(layer.capabilities ?? ''),
       attachmentsEnabled: Boolean(layer.hasAttachments),
     };
   }
