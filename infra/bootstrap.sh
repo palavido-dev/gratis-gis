@@ -199,23 +199,50 @@ if [[ "$ORG_NAME" == *$'\n'* || "$ORG_NAME" == *'#'* || "$ORG_NAME" == *\\* || "
 fi
 
 if [ "$QUIET" != "1" ]; then
-  say ""
-  say "Checking DNS (warnings only; Caddy retries until the names exist)..."
+  # The HTTPS certificate needs all three names pointing at this
+  # server. A wrong record is the most common reason a new install
+  # never comes up, so explain it plainly and offer to wait for it.
   SERVER_IP=""
   if command -v curl >/dev/null 2>&1; then
     SERVER_IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
   fi
-  for host in "$DOMAIN" "$AUTH_DOMAIN" "$STORAGE_DOMAIN"; do
-    resolved=""
-    if command -v getent >/dev/null 2>&1; then
-      resolved="$(getent hosts "$host" 2>/dev/null | awk '{print $1}' | head -1 || true)"
+  while :; do
+    say ""
+    say "Checking that your domain names point at this server..."
+    DNS_BAD=0
+    for host in "$DOMAIN" "$AUTH_DOMAIN" "$STORAGE_DOMAIN"; do
+      resolved=""
+      if command -v getent >/dev/null 2>&1; then
+        resolved="$(getent ahostsv4 "$host" 2>/dev/null | awk '{print $1}' | head -1 || true)"
+      fi
+      if [ -z "$resolved" ]; then
+        warn "${host} does not point anywhere yet."
+        DNS_BAD=1
+      elif [ -n "$SERVER_IP" ] && [ "$resolved" != "$SERVER_IP" ]; then
+        warn "${host} points at ${resolved}, but this server is ${SERVER_IP}."
+        DNS_BAD=1
+      else
+        say "  ok  ${host} -> ${resolved:-?}"
+      fi
+    done
+    [ "$DNS_BAD" = "0" ] && break
+    say ""
+    say "At the company where you bought your domain (its DNS settings),"
+    TARGET_IP="${SERVER_IP:-the public IP address of this server}"
+    say "add an A record for each name above, pointing to ${TARGET_IP}:"
+    say "  ${DOMAIN}"
+    say "  ${AUTH_DOMAIN}"
+    say "  ${STORAGE_DOMAIN}"
+    say "Changes usually show up within a few minutes, sometimes longer."
+    if ! { : </dev/tty; } 2>/dev/null; then
+      say "Continuing; the site comes up on its own once the names point here."
+      break
     fi
-    if [ -z "$resolved" ]; then
-      warn "${host} does not resolve yet. Add an A record pointing at this server."
-    elif [ -n "$SERVER_IP" ] && [ "$resolved" != "$SERVER_IP" ]; then
-      warn "${host} resolves to ${resolved}, but this server's public IP looks like ${SERVER_IP}."
-    else
-      say "  ok  ${host} -> ${resolved:-?}"
+    answer=""
+    read -r -p "Press Enter to check again, or type skip to continue anyway: " answer < /dev/tty || answer="skip"
+    if [ "${answer,,}" = "skip" ]; then
+      say "Continuing; the site comes up on its own once the names point here."
+      break
     fi
   done
 fi

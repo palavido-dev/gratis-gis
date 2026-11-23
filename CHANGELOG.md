@@ -6,6 +6,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ## [Unreleased]
 
+### Added
+
+- The one-command installer checks the server first and says in plain
+  words what to fix (memory, disk, web ports, internet access, Docker),
+  stopping before it changes anything. It offers to install Docker and
+  the basic tools when they are missing, the setup explains which DNS
+  records to add and can wait for them, and the install ends by waiting
+  for the portal to answer over HTTPS, with the doctor's findings if it
+  does not. `install.sh --check` only checks.
+
 ## [1.7.0] - 2026-11-23
 
 Minor release: a full expression language with data access, Field
