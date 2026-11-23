@@ -35,6 +35,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Changed
 
+- NAS stack: the web address shows a status page from the first
+  minute: setting up, updating the database, starting, or the error
+  when a start fails, in plain words with details to copy. When the
+  stack cannot detect the NAS address, the page asks for it with one
+  click instead of asking you to edit the compose file. Caddy no
+  longer waits for the rest of the stack, and services that wait on
+  the first start or a long database update keep waiting instead of
+  being left in "Created". Paste the new `docker-compose.nas.yml` to
+  get it; older pasted files keep working as before.
+
 - The help is published on the project website at
   gratisgis.org/help. Help pages on a portal name that copy as their
   canonical URL, and the public demo (`NEXT_PUBLIC_PUBLIC_TESTING=1`)

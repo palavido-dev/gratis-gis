@@ -114,6 +114,7 @@ __NAS_INIT_BODY__
         END_NAS_INIT
     volumes:
       - boot:/boot
+      - status:/status
       - chromium-env:/svc/chromium
       - pointcloud-env:/svc/pointcloud
     healthcheck:
@@ -121,7 +122,15 @@ __NAS_INIT_BODY__
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 5s
+      # Long on purpose (all services that wait for bootstrap): the first
+      # start can wait for someone to click "Use this address" on the
+      # status page, and an update can spend minutes rebuilding indexes.
+      # Failed checks inside this window do not count, so Compose keeps
+      # waiting instead of giving up and leaving services in "Created".
+      # A healthy check ends it at once (start_interval), and a crash
+      # still shows at once, as a restart.
+      start_period: 24h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -157,7 +166,8 @@ __NAS_INIT_BODY__
       interval: 5s
       timeout: 5s
       retries: 20
-      start_period: 20s
+      start_period: 24h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -191,7 +201,8 @@ __NAS_INIT_BODY__
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 120s
+      start_period: 24h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -230,7 +241,8 @@ __NAS_INIT_BODY__
       interval: 5s
       timeout: 5s
       retries: 30
-      start_period: 15s
+      start_period: 24h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -254,6 +266,9 @@ __NAS_INIT_BODY__
         exec /usr/bin/tini -- /usr/local/bin/docker-entrypoint.sh node dist/main.js
     environment:
       GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
+      # Where startup progress goes for the status page Caddy shows
+      # while the portal is starting or updating.
+      GG_STATUS_FILE: /status/api.json
       NODE_OPTIONS: --max-old-space-size=1024
       # Empty keeps unpaged feature reads streaming; `required` refuses
       # them and points at the csv export.
@@ -314,6 +329,8 @@ __NAS_INIT_BODY__
       TILE_CACHE_DISK_MAX_FILES: ${TILE_CACHE_DISK_MAX_FILES:-}
     volumes:
       - boot:/boot:ro
+      # Startup progress for the status page (src/startup-status.ts).
+      - status:/status
       # Admin backup archives. Recreating the container keeps them.
       - portal-api-backups:/app/backups
       - gg-staging:/var/lib/gg-staging
@@ -330,7 +347,8 @@ __NAS_INIT_BODY__
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 90s
+      start_period: 6h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -385,7 +403,8 @@ __NAS_INIT_BODY__
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 40s
+      start_period: 1h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -456,7 +475,8 @@ __NAS_INIT_BODY__
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 30s
+      start_period: 1h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -499,7 +519,8 @@ __NAS_INIT_BODY__
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 40s
+      start_period: 1h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -533,7 +554,8 @@ __NAS_INIT_BODY__
       interval: 10s
       timeout: 5s
       retries: 18
-      start_period: 40s
+      start_period: 1h
+      start_interval: 3s
     networks:
       - gratis-net
 
@@ -541,9 +563,56 @@ __NAS_INIT_BODY__
     image: caddy:2.10-alpine
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
+    # Caddy starts first and on its own. Until bootstrap has finished,
+    # it serves only the status page (and forwards the "use this
+    # address" button to bootstrap), so the web address shows progress
+    # from the first minute instead of nothing. After that it runs the
+    # Caddyfile bootstrap wrote, which shows the same page whenever the
+    # portal does not answer: during an update, or when a start fails.
     command:
       - |
-        until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+        mkdir -p /tmp/gg
+        cat > /tmp/gg/Caddyfile <<'END_STATUS_CADDY'
+        {
+        	auto_https off
+        	admin off
+        }
+        :8080 {
+        	header X-GG-Status 1
+        	header Cache-Control no-store
+        	handle /__gg_ping {
+        		respond "ok" 200
+        	}
+        	handle_path /__gg_status/* {
+        		root * /status
+        		file_server
+        	}
+        	handle /__gg_setup/* {
+        		reverse_proxy bootstrap:8099
+        	}
+        	@page file {
+        		root /boot/status-page
+        		try_files /index.html
+        	}
+        	handle @page {
+        		root * /boot/status-page
+        		rewrite * /index.html
+        		file_server
+        	}
+        	handle {
+        		respond "GratisGIS is starting. Refresh this page in a minute." 503
+        	}
+        }
+        END_STATUS_CADDY
+        if [ "$$(cat /boot/ready 2>/dev/null)" != "$$GRATIS_BOOT_STAMP" ]; then
+          caddy run --config /tmp/gg/Caddyfile --adapter caddyfile &
+          pid=$$!
+          trap 'kill -TERM $$pid 2>/dev/null; wait $$pid; exit 0' TERM INT
+          until [ "$$(cat /boot/ready 2>/dev/null)" = "$$GRATIS_BOOT_STAMP" ]; do sleep 1; done
+          kill -TERM $$pid 2>/dev/null
+          wait $$pid 2>/dev/null || true
+          trap - TERM INT
+        fi
         exec caddy run --config /boot/Caddyfile --adapter caddyfile
     ports:
       # Host port -> Caddy's port 8080 inside the container.
@@ -560,14 +629,12 @@ __NAS_INIT_BODY__
       GRATIS_BOOT_STAMP: *GRATIS_BOOT_STAMP
     volumes:
       - boot:/boot:ro
+      - status:/status:ro
       - caddy-data:/data
-    depends_on:
-      portal-web:
-        condition: service_healthy
-      keycloak:
-        condition: service_healthy
+    # No depends_on: Caddy must be up even when the portal cannot start,
+    # so the status page can say why.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/__gg_ping"]
       interval: 10s
       timeout: 5s
       retries: 18
@@ -577,6 +644,9 @@ __NAS_INIT_BODY__
 
 volumes:
   boot:
+  # Startup progress for the status page: bootstrap.json and api.json.
+  # Tiny, and rewritten at every start. Nothing to back up.
+  status:
   # One reduced env file each (see nas-init.py SERVICE_ENV_DIRS).
   chromium-env:
   pointcloud-env:

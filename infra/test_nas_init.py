@@ -128,6 +128,91 @@ class ResolveUrlsTests(unittest.TestCase):
         self.assertEqual(urls["s3"], "https://storage.gis.example.org")
 
 
+    def test_status_page_has_no_dollar_signs(self):
+        # The script is pasted into a compose file. Compose reads a
+        # dollar sign as a variable and would mangle the page.
+        self.assertNotIn("$", self.mod.STATUS_PAGE_HTML)
+        self.assertNotIn("$", self.mod.STATUS_ROUTES)
+
+    def test_both_caddyfiles_show_the_status_page(self):
+        lan = self.mod.caddy_lan("8080", "", ["192.168.1.20"])
+        public = self.mod.caddy_public("gis.example.org", "auth.example.org", "s3.example.org", "a@b.c")
+        for text in (lan, public):
+            self.assertIn("handle_errors 502 503 504", text)
+            self.assertIn("handle_path /__gg_status/*", text)
+            self.assertIn("handle /__gg_ping", text)
+        # The status routes sit in the portal site, not the auth site.
+        self.assertLess(public.index("handle_errors"), public.index("auth.example.org {"))
+
+    def test_check_browser_address(self):
+        check = self.mod.check_browser_address
+        self.assertEqual(check("http://192.168.1.20:8080"), "")
+        self.assertEqual(check("https://nas.tail1234.ts.net"), "")
+        self.assertNotEqual(check("ftp://192.168.1.20"), "")
+        self.assertNotEqual(check("http://"), "")
+        self.assertNotEqual(check("http://192.168.1.20:8080/maps"), "")
+
+    def test_address_prompt_round_trip(self):
+        import tempfile
+        import threading
+        import time
+        import urllib.request
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.mod.STATUS_DIR = Path(tmp)
+            self.mod.SETUP_PORT = 18099
+            result = {}
+            worker = threading.Thread(
+                target=lambda: result.setdefault("url", self.mod.ask_address_in_browser("8080")),
+                daemon=True,
+            )
+            worker.start()
+            status = json.loads((Path(tmp) / "bootstrap.json").read_text()) if self._wait_for(Path(tmp) / "bootstrap.json") else {}
+            self.assertEqual(status.get("phase"), "need-address")
+
+            def post(body, ctype="application/json"):
+                req = urllib.request.Request(
+                    "http://127.0.0.1:18099/__gg_setup/address",
+                    data=body,
+                    headers={"Content-Type": ctype},
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        return resp.status, json.loads(resp.read())
+                except urllib.error.HTTPError as err:
+                    return err.code, json.loads(err.read())
+
+            deadline = time.time() + 5
+            while True:
+                try:
+                    code, body = post(b'{"url": "http://192.168.1.20:8080/maps"}')
+                    break
+                except OSError:
+                    if time.time() > deadline:
+                        raise
+                    time.sleep(0.1)
+            self.assertEqual(code, 400)
+            self.assertIn("address", body["error"])
+            code, _ = post(b"url=x", "application/x-www-form-urlencoded")
+            self.assertEqual(code, 415)
+            code, body = post(b'{"url": "http://192.168.1.20:8080/"}')
+            self.assertEqual(code, 200)
+            worker.join(timeout=5)
+            self.assertEqual(result.get("url"), "http://192.168.1.20:8080")
+
+    @staticmethod
+    def _wait_for(path, seconds=5.0):
+        import time
+
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if path.exists():
+                return True
+            time.sleep(0.05)
+        return False
+
 if __name__ == "__main__":
     unittest.main()
 
