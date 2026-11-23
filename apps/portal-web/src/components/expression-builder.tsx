@@ -232,15 +232,15 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
         .then(async (r) => {
           if (!r.ok) throw new Error(await r.text());
           return r.json() as Promise<{
-            expressions: Record<string, { issues: Array<{ message: string }> }>;
-            rows: Array<{ id: string; values: Record<string, unknown> }>;
+            expressions: Array<{ key: string; issues: Array<{ message: string }> }>;
+            rows: Array<{ id: string; values: unknown[] }>;
           }>;
         })
         .then((j) => {
           setPreview({
             loading: false,
-            rows: j.rows.map((r) => ({ id: r.id, value: r.values.v })),
-            issues: (j.expressions.v?.issues ?? []).map((i) => i.message),
+            rows: j.rows.map((r) => ({ id: r.id, value: r.values[0] ?? null })),
+            issues: (j.expressions[0]?.issues ?? []).map((i) => i.message),
           });
         })
         .catch((e: unknown) => {

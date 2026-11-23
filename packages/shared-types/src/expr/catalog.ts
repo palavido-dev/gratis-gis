@@ -1217,7 +1217,7 @@ export const FUNCTIONS: FnSpec[] = [
         params: ['feature', 'area-unit'],
         optional: 1,
         returns: 'number',
-        sql: (a) => `(ST_Area(${a[0]!.sql}::geography, false) / ${sqlNumLit(AREA_UNITS[(a[1]?.lit as string) ?? 'square-meters']!)})`,
+        sql: (a) => `(ST_Area(${a[0]!.sql}::geography, true) / ${sqlNumLit(AREA_UNITS[(a[1]?.lit as string) ?? 'square-meters']!)})`,
         js: (a) => {
           const g = geomOf(a[0]!);
           return g ? geodesicArea(g) / AREA_UNITS[(a[1] as string | undefined) ?? 'square-meters']! : null;

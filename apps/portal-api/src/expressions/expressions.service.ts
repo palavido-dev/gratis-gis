@@ -44,10 +44,10 @@ export const MAX_EVALUATE_EXPRESSIONS = 20;
 export const EXPRESSION_STATEMENT_TIMEOUT = '15s';
 
 export interface EvaluateResult {
-  /** Per expression key: its type and problems. */
-  expressions: Record<string, { type: ValueType | null; issues: ExpressionIssue[] }>;
-  /** One entry per feature, values by expression key. */
-  rows: Array<{ id: string; values: Record<string, unknown> }>;
+  /** One entry per expression, in request order: its type and problems. */
+  expressions: Array<{ key: string; type: ValueType | null; issues: ExpressionIssue[] }>;
+  /** One entry per feature; `values` follows `expressions`' order. */
+  rows: Array<{ id: string; values: unknown[] }>;
 }
 
 export interface CompiledForLayer {
@@ -142,13 +142,13 @@ export class ExpressionsService {
     }
     const layer = this.layerOf(args.item, args.layerId);
     const { data, outer } = await this.prepare(args.viewer, args.item, args.layerId, Object.values(args.expressions));
-    const result: EvaluateResult = { expressions: Object.create(null) as EvaluateResult['expressions'], rows: [] };
-    const good: Array<{ key: string; checked: CheckResult; ast: ReturnType<typeof parseExpression> }> = [];
-    for (const key of keys) {
+    const result: EvaluateResult = { expressions: [], rows: [] };
+    const good: Array<{ index: number; checked: CheckResult; ast: ReturnType<typeof parseExpression> }> = [];
+    keys.forEach((key, index) => {
       const a = this.analyze(layer, args.expressions[key]!, data);
-      result.expressions[key] = { type: a.type, issues: a.issues };
-      if (a.ast && a.checked && a.issues.length === 0) good.push({ key, checked: a.checked, ast: a.ast });
-    }
+      result.expressions.push({ key, type: a.type, issues: a.issues });
+      if (a.ast && a.checked && a.issues.length === 0) good.push({ index, checked: a.checked, ast: a.ast });
+    });
     if (good.length === 0) return result;
 
     const limit = Math.min(Math.max(args.limit ?? 10, 1), MAX_EVALUATE_ROWS);
@@ -187,7 +187,7 @@ export class ExpressionsService {
         columns.push(`${c.type === 'date' ? `gg_expr_ts_text(${c.sql})` : c.sql} AS v${k}`);
       } catch (e) {
         if (!(e instanceof ExpressionError)) throw e;
-        result.expressions[g.key]!.issues.push({ message: e.message, pos: e.pos });
+        result.expressions[g.index]!.issues.push({ message: e.message, pos: e.pos });
         columns.push(`NULL AS v${k}`);
       }
     }
@@ -196,13 +196,13 @@ export class ExpressionsService {
       ORDER BY o.global_id
       LIMIT ${ids.length > 0 ? ids.length : limit}`;
     const rows = await this.runBounded<Record<string, unknown>>(sql, params);
-    result.rows = rows.map((r) => ({
-      id: String(r.id),
-      values: Object.assign(
-        Object.create(null) as Record<string, unknown>,
-        Object.fromEntries(good.map((g, k) => [g.key, normalize(r[`v${k}`])])),
-      ),
-    }));
+    result.rows = rows.map((r) => {
+      const values: unknown[] = keys.map(() => null);
+      good.forEach((g, k) => {
+        values[g.index] = normalize(r[`v${k}`]);
+      });
+      return { id: String(r.id), values };
+    });
     return result;
   }
 

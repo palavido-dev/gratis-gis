@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * Geodesic measures on a sphere, matching PostGIS's
- * `ST_Area(geog, false)`, `ST_Length(geog, false)` and
- * `ST_Distance(geog, geog, false)`, which use a sphere of the WGS84
- * mean radius. The planar centroid matches `ST_Centroid(geometry)`.
+ * Geodesic measures. Areas are on the WGS84 ellipsoid, matching
+ * PostGIS's `ST_Area(geog)`. Lengths and distances are on a sphere of
+ * the WGS84 mean radius, matching `ST_Length(geog, false)` and
+ * `ST_Distance(geog, geog, false)`. The planar centroid matches
+ * `ST_Centroid(geometry)`.
  *
  * GeoJSON coordinates are [longitude, latitude] in degrees.
  */
@@ -35,22 +36,41 @@ function lineLength(coords: Pos[]): number {
   return total;
 }
 
-/** Signed spherical area of a ring in square meters. */
+// WGS84, for areas on the ellipsoid.
+const WGS84_A = 6378137;
+const WGS84_F = 1 / 298.257223563;
+const E2 = WGS84_F * (2 - WGS84_F);
+const E = Math.sqrt(E2);
+function qOf(sinPhi: number): number {
+  return (
+    (1 - E2) *
+    (sinPhi / (1 - E2 * sinPhi * sinPhi) - (1 / (2 * E)) * Math.log((1 - E * sinPhi) / (1 + E * sinPhi)))
+  );
+}
+const Q_P = qOf(1);
+/** Radius of the sphere with the ellipsoid's surface area. */
+const R_AUTHALIC = WGS84_A * Math.sqrt(Q_P / 2);
+/** Authalic latitude in radians: maps the ellipsoid to that sphere, keeping areas. */
+const authalic = (latDeg: number) => Math.asin(Math.max(-1, Math.min(1, qOf(Math.sin(rad(latDeg))) / Q_P)));
+
+/**
+ * Signed area of a ring in square meters on the WGS84 ellipsoid,
+ * matching `ST_Area(geography)`. The ring is moved to the authalic
+ * sphere, which keeps areas, and measured there by spherical excess.
+ */
 function ringArea(coords: Pos[]): number {
   const n = coords.length;
   if (n < 4) return 0;
-  // Exact spherical excess, edge by edge: each edge contributes the
-  // signed area of the triangle it forms with the pole.
   let total = 0;
   for (let i = 0; i < n - 1; i += 1) {
     const p1 = coords[i]!;
     const p2 = coords[i + 1]!;
-    const t1 = Math.tan(rad(p1[1]!) / 2);
-    const t2 = Math.tan(rad(p2[1]!) / 2);
+    const t1 = Math.tan(authalic(p1[1]!) / 2);
+    const t2 = Math.tan(authalic(p2[1]!) / 2);
     const dl = rad(p2[0]! - p1[0]!);
     total += 2 * Math.atan2(Math.tan(dl / 2) * (t1 + t2), 1 + t1 * t2);
   }
-  return total * EARTH_RADIUS_M * EARTH_RADIUS_M;
+  return total * R_AUTHALIC * R_AUTHALIC;
 }
 
 function polygonArea(rings: Pos[][]): number {

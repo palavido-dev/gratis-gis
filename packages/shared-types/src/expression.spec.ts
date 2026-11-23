@@ -252,10 +252,10 @@ describe('evaluation: geometry', () => {
     type: 'Polygon',
     coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]],
   };
-  it('measures area and perimeter on the sphere', () => {
+  it('measures area on the ellipsoid and perimeter on the sphere', () => {
     const acres = run("area($feature, 'acres')", {}, { geometry: square }) as number;
-    expect(acres).toBeGreaterThan(305);
-    expect(acres).toBeLessThan(307);
+    expect(acres).toBeGreaterThan(303.5);
+    expect(acres).toBeLessThan(305);
     const km = run("length($feature, 'kilometers')", {}, { geometry: square }) as number;
     expect(km).toBeCloseTo(4.448, 2);
     expect(run('round(x($feature), 3)', {}, { geometry: square })).toBe(0.005);
