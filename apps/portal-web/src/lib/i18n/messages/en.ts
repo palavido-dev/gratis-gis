@@ -3595,6 +3595,17 @@ export const en = {
     fileMissingTitle:
       'This backup finished, but its file is no longer in the backup folder. It may have been moved, deleted by hand, or belong to an earlier restore of the database. It cannot be downloaded or restored.',
   },
+  // Shown instead of welcome.intro on a new portal, where "My items"
+  // holds only the catalog every org starts with.
+  // The landing page's public-items box for someone already signed in.
+  landingSignedIn: {
+    publicItemsEmpty:
+      'Nothing is shared publicly yet. Your own maps and data are in My items.',
+  },
+  welcomeDefaults: {
+    intro:
+      'Pick a starting point. The basemaps and templates in your list come with every new portal, ready to use.',
+  },
   welcome: {
     title: 'Welcome to GratisGIS',
     intro: 'Your workspace is empty. Pick a starting point.',

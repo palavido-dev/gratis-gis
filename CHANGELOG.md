@@ -116,6 +116,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The first-run welcome panel (make a map, upload data, load sample
+  data) never showed on a new portal: the first admin owns the
+  basemaps and templates every org starts with, so "My items" was
+  never empty. It now shows above the list while every item there is
+  one of those defaults. Item list rows now include `seedKind`.
+- A signed-in user with no public items on the home page was told to
+  sign in. It now points to My items.
+
 - Imagery and elevation layers stored as a single file (COG) draw on
   the map again. The page security policy was blocking the workers
   that decode them, so the layer stayed blank.
