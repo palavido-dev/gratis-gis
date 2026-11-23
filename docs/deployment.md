@@ -12,8 +12,8 @@ is the tested path, not aspiration.
   4 GB can boot the stack for evaluation but leave little headroom.
   20 GB or more of free disk.
 - Docker Engine with the compose v2 plugin, plus git, curl, openssl,
-  and python3. The installer checks and tells you what is missing; it does
-  not install Docker for you.
+  and python3. The installer offers to install any of these that are
+  missing (Docker through Docker's official install script).
 - Three DNS A records pointing at the server: the portal hostname, an
   auth hostname, and a storage hostname (for example `gis.example.org`,
   `auth.gis.example.org`, `storage.gis.example.org`). Certificates come
@@ -27,9 +27,26 @@ One command:
 curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash
 ```
 
-It clones the repo to `/opt/gratis-gis` (override with `GRATIS_DIR`),
-checks out the newest release tag (override with `GG_REF`), runs the
-guided setup, deploys, and prints where to sign in.
+It first checks the server and says in plain words what needs fixing:
+memory (4 GB minimum), free disk (20 GB minimum), web ports 80 and 443,
+the sites the install downloads from, and Docker. If something must be
+fixed it stops before changing anything. It offers to install Docker and
+the basic tools when they are missing (`GRATIS_ASSUME_YES=1` answers yes
+for an unattended run).
+
+Then it clones the repo to `/opt/gratis-gis` (override with
+`GRATIS_DIR`), checks out the newest release tag (override with
+`GG_REF`), and runs the guided setup. The setup checks that your three
+domain names point at this server, explains which DNS records to add
+if they do not, and can wait while you add them. Then it deploys, waits
+for the portal to answer over HTTPS, and prints where to sign in. If the
+portal does not come up, it shows what `infra/doctor.sh` found.
+
+To only check a server, changing nothing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash -s -- --check
+```
 
 The same flow by hand:
 

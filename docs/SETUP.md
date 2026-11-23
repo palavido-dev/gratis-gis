@@ -63,7 +63,7 @@ repo. Mint's own codename is not a Docker suite.
 
 | Tool | Why | Install |
 | --- | --- | --- |
-| Docker Engine with the Compose v2 plugin | Runs the infra containers. `infra/install.sh` and `pnpm infra:up` both require `docker compose` to already work. | Docker's apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`. Ubuntu 24.04 and Mint 22 follow the [Ubuntu engine install](https://docs.docker.com/engine/install/ubuntu/). Debian 12 follows the [Debian engine install](https://docs.docker.com/engine/install/debian/). |
+| Docker Engine with the Compose v2 plugin | Runs the infra containers. `infra/install.sh` offers to install it; `pnpm infra:up` requires `docker compose` to already work. | Docker's apt repo: `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin`, `docker-compose-plugin`. Ubuntu 24.04 and Mint 22 follow the [Ubuntu engine install](https://docs.docker.com/engine/install/ubuntu/). Debian 12 follows the [Debian engine install](https://docs.docker.com/engine/install/debian/). |
 | `docker` group | The daemon must be reachable by your user. `docker info` has to succeed before `pnpm infra:up`. | `sudo usermod -aG docker "$USER"`, then log out and back in. |
 | Node.js 24.9 or newer, via nvm | `engines` requires `>=24.9.0`. Production images are Node 24 LTS. | Install [nvm](https://github.com/nvm-sh/nvm), then `nvm install 24` and `nvm alias default 24`. |
 | pnpm 9+ via corepack | The repo pins `packageManager` to pnpm 9.12.0. | `corepack enable && corepack prepare pnpm@9.12.0 --activate` |

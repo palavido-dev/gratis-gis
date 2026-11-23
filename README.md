@@ -73,6 +73,10 @@ org (the public demo runs on that).
 curl -fsSL https://raw.githubusercontent.com/palavido-dev/gratis-gis/main/infra/install.sh | bash
 ```
 
+It checks the server first and says in plain words what to fix, offers
+to install Docker if it is missing, and waits until the portal answers.
+Add `-s -- --check` after `bash` to only check a server.
+
 Or by hand:
 
 ```bash
