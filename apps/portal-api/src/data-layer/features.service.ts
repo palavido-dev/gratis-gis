@@ -12,10 +12,10 @@ import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 import {
   ExpressionError,
   describeViolations,
-  evaluateExpression,
+  checkExpression,
+  evaluateExpressionValue,
   fieldRefTypeFor,
   parseExpression,
-  validateExpression,
   validateFeatureProperties,
   type FeatureField,
   type FieldDomain,
@@ -25,6 +25,7 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { expressionTimeZone } from '../expressions/time-zone.js';
 import { parseIntEnv } from '../common/env.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -1801,7 +1802,7 @@ export class DataLayerFeaturesService {
     } catch (err) {
       if (err instanceof ExpressionError) {
         throw new BadRequestException(
-          `expression: ${err.message} (at position ${err.pos})`,
+          `expression: ${err.message} (at character ${err.pos + 1})`,
         );
       }
       throw err;
@@ -1877,10 +1878,17 @@ export class DataLayerFeaturesService {
             name,
             type: 'unknown' as const,
           }));
-    const validationErrors = validateExpression(ast, schemaRefs);
-    if (validationErrors.length > 0) {
+    const checkOpts = {
+      fields: schemaRefs,
+      allowUnknownFields: layerFields.length === 0,
+    };
+    const timeZone = await expressionTimeZone(this.prisma);
+    const analysis = checkExpression(ast, checkOpts);
+    if (analysis.issues.length > 0) {
       throw new BadRequestException(
-        `expression: ${validationErrors.join('; ')}`,
+        `expression: ${analysis.issues
+          .map((i) => `${i.message} (at character ${i.pos + 1})`)
+          .join('; ')}`,
       );
     }
 
@@ -1911,7 +1919,13 @@ export class DataLayerFeaturesService {
       const oldValue = (f.properties as Record<string, unknown>)[args.outputName];
       let raw: unknown;
       try {
-        raw = evaluateExpression(ast, f.properties as Record<string, unknown>);
+        raw = evaluateExpressionValue(ast, {
+          ...checkOpts,
+          properties: f.properties as Record<string, unknown>,
+          geometry: f.geometry ?? null,
+          as: args.outputType,
+          timeZone,
+        });
       } catch {
         errors += 1;
         raw = null;

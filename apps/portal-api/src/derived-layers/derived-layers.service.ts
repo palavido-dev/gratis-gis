@@ -9,6 +9,7 @@ import {
   type ToolStep,
 } from '@gratis-gis/shared-types';
 
+import { expressionTimeZone } from '../expressions/time-zone.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   dataLayerScope,
@@ -805,6 +806,7 @@ export class DerivedLayersService {
       const stepParams = generator.validate(step.params);
       const fragment = generator.toSql(inputAlias, stepParams, params.length, {
         inputSchema: schema,
+        timeZone: await expressionTimeZone(this.prisma),
       });
       const cteName = `${prefix}_step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
@@ -1001,6 +1003,7 @@ export class DerivedLayersService {
     opts: {
       bbox?: [number, number, number, number];
       at?: string;
+      timeZone?: string;
     } = {},
   ): { sql: string; params: unknown[] } {
     const data = item.data as unknown as DerivedLayerData;
@@ -1058,7 +1061,7 @@ export class DerivedLayersService {
         inputAlias,
         params,
         queryParams.length,
-        { inputSchema: schema },
+        { inputSchema: schema, ...(opts.timeZone ? { timeZone: opts.timeZone } : {}) },
       );
       const cteName = `step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);

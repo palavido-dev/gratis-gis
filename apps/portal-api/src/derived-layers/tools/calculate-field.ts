@@ -2,21 +2,16 @@
 import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
 import {
-  compileExpression,
+  analyzeExpression,
+  compileExpressionSql,
   fieldRefTypeFor,
-  parseExpression,
-  validateExpression,
-  ExpressionError,
-  isSqlSafeFieldName,
-  SQL_SAFE_FIELD_NAME_RE,
 } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
-import { numericTextSql } from './numeric-text.js';
 
 export interface CalculateFieldParams {
   outputName: string;
-  outputType: 'number' | 'string' | 'boolean';
+  outputType: 'number' | 'string' | 'boolean' | 'date';
   expression: string;
 }
 
@@ -32,31 +27,6 @@ const RESERVED_FIELD_NAMES = new Set<string>([
   '_observation_id',
   'global_id',
 ]);
-
-function columnForField(
-  fieldName: string,
-  schema: FeatureField[],
-): string {
-  // Allowlist gate (SEC-expr-field-allowlist). Parser already
-  // enforces this; refuse to emit SQL if a bad name slips through.
-  if (!isSqlSafeFieldName(fieldName)) {
-    throw new BadRequestException(
-      `calculate-field expression field "${fieldName}" must match ${SQL_SAFE_FIELD_NAME_RE}`,
-    );
-  }
-  const ref = schema.find((f) => f.name === fieldName);
-  const raw = `(properties->>'${fieldName}')`;
-  switch (ref?.type) {
-    case 'number':
-      // Non-numeric text (empty, "n/a") reads as NULL instead of
-      // failing the whole query.
-      return numericTextSql(raw);
-    case 'boolean':
-      return `(${raw}::boolean)`;
-    default:
-      return raw;
-  }
-}
 
 /**
  * Calculate-field generator (#77).  Appends one user-named attribute
@@ -117,10 +87,11 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
     if (
       outputType !== 'number' &&
       outputType !== 'string' &&
-      outputType !== 'boolean'
+      outputType !== 'boolean' &&
+      outputType !== 'date'
     ) {
       throw new BadRequestException(
-        "calculate-field.params.outputType must be 'number', 'string', or 'boolean'",
+        "calculate-field.params.outputType must be 'number', 'string', 'boolean' or 'date'",
       );
     }
     const expression = r.expression;
@@ -139,30 +110,18 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
         `calculate-field.params.expression must be at most ${MAX_EXPRESSION_LENGTH} characters`,
       );
     }
-    let ast;
-    try {
-      ast = parseExpression(expression);
-    } catch (err) {
-      if (err instanceof ExpressionError) {
-        throw new BadRequestException(
-          `calculate-field.params.expression: ${err.message} (at position ${err.pos})`,
-        );
-      }
-      throw err;
-    }
-    if (ctx?.sourceSchema) {
-      const schema = ctx.sourceSchema.map((f) => ({
-        name: f.name,
-        // Same mapping as filter.ts: the cast carried date and
-        // multi_select through as if they were one of the four types.
-        type: fieldRefTypeFor(f.type),
-      }));
-      const errors = validateExpression(ast, schema);
-      if (errors.length > 0) {
-        throw new BadRequestException(
-          `calculate-field.params.expression: ${errors.join('; ')}`,
-        );
-      }
+    // Syntax always; types and field names when the source schema is
+    // known (save time). Positions are 1-based for people.
+    const analysis = analyzeExpression(expression, {
+      fields: (ctx?.sourceSchema ?? []).map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
+      allowUnknownFields: !ctx?.sourceSchema,
+    });
+    if (analysis.issues.length > 0) {
+      throw new BadRequestException(
+        `calculate-field.params.expression: ${analysis.issues
+          .map((i) => `${i.message} (at character ${i.pos + 1})`)
+          .join('; ')}`,
+      );
     }
     return { outputName, outputType, expression };
   },
@@ -196,33 +155,30 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
     paramOffset: number,
     ctx?: ToolSqlContext,
   ) {
-    const ast = parseExpression(params.expression);
-    // Same as filter: the compiler emits no casts, so numeric fields
-    // are cast here from the input schema the caller threads through.
     const schema: FeatureField[] = ctx?.inputSchema ?? [];
-    const compiled = compileExpression(
-      ast,
-      (name) => columnForField(name, schema),
+    const compiled = compileExpressionSql(params.expression, {
+      fields: schema.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
+      allowUnknownFields: true,
+      row: { propertiesSql: `${inputAlias}.properties`, geomSql: `${inputAlias}.geom` },
       paramOffset,
-    );
+      as: params.outputType,
+      ...(ctx?.timeZone ? { timeZone: ctx.timeZone } : {}),
+    });
     // Pass the field name as a parameter so the JSONB key never has
     // to be escaped by hand. jsonb_build_object takes VARIADIC "any",
     // so the key needs an explicit ::text: an untyped parameter there
-    // fails to plan under the pg driver.
+    // fails to plan under the pg driver. Dates are stored as text, the
+    // way every date field is.
     const fieldNameIdx = paramOffset + compiled.params.length + 1;
-    const valueCast =
-      params.outputType === 'number'
-        ? '::double precision'
-        : params.outputType === 'boolean'
-          ? '::boolean'
-          : '::text';
+    const value =
+      params.outputType === 'date' ? `gg_expr_ts_text(${compiled.sql})` : compiled.sql;
     const sql = `
       SELECT
         ${inputAlias}.global_id,
         ${inputAlias}.geom,
         ${inputAlias}.properties || jsonb_build_object(
           $${fieldNameIdx}::text,
-          (${compiled.sql})${valueCast}
+          ${value}
         ) AS properties
       FROM ${inputAlias}
     `;

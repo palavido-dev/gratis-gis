@@ -83,6 +83,8 @@ export interface ToolSqlFragment {
  */
 export interface ToolSqlContext {
   inputSchema?: FeatureField[];
+  /** IANA time zone for today() in expressions. Defaults to UTC. */
+  timeZone?: string;
 }
 
 /**

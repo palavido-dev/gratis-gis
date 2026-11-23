@@ -50,6 +50,15 @@ export function BrandingForm({ initial }: Props) {
     initial.landingFeaturedItemIds,
   );
 
+  const [timeZone, setTimeZone] = useState(initial.timeZone ?? '');
+  const zones = useMemo(() => {
+    try {
+      return (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? [];
+    } catch {
+      return [];
+    }
+  }, []);
+  const deviceZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, []);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +73,7 @@ export function BrandingForm({ initial }: Props) {
     if ((subtitle.trim() || null) !== (initial.landingSubtitle ?? null))
       return true;
     if (heroImageUrl !== (initial.landingHeroImageUrl ?? null)) return true;
+    if ((timeZone.trim() || null) !== (initial.timeZone ?? null)) return true;
     if (showPublicItems !== initial.landingShowPublicItems) return true;
     const saved = initial.landingFeaturedItemIds;
     if (featuredIds.length !== saved.length) return true;
@@ -78,6 +88,7 @@ export function BrandingForm({ initial }: Props) {
     heroImageUrl,
     showPublicItems,
     featuredIds,
+    timeZone,
     initial,
   ]);
 
@@ -94,6 +105,7 @@ export function BrandingForm({ initial }: Props) {
         // items list, so per-row UUID validation isn't needed here
         // any more: invalid pastes can't get into the state.
         landingFeaturedItemIds: featuredIds,
+        timeZone: timeZone.trim() || null,
       };
       // Only include name if it actually changed AND is non-empty.
       // The server rejects empty strings (org.name is required)
@@ -158,6 +170,42 @@ export function BrandingForm({ initial }: Props) {
           <p className="mt-1 text-2xs text-muted">
             {t('adminBranding.orgNameHint')}
           </p>
+        </div>
+
+        <div>
+          <label
+            htmlFor="org-time-zone"
+            className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted"
+          >
+            {t('adminTimeZone.label')}
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="org-time-zone"
+              type="text"
+              list="org-time-zone-options"
+              value={timeZone}
+              onChange={(e) => setTimeZone(e.target.value)}
+              placeholder={t('adminTimeZone.placeholder')}
+              maxLength={64}
+              className="h-10 w-full rounded-md border border-border bg-surface-1 px-3 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30"
+            />
+            {deviceZone && deviceZone !== timeZone ? (
+              <button
+                type="button"
+                onClick={() => setTimeZone(deviceZone)}
+                className="h-10 shrink-0 rounded-md border border-border px-3 text-xs text-ink-1 hover:bg-surface-2"
+              >
+                {t('adminTimeZone.useDevice', { zone: deviceZone })}
+              </button>
+            ) : null}
+          </div>
+          <datalist id="org-time-zone-options">
+            {zones.map((z) => (
+              <option key={z} value={z} />
+            ))}
+          </datalist>
+          <p className="mt-1 text-2xs text-muted">{t('adminTimeZone.hint')}</p>
         </div>
 
         <div>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Body, Controller, Get, Optional, Patch, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Optional, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -16,6 +16,7 @@ import { AdminGuard } from './admin.guard.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { clearExpressionTimeZoneCache, isValidTimeZone } from '../expressions/time-zone.js';
 
 /**
  * Admin-only read/write for the Organization-level settings the
@@ -69,6 +70,10 @@ class UpdateBrandingDto {
   @ArrayMaxSize(50)
   @IsUUID('loose', { each: true })
   landingFeaturedItemIds?: string[];
+
+  /** IANA time zone used by today() in expressions; null for UTC. */
+  @IsOptional() @IsString() @MaxLength(64)
+  timeZone?: string | null;
 }
 
 @ApiTags('admin', 'branding')
@@ -94,6 +99,7 @@ export class AdminBrandingController {
         landingHeroImageUrl: true,
         landingShowPublicItems: true,
         landingFeaturedItemIds: true,
+        timeZone: true,
       },
     });
     return org;
@@ -146,6 +152,13 @@ export class AdminBrandingController {
         validSet.has(id),
       );
     }
+    if (dto.timeZone !== undefined) {
+      const tz = dto.timeZone?.trim() || null;
+      if (tz !== null && !isValidTimeZone(tz)) {
+        throw new BadRequestException(`"${tz}" is not a time zone this server knows`);
+      }
+      data.timeZone = tz;
+    }
     const updated = await this.prisma.organization.update({
       where: { id: user.orgId },
       data,
@@ -158,8 +171,10 @@ export class AdminBrandingController {
         landingHeroImageUrl: true,
         landingShowPublicItems: true,
         landingFeaturedItemIds: true,
+        timeZone: true,
       },
     });
+    if (data.timeZone !== undefined) clearExpressionTimeZoneCache();
     void this.audit?.record({
       orgId: user.orgId,
       actorUserId: user.id,

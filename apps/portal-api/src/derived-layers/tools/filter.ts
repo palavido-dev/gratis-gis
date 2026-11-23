@@ -2,17 +2,12 @@
 import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
 import {
-  compileExpression,
-  parseExpression,
-  validateExpression,
-  ExpressionError,
+  analyzeExpression,
+  compileExpressionSql,
   fieldRefTypeFor,
-  isSqlSafeFieldName,
-  SQL_SAFE_FIELD_NAME_RE,
 } from '@gratis-gis/shared-types';
 
 import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
-import { numericTextSql } from './numeric-text.js';
 
 export interface FilterParams {
   expression: string;
@@ -24,40 +19,6 @@ export interface FilterParams {
  * pathological input that would blow up the SQL planner.
  */
 const MAX_EXPRESSION_LENGTH = 2000;
-
-/**
- * Resolve a {{field}} reference to a typed SQL expression against
- * the row's properties JSONB blob.  Numbers cast to double precision
- * (so arithmetic + numeric comparisons work), booleans cast to
- * boolean, strings stay as text.  Unknown types fall back to text,
- * which is the conservative pick: every JSONB value is representable
- * as text, and SQL's TEXT comparisons sort as the user expects.
- */
-function columnForField(
-  fieldName: string,
-  schema: FeatureField[],
-): string {
-  // Allowlist gate (SEC-expr-field-allowlist). The expression
-  // tokenizer already rejects non-matching refs; this assert keeps
-  // the SQL emitter from ever falling back to quote-doubling alone.
-  if (!isSqlSafeFieldName(fieldName)) {
-    throw new BadRequestException(
-      `filter field "${fieldName}" must match ${SQL_SAFE_FIELD_NAME_RE}`,
-    );
-  }
-  const ref = schema.find((f) => f.name === fieldName);
-  const raw = `(properties->>'${fieldName}')`;
-  switch (ref?.type) {
-    case 'number':
-      // Non-numeric text (empty, "n/a") reads as NULL instead of
-      // failing the whole query.
-      return numericTextSql(raw);
-    case 'boolean':
-      return `(${raw}::boolean)`;
-    default:
-      return raw;
-  }
-}
 
 /**
  * Attribute filter generator (#76).  Compiles the user's expression
@@ -95,29 +56,18 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
       );
     }
     // Parse to catch syntax errors at save time.
-    let ast;
-    try {
-      ast = parseExpression(expression);
-    } catch (err) {
-      if (err instanceof ExpressionError) {
-        throw new BadRequestException(
-          `filter.params.expression: ${err.message} (at position ${err.pos})`,
-        );
-      }
-      throw err;
-    }
-    // Schema check when we have the source schema (save time).
-    if (ctx?.sourceSchema) {
-      const schema = ctx.sourceSchema.map((f) => ({
-        name: f.name,
-        type: fieldRefTypeFor(f.type),
-      }));
-      const errors = validateExpression(ast, schema);
-      if (errors.length > 0) {
-        throw new BadRequestException(
-          `filter.params.expression: ${errors.join('; ')}`,
-        );
-      }
+    // Syntax always; types and field names when the source schema is
+    // known (save time). Positions are 1-based for people.
+    const analysis = analyzeExpression(expression, {
+      fields: (ctx?.sourceSchema ?? []).map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
+      allowUnknownFields: !ctx?.sourceSchema,
+    });
+    if (analysis.issues.length > 0) {
+      throw new BadRequestException(
+        `filter.params.expression: ${analysis.issues
+          .map((i) => `${i.message} (at character ${i.pos + 1})`)
+          .join('; ')}`,
+      );
     }
     return { expression };
   },
@@ -140,20 +90,18 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     paramOffset: number,
     ctx?: ToolSqlContext,
   ) {
-    // Parse again at SQL time.  This is cheap (the AST is built from
-    // a short string) and means save-time and read-time validation
-    // stay in lockstep without persisting the AST.
-    const ast = parseExpression(params.expression);
-    // The compiler emits no casts of its own, and properties->>'x' is
-    // always text, so `{{acres}} > 5` only works when the column is
-    // cast from the field's declared type. The caller threads the
-    // input schema for that; a field it does not know stays text.
+    // Compile at SQL time from the saved text, so save-time and
+    // read-time checks cannot drift. Fields the schema does not
+    // declare read as untyped text rather than failing the read.
     const schema: FeatureField[] = ctx?.inputSchema ?? [];
-    const compiled = compileExpression(
-      ast,
-      (name) => columnForField(name, schema),
+    const compiled = compileExpressionSql(params.expression, {
+      fields: schema.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
+      allowUnknownFields: true,
+      row: { propertiesSql: `${inputAlias}.properties`, geomSql: `${inputAlias}.geom` },
       paramOffset,
-    );
+      predicate: true,
+      ...(ctx?.timeZone ? { timeZone: ctx.timeZone } : {}),
+    });
     const sql = `
       SELECT
         ${inputAlias}.global_id,

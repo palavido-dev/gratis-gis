@@ -20,15 +20,16 @@ related:
   - reference-expression-language
 ---
 
-GratisGIS does not run Arcade. Web map imports from ArcGIS Online
-drop Arcade expressions with a warning. Labels and popups take plain
+GratisGIS does not run Arcade, but its expression language covers
+most of what Arcade expressions do, and accepts many Arcade
+spellings as they are. Web map imports from ArcGIS Online drop Arcade
+expressions with a warning. Labels and popups take plain
 field references such as `{name}`, and do not evaluate expressions.
 Computed values come from the **Filter** and **Calculate field**
 steps on a [derived layer](/help/items/derived-layer), which use a
 small expression language of their own.
 
-This page covers that expression language as the Filter and
-Calculate field steps accept it today. It is smaller than Arcade.
+This page translates common Arcade patterns.
 
 ## Where each kind of Arcade goes
 
@@ -44,45 +45,56 @@ Calculate field steps accept it today. It is smaller than Arcade.
 
 ## The expression language in one minute
 
-- Fields: `{{status}}`. Names are case-sensitive.
-- Text: single quotes, `'open'`.
-- Compare with `==`, `!=`, `<`, `<=`, `>`, `>=`. A single `=` is
-  not accepted.
-- Combine with `AND`, `OR` and `NOT`.
-- Math: `+`, `-`, `*`, `/`, `%`. Dividing by zero gives an empty
-  value instead of an error.
-- Join text with `~~` or `concat(...)`.
-- Functions: `upper`, `lower`, `length`, `concat`, `coalesce`,
-  `abs`, `round`, `floor`, `ceil` and `if(condition, then, else)`.
+- Fields: `{{status}}`, or Arcade's `$feature.status`. Names are
+  case-sensitive.
+- Text: single or double quotes.
+- Compare with `==` or `=`, `!=` or `<>`, `<`, `<=`, `>`, `>=`.
+- Combine with `AND` or `&&`, `OR` or `||`, `NOT` or `!`.
+- `IN`, `BETWEEN`, `LIKE`, `IS NULL` and `CASE WHEN` work as in SQL.
+- `+` adds numbers and joins text, as in Arcade.
+- Dates have functions for adding, differencing, extracting and
+  formatting.
+
+The full list is in the
+[expression language reference](/help/reference/expression-language).
 
 ## Translating common patterns
 
+Many Arcade function names work as they are: `IIf`, `When`,
+`Decode`, `DefaultValue`, `IsEmpty`, `Mid`, `Find`, `Concatenate`,
+`DateAdd`, `DateDiff`, `Constrain`, `Upper`, `Lower`, `Round`.
+
 | Arcade | GratisGIS expression |
 |---|---|
-| `$feature.status` | `{{status}}` |
-| `$feature.a == 1 && $feature.b != 'x'` | `{{a}} == 1 AND {{b}} != 'x'` |
-| `IIf($feature.acres > 5, 'Large', 'Small')` | `if({{acres}} > 5, 'Large', 'Small')` |
-| `When($feature.p == 1, 'High', $feature.p == 2, 'Medium', 'Low')` | `if({{p}} == 1, 'High', if({{p}} == 2, 'Medium', 'Low'))` |
-| `Decode($feature.code, 'A', 'Active', 'Other')` | `if({{code}} == 'A', 'Active', 'Other')` |
+| `$feature.status` | `$feature.status` or `{{status}}` |
+| `$feature.a == 1 && $feature.b != 'x'` | the same |
+| `IIf($feature.acres > 5, 'Large', 'Small')` | the same, or `if({{acres}} > 5, 'Large', 'Small')` |
+| `When($feature.p == 1, 'High', $feature.p == 2, 'Medium', 'Low')` | the same |
+| `Decode($feature.code, 'A', 'Active', 'Other')` | the same |
 | `Concatenate([$feature.first, ' ', $feature.last])` | `concat({{first}}, ' ', {{last}})` |
-| `Upper($feature.name)` | `upper({{name}})` |
 | `Count($feature.name)` (text length) | `length({{name}})` |
-| `DefaultValue($feature.owner, 'Unknown')` | `coalesce({{owner}}, 'Unknown')` |
-| `IsEmpty($feature.owner)` | `coalesce({{owner}}, '') == ''` |
-| `Round($feature.value, 2)` | `round({{value}} * 100) / 100` |
-| `$feature.acres * 0.4047` | `{{acres}} * 0.4047` |
+| `IsEmpty($feature.owner)` | the same, or `{{owner}} IS NULL` |
+| `Round($feature.value, 2)` | the same |
+| `Text($feature.value, '#,###.00')` | `format_number({{value}}, 2)` |
+| `Text($feature.d, 'MMM D, Y')` | `format_date({{d}}, 'MMM D, YYYY')` |
+| `Number($feature.code)` | the same |
+| `Now()`, `Today()` | the same |
+| `DateDiff(Now(), $feature.d, 'days')` | the same |
+| `DateAdd($feature.d, 30, 'days')` | the same |
+| `Year($feature.d)` | the same |
+| `Month($feature.d)` | `month({{d}})`, which counts 1 to 12. Arcade counts 0 to 11. |
+| `Weekday($feature.d)` | `weekday({{d}})`, which is Monday 1 to Sunday 7. Arcade is Sunday 0 to Saturday 6. |
+| `Replace`, `Trim`, `Left`, `Right`, `Proper` | the same |
+| `Split($feature.s, ',')[1]` | `split_part({{s}}, ',', 2)`, counting from 1 |
+| `Area($feature, 'acres')` | `area($feature, 'acres')` |
+| `Length($feature, 'feet')` | `length($feature, 'feet')` |
 
-Notes on the less obvious rows:
+Notes:
 
-- **Empty checks.** Comparing a field with `null` never matches,
-  the same as in SQL. Use `coalesce` to turn an empty value into
-  something you can compare, as in the `IsEmpty` row.
-- **Rounding.** `round` takes one argument and rounds to a whole
-  number. Multiply and divide to keep decimals.
-- **Dates.** Date fields are ISO 8601 text and compare as text, so
-  `{{inspected}} >= '2026-01-01'` works. There are no date functions
-  and no date arithmetic yet. `DateDiff`, `Year` and `Now` have no
-  translation.
+- **Counting from 1.** Positions in `substr`, `index_of` and
+  `split_part` count from 1, as in SQL. Arcade counts from 0.
+- **Empty values.** `{{owner}} == null` is true for an empty owner,
+  as in Arcade.
 
 ## Conditional labels and popups
 
@@ -102,14 +114,7 @@ show up on the next request without a refresh step.
 
 ## What has no equivalent yet
 
-- Date functions and date arithmetic (`DateDiff`, `DateAdd`, `Now`,
-  `Year`).
-- Type conversion (`Number`, `Text` with format patterns). Popups in
-  field list mode have their own date and number formatting.
-- Text functions beyond the list above (`Replace`, `Mid`, `Split`,
-  `Trim`).
-- `FeatureSet` functions, which read other layers inside an
-  expression. Use a spatial join or spatial filter step.
+- Variables, loops and user-defined functions.
+- Regular expressions.
 - Arcade in dashboards and data expressions. Dashboards are web
   apps, and their charts read layers and derived layers directly.
-- Variables, loops and user-defined functions.

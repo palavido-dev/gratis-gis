@@ -231,6 +231,10 @@ model Organization {
   /// Overpass without rebuilding the image.
   osmOverpassEndpoint String? @map("osm_overpass_endpoint")
 
+  /// IANA time zone (America/Los_Angeles). Expressions use it for
+  /// today(); null means UTC.
+  timeZone String? @map("time_zone")
+
   /// #147 Phase 3: admin getting-started checklist state. Most
   /// checklist items derive done-ness from live system state (SMTP
   /// configured, member count, seeded items), so this stores only

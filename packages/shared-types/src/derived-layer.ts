@@ -408,7 +408,7 @@ export interface CalculateFieldStep {
   tool: 'calculate-field';
   params: {
     outputName: string;
-    outputType: 'number' | 'string' | 'boolean';
+    outputType: 'number' | 'string' | 'boolean' | 'date';
     /** Expression source, e.g. `{{acres}} * 0.4047`. */
     expression: string;
   };

@@ -662,6 +662,7 @@ export const en = {
   outputTypeNumber: 'Number',
   outputTypeString: 'String',
   outputTypeBoolean: 'Boolean',
+  outputTypeDate: 'Date',
   expression: 'Expression',
   calcFieldHint: 'e.g. {{acres}} * 0.4047  •  concat({{first_name}}, \' \', {{last_name}})  •  if({{population}} > 1000, \'urban\', \'rural\')',
   insert: 'Insert:',
@@ -6223,6 +6224,13 @@ export const en = {
     channelEmail: 'email',
     defaultBadge: 'default',
     errSaveChange: 'Could not save change.',
+  },
+
+  adminTimeZone: {
+    label: 'Time zone',
+    hint: "Expressions use this for today(), so a filter such as 'due before today' means the same day on the map, in previews and in the field app. Leave empty for UTC.",
+    placeholder: 'UTC',
+    useDevice: 'Use this device ({zone})',
   },
 
 } as const;

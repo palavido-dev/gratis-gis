@@ -29,13 +29,11 @@ import {
   DEFAULT_BUFFER_STEP,
   DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
   DEFAULT_STEPS,
-  ExpressionError,
   LENGTH_UNITS,
   MAX_BUFFER_DISTANCE_METERS,
   UNIT_LABELS,
+  analyzeExpression,
   fieldRefTypeFor,
-  parseExpression,
-  validateExpression,
   type AreaUnit,
   type BufferParams,
   type CalculateGeometryParams,
@@ -2452,10 +2450,10 @@ function CalculateFieldStepEditor({
   onChange,
   sourceFields,
 }: {
-  params: { outputName: string; outputType: 'number' | 'string' | 'boolean'; expression: string };
+  params: { outputName: string; outputType: 'number' | 'string' | 'boolean' | 'date'; expression: string };
   onChange: (next: {
     outputName: string;
-    outputType: 'number' | 'string' | 'boolean';
+    outputType: 'number' | 'string' | 'boolean' | 'date';
     expression: string;
   }) => void;
   sourceFields: FeatureField[];
@@ -2486,7 +2484,7 @@ function CalculateFieldStepEditor({
             onChange={(e) =>
               onChange({
                 ...params,
-                outputType: e.target.value as 'number' | 'string' | 'boolean',
+                outputType: e.target.value as 'number' | 'string' | 'boolean' | 'date',
               })
             }
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
@@ -2494,6 +2492,7 @@ function CalculateFieldStepEditor({
             <option value="number">{t('derivedLayerBuilder.outputTypeNumber')}</option>
             <option value="string">{t('derivedLayerBuilder.outputTypeString')}</option>
             <option value="boolean">{t('derivedLayerBuilder.outputTypeBoolean')}</option>
+            <option value="date">{t('derivedLayerBuilder.outputTypeDate')}</option>
           </select>
         </label>
       </div>
@@ -2528,7 +2527,7 @@ function ExpressionEditor({
   value: string;
   onChange: (next: string) => void;
   sourceFields: FeatureField[];
-  resultMode: 'boolean' | 'number' | 'string';
+  resultMode: 'boolean' | 'number' | 'string' | 'date';
 }) {
   const { t } = useDerivedLayerCatalog();
 
@@ -2557,25 +2556,15 @@ function ExpressionEditor({
   // without yelling about it on first focus.
   const validation = useMemo(() => {
     if (value.trim().length === 0) return { errors: [], info: null };
-    try {
-      const ast = parseExpression(value);
-      const errors = validateExpression(
-        ast,
-        sourceFields.map((f) => ({
-          name: f.name,
-          type: fieldRefTypeFor(f.type),
-        })),
-      );
-      return { errors, info: null as string | null };
-    } catch (err) {
-      if (err instanceof ExpressionError) {
-        return {
-          errors: [t('derivedLayerBuilder.exprErrorAt', { message: err.message, pos: err.pos })],
-          info: null,
-        };
-      }
-      return { errors: [t('derivedLayerBuilder.unknownParseError')], info: null };
-    }
+    const analysis = analyzeExpression(value, {
+      fields: sourceFields.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
+    });
+    return {
+      errors: analysis.issues.map((i) =>
+        t('derivedLayerBuilder.exprErrorAt', { message: i.message, pos: i.pos + 1 }),
+      ),
+      info: null as string | null,
+    };
   }, [value, sourceFields]);
 
   return (
