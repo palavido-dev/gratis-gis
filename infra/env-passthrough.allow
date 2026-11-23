@@ -148,3 +148,7 @@ PORTAL_AI_BOOTSTRAP_MODEL nas demo key re-apply after the nightly reset; NAS use
 PORTAL_AI_BOOTSTRAP_API_KEY nas demo key re-apply after the nightly reset; NAS uses Admin, AI
 PORTAL_AI_BOOTSTRAP_BASE_URL nas demo key re-apply after the nightly reset; NAS uses Admin, AI
 PORTAL_AI_BOOTSTRAP_ORG_SLUG nas demo key re-apply after the nightly reset; NAS uses Admin, AI
+# Status page progress file. Only the NAS stack has the status page
+# (Caddy shows it when the portal does not answer); unset elsewhere
+# means no file is written.
+GG_STATUS_FILE prod status page progress file; only the NAS stack has the status page
