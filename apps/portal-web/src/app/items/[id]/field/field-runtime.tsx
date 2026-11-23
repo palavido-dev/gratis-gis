@@ -156,6 +156,7 @@ import { FieldAttachments } from './field-attachments';
 import { uploadPendingAttachmentsInResponse } from '@/lib/form-attachment-upload';
 import { describeZoom } from '@/lib/map-scale';
 import { parseApiError } from '@/lib/api-error';
+import { applyOfflineExpressionFields, type OfflineSource } from '@/lib/offline-expressions';
 import { useT } from '@/lib/i18n/locale-context';
 import { useFormat } from '@/lib/i18n/format';
 import { RelativeTime } from '@/components/relative-time';
@@ -168,6 +169,28 @@ import type { Translator } from '@/lib/i18n';
  * this layer; otherwise the runtime falls through to schema-derived
  * forms via generateFormFromLayer (Slice 1).
  */
+/** One cached layer, as offline expression fields read it. */
+function offlineSourceFor(
+  l: EditableLayer,
+  features: Record<string, GeoJSON.FeatureCollection>,
+  all: EditableLayer[],
+): OfflineSource {
+  // A related table's key column is declared on its parent.
+  const parentFk = all
+    .flatMap((p) => (p.dataLayerId === l.dataLayerId ? (p.childLayers ?? []) : []))
+    .find((c) => c.layerKey === l.layerKey)?.parentFkColumn;
+  const src: OfflineSource = {
+    itemId: l.dataLayerId,
+    layerKey: l.layerKey,
+    label: l.layerLabel,
+    fields: l.fields,
+    hasGeometry: l.geometryType !== null,
+    features: features[`${l.dataLayerId}:${l.layerKey}`]?.features ?? [],
+  };
+  if (parentFk) src.parentFk = parentFk;
+  return src;
+}
+
 export interface EditableLayer {
   /** data_layer item id this sublayer belongs to. */
   dataLayerId: string;
@@ -892,6 +915,16 @@ export function FieldRuntime({
   // offline substitution (when offline + cached + the source has an
   // inline FC available), and basemap (when the user has picked one
   // via the layer panel chip).
+  // Cached layers as sources for offline expression fields.
+  const offlineSources = useMemo(() => {
+    const out = new Map<string, OfflineSource>();
+    for (const l of editableLayers) {
+      out.set(`${l.dataLayerId}:${l.layerKey}`, offlineSourceFor(l, offlineFeatures, editableLayers));
+    }
+    return out;
+  }, [editableLayers, offlineFeatures]);
+  const deviceTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', []);
+
   const effectiveMapData = useMemo<MapData>(() => {
     const offlineActive = !isOnline && Object.keys(offlineFeatures).length > 0;
     const basemapOverride =
@@ -921,9 +954,22 @@ export function FieldRuntime({
               : undefined) ??
             offlineFeatures[`${next.source.itemId}:${next.source.layerKey ?? ''}`];
           if (fc) {
+            // Expression fields come from the server's tiles online;
+            // offline they are worked out here from the cache.
+            const own = resolved ?? undefined;
+            const withExpr =
+              own && (next.expressions?.length ?? 0) > 0
+                ? applyOfflineExpressionFields(
+                    next,
+                    fc,
+                    offlineSourceFor(own, offlineFeatures, editableLayers),
+                    offlineSources,
+                    deviceTimeZone,
+                  )
+                : fc;
             next = {
               ...next,
-              source: { kind: 'geojson-inline', geojson: fc },
+              source: { kind: 'geojson-inline', geojson: withExpr },
             };
           }
           // If no cached FC, fall through to the original source.
@@ -941,6 +987,8 @@ export function FieldRuntime({
     offlineFeatures,
     basemapOverrideId,
     editableLayers,
+    offlineSources,
+    deviceTimeZone,
   ]);
 
   // Effective pickLists. When offline, pick from IndexedDB instead of

@@ -66,7 +66,7 @@ export interface EsriOperationalLayer {
      *  importing from AGO. Left as opaque `unknown` so we don't
      *  pull in the full Esri symbol vocabulary at the engine
      *  layer; the converter just stashes it on the lens. */
-    drawingInfo?: { renderer?: unknown };
+    drawingInfo?: { renderer?: unknown; labelingInfo?: unknown };
   };
   [key: string]: unknown;
 }
@@ -431,6 +431,15 @@ export function webMapJsonToLenses(json: EsriWebMap): {
     const agoRenderer = layer.layerDefinition?.drawingInfo?.renderer;
     if (agoRenderer && typeof agoRenderer === 'object') {
       (lens.query as { agoRenderer?: unknown }).agoRenderer = agoRenderer;
+    }
+    // Labels and popup, Arcade included, for the portal converter to
+    // translate into labels, popups and expression fields.
+    const labeling = layer.layerDefinition?.drawingInfo?.labelingInfo;
+    if (Array.isArray(labeling) && labeling.length > 0) {
+      (lens.query as { agoLabeling?: unknown }).agoLabeling = labeling;
+    }
+    if (layer.popupInfo && typeof layer.popupInfo === 'object') {
+      (lens.query as { agoPopup?: unknown }).agoPopup = layer.popupInfo;
     }
     // Same for the layer's own visibility and opacity, so a hidden or
     // faded layer stays that way after import.

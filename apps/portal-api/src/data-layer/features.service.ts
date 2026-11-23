@@ -46,6 +46,7 @@ import {
   type AggregateVia,
   type CreateFeatureArgs,
   type DeltaChange,
+  type TileComputed,
   type TileResult,
 } from '../engine/data-layer.js';
 /**
@@ -1267,6 +1268,8 @@ export class DataLayerFeaturesService {
        * same empty body a table sublayer gets.
        */
       zoomRange?: { min: number; max: number };
+      /** Expression fields; see DataLayerEngine.mvtTile. */
+      computed?: TileComputed;
     } = {},
   ): Promise<TileResult> {
     if (
@@ -1298,6 +1301,7 @@ export class DataLayerFeaturesService {
         ? { maxFeaturesPerTile: opts.maxFeaturesPerTile }
         : {}),
       ...(opts.labelPoints === true ? { labelPoints: true } : {}),
+      ...(opts.computed ? { computed: opts.computed } : {}),
     });
   }
 

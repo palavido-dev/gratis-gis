@@ -22,6 +22,7 @@ import {
   analyzeExpression,
   DATA_FUNCTION_DOCS,
   FUNCTIONS,
+  translateArcade,
   type DataResolver,
   type DataSource,
   type FieldRef,
@@ -133,7 +134,15 @@ function formatValue(v: unknown): string {
 
 export function ExpressionBuilder(props: ExpressionBuilderProps) {
   const t = useT();
-  const { value, onChange, fields, layer } = props;
+  const { value, onChange } = props;
+  // Callers often build these inline; key them by content so effects
+  // and memos do not re-run (and re-fetch) on every render.
+  const fieldsKey = JSON.stringify(props.fields);
+  const fields = useMemo(() => props.fields, [fieldsKey]);
+  const layerKey = props.layer ? `${props.layer.itemId}|${props.layer.layerId}` : '';
+  const layer = useMemo(() => props.layer, [layerKey]);
+  const samplesKey = props.samples ? JSON.stringify(props.samples.slice(0, 5)) : '';
+  const samples = useMemo(() => props.samples, [samplesKey]);
   const ref = useRef<HTMLTextAreaElement | null>(null);
   const [panel, setPanel] = useState<'fields' | 'functions' | 'data' | null>(null);
   const [search, setSearch] = useState('');
@@ -194,13 +203,13 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
       return;
     }
     if (!layer || props.serverPreview === false) {
-      if (!props.samples?.length) {
+      if (!samples?.length) {
         setPreview({ loading: false, rows: [], issues: [] });
         return;
       }
       // Local preview: same evaluator the field app uses offline.
       void import('@gratis-gis/shared-types').then(({ evaluateExpressionValue }) => {
-        const rows = props.samples!.slice(0, 5).map((p, i) => {
+        const rows = samples.slice(0, 5).map((p, i) => {
           try {
             return { id: String(i + 1), value: evaluateExpressionValue(value, { fields, properties: p }) };
           } catch (e) {
@@ -243,7 +252,7 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [ok, value, layer, props.samples, props.serverPreview, fields, t]);
+  }, [ok, value, layer, samples, props.serverPreview, fields, t]);
 
   function insert(text: string, caretBack = 0) {
     const el = ref.current;
@@ -298,6 +307,15 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
   }, [search, category, layer]);
 
   const firstIssue = analysis?.issues[0] ?? null;
+
+  // Pasted Arcade: offer the translation when it checks.
+  const arcade = useMemo(() => {
+    if (!firstIssue) return null;
+    const tr = translateArcade(value);
+    if ('error' in tr || tr.expression === value) return null;
+    const again = analyzeExpression(tr.expression, { fields, ...(resolver ? { data: resolver } : {}) });
+    return again.issues.length === 0 ? tr.expression : null;
+  }, [firstIssue, value, fields, resolver]);
   const caretLine = useMemo(() => {
     if (!firstIssue) return null;
     const pos = Math.min(firstIssue.pos, value.length);
@@ -503,6 +521,16 @@ export function ExpressionBuilder(props: ExpressionBuilderProps) {
               {'\n'}
               {' '.repeat(caretLine.col)}^
             </pre>
+          ) : null}
+          {arcade ? (
+            <button
+              type="button"
+              onClick={() => onChange(arcade)}
+              className="mt-1 inline-flex items-center rounded border border-border bg-surface-1 px-2 py-0.5 text-2xs text-ink-0 hover:bg-surface-2"
+              title={arcade}
+            >
+              {t('expressionBuilder.convertArcade')}
+            </button>
           ) : null}
           {analysis && analysis.issues.length > 1 ? (
             <p className="mt-1 text-2xs text-muted">

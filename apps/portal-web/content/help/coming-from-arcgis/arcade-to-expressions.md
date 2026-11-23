@@ -22,12 +22,11 @@ related:
 
 GratisGIS does not run Arcade, but its expression language covers
 most of what Arcade expressions do, and accepts many Arcade
-spellings as they are. Web map imports from ArcGIS Online drop Arcade
-expressions with a warning. Labels and popups take plain
-field references such as `{name}`, and do not evaluate expressions.
-Computed values come from the **Filter** and **Calculate field**
-steps on a [derived layer](/help/items/derived-layer), which use a
-small expression language of their own.
+spellings as they are. Web maps imported from ArcGIS bring their
+label and popup Arcade across as
+[expression fields](/help/map-editing/expression-fields) when it
+translates, and list what did not in the import report. Paste Arcade
+into any expression box and the builder offers to convert it.
 
 This page translates common Arcade patterns.
 
@@ -35,8 +34,8 @@ This page translates common Arcade patterns.
 
 | Arcade used for | In GratisGIS | Notes |
 |---|---|---|
-| Label expression | Label text with `{field}` references | Conditional labels need a computed column. See below. |
-| Popup expression or attribute expression | Popup title and body with `{field}` references | Same: compute the column first, then show it. |
+| Label expression | An [expression field](/help/map-editing/expression-fields), shown with `{{expr.name}}` | Can read related records and other layers, which Arcade labels cannot. |
+| Popup expression or attribute expression | An expression field, picked in the popup | |
 | Calculate Field with Arcade | **Calculate field** step on a derived layer | The column is computed on every read. |
 | Filter or definition expression | **Filter** step, or a filter on the map layer | See [Filter](/help/analysis/filter). |
 | Geometry functions (`Area`, `Length`) | **Calculate geometry** step | Length, perimeter and area with a unit. See [Calculate](/help/analysis/calculate). |
@@ -119,22 +118,6 @@ Notes:
   `split_part` count from 1, as in SQL. Arcade counts from 0.
 - **Empty values.** `{{owner}} == null` is true for an empty owner,
   as in Arcade.
-
-## Conditional labels and popups
-
-Labels and popups only fill in field values. To show "Open" or
-"Closed" from a status code, compute the text once and label from
-it:
-
-1. Create a [derived layer](/help/items/derived-layer) from the data
-   layer.
-2. Add a **Calculate field** step named `status_label` with
-   `if({{status}} == 'O', 'Open', 'Closed')`.
-3. Put the derived layer on the map in place of the source layer.
-4. Use `{status_label}` in the label or the popup.
-
-The derived layer recomputes on every read, so edits to the source
-show up on the next request without a refresh step.
 
 ## What has no equivalent yet
 

@@ -15,6 +15,7 @@ import * as maplibregl from 'maplibre-gl';
 import type {
   MapData,
   MapLayer,
+  MapLayerExpression,
   MapLayerVia,
 } from '@gratis-gis/shared-types';
 import {
@@ -26,6 +27,8 @@ import {
   ZOOM_MIN,
   dashArrayFor,
   effectiveLayerScale,
+  encodeTileExpressions,
+  EXPRESSION_FIELD_PREFIX,
   sanitizeAttributionHtml,
   sanitizePopupHtml,
   scaledStyleExpression,
@@ -1840,7 +1843,13 @@ export const MapCanvas = forwardRef<MapCanvasHandle, Props>(function MapCanvas(
             .then((res) => (res.ok ? res.json() : null))
             .then((fc: { features?: Array<{ properties?: Record<string, unknown> }> } | null) => {
               if (popupRef.current !== popup) return; // user already closed / moved on
-              const props = fc?.features?.[0]?.properties ?? fallbackProps;
+              const fetched = fc?.features?.[0]?.properties ?? fallbackProps;
+              // Expression fields come only from the tile; the
+              // feature read carries stored attributes.
+              const props: Record<string, unknown> = { ...fetched };
+              for (const [k, v] of Object.entries(fallbackProps as Record<string, unknown>)) {
+                if (k.startsWith(EXPRESSION_FIELD_PREFIX)) props[k] = v;
+              }
               popup.setHTML(renderPopupHtml(layer, props, localeRef.current));
             })
             .catch(() => {
@@ -2975,6 +2984,13 @@ function dataLayerTileUrl(
    * refetches the tiles with the new set, as it must.
    */
   include: string[] = [],
+  /**
+   * The layer's expression fields. The server computes them into the
+   * tile as `expr.<name>` properties, which is what lets labels,
+   * styling and popups use values a MapLibre expression cannot work
+   * out (a related table's latest date, the nearest hydrant).
+   */
+  expressions?: MapLayerExpression[],
 ): string {
   const base = source.layerKey
     ? `/api/portal/items/${pathId(source.itemId)}/layers/${encodeURIComponent(source.layerKey)}/tile/{z}/{x}/{y}.mvt`
@@ -3003,6 +3019,8 @@ function dataLayerTileUrl(
       `${TILE_INCLUDE_PARAM}=${include.map(encodeURIComponent).join(',')}`,
     );
   }
+  const expr = encodeTileExpressions(expressions);
+  if (expr) tileParams.push(`expr=${expr}`);
   return tileParams.length > 0 ? `${base}?${tileParams.join('&')}` : base;
 }
 
@@ -3104,6 +3122,7 @@ function syncOverlays(
         mapClipBoundaryId,
         asOfTime,
         tileFieldRefs(l),
+        l.expressions,
       );
       keepDataUrl.set(`gg:${l.id}`, {
         url,
@@ -3374,6 +3393,7 @@ function syncOverlays(
             mapClipBoundaryId,
             asOfTime,
             tileFieldRefs(layer),
+            layer.expressions,
           );
         // The layer's tile zoom range (from its TileJSON): past the
         // deepest built zoom MapLibre overzooms instead of drawing the
@@ -4476,13 +4496,16 @@ function renderPopupHtml(
         : Object.keys(props)
             .filter((k) => !k.startsWith('_'))
             .sort();
+    const exprLabels = new Map(
+      (layer.expressions ?? []).map((x) => [`${EXPRESSION_FIELD_PREFIX}${x.name}`, x.label || x.name]),
+    );
     const rows = keys
       .map((k) => {
         const v = props[k];
         if (v === null || v === undefined || v === '') return '';
         return `
           <div class="gg-popup-row">
-            <dt>${escapeHtml(k)}</dt>
+            <dt>${escapeHtml(exprLabels.get(k) ?? k)}</dt>
             <dd>${escapeHtml(String(v))}</dd>
           </div>
         `;

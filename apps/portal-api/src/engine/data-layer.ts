@@ -15,6 +15,7 @@
 // `DataLayerFeaturesService` is unchanged. Phase 2.2 swaps the v3 service's
 // internals to call into this adapter.
 
+import { createHash } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
@@ -48,6 +49,33 @@ import {
 } from './tile-cache.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { validateGeoJson } from '../common/geometry-validation.js';
+
+/** Expression columns for a tile; see mvtTile. */
+export interface TileComputed {
+  columns: Array<{ name: string; sql: Prisma.Sql }>;
+  /** Stable text that identifies the expressions, for the cache key. */
+  key: string;
+  bypassCache: boolean;
+}
+
+/**
+ * A compiled expression (`$n::type` placeholders numbered from 1 over
+ * `params`) as a Prisma fragment, so it can join a tagged query.
+ */
+export function expressionSqlFragment(sql: string, params: unknown[]): Prisma.Sql {
+  const parts = sql.split(/\$(\d+)/);
+  const pieces: Prisma.Sql[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    if (i % 2 === 0) {
+      if (parts[i]) pieces.push(Prisma.raw(parts[i]!));
+    } else {
+      const k = Number(parts[i]) - 1;
+      if (k < 0 || k >= params.length) throw new Error('Expression parameter out of range');
+      pieces.push(Prisma.sql`${params[k]}`);
+    }
+  }
+  return pieces.length === 0 ? Prisma.empty : Prisma.join(pieces, '');
+}
 
 /** Argument bag shared by every write helper. */
 interface WriteCommon {
@@ -4339,6 +4367,15 @@ export class DataLayerEngine {
      * the cache key like every other option here.
      */
     labelPoints?: boolean;
+    /**
+     * Expression fields (map layer `expressions`), compiled by the
+     * caller against `currents.attrs` / `currents.geom` /
+     * `currents.entity`. Each becomes a feature property. When
+     * `bypassCache` is set (the expressions read other layers, so the
+     * bytes depend on rows this tile's cache never hears about) the
+     * tile is built fresh every time.
+     */
+    computed?: TileComputed;
   }): Promise<TileResult> {
     if (args.isTable === true) {
       // Empty MVT is stable (always Buffer.alloc(0)); compute the
@@ -4373,6 +4410,11 @@ export class DataLayerEngine {
     const dependsOn = args.via
       ? [`${this.scope(args.via.parentItemId, args.via.parentLayerId)}|`]
       : [];
+    if (args.computed?.bypassCache) {
+      const buf = await this.computeMvtTileBytes(args, scope);
+      const etag = `"${createHash('sha256').update(cacheKey).update(buf).digest('base64url').slice(0, 16)}"`;
+      return { mvt: buf, etag };
+    }
     const result = await this.tileCache.getOrCompute(
       cacheKey,
       () => this.computeMvtTileBytes(args, scope),
@@ -4410,6 +4452,7 @@ export class DataLayerEngine {
       labelPoints?: boolean;
       where?: AttrFilterGroup & { and?: AttrFilterGroup };
       via?: AggregateVia;
+      computed?: TileComputed;
     },
     scope: string,
   ): Promise<Buffer> {
@@ -4476,7 +4519,10 @@ export class DataLayerEngine {
     // planning with "column attrs does not exist", but only for a
     // layer with no declared fields, which is the shape least likely
     // to be exercised before it reaches someone.
-    const needsAttrs = args.where !== undefined || args.via !== undefined;
+    const needsAttrs =
+      args.where !== undefined ||
+      args.via !== undefined ||
+      (args.computed?.columns.length ?? 0) > 0;
 
     // Build the per-field projection list. Each declared field gets
     // a `(attrs->>'name')::cast AS "name"` projection so it lands in
@@ -4509,6 +4555,14 @@ export class DataLayerEngine {
         // tileFieldProjection.
         fieldProjections.push(Prisma.raw(tileFieldProjection(f.name, f.type)));
       }
+    }
+    // Expression fields, named `expr.<name>`. Their SQL reads
+    // currents.*, so they are projected where currents is in scope.
+    for (const c of args.computed?.columns ?? []) {
+      if (!/^expr\.[A-Za-z_][A-Za-z0-9_]{0,40}$/.test(c.name)) continue;
+      if (projected.has(c.name)) continue;
+      projected.add(c.name);
+      fieldProjections.push(Prisma.sql`${c.sql} AS ${Prisma.raw(`"${c.name}"`)}`);
     }
     const fieldProjection =
       fieldProjections.length > 0

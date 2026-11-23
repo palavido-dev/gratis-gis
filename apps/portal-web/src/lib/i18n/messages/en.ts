@@ -6250,6 +6250,7 @@ export const en = {
     preview: 'Preview',
     previewFailed: 'The preview could not run.',
     moreProblems: '{count} more to fix after this one.',
+    convertArcade: 'This looks like Arcade: convert it',
     wrongType: 'This needs {want}, but the expression gives {got}.',
     type_number: 'number',
     type_string: 'text',
@@ -6270,6 +6271,19 @@ export const en = {
     cat_conversion: 'Conversion',
     cat_geometry: 'Geometry',
     cat_data: 'Other data',
+  },
+
+  mapLayerExpressions: {
+    tab: 'Expressions',
+    intro: 'Expression fields are values computed for every feature. Use them like fields in labels, popups, styling and filters, as expr.name. They can read related records, other layers and nearby features.',
+    dataLayerOnly: 'Expression fields are computed by the server, so they work on data layers only.',
+    name: 'Name',
+    label: 'Label',
+    remove: 'Remove expression field',
+    add: 'Add expression field',
+    badName: 'Use letters, digits and underscores, starting with a letter.',
+    duplicateName: 'Another expression field already has this name.',
+    useAs: 'Use it as {token}.',
   },
 
 } as const;

@@ -17,10 +17,13 @@ import {
   DEFAULT_LAYER_SCALE,
   DEFAULT_LAYER_SEARCH,
   DEFAULT_LAYER_STYLE,
+  LAYER_EXPRESSION_NAME_RE,
+  translateArcade,
 } from '@gratis-gis/shared-types';
 import type {
   MapFilterOp,
   MapLayer,
+  MapLayerExpression,
   MapLayerFilter,
   MapLayerStyle,
 } from '@gratis-gis/shared-types';
@@ -488,7 +491,21 @@ function buildMapLayer(args: {
   // so imported maps carried a shape no other surface produced.
   // Typing the literal as MapLayer makes that class of drift a
   // compile error.
-  const q = args.lens.query as { visibility?: unknown; opacity?: unknown };
+  const q = args.lens.query as {
+    visibility?: unknown;
+    opacity?: unknown;
+    agoLabeling?: unknown;
+    agoPopup?: unknown;
+  };
+  const imported = importLabelsAndPopup({
+    labeling: q.agoLabeling,
+    popup: q.agoPopup,
+    layerTitle: args.lens.name,
+    // Expression fields are computed into data-layer tiles; other
+    // sources keep their plain labels and popups only.
+    expressionsAllowed: args.source.kind === 'data-layer',
+    warnings: args.warnings,
+  });
   return {
     id,
     title: args.lens.name,
@@ -500,14 +517,125 @@ function buildMapLayer(args: {
     source: args.source,
     style,
     renderer: { kind: 'simple' },
-    popup: { ...DEFAULT_LAYER_POPUP },
+    popup: imported.popup,
     interactions: { ...DEFAULT_LAYER_INTERACTIONS },
-    labels: { ...DEFAULT_LAYER_LABELS },
+    labels: imported.labels,
+    ...(imported.expressions.length > 0 ? { expressions: imported.expressions } : {}),
     search: { ...DEFAULT_LAYER_SEARCH },
     filter: mapLayerFilterFromLens(args.lens, args.warnings),
     scale: { ...DEFAULT_LAYER_SCALE },
     access: { ...DEFAULT_LAYER_ACCESS, entries: [] },
   };
+}
+
+/** Esri `{FIELD}` and `{expression/name}` tokens to `{{...}}`. */
+function esriTokens(text: string, exprNames: Map<string, string>): string {
+  return text.replace(/\{([^{}]+)\}/g, (m, inner: string) => {
+    const t = inner.trim();
+    if (t.startsWith('expression/')) {
+      const n = exprNames.get(t.slice('expression/'.length));
+      return n ? `{{expr.${n}}}` : '';
+    }
+    return /^[A-Za-z_][A-Za-z0-9_]*$/.test(t) ? `{{${t}}}` : m;
+  });
+}
+
+/**
+ * Labels and popups from an ArcGIS web map layer, with Arcade label
+ * and popup expressions translated into expression fields. What does
+ * not translate is reported, never imported as something else.
+ */
+export function importLabelsAndPopup(args: {
+  labeling: unknown;
+  popup: unknown;
+  layerTitle: string;
+  expressionsAllowed: boolean;
+  warnings: string[];
+}): { labels: MapLayer['labels']; popup: MapLayer['popup']; expressions: MapLayerExpression[] } {
+  const expressions: MapLayerExpression[] = [];
+  const labels: MapLayer['labels'] = { ...DEFAULT_LAYER_LABELS };
+  const popup: MapLayer['popup'] = { ...DEFAULT_LAYER_POPUP };
+  const where = `Layer "${args.layerTitle}"`;
+  const addArcade = (name: string, label: string, src: string, what: string): string | null => {
+    if (!args.expressionsAllowed) {
+      args.warnings.push(`${where}: the ${what} uses Arcade, which only imports on layers stored in this portal; dropped.`);
+      return null;
+    }
+    const t = translateArcade(src);
+    if ('error' in t) {
+      args.warnings.push(`${where}: ${what}: ${t.error}. Dropped.`);
+      return null;
+    }
+    let n = name.replace(/[^A-Za-z0-9_]/g, '_').replace(/^([^A-Za-z_])/, '_$1').slice(0, 40) || 'value';
+    while (expressions.some((e) => e.name === n)) n = `${n}_2`.slice(0, 40);
+    if (!LAYER_EXPRESSION_NAME_RE.test(n)) return null;
+    expressions.push({ name: n, label, expression: t.expression });
+    return n;
+  };
+
+  // Labels: the first labeling class.
+  const classes = Array.isArray(args.labeling) ? (args.labeling as Array<Record<string, unknown>>) : [];
+  const first = classes[0];
+  if (first) {
+    const info = first.labelExpressionInfo as { expression?: unknown } | undefined;
+    if (typeof info?.expression === 'string' && info.expression.trim()) {
+      const n = addArcade('label', 'Label', info.expression, 'label expression');
+      if (n) {
+        labels.enabled = true;
+        labels.template = `{{expr.${n}}}`;
+      }
+    } else if (typeof first.labelExpression === 'string' && first.labelExpression.trim()) {
+      // Legacy "[FIELD]" label expressions.
+      labels.enabled = true;
+      labels.template = first.labelExpression.replace(/\[([A-Za-z_][A-Za-z0-9_]*)\]/g, '{{$1}}');
+    }
+    if (classes.length > 1) {
+      args.warnings.push(`${where}: only the first of ${classes.length} label classes was imported.`);
+    }
+  }
+
+  // Popup: Arcade attribute expressions, title, and fields or text.
+  const p = args.popup as
+    | {
+        title?: unknown;
+        description?: unknown;
+        fieldInfos?: Array<{ fieldName?: unknown; label?: unknown; visible?: unknown }>;
+        expressionInfos?: Array<{ name?: unknown; title?: unknown; expression?: unknown }>;
+      }
+    | undefined;
+  if (p && typeof p === 'object') {
+    const exprNames = new Map<string, string>();
+    for (const ei of Array.isArray(p.expressionInfos) ? p.expressionInfos : []) {
+      if (typeof ei?.name !== 'string' || typeof ei.expression !== 'string') continue;
+      const label = typeof ei.title === 'string' && ei.title ? ei.title : ei.name;
+      const n = addArcade(ei.name, label, ei.expression, `popup expression "${label}"`);
+      if (n) exprNames.set(ei.name, n);
+    }
+    if (typeof p.title === 'string' && p.title.trim()) {
+      popup.titleTemplate = esriTokens(p.title, exprNames);
+    }
+    if (typeof p.description === 'string' && p.description.trim()) {
+      popup.mode = 'template';
+      popup.bodyTemplate = esriTokens(p.description, exprNames);
+    } else if (Array.isArray(p.fieldInfos)) {
+      const fields = p.fieldInfos
+        .filter((f) => f?.visible !== false && typeof f?.fieldName === 'string')
+        .map((f) => {
+          const name = f.fieldName as string;
+          if (name.startsWith('expression/')) {
+            const n = exprNames.get(name.slice('expression/'.length));
+            return n ? `expr.${n}` : null;
+          }
+          return name;
+        })
+        .filter((n): n is string => n !== null);
+      if (fields.length > 0) {
+        popup.mode = 'picked';
+        popup.fields = fields;
+      }
+    }
+  }
+  return { labels, popup, expressions };
 }
 
 /**

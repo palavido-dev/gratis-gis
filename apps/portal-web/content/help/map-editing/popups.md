@@ -10,6 +10,7 @@ tags:
   - popup
   - map-editing
 related:
+  - map-editing-expression-fields
   - map-editing-labels
   - map-editing-filters
 ---

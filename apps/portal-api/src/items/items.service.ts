@@ -1775,6 +1775,12 @@ export class ItemsService {
         input.data,
       )) as Prisma.InputJsonValue;
     }
+    if (input.type === 'map') {
+      resolvedData = (await this.resolveMapExpressionSources(
+        user,
+        resolvedData,
+      )) as Prisma.InputJsonValue;
+    }
 
     // For form items (#281c), auto-materialize a paired data_layer
     // unless the form already declares a linkedLayerId. This is the
@@ -2239,6 +2245,67 @@ export class ItemsService {
       mode: 'shared',
     });
     return prepared.resolver;
+  }
+
+  /**
+   * Stamp each map layer expression with the sources it reads, as the
+   * saving user resolves them, so the map's dependencies (item page,
+   * sharing checks) include them. A source that does not resolve is
+   * left out rather than refused: the expression still shows its own
+   * error in the builder, and a map save is not the place to block.
+   */
+  private async resolveMapExpressionSources(user: AuthUser, data: unknown): Promise<unknown> {
+    const d = data as { layers?: unknown } | null;
+    if (!d || !Array.isArray(d.layers)) return data;
+    let changed = false;
+    const layers = await Promise.all(
+      (d.layers as Array<Record<string, unknown>>).map(async (l) => {
+        const exprs = Array.isArray(l?.expressions) ? (l.expressions as Array<Record<string, unknown>>) : null;
+        const src = l?.source as { kind?: unknown; itemId?: unknown; layerKey?: unknown } | undefined;
+        if (!exprs || exprs.length === 0) return l;
+        const next = await Promise.all(
+          exprs.slice(0, 10).map(async (ex) => {
+            const text = typeof ex?.expression === 'string' ? ex.expression : '';
+            const { dataRefs: _old, ...rest } = ex ?? {};
+            void _old;
+            let refs: DataRef[] = [];
+            try {
+              refs = collectDataRefs(parseExpression(text));
+            } catch {
+              refs = [];
+            }
+            if (refs.length === 0 || src?.kind !== 'data-layer' || typeof src.itemId !== 'string') {
+              changed = true;
+              return rest;
+            }
+            const item = await this.prisma.item.findUnique({ where: { id: src.itemId } });
+            if (!item) return rest;
+            const prepared = await prepareExpressionData({
+              prisma: this.prisma,
+              sharing: this.sharing,
+              viewer: user,
+              item,
+              layerId: typeof src.layerKey === 'string' ? src.layerKey : '',
+              refs,
+              mode: 'viewer',
+            });
+            changed = true;
+            return {
+              ...rest,
+              dataRefs: prepared.resolvedRefs.map((r) => ({
+                kind: r.ref.kind,
+                name: r.ref.name,
+                ...(r.ref.sublayer ? { sublayer: r.ref.sublayer } : {}),
+                itemId: r.itemId,
+                layerId: r.layerId,
+              })),
+            };
+          }),
+        );
+        return { ...l, expressions: next };
+      }),
+    );
+    return changed ? { ...(d as object), layers } : data;
   }
 
   /** Save and preview form of derivedInputScopeLimit: refuse. */
@@ -2825,6 +2892,12 @@ export class ItemsService {
       nextData = (await this.enrichDerivedLayerData(
         user,
         input.data,
+      )) as Prisma.InputJsonValue;
+    }
+    if (nextData !== undefined && item.type === 'map') {
+      nextData = (await this.resolveMapExpressionSources(
+        user,
+        nextData,
       )) as Prisma.InputJsonValue;
     }
     // For form items, preserve linkedLayerId / linkedLayerKey across

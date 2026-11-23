@@ -20,6 +20,8 @@ related:
 
 This page is the reference for the expressions you type into:
 
+- [Expression fields](/help/map-editing/expression-fields) on a map
+  layer, which labels, popups, styling and filters use.
 - The **Filter** step of a [derived layer](/help/items/derived-layer).
 - The **Calculate field** step of a derived layer.
 - **Calculate field** in a data layer's attribute table.
@@ -318,9 +320,10 @@ the same row every time.
 
 ### Where it works
 
-Reading other rows works in **Calculate field** in the attribute
-table and in the **Filter** and **Calculate field** steps of a derived
-layer. In a derived layer, the layers an expression reads become
+Reading other rows works in [expression fields](/help/map-editing/expression-fields)
+on a map (so in labels, popups and styling), in **Calculate field** in
+the attribute table, and in the **Filter** and **Calculate field**
+steps of a derived layer. In a derived layer, the layers an expression reads become
 inputs of the derived layer: they show on its item page, and a person
 can open the derived layer only when they can read every input in
 full.

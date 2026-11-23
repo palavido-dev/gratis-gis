@@ -1133,6 +1133,10 @@ export function optsFingerprint(opts: Record<string, unknown>): string {
     // have to fingerprint alike, or every caller that spreads
     // `{ ...maybeUndefined }` fragments the cache for nothing.
     if (value === undefined || value === null || value === false) continue;
+    if (key === 'computed' && typeof value === 'object') {
+      parts.push(`computed=${(value as { key?: string }).key ?? ''}`);
+      continue;
+    }
     if (key === 'fields' && Array.isArray(value)) {
       // Sort fields by name so caller order does not fragment the
       // cache. The portal always emits field arrays in schema order

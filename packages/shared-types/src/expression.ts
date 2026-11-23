@@ -71,6 +71,8 @@ export {
 export type { JsDataProvider } from './expr/evaluate';
 export type { FeatureVal as ExpressionFeature } from './expr/values';
 export { FORMAT_TOKENS } from './expr/dates';
+export { printExpression } from './expr/printer';
+export { translateArcade, type ArcadeTranslation } from './expr/arcade';
 export { AREA_UNITS as EXPRESSION_AREA_UNITS, LENGTH_UNITS as EXPRESSION_LENGTH_UNITS } from './expr/geo';
 
 

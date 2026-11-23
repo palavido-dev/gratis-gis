@@ -7,6 +7,8 @@ import {
   compileChecked,
   parseExpression,
   ExpressionError,
+  usesDataAccess,
+  walkExpr,
   type CheckResult,
   type ExpressionIssue,
   type ValueType,
@@ -28,6 +30,8 @@ import {
   type SourceAccess,
 } from './expression-data.js';
 import { expressionTimeZone } from './time-zone.js';
+import { expressionSqlFragment, type TileComputed } from '../engine/data-layer.js';
+import { createHash } from 'node:crypto';
 
 /** Caller-chosen expression keys: no __proto__ and friends. */
 export const EXPRESSION_KEY_RE = /^(?!__)[A-Za-z0-9_.-]{1,100}$/;
@@ -269,6 +273,62 @@ export class ExpressionsService {
       for (const r of rows) out.set(r.id, normalize(r.v));
     }
     return out;
+  }
+
+  /**
+   * Expression fields for a vector tile: one SQL column per
+   * expression that checks, read against the tile query's `currents`
+   * rows. An expression with a mistake is left out (its property is
+   * simply absent), so one broken label does not blank the layer.
+   */
+  async tileComputed(
+    viewer: AuthUser | null,
+    item: ItemWithShares,
+    layerId: string,
+    exprs: Array<{ name: string; expression: string }>,
+  ): Promise<TileComputed | null> {
+    if (exprs.length === 0) return null;
+    const layer = this.layerOf(item, layerId);
+    const { data } = await this.prepare(viewer, item, layerId, exprs.map((e) => e.expression));
+    const timeZone = await expressionTimeZone(this.prisma);
+    const columns: TileComputed['columns'] = [];
+    let reads = false;
+    let clock = false;
+    for (const e of exprs) {
+      const a = this.analyze(layer, e.expression, data);
+      if (!a.ast || !a.checked || a.issues.length > 0) continue;
+      if (usesDataAccess(a.ast)) reads = true;
+      walkExpr(a.ast, (n) => {
+        if (n.kind === 'func' && (n.name === 'now' || n.name === 'today')) clock = true;
+      });
+      try {
+        const c = compileChecked(a.ast, a.checked, {
+          row: { propertiesSql: 'currents.attrs', geomSql: 'currents.geom', idSql: 'currents.entity' },
+          paramOffset: 0,
+          timeZone,
+          dataAdapter: data.adapter,
+        });
+        // Vector tiles hold text, numbers and true/false only.
+        const sql =
+          c.type === 'date'
+            ? `gg_expr_ts_text(${c.sql})`
+            : c.type === 'list'
+              ? `array_to_string(${c.sql}, ', ')`
+              : c.sql;
+        columns.push({ name: `expr.${e.name}`, sql: expressionSqlFragment(sql, c.params) });
+      } catch (err) {
+        if (!(err instanceof ExpressionError)) throw err;
+      }
+    }
+    if (columns.length === 0) return null;
+    // today() changes at midnight in the organization's time zone, so
+    // the day is part of the key; now() changes every request.
+    const day = clock ? new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date()) : '';
+    const key = createHash('sha1')
+      .update(JSON.stringify([exprs, timeZone, day]))
+      .digest('base64url')
+      .slice(0, 16);
+    return { columns, key, bypassCache: reads || exprs.some((e) => /\bnow\s*\(/i.test(e.expression)) };
   }
 
   /** Run a read with a statement timeout. */

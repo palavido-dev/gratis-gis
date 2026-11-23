@@ -11,6 +11,7 @@ import {
   HttpStatus,
   InternalServerErrorException,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -59,6 +60,7 @@ import {
 
 import type { ItemShare } from '@prisma/client';
 import {
+  decodeTileExpressions,
   isEditorItem,
   type FeatureField,
   type FeatureRecord,
@@ -67,6 +69,9 @@ import {
 import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { ExpressionsService } from '../expressions/expressions.service.js';
+import type { ItemWithShares } from '../expressions/expression-data.js';
+import type { TileComputed } from '../engine/data-layer.js';
 import { PrintReadable } from '../auth/print-readable.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
@@ -241,6 +246,7 @@ export class DataLayerFeaturesController {
     private readonly prisma: PrismaService,
     private readonly editorPolicy: EditorPolicyService,
     private readonly notifications: NotificationsService,
+    @Optional() private readonly expressions?: ExpressionsService,
   ) {}
 
   @Get('features')
@@ -618,6 +624,7 @@ export class DataLayerFeaturesController {
     @Query('where') whereRaw?: string,
     @Query('via') viaRaw?: string,
     @Query('include') includeRaw?: string,
+    @Query('expr') exprRaw?: string,
   ) {
     const { geoLimit, rowScope, isTable, layer } = await this.assertV3Layer(
       user,
@@ -652,6 +659,7 @@ export class DataLayerFeaturesController {
       maxFeaturesPerTile?: number;
       zoomRange?: { min: number; max: number };
       labelPoints?: boolean;
+      computed?: TileComputed;
     } = {};
     if (isTable) opts.isTable = true;
     if (geoLimit) opts.geoLimit = geoLimit;
@@ -712,6 +720,17 @@ export class DataLayerFeaturesController {
     }
     if (plan.zoomRange) opts.zoomRange = plan.zoomRange;
     if (plan.labelPoints) opts.labelPoints = true;
+    // Expression fields from the map layer (`expr`): computed into
+    // the tile under this viewer's own access to anything they read.
+    if (exprRaw) {
+      const exprs = decodeTileExpressions(exprRaw);
+      if (exprs === null) throw new BadRequestException('Invalid expr parameter.');
+      const item = (await this.items.get(user, itemId)) as unknown as ItemWithShares;
+      const computed = this.expressions
+        ? await this.expressions.tileComputed(user, item, layerId, exprs)
+        : null;
+      if (computed) opts.computed = computed;
+    }
     const cacheControl = tileCacheControl(tileSettings, 'private');
     let mvt: Buffer;
     let etag: string;

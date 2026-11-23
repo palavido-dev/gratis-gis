@@ -127,6 +127,15 @@ export function extractDependencies(
       ? ((data as { layers: unknown[] }).layers as Array<Record<string, unknown>>)
       : [];
     for (const l of layers) {
+      // Layers and related tables the layer's expression fields read,
+      // resolved when the map was saved.
+      const exprs = Array.isArray(l?.expressions) ? (l.expressions as Array<Record<string, unknown>>) : [];
+      for (const ex of exprs) {
+        const refs = Array.isArray(ex?.dataRefs) ? (ex.dataRefs as Array<Record<string, unknown>>) : [];
+        for (const r of refs) {
+          if (typeof r?.itemId === 'string' && r.itemId.length > 0) itemIds.add(r.itemId);
+        }
+      }
       const source = l?.source as Record<string, unknown> | undefined;
       if (!source || typeof source !== 'object') continue;
       const kind = source.kind;

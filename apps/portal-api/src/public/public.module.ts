@@ -15,6 +15,7 @@ import { OgcProblemJsonFilter } from './ogc/problem-json.filter.js';
 import { PublicCswController } from './public-csw.controller.js';
 import { PublicProxyController } from './public-proxy.controller.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
+import { ExpressionsModule } from '../expressions/expressions.module.js';
 import { ItemsModule } from '../items/items.module.js';
 
 /**
@@ -35,7 +36,7 @@ import { ItemsModule } from '../items/items.module.js';
  * so the static `/collections/catalog` path wins over `:id`.
  */
 @Module({
-  imports: [DataLayerFeaturesModule, ItemsModule],
+  imports: [DataLayerFeaturesModule, ItemsModule, ExpressionsModule],
   controllers: [
     PublicController,
     OgcLandingController,
