@@ -26,6 +26,7 @@ import { MaintenanceModule } from './maintenance/maintenance.module.js';
 import { AdminModule } from './admin/admin.module.js';
 import { DataLayerFeaturesModule } from './data-layer/features.module.js';
 import { ExpressionsModule } from './expressions/expressions.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 import { OgcModule } from './ogc/ogc.module.js';
 import { PublicModule } from './public/public.module.js';
 import { BackupModule } from './backup/backup.module.js';
@@ -87,6 +88,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     AdminModule,
     DataLayerFeaturesModule,
     ExpressionsModule,
+    ReportsModule,
     PublicModule,
     OgcModule,
     BackupModule,

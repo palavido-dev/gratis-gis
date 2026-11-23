@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-23 - Reports for each feature or form submission
+Report templates are here. Write a document with field placeholders, expressions and photos, preview it, and download a PDF with one report per feature or form submission, like an inspection report.
+
 ## 2026-11-23 - Bring ArcGIS Online users and groups over
 The ArcGIS Online importer can now create accounts for your organization's members, recreate groups with their members, and share imported items with the same groups.
 

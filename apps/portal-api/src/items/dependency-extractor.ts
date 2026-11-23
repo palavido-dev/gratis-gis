@@ -443,6 +443,17 @@ export function extractDependencies(
     }
   }
 
+  if (item.type === 'report_template') {
+    // The data layer the report fills from.
+    const sources = (data as { sources?: unknown }).sources;
+    if (Array.isArray(sources)) {
+      for (const src of sources) {
+        const id = (src as { itemId?: unknown } | null)?.itemId;
+        if (typeof id === 'string' && id.length > 0) itemIds.add(id);
+      }
+    }
+  }
+
   if (item.type === 'tile_layer' || item.type === 'point_cloud') {
     // #211: derived layers and point clouds carry a reference to
     // their matching elevation layer (preferredElevationItemId).

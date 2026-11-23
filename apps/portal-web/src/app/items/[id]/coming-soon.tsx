@@ -28,12 +28,6 @@ const PILLARS: Partial<Record<ItemType, PillarInfo>> = {
       'A standalone shareable view of one form\'s submissions. Today those rows live on the form\'s Responses tab.',
     doc: 'docs/field-app.md',
   },
-  report_template: {
-    label: 'Report template',
-    blurb:
-      'A document layout that would render form submissions or feature rows to PDF, Word, and HTML. Not built. Paper layouts for the Print tool are print templates, a different item.',
-    doc: 'docs/reporting.md',
-  },
   // `dashboard` deliberately has no entry any more. Dashboards
   // shipped, but as a starting layout for a custom web app rather
   // than a type of their own, so nothing creates this type and the

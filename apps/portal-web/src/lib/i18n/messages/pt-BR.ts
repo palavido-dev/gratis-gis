@@ -258,6 +258,10 @@ export const ptBR: Partial<CatalogShape> = {
   organize: 'Organizar',
 },
   newItemType: {
+  report_template: {
+    label: 'Modelo de relatório',
+    desc: 'Um documento preenchido para cada feição ou resposta de formulário, como um relatório de inspeção. Escreva com marcadores de campos e expressões e fotos, e baixe PDFs.',
+  },
   basemap: {
     label: 'Basemap',
     desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',

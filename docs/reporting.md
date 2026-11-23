@@ -1,76 +1,65 @@
 # Reporting (report_template items)
 
-Status: `report_template` is not built. The create picker does
-not offer it. KPI and operations dashboards ship as web-app
-layouts, and print templates are the shipped paper layout for
-the Print tool. A form owner or org admin can also download a
-plain-text PDF receipt for one submission from the form's
-detail page (`GET /api/forms/:id/submissions/:submissionId/pdf`).
-That receipt is the answers as text. It is not a designed
-report and it does not include a map. This page is the design
-for the document-report item that does not exist yet. For what
-ships today, see the Status section in [README.md](../README.md).
+A report template is a document filled once per feature of a data
+layer and printed to PDF. Forms write their submissions into a paired
+data layer, so a template on that layer reports on form submissions
+(the Survey123 "feature report" job).
 
-Reporting would turn a form submission (or a feature row, or an
-aggregate query) into a shareable document: a PDF, a Word doc, or
-an HTML page.
+The plain-text PDF receipt for one submission
+(`GET /api/forms/:id/submissions/:submissionId/pdf`) still exists and
+is unrelated.
 
-## Template shape
+## Data shape
 
-A report_template stores a layout plus a data binding. The layout is a
-structured document (sections, headings, placeholders, widgets). The
-binding says where the data comes from and how to map source fields
-into placeholders.
-
-Proposed data shape:
+`packages/shared-types/src/report-template.ts`:
 
 ```ts
 {
   version: 1,
-  source: {
-    kind: 'form' | 'data-layer' | 'query',
-    itemId: string,
-  },
-  sections: Section[],
+  sources: [{ itemId: '<data layer>', layerKey: '<sublayer>' }],
+  body: '# Inspection {{site_id}} ...',
+  page: { size: 'letter' | 'legal' | 'a4' | 'a3' | 'tabloid', orientation: 'portrait' | 'landscape' },
+  fileName?: 'Inspections',
 }
-
-type Section =
-  | { type: 'text', markdown: string }
-  | { type: 'field', sourceField: string, label?: string, format?: string }
-  | { type: 'image', sourceField: string } // photo attachments
-  | { type: 'map', mapItemId: string, highlightFeature: true }
-  | { type: 'signature', sourceField: string }
 ```
+
+`normalizeReportTemplate` checks it on every create and update.
+`sources` is an array so the dependency extractor reads it the same
+way as other items; it holds at most one entry.
+
+## Template body
+
+Plain text with a Markdown subset (headings, bold, italic, lists,
+tables, rules, `\pagebreak`) and placeholders:
+
+- `{{field}}`: the field's value. Pick list fields show the label.
+- `{{= expression }}`: anything the expression language does,
+  including `related()`, `layer()`, `nearest()` and date formatting.
+- `{{photos}}`: the feature's image attachments.
+
+Everything is escaped. The template cannot add raw HTML, and values
+cannot become Markdown, because placeholders are swapped for markers
+before the Markdown is rendered and filled in afterwards.
 
 ## Rendering
 
-Server-side. HTML is the canonical render; PDF is `html → wkhtmltopdf
-or puppeteer-chrome` and Word is `html → pandoc` or a templated .docx.
-One pipeline keeps fonts, margins, and page breaks consistent across
-formats.
+- `POST /api/items/:id/report` with `{ featureIds }` (up to 100)
+  returns one PDF with a section per feature.
+- `POST /api/reports/preview` with `{ sourceItemId, layerKey, body,
+featureId? }` returns HTML for one feature, for the editor.
 
-Template authoring happens in portal-web; a shared `@gratis-gis/report-
-render` package handles the actual render so the backend (and later
-the field app's "export this submission" button) can use the same
-logic.
+Values come from `ExpressionsService.evaluate` under the requester's
+own access, so share limits (own rows, geographic limits) apply.
+Photos need download permission on the layer and are inlined as
+resized JPEG data URIs. Chromium (the `CHROMIUM_WS_ENDPOINTS` used by
+print templates) prints the page with JavaScript off and every
+network request refused.
 
-## Access
+## Not built
 
-A report template inherits its sharing model from the item layer. A
-rendered instance is a file (download link, retention rules TBD).
-Bulk render (all submissions for a form, one report each) is a
-scheduled task that produces a zipped archive.
-
-## Not yet decided
-
-- Whether reports are first-class items on their own (a report_run
-  item for each rendered instance) or ephemeral. First-class makes
-  sharing easier; ephemeral keeps the catalog tidy.
-- Localization. Templates want `{{fields.height | format: 'm'}}` in
-  one language and `{{fields.altura | format: 'm'}}` in another.
-  Cleanest: store labels per-locale, pick based on requester's
-  Accept-Language.
-
-## Status
-
-Not implemented. See `coming-soon.tsx` for the placeholder.
+- Tables of related records (repeats). An expression can count or
+  summarize related rows (`count(related('visits'))`,
+  `join(...)`), but there is no row-by-row table yet.
+- A map image of the feature.
+- Word (.docx) output and Word templates.
+- Scheduled report emails.

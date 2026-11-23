@@ -56,6 +56,7 @@ export * from './asset-ref';
 export * from './upload-limits';
 export * from './web-app';
 export * from './data-collection';
+export * from './report-template';
 export * from './offline-package';
 export * from './file';
 export * from './service';

@@ -365,6 +365,11 @@ export const en = {
       desc:
         'Reusable color palette + geometry tokens applied to web apps. Edit the colors and a live preview shell shows where each one appears.',
     },
+    report_template: {
+      label: 'Report template',
+      desc:
+        'A document filled once per feature or form submission, such as an inspection report. Write it with field and expression placeholders and photos, then download PDFs.',
+    },
     print_template: {
       label: 'Print template',
       desc:
@@ -6284,6 +6289,34 @@ export const en = {
     cat_data: 'Other data',
   },
 
+  reportTemplate: {
+    layer: 'Layer to report on',
+    sublayer: 'Sublayer',
+    pickLayer: 'Pick a data layer',
+    loading: 'Loading',
+    page: 'Page',
+    portrait: 'Portrait',
+    landscape: 'Landscape',
+    fileName: 'PDF file name',
+    template: 'Template',
+    save: 'Save',
+    saved: 'Saved.',
+    saveFailed: 'Save failed',
+    syntaxHint:
+      'Use {{field}} for a value, {{= expression }} for anything the expression language can work out, including related records, and {{photos}} for photo attachments. Markdown works: # headings, **bold**, lists, tables and --- rules. \\pagebreak starts a new page.',
+    preview: 'Preview',
+    refreshPreview: 'Preview',
+    previewEmpty: 'Pick a layer, then preview the report filled for one feature.',
+    previewFailed: 'Preview failed',
+    previewThis: 'Preview',
+    generate: 'Download reports',
+    search: 'Search features',
+    selectAll: 'Select all {count}',
+    noFeatures: 'No features found.',
+    downloadPdf: 'Download PDF ({count})',
+    saveFirst: 'Save the template before downloading.',
+    pdfFailed: 'The PDF could not be made',
+  },
   mapLayerExpressions: {
     tab: 'Expressions',
     intro: 'Expression fields are values computed for every feature. Use them like fields in labels, popups, styling and filters, as expr.name. They can read related records, other layers and nearby features.',
