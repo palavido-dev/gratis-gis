@@ -22,6 +22,7 @@ import {
   parseExpression,
   type DataRef,
   type DataResolver,
+  normalizeReportTemplate,
 } from '@gratis-gis/shared-types';
 
 import { isClosedGeoLimit } from '../common/closed-geo-limit.js';
@@ -1781,6 +1782,9 @@ export class ItemsService {
         resolvedData,
       )) as Prisma.InputJsonValue;
     }
+    if (input.type === 'report_template') {
+      resolvedData = reportTemplateDataOrThrow(resolvedData ?? {}) as unknown as Prisma.InputJsonValue;
+    }
 
     // For form items (#281c), auto-materialize a paired data_layer
     // unless the form already declares a linkedLayerId. This is the
@@ -2893,6 +2897,9 @@ export class ItemsService {
         user,
         input.data,
       )) as Prisma.InputJsonValue;
+    }
+    if (nextData !== undefined && item.type === 'report_template') {
+      nextData = reportTemplateDataOrThrow(nextData) as unknown as Prisma.InputJsonValue;
     }
     if (nextData !== undefined && item.type === 'map') {
       nextData = (await this.resolveMapExpressionSources(
@@ -5311,4 +5318,11 @@ export function keepTileWorkerFields(prev: unknown, next: unknown): unknown {
     else delete out[k];
   }
   return out;
+}
+
+/** A report template's data, checked, or a 400. */
+function reportTemplateDataOrThrow(data: unknown) {
+  const r = normalizeReportTemplate(data);
+  if ('error' in r) throw new BadRequestException(r.error);
+  return r.data;
 }

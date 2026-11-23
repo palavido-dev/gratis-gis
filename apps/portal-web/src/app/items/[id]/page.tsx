@@ -159,6 +159,7 @@ import { DataLayerProvenance } from './data-layer/provenance-panel';
 import { DataLayerSchema } from './data-layer/schema-panel';
 import { VersionHistoryPanel } from './data-layer/version-history-panel';
 import { ComingSoon } from './coming-soon';
+import { ReportTemplateEditor } from './report/report-editor';
 import { BasemapEditor } from './basemap/editor';
 import { GeocodingServiceEditor } from './geocoding/editor';
 import { TileLayerEditor } from './tile-layer/editor';
@@ -1295,6 +1296,15 @@ export default async function ItemDetailPage(props: Props) {
               />
             );
           })()}
+        </section>
+      ) : item.type === 'report_template' ? (
+        <section className="mb-6">
+          <ReportTemplateEditor
+            itemId={item.id}
+            title={item.title}
+            initial={item.data}
+            canEdit={itemCanEdit}
+          />
         </section>
       ) : item.type === 'service' ? (
         <section className="mb-6">

@@ -260,6 +260,10 @@ export const fr: Partial<CatalogShape> = {
   organize: 'Organiser',
 },
   newItemType: {
+  report_template: {
+    label: 'Modèle de rapport',
+    desc: 'Un document rempli pour chaque entité ou réponse de formulaire, comme un rapport d’inspection. Rédigez-le avec des champs, des expressions et des photos, puis téléchargez des PDF.',
+  },
   basemap: {
     label: 'Basemap',
     desc: 'A reusable background layer (style URL, tile template, or WMS) for maps.',

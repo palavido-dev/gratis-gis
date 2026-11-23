@@ -228,6 +228,7 @@ const TYPE_GROUPS: TypeGroup[] = [
       { value: 'custom', Icon: Sparkles },
       { value: 'theme', Icon: Palette },
       { value: 'print_template', Icon: Printer },
+      { value: 'report_template', Icon: FileText },
       { value: 'tool', Icon: Wand2 },
     ],
   },
@@ -1332,6 +1333,15 @@ export function NewItemWizard({
       data = mapHint
         ? { ...DEFAULT_PRINT_TEMPLATE, defaultMapId: mapHint }
         : DEFAULT_PRINT_TEMPLATE;
+    } else if (type === 'report_template') {
+      // The editor picks the layer and writes a starting body from
+      // its fields, so the item starts empty.
+      data = {
+        version: 1,
+        sources: [],
+        body: '',
+        page: { size: 'letter', orientation: 'portrait' },
+      };
     } else if (type === 'tool') {
       // #90: seed an empty tool whose default action is "open URL"
       // with an empty URL.  Saves cleanly (the runtime treats an

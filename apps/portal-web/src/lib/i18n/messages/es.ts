@@ -262,6 +262,10 @@ export const es: Partial<CatalogShape> = {
   organize: 'Organizar',
 },
   newItemType: {
+  report_template: {
+    label: 'Plantilla de informe',
+    desc: 'Un documento que se rellena por cada entidad o envío de formulario, como un informe de inspección. Escríbelo con marcadores de campos y expresiones y fotos, y descarga PDF.',
+  },
   basemap: {
     label: 'Mapa base',
     desc: 'Capa de fondo reutilizable (URL de estilo, plantilla de teselas o WMS) para mapas.',
