@@ -29,6 +29,9 @@ import {
 } from './expression-data.js';
 import { expressionTimeZone } from './time-zone.js';
 
+/** Caller-chosen expression keys: no __proto__ and friends. */
+export const EXPRESSION_KEY_RE = /^(?!__)[A-Za-z0-9_.-]{1,100}$/;
+
 /** Most rows one evaluate call returns. */
 export const MAX_EVALUATE_ROWS = 50;
 /** Most expressions one call evaluates (a popup's worth). */
@@ -126,12 +129,16 @@ export class ExpressionsService {
   }): Promise<EvaluateResult> {
     const keys = Object.keys(args.expressions);
     if (keys.length === 0) throw new BadRequestException('Send at least one expression');
+    // Keys come from the caller and become property names below.
+    if (keys.some((k) => !EXPRESSION_KEY_RE.test(k))) {
+      throw new BadRequestException('Expression keys are letters, digits, dot, dash and underscore');
+    }
     if (keys.length > MAX_EVALUATE_EXPRESSIONS) {
       throw new BadRequestException(`At most ${MAX_EVALUATE_EXPRESSIONS} expressions per request`);
     }
     const layer = this.layerOf(args.item, args.layerId);
     const { data, outer } = await this.prepare(args.viewer, args.item, args.layerId, Object.values(args.expressions));
-    const result: EvaluateResult = { expressions: {}, rows: [] };
+    const result: EvaluateResult = { expressions: Object.create(null) as EvaluateResult['expressions'], rows: [] };
     const good: Array<{ key: string; checked: CheckResult; ast: ReturnType<typeof parseExpression> }> = [];
     for (const key of keys) {
       const a = this.analyze(layer, args.expressions[key]!, data);
@@ -187,7 +194,10 @@ export class ExpressionsService {
     const rows = await this.runBounded<Record<string, unknown>>(sql, params);
     result.rows = rows.map((r) => ({
       id: String(r.id),
-      values: Object.fromEntries(good.map((g, k) => [g.key, normalize(r[`v${k}`])])),
+      values: Object.assign(
+        Object.create(null) as Record<string, unknown>,
+        Object.fromEntries(good.map((g, k) => [g.key, normalize(r[`v${k}`])])),
+      ),
     }));
     return result;
   }

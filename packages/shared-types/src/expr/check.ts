@@ -20,7 +20,6 @@ import { lengthUnit } from './geo';
 import {
   DATA_ALIASES,
   DATA_FUNCTIONS,
-  SET_TO_SET,
   type DataResolver,
   type DataSource,
 } from './data';
