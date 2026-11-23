@@ -170,7 +170,6 @@ jobs:
             echo "GG_VERSION=${{ steps.tags.outputs.described }}"
             echo "GIT_SHA=${{ needs.gate.outputs.sha }}"
             if [ "${{ matrix.web }}" = "true" ]; then
-              echo "NEXT_PUBLIC_PROJECT_LANDING=1"
               echo "NEXT_PUBLIC_GITHUB_REPO=${GITHUB_REPOSITORY}"
               echo "NEXT_PUBLIC_GG_VERSION=${{ steps.tags.outputs.described }}"
             fi
