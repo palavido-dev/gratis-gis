@@ -35,6 +35,12 @@ export interface Item<TData = unknown> {
    * should treat absence as "rights reserved".
    */
   license: string | null;
+  /**
+   * Set on the catalog every org gets at creation (basemaps, print
+   * templates, app templates, themes): the starter it came from.
+   * Null on everything a person made. Sent on list rows.
+   */
+  seedKind?: string | null;
   createdAt: ISODateString;
   updatedAt: ISODateString;
   /**

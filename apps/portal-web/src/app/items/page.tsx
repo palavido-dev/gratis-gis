@@ -166,6 +166,17 @@ export default async function ItemsPage(props: Props) {
   }
 
   const isMine = scope === 'mine';
+  // A brand-new workspace is not empty: the first admin owns the
+  // catalog every org gets (basemaps, print templates, app templates,
+  // themes). Count only what a person made, so the welcome panel
+  // still greets a new portal instead of a list of defaults.
+  const onlyDefaults =
+    isMine &&
+    !folderId &&
+    !searchParams.q &&
+    canPublish &&
+    items.length > 0 &&
+    items.every((it) => !!it.seedKind);
   const folderMissing = Boolean(folderId) && !activeFolder;
 
   return (
@@ -266,6 +277,11 @@ export default async function ItemsPage(props: Props) {
                 </Link>
               </span>
             </nav>
+          ) : null}
+          {onlyDefaults ? (
+            <div className="mb-6">
+              <WelcomePanel canPublish onlyDefaults />
+            </div>
           ) : null}
           {items.length === 0 ? (
             // A non-empty search that returns zero rows wins the

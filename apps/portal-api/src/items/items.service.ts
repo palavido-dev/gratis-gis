@@ -1086,6 +1086,10 @@ export class ItemsService {
       // need a second request to render the SVG fallback.
       thumbnailDesign: true,
       license: true,
+      // Marks the catalog every org gets at creation (basemaps, print
+      // templates, app templates, themes). The items page uses it to
+      // tell a brand-new workspace from one with real work in it.
+      seedKind: true,
       storageRef: true,
       access: true,
       createdAt: true,

@@ -216,7 +216,9 @@ export async function PublicLanding({
           {items.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border bg-surface-1 p-10 text-center">
               <p className="text-sm text-muted">
-                {t('landing.publicItemsEmpty', undefined, locale)}
+                {usableSession
+                  ? t('landingSignedIn.publicItemsEmpty', undefined, locale)
+                  : t('landing.publicItemsEmpty', undefined, locale)}
               </p>
               <Link
                 href={ctaHref}

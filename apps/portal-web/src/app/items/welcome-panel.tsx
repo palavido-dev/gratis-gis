@@ -26,7 +26,11 @@ const DISMISS_KEY = 'gg.items.welcomeDismissed';
 
 export function WelcomePanel({
   canPublish,
+  onlyDefaults = false,
 }: {
+  /** "My items" holds only the catalog a new org starts with, so the
+   *  panel sits above that list instead of replacing an empty one. */
+  onlyDefaults?: boolean;
   /** Viewers cannot create items or run the seeder; they keep the
    *  regular empty state instead of dead-end cards. The server
    *  component gates on this too; the prop is belt and braces. */
@@ -111,7 +115,9 @@ export function WelcomePanel({
           <h2 className="text-lg font-semibold tracking-tight text-ink-0">
             {t('welcome.title')}
           </h2>
-          <p className="text-sm text-muted">{t('welcome.intro')}</p>
+          <p className="text-sm text-muted">
+            {onlyDefaults ? t('welcomeDefaults.intro') : t('welcome.intro')}
+          </p>
         </div>
       </div>
 
