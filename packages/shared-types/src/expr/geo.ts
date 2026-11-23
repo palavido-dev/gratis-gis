@@ -235,3 +235,234 @@ export function areaUnit(u: string): string | null {
   const n = AREA_ALIASES[k] ?? k;
   return n in AREA_UNITS ? n : null;
 }
+
+// ---- Spatial predicates for the offline evaluator ------------------
+//
+// Planar tests in degrees, matching ST_Intersects / ST_Covers on
+// EPSG:4326 geometry, and spherical distance matching
+// ST_Distance(geography, geography, false). Written for the field
+// app's offline cache, where a layer is at most tens of thousands of
+// rows; there is no spatial index.
+
+interface Parts {
+  points: Pos[];
+  segments: Array<[Pos, Pos]>;
+  polygons: Pos[][][];
+}
+
+export function geometryParts(g: Geometry | null): Parts {
+  const out: Parts = { points: [], segments: [], polygons: [] };
+  const line = (cs: Pos[]) => {
+    for (let i = 1; i < cs.length; i += 1) out.segments.push([cs[i - 1]!, cs[i]!]);
+    if (cs.length === 1) out.points.push(cs[0]!);
+  };
+  const visit = (x: Geometry | null) => {
+    if (!x) return;
+    switch (x.type) {
+      case 'Point':
+        out.points.push(x.coordinates as Pos);
+        break;
+      case 'MultiPoint':
+        out.points.push(...(x.coordinates as Pos[]));
+        break;
+      case 'LineString':
+        line(x.coordinates as Pos[]);
+        break;
+      case 'MultiLineString':
+        (x.coordinates as Pos[][]).forEach(line);
+        break;
+      case 'Polygon':
+        out.polygons.push(x.coordinates as Pos[][]);
+        (x.coordinates as Pos[][]).forEach(line);
+        break;
+      case 'MultiPolygon':
+        for (const p of x.coordinates as Pos[][][]) {
+          out.polygons.push(p);
+          p.forEach(line);
+        }
+        break;
+      case 'GeometryCollection':
+        (x.geometries ?? []).forEach(visit);
+        break;
+    }
+  };
+  visit(g);
+  return out;
+}
+
+function vertices(p: Parts): Pos[] {
+  const vs = [...p.points];
+  for (const [a, b] of p.segments) vs.push(a, b);
+  return vs;
+}
+
+function bboxOf(p: Parts): [number, number, number, number] | null {
+  const vs = vertices(p);
+  if (vs.length === 0) return null;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const v of vs) {
+    x0 = Math.min(x0, v[0]!);
+    y0 = Math.min(y0, v[1]!);
+    x1 = Math.max(x1, v[0]!);
+    y1 = Math.max(y1, v[1]!);
+  }
+  return [x0, y0, x1, y1];
+}
+
+const cross = (o: Pos, a: Pos, b: Pos) =>
+  (a[0]! - o[0]!) * (b[1]! - o[1]!) - (a[1]! - o[1]!) * (b[0]! - o[0]!);
+
+function onSegment(p: Pos, a: Pos, b: Pos): boolean {
+  return (
+    Math.abs(cross(a, b, p)) <= 1e-12 &&
+    p[0]! >= Math.min(a[0]!, b[0]!) - 1e-12 &&
+    p[0]! <= Math.max(a[0]!, b[0]!) + 1e-12 &&
+    p[1]! >= Math.min(a[1]!, b[1]!) - 1e-12 &&
+    p[1]! <= Math.max(a[1]!, b[1]!) + 1e-12
+  );
+}
+
+/** Segments share any point. */
+function segmentsTouch(a: Pos, b: Pos, c: Pos, d: Pos): boolean {
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) {
+    return true;
+  }
+  return onSegment(a, c, d) || onSegment(b, c, d) || onSegment(c, a, b) || onSegment(d, a, b);
+}
+
+/** Segments cross at a point interior to both. */
+function segmentsCross(a: Pos, b: Pos, c: Pos, d: Pos): boolean {
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+function inRing(p: Pos, ring: Pos[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, yi] = ring[i] as [number, number];
+    const [xj, yj] = ring[j] as [number, number];
+    if (yi > p[1]! !== yj > p[1]! && p[0]! < ((xj - xi) * (p[1]! - yi)) / (yj - yi) + xi) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+function onRing(p: Pos, ring: Pos[]): boolean {
+  for (let i = 1; i < ring.length; i += 1) if (onSegment(p, ring[i - 1]!, ring[i]!)) return true;
+  return false;
+}
+
+/** 'in', 'on' (boundary) or 'out' for one polygon with holes. */
+function pointInPolygon(p: Pos, poly: Pos[][]): 'in' | 'on' | 'out' {
+  if (poly.length === 0) return 'out';
+  if (onRing(p, poly[0]!)) return 'on';
+  if (!inRing(p, poly[0]!)) return 'out';
+  for (const hole of poly.slice(1)) {
+    if (onRing(p, hole)) return 'on';
+    if (inRing(p, hole)) return 'out';
+  }
+  return 'in';
+}
+
+function pointCoveredBy(p: Pos, parts: Parts): boolean {
+  if (parts.polygons.some((poly) => pointInPolygon(p, poly) !== 'out')) return true;
+  if (parts.segments.some(([a, b]) => onSegment(p, a, b))) return true;
+  return parts.points.some((q) => q[0] === p[0] && q[1] === p[1]);
+}
+
+function boxesMeet(a: Parts, b: Parts): boolean {
+  const x = bboxOf(a);
+  const y = bboxOf(b);
+  if (!x || !y) return false;
+  return x[0] <= y[2] && y[0] <= x[2] && x[1] <= y[3] && y[1] <= x[3];
+}
+
+export function intersects(a: Geometry | null, b: Geometry | null): boolean {
+  const pa = geometryParts(a);
+  const pb = geometryParts(b);
+  if (!boxesMeet(pa, pb)) return false;
+  for (const [s, t] of pa.segments) {
+    for (const [u, v] of pb.segments) if (segmentsTouch(s, t, u, v)) return true;
+  }
+  if (vertices(pa).some((p) => pointCoveredBy(p, pb))) return true;
+  if (vertices(pb).some((p) => pointCoveredBy(p, pa))) return true;
+  return false;
+}
+
+/** Every point of b lies in a (ST_Covers). */
+export function covers(a: Geometry | null, b: Geometry | null): boolean {
+  const pa = geometryParts(a);
+  const pb = geometryParts(b);
+  if (!boxesMeet(pa, pb)) return false;
+  const vb = vertices(pb);
+  if (vb.length === 0) return false;
+  if (!vb.every((p) => pointCoveredBy(p, pa))) return false;
+  if (pa.polygons.length === 0) {
+    // A line or points can only cover what lies on them.
+    return pb.segments.every(([s, t]) => pa.segments.some(([u, v]) => onSegment(s, u, v) && onSegment(t, u, v)));
+  }
+  // An edge of b leaving a crosses its boundary somewhere.
+  for (const [s, t] of pb.segments) {
+    for (const [u, v] of pa.segments) if (segmentsCross(s, t, u, v)) return false;
+    const mid: Pos = [(s[0]! + t[0]!) / 2, (s[1]! + t[1]!) / 2];
+    if (!pointCoveredBy(mid, pa)) return false;
+  }
+  return true;
+}
+
+/** Great-circle distance from p to segment a-b, in meters. */
+function pointSegmentDistance(p: Pos, a: Pos, b: Pos): number {
+  const toVec = (q: Pos) => {
+    const lat = rad(q[1]!);
+    const lon = rad(q[0]!);
+    return [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)] as const;
+  };
+  const P = toVec(p);
+  const A = toVec(a);
+  const B = toVec(b);
+  const n = [A[1] * B[2] - A[2] * B[1], A[2] * B[0] - A[0] * B[2], A[0] * B[1] - A[1] * B[0]];
+  const nl = Math.hypot(n[0]!, n[1]!, n[2]!);
+  if (nl < 1e-15) return Math.min(haversine(p, a), haversine(p, b));
+  const N = n.map((x) => x / nl) as [number, number, number];
+  const dot = P[0] * N[0] + P[1] * N[1] + P[2] * N[2];
+  // Closest point on the great circle, then check it lies between A and B.
+  const C = [P[0] - dot * N[0], P[1] - dot * N[1], P[2] - dot * N[2]];
+  const cl = Math.hypot(C[0]!, C[1]!, C[2]!);
+  if (cl < 1e-15) return Math.min(haversine(p, a), haversine(p, b));
+  const Cn = C.map((x) => x / cl) as [number, number, number];
+  const ab = Math.acos(Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2]));
+  const ac = Math.acos(Math.min(1, A[0] * Cn[0] + A[1] * Cn[1] + A[2] * Cn[2]));
+  const cb = Math.acos(Math.min(1, Cn[0] * B[0] + Cn[1] * B[1] + Cn[2] * B[2]));
+  if (Math.abs(ac + cb - ab) < 1e-9) {
+    return EARTH_RADIUS_M * Math.asin(Math.min(1, Math.abs(dot)));
+  }
+  return Math.min(haversine(p, a), haversine(p, b));
+}
+
+/** Shortest distance in meters on the sphere; 0 when they meet. */
+export function geodesicDistance(a: Geometry | null, b: Geometry | null): number | null {
+  const pa = geometryParts(a);
+  const pb = geometryParts(b);
+  const va = vertices(pa);
+  const vb = vertices(pb);
+  if (va.length === 0 || vb.length === 0) return null;
+  if (intersects(a, b)) return 0;
+  let best = Infinity;
+  for (const p of va) {
+    for (const q of pb.points) best = Math.min(best, haversine(p, q));
+    for (const [s, t] of pb.segments) best = Math.min(best, pointSegmentDistance(p, s, t));
+  }
+  for (const p of vb) {
+    for (const q of pa.points) best = Math.min(best, haversine(p, q));
+    for (const [s, t] of pa.segments) best = Math.min(best, pointSegmentDistance(p, s, t));
+  }
+  return best;
+}

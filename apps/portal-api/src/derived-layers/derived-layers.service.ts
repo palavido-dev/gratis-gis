@@ -10,6 +10,9 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { expressionTimeZone } from '../expressions/time-zone.js';
+import { storedExpressionData } from '../expressions/expression-data.js';
+import { readDataRefs } from './tools/expression-step.js';
+import type { DataResolver } from '@gratis-gis/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   dataLayerScope,
@@ -128,9 +131,22 @@ export class DerivedLayersService {
    * against `sourceItem`. This method only verifies the source's
    * type and shape.
    */
+  /**
+   * Sources stored on the pipeline's expression steps, ready for
+   * compiling. Null when no step reads other layers.
+   */
+  private async expressionDataFor(pipeline: ToolStep[]) {
+    const refs = pipeline.flatMap((st) =>
+      readDataRefs((st.params as { dataRefs?: unknown } | null)?.dataRefs),
+    );
+    if (refs.length === 0) return null;
+    return storedExpressionData(this.prisma, refs);
+  }
+
   async validateAndEnrich(
     rawData: unknown,
     sourceItem: Pick<Item, 'id' | 'type' | 'data' | 'bbox'>,
+    opts: { expressionData?: DataResolver } = {},
   ): Promise<DerivedLayerData> {
     if (!rawData || typeof rawData !== 'object') {
       throw new BadRequestException('derived_layer data must be an object');
@@ -287,6 +303,7 @@ export class DerivedLayersService {
       const validated = await this.resolveOtherSourceLayer(
         generator.validate((stepRaw as { params?: unknown }).params, {
           sourceSchema: schema,
+          ...(opts.expressionData ? { expressionData: opts.expressionData } : {}),
         }),
         i,
       );
@@ -800,13 +817,16 @@ export class DerivedLayersService {
     // are depth-prefixed so adjacent levels never collide.
     let inputAlias = sourceAlias;
     let schema = inputSchema;
+    const expressionData = await this.expressionDataFor(layerData.pipeline);
+    const timeZone = await expressionTimeZone(this.prisma);
     for (let i = 0; i < layerData.pipeline.length; i++) {
       const step = layerData.pipeline[i]!;
       const generator = getGeneratorForStep(step);
       const stepParams = generator.validate(step.params);
       const fragment = generator.toSql(inputAlias, stepParams, params.length, {
         inputSchema: schema,
-        timeZone: await expressionTimeZone(this.prisma),
+        timeZone,
+        ...(expressionData ? { expressionData } : {}),
       });
       const cteName = `${prefix}_step_${i + 1}`;
       ctes.push(`${cteName} AS (${fragment.sql})`);
@@ -831,6 +851,8 @@ export class DerivedLayersService {
    * access on the source.
    */
   async previewRecipe(args: {
+    /** Resolves layers the recipe's expressions read. */
+    expressionData?: DataResolver;
     source: DerivedLayerData['source'];
     pipeline: ToolStep[];
     sourceItem: Pick<Item, 'id' | 'type' | 'data' | 'bbox'>;
@@ -927,6 +949,7 @@ export class DerivedLayersService {
       const generator = getGeneratorForStep(step);
       const validated = generator.validate(step.params, {
         sourceSchema: schema,
+        ...(args.expressionData ? { expressionData: args.expressionData } : {}),
       });
       const enriched = generator.enrich
         ? await generator.enrich(

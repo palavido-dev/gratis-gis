@@ -40,7 +40,7 @@ This page translates common Arcade patterns.
 | Calculate Field with Arcade | **Calculate field** step on a derived layer | The column is computed on every read. |
 | Filter or definition expression | **Filter** step, or a filter on the map layer | See [Filter](/help/analysis/filter). |
 | Geometry functions (`Area`, `Length`) | **Calculate geometry** step | Length, perimeter and area with a unit. See [Calculate](/help/analysis/calculate). |
-| Spatial lookups (`Intersects`, `FeatureSetByName`) | **Spatial join** or **Spatial filter** step | Expressions cannot read other layers. |
+| Spatial lookups (`Intersects`, `FeatureSetByName`) | `intersecting(layer('...'))` and the other data functions | See below. |
 | Form calculations and relevance | Form **conditional logic** | See [Conditional logic](/help/forms/conditional-logic). |
 
 ## The expression language in one minute
@@ -89,6 +89,30 @@ Many Arcade function names work as they are: `IIf`, `When`,
 | `Area($feature, 'acres')` | `area($feature, 'acres')` |
 | `Length($feature, 'feet')` | `length($feature, 'feet')` |
 
+### FeatureSets
+
+| Arcade | GratisGIS expression |
+|---|---|
+| `FeatureSetByRelationshipName($feature, 'inspections')` | `related('inspections')` |
+| `FeatureSetByName($map, 'Hydrants')` | `layer('Hydrants')` |
+| `FeatureSetByPortalItem(portal, 'id', 0)` | `layer('id')`, or `layer('id', 'sublayer')` |
+| `Filter(fs, "status = 'open'")` | `filter(rows, {{status}} == 'open')` |
+| `Filter(fs, 'code = @code')` with a variable | `filter(rows, {{code}} == $feature.code)` |
+| `OrderBy(fs, 'date DESC')` | `order_by(rows, {{date}}, 'desc')` |
+| `Top(fs, 5)` | `top(rows, 5)` |
+| `First(fs).name` | `first(rows).name` |
+| `Count(fs)` | `count(rows)` |
+| `Sum(fs, 'cost')`, `Mean`, `Min`, `Max` | `sum(rows, {{cost}})`, `avg`, `min`, `max` |
+| `Distinct(fs, 'type')` then `Count` | `count_distinct(rows, {{type}})` |
+| `Intersects(fs, $feature)` | `intersecting(rows)` |
+| `Contains($feature, fs)` style point-in-polygon | `containing(rows)` or `within(rows)` |
+| `Intersects(fs, Buffer($feature, 100, 'feet'))` | `within_distance(rows, 100, 'feet')` |
+| Buffer, Intersects and a loop with `Distance` to find the closest | `nearest(rows)` and `distance_to(rows)` |
+| A loop building a text list | `list(rows, {{name}}, ', ')` |
+
+The loop-free forms run where the data is, so the same expression can
+fill a calculated column for every row of a large layer.
+
 Notes:
 
 - **Counting from 1.** Positions in `substr`, `index_of` and
@@ -114,7 +138,9 @@ show up on the next request without a refresh step.
 
 ## What has no equivalent yet
 
-- Variables, loops and user-defined functions.
+- Variables, loops and user-defined functions. Most loops in Arcade
+  FeatureSet code build a count, a total or a list, which the summary
+  functions do directly.
 - Regular expressions.
 - Arcade in dashboards and data expressions. Dashboards are web
   apps, and their charts read layers and derived layers directly.

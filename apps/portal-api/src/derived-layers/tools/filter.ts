@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
-import {
-  analyzeExpression,
-  compileExpressionSql,
-  fieldRefTypeFor,
-} from '@gratis-gis/shared-types';
 
+import { compileStepExpression, readDataRefs, validateStepExpression, type StoredDataRef } from './expression-step.js';
 import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
 
 export interface FilterParams {
+  /** Sources the expression reads, resolved on save. */
+  dataRefs?: StoredDataRef[];
   expression: string;
 }
 
@@ -56,20 +54,13 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
       );
     }
     // Parse to catch syntax errors at save time.
-    // Syntax always; types and field names when the source schema is
-    // known (save time). Positions are 1-based for people.
-    const analysis = analyzeExpression(expression, {
-      fields: (ctx?.sourceSchema ?? []).map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
-      allowUnknownFields: !ctx?.sourceSchema,
-    });
-    if (analysis.issues.length > 0) {
-      throw new BadRequestException(
-        `filter.params.expression: ${analysis.issues
-          .map((i) => `${i.message} (at character ${i.pos + 1})`)
-          .join('; ')}`,
-      );
-    }
-    return { expression };
+    const dataRefs = validateStepExpression(
+      expression,
+      'filter.params.expression',
+      r.dataRefs,
+      ctx,
+    );
+    return dataRefs.length > 0 ? { expression, dataRefs } : { expression };
   },
 
   outputSchema(input: FeatureField[]): FeatureField[] {
@@ -80,8 +71,11 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     return 0;
   },
 
-  extractDependencies(): { itemIds: string[]; urls: string[] } {
-    return { itemIds: [], urls: [] };
+  extractDependencies(params: FilterParams): { itemIds: string[]; urls: string[] } {
+    return {
+      itemIds: [...new Set(readDataRefs(params.dataRefs).map((r) => r.itemId))],
+      urls: [],
+    };
   },
 
   toSql(
@@ -93,14 +87,8 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     // Compile at SQL time from the saved text, so save-time and
     // read-time checks cannot drift. Fields the schema does not
     // declare read as untyped text rather than failing the read.
-    const schema: FeatureField[] = ctx?.inputSchema ?? [];
-    const compiled = compileExpressionSql(params.expression, {
-      fields: schema.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
-      allowUnknownFields: true,
-      row: { propertiesSql: `${inputAlias}.properties`, geomSql: `${inputAlias}.geom` },
-      paramOffset,
+    const compiled = compileStepExpression(params.expression, inputAlias, paramOffset, ctx, {
       predicate: true,
-      ...(ctx?.timeZone ? { timeZone: ctx.timeZone } : {}),
     });
     const sql = `
       SELECT

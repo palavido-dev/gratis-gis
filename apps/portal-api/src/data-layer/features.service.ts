@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
@@ -14,6 +15,7 @@ import {
   describeViolations,
   checkExpression,
   evaluateExpressionValue,
+  usesDataAccess,
   fieldRefTypeFor,
   parseExpression,
   validateFeatureProperties,
@@ -26,6 +28,7 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { expressionTimeZone } from '../expressions/time-zone.js';
+import { ExpressionsService } from '../expressions/expressions.service.js';
 import { parseIntEnv } from '../common/env.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -225,6 +228,7 @@ export class DataLayerFeaturesService {
     private readonly bboxRefresh: ItemBboxRefreshService,
     private readonly sharing: SharingService,
     private readonly authSync: AuthSyncService,
+    @Optional() private readonly expressions?: ExpressionsService,
   ) {}
 
   /**
@@ -1883,7 +1887,32 @@ export class DataLayerFeaturesService {
       allowUnknownFields: layerFields.length === 0,
     };
     const timeZone = await expressionTimeZone(this.prisma);
-    const analysis = checkExpression(ast, checkOpts);
+    // An expression that reads other rows (related tables, other
+    // layers, nearby features) runs in SQL, where those rows are; the
+    // values are computed up front for every affected row and the
+    // per-row loop below uses them.
+    let sqlValues: Map<string, unknown> | null = null;
+    if (usesDataAccess(ast)) {
+      const item = await this.prisma.item.findUnique({
+        where: { id: args.itemId },
+        include: { shares: true },
+      });
+      if (!item) throw new NotFoundException('Item not found');
+      if (!this.expressions) {
+        throw new BadRequestException('Expressions that read other rows are not available here');
+      }
+      sqlValues = await this.expressions.valuesForFeatures({
+        viewer: args.user,
+        item,
+        layerId: args.layerId,
+        expression: args.expression,
+        ids: features.features.map((f) => String(f.id)),
+        as: args.outputType,
+      });
+    }
+    const analysis = sqlValues
+      ? { issues: [] as Array<{ message: string; pos: number }> }
+      : checkExpression(ast, checkOpts);
     if (analysis.issues.length > 0) {
       throw new BadRequestException(
         `expression: ${analysis.issues
@@ -1919,7 +1948,7 @@ export class DataLayerFeaturesService {
       const oldValue = (f.properties as Record<string, unknown>)[args.outputName];
       let raw: unknown;
       try {
-        raw = evaluateExpressionValue(ast, {
+        raw = sqlValues ? (sqlValues.get(String(f.id)) ?? null) : evaluateExpressionValue(ast, {
           ...checkOpts,
           properties: f.properties as Record<string, unknown>,
           geometry: f.geometry ?? null,

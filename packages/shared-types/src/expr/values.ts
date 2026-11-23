@@ -26,6 +26,8 @@ export class DateVal {
 /** A feature (`$feature`, or one row of a set). */
 export interface FeatureVal {
   kind: 'feature';
+  /** Feature id (global id), for related(). */
+  id?: string;
   properties: Record<string, unknown>;
   geometry: unknown;
   /** Declared fields, so a member read can type the value. */
@@ -49,7 +51,8 @@ export type Val =
   | FeatureVal
   | SetVal;
 
-export const NUMERIC_TEXT_RE = /^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$/;
+// Written so no character can match two ways (CodeQL polynomial ReDoS).
+export const NUMERIC_TEXT_RE = /^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/;
 
 /** ISO 8601 shapes accepted as dates; mirrored in gg_expr_ts. */
 export const ISO_DATE_RE =
@@ -310,19 +313,50 @@ export function trimChars(s: string, left: boolean, right: boolean): string {
   return s.slice(a, b);
 }
 
-/** SQL LIKE as a RegExp. Backslash escapes the next character. */
-export function likeToRegExp(pattern: string, caseInsensitive: boolean): RegExp {
-  let re = '';
-  for (let i = 0; i < pattern.length; i += 1) {
-    const c = pattern[i]!;
-    if (c === '\\' && i + 1 < pattern.length) {
-      re += pattern[i + 1]!.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+/**
+ * SQL LIKE. `%` matches any run, `_` one character, and a backslash
+ * makes the next character literal. Matched by walking the text with
+ * one saved position per `%` rather than with a RegExp, so a pattern
+ * of many `%` cannot make it slow (no backtracking blow-up).
+ */
+export function likeMatch(text: string, pattern: string, caseInsensitive: boolean): boolean {
+  type Tok = { any: true } | { one: true } | { ch: string };
+  const toks: Tok[] = [];
+  const pc = chars(caseInsensitive ? pattern.toLowerCase() : pattern);
+  for (let i = 0; i < pc.length; i += 1) {
+    const c = pc[i]!;
+    if (c === '\\' && i + 1 < pc.length) {
+      toks.push({ ch: pc[i + 1]! });
       i += 1;
-    } else if (c === '%') re += '[\\s\\S]*';
-    else if (c === '_') re += '[\\s\\S]';
-    else re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    } else if (c === '%') {
+      if (!(toks.length > 0 && 'any' in toks[toks.length - 1]!)) toks.push({ any: true });
+    } else if (c === '_') toks.push({ one: true });
+    else toks.push({ ch: c });
   }
-  return new RegExp(`^${re}$`, caseInsensitive ? 'iu' : 'u');
+  const t = chars(caseInsensitive ? text.toLowerCase() : text);
+  let ti = 0;
+  let pi = 0;
+  let starP = -1;
+  let starT = 0;
+  while (ti < t.length) {
+    const tok = toks[pi];
+    if (tok && ('one' in tok || ('ch' in tok && tok.ch === t[ti]))) {
+      ti += 1;
+      pi += 1;
+    } else if (tok && 'any' in tok) {
+      starP = pi;
+      starT = ti;
+      pi += 1;
+    } else if (starP >= 0) {
+      pi = starP + 1;
+      starT += 1;
+      ti = starT;
+    } else {
+      return false;
+    }
+  }
+  while (pi < toks.length && 'any' in toks[pi]!) pi += 1;
+  return pi === toks.length;
 }
 
 /** split_part with Postgres's rules, including a negative index. */
@@ -335,5 +369,10 @@ export function splitPart(s: string, sep: string, n: number): string {
 
 /** Group digits with commas: "1234567" to "1,234,567". */
 export function groupThousands(intDigits: string): string {
-  return intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  let out = '';
+  for (let i = 0; i < intDigits.length; i += 1) {
+    if (i > 0 && (intDigits.length - i) % 3 === 0) out += ',';
+    out += intDigits[i];
+  }
+  return out;
 }

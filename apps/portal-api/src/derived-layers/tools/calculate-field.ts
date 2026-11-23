@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
-import {
-  analyzeExpression,
-  compileExpressionSql,
-  fieldRefTypeFor,
-} from '@gratis-gis/shared-types';
 
+import { compileStepExpression, readDataRefs, validateStepExpression, type StoredDataRef } from './expression-step.js';
 import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
 
 export interface CalculateFieldParams {
+  /** Sources the expression reads, resolved on save. */
+  dataRefs?: StoredDataRef[];
   outputName: string;
   outputType: 'number' | 'string' | 'boolean' | 'date';
   expression: string;
@@ -110,20 +108,15 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
         `calculate-field.params.expression must be at most ${MAX_EXPRESSION_LENGTH} characters`,
       );
     }
-    // Syntax always; types and field names when the source schema is
-    // known (save time). Positions are 1-based for people.
-    const analysis = analyzeExpression(expression, {
-      fields: (ctx?.sourceSchema ?? []).map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
-      allowUnknownFields: !ctx?.sourceSchema,
-    });
-    if (analysis.issues.length > 0) {
-      throw new BadRequestException(
-        `calculate-field.params.expression: ${analysis.issues
-          .map((i) => `${i.message} (at character ${i.pos + 1})`)
-          .join('; ')}`,
-      );
-    }
-    return { outputName, outputType, expression };
+    const dataRefs = validateStepExpression(
+      expression,
+      'calculate-field.params.expression',
+      r.dataRefs,
+      ctx,
+    );
+    return dataRefs.length > 0
+      ? { outputName, outputType, expression, dataRefs }
+      : { outputName, outputType, expression };
   },
 
   outputSchema(
@@ -145,8 +138,11 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
     return 0;
   },
 
-  extractDependencies(): { itemIds: string[]; urls: string[] } {
-    return { itemIds: [], urls: [] };
+  extractDependencies(params: CalculateFieldParams): { itemIds: string[]; urls: string[] } {
+    return {
+      itemIds: [...new Set(readDataRefs(params.dataRefs).map((r) => r.itemId))],
+      urls: [],
+    };
   },
 
   toSql(
@@ -155,14 +151,8 @@ export const calculateFieldGenerator: ToolGenerator<CalculateFieldParams> = {
     paramOffset: number,
     ctx?: ToolSqlContext,
   ) {
-    const schema: FeatureField[] = ctx?.inputSchema ?? [];
-    const compiled = compileExpressionSql(params.expression, {
-      fields: schema.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type) })),
-      allowUnknownFields: true,
-      row: { propertiesSql: `${inputAlias}.properties`, geomSql: `${inputAlias}.geom` },
-      paramOffset,
+    const compiled = compileStepExpression(params.expression, inputAlias, paramOffset, ctx, {
       as: params.outputType,
-      ...(ctx?.timeZone ? { timeZone: ctx.timeZone } : {}),
     });
     // Pass the field name as a parameter so the JSONB key never has
     // to be escaped by hand. jsonb_build_object takes VARIADIC "any",

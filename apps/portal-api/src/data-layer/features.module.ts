@@ -11,6 +11,7 @@ import { StorageModule } from '../storage/storage.module.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { DerivedLayersModule } from '../derived-layers/derived-layers.module.js';
 import { EngineModule } from '../engine/engine.module.js';
+import { ExpressionsModule } from '../expressions/expressions.module.js';
 
 /**
  * Data-layer feature CRUD + attachments. Depends on ItemsModule
@@ -27,6 +28,7 @@ import { EngineModule } from '../engine/engine.module.js';
     NotificationsModule,
     DerivedLayersModule,
     EngineModule,
+    ExpressionsModule,
   ],
   providers: [DataLayerFeaturesService, DataLayerAttachmentsService],
   controllers: [

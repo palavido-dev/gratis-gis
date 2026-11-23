@@ -16,6 +16,14 @@ import {
   type ParamKind,
   type Variant,
 } from './catalog';
+import { lengthUnit } from './geo';
+import {
+  DATA_ALIASES,
+  DATA_FUNCTIONS,
+  SET_TO_SET,
+  type DataResolver,
+  type DataSource,
+} from './data';
 
 /** How a comparison reads its two sides. */
 export type CompareDomain =
@@ -47,7 +55,9 @@ export interface NodeInfo {
   /** IN against a list-valued expression rather than a literal list. */
   member?: boolean;
   /** Row schema of a set or feature value (data access). */
-  set?: { fields: FieldRef[]; loose?: boolean };
+  set?: { fields: FieldRef[]; loose?: boolean; source?: DataSource; limited?: boolean };
+  /** Canonical data-access function name when this call is one. */
+  data?: string;
 }
 
 export interface CheckOptions {
@@ -58,6 +68,8 @@ export interface CheckOptions {
    * with no declared schema.
    */
   allowUnknownFields?: boolean;
+  /** Resolves related tables and other layers. Without it, data access is refused. */
+  data?: DataResolver;
 }
 
 export interface CheckResult {
@@ -407,6 +419,14 @@ export function checkExpression(root: Expr, opts: CheckOptions): CheckResult {
 
   function visitFunc(e: Extract<Expr, { kind: 'func' }>): ValueType {
     const name = e.name;
+    const dataName = DATA_ALIASES[name] ?? name;
+    if (DATA_FUNCTIONS.has(name)) return visitData(e, dataName, null);
+    // count, min and max take either plain values or a set of rows.
+    let pre: ValueType | null = null;
+    if ((name === 'count' || name === 'min' || name === 'max' || name === 'least' || name === 'greatest') && e.args.length > 0) {
+      pre = visit(e.args[0]!);
+      if (pre === 'set') return visitData(e, name === 'least' ? 'min' : name === 'greatest' ? 'max' : name, pre);
+    }
     const spec = FUNCTION_INDEX.get(name);
     if (!spec) {
       e.args.forEach(visit);
@@ -472,7 +492,7 @@ export function checkExpression(root: Expr, opts: CheckOptions): CheckResult {
         break;
     }
 
-    const types = e.args.map(visit);
+    const types = e.args.map((a, i) => (i === 0 && pre !== null ? pre : visit(a)));
     const arityOk = (v: Variant) => {
       const max = v.rest ? Infinity : v.params.length;
       const min = v.params.length - (v.optional ?? 0);
@@ -508,7 +528,238 @@ export function checkExpression(root: Expr, opts: CheckOptions): CheckResult {
     return set(e, { type: ret, variant, argKinds, lits });
   }
 
+  /** The row schema of a set or feature argument, or null after an error. */
+  function setArg(e: Expr, fn: string, t?: ValueType): NonNullable<NodeInfo['set']> | null {
+    const ty = t ?? visit(e);
+    const si = info.get(e)?.set;
+    if (ty !== 'set' || !si) {
+      if (ty !== 'unknown') {
+        err(`${fn}() needs rows here, such as related('table') or layer('name'); ${describe(e)} is ${showType(ty)}`, e.pos);
+      }
+      return null;
+    }
+    return si;
+  }
+
+  /** Visit `e` with the rows of `rows` as {{field}}. */
+  function inRows<T>(rows: NonNullable<NodeInfo['set']> | null, f: () => T): T {
+    scopes.push({
+      fields: new Map((rows?.fields ?? []).map((x) => [x.name, x])),
+      loose: rows === null || rows.loose === true,
+    });
+    try {
+      return f();
+    } finally {
+      scopes.pop();
+    }
+  }
+
+  function literalText(e: Expr | undefined, fn: string, what: string): string | null {
+    if (!e || e.kind !== 'str') {
+      err(`${fn}() needs ${what} in quotes here`, e?.pos ?? 0);
+      if (e) visit(e);
+      return null;
+    }
+    info.set(e, { type: 'string' });
+    return e.value;
+  }
+
+  function arity(e: Extract<Expr, { kind: 'func' }>, fn: string, min: number, max: number, sig: string) {
+    if (e.args.length < min || e.args.length > max) err(`${sig} takes ${min === max ? min : `${min} to ${max}`} value${max === 1 ? '' : 's'}`, e.pos);
+  }
+
+  function visitData(e: Extract<Expr, { kind: 'func' }>, fn: string, firstType: ValueType | null): ValueType {
+    const resolver = opts.data;
+    const a = e.args;
+    const lits: Record<number, unknown> = {};
+    const done = (type: ValueType, extra: Partial<NodeInfo> = {}) =>
+      set(e, { type, data: fn, lits, ...extra });
+    const first = () => setArg(a[0]!, fn, firstType ?? undefined);
+
+    if (fn === 'related' || fn === 'layer') {
+      arity(e, fn, 1, fn === 'layer' ? 2 : 1, fn === 'layer' ? "layer('name', 'sublayer')" : "related('table')");
+      const name = literalText(a[0], fn, fn === 'related' ? 'the related table name' : 'the layer name');
+      const sub = fn === 'layer' && a[1] ? literalText(a[1], fn, 'the sublayer name') : undefined;
+      if (name === null) return done('set', { set: { fields: [], loose: true } });
+      if (!resolver) {
+        err(`${fn}() is not available here: this expression cannot read other rows`, e.pos);
+        return done('set', { set: { fields: [], loose: true } });
+      }
+      const r = fn === 'related' ? resolver.related(name) : resolver.layer(name, sub ?? undefined);
+      if ('error' in r) {
+        err(r.error, a[0]!.pos);
+        return done('set', { set: { fields: [], loose: true } });
+      }
+      return done('set', { set: { fields: r.fields, source: r } });
+    }
+    if (a.length === 0) {
+      err(`${fn}() needs rows as its first value`, e.pos);
+      return done('unknown');
+    }
+    const rows = first();
+    if (rows?.limited && ['filter', 'order_by', 'within_distance', 'intersecting', 'containing', 'within', 'nearest', 'distance_to'].includes(fn)) {
+      err(`Use ${fn}() before top(): top() keeps the first rows, so nothing can narrow them afterwards`, e.pos);
+    }
+    const spatial = () => {
+      if (rows?.source && !rows.source.hasGeometry) {
+        err(`${rows.source.label} has no geometry, so ${fn}() cannot use it`, a[0]!.pos);
+      }
+    };
+    switch (fn) {
+      case 'filter': {
+        arity(e, fn, 2, 2, 'filter(rows, condition)');
+        if (a[1]) inRows(rows, () => requireBool(a[1]!, visit(a[1]!), 'filter()'));
+        return done('set', { set: rows ?? { fields: [], loose: true } });
+      }
+      case 'order_by': {
+        arity(e, fn, 2, 3, "order_by(rows, value, 'desc')");
+        if (a[1]) {
+          const t = inRows(rows, () => visit(a[1]!));
+          if (t === 'list' || t === 'set' || t === 'feature') err(`Rows cannot be sorted by ${showType(t)}`, a[1].pos);
+        }
+        if (a[2]) {
+          const dir = literalText(a[2], fn, "'asc' or 'desc'");
+          if (dir !== null && dir.toLowerCase() !== 'asc' && dir.toLowerCase() !== 'desc') {
+            err("order_by() sorts 'asc' or 'desc'", a[2].pos);
+          }
+          lits[2] = (dir ?? 'asc').toLowerCase();
+        } else lits[2] = 'asc';
+        return done('set', { set: rows ?? { fields: [], loose: true } });
+      }
+      case 'top': {
+        arity(e, fn, 2, 2, 'top(rows, n)');
+        if (a[1]) {
+          if (a[1].kind !== 'num' || a[1].value < 0 || !Number.isInteger(a[1].value)) {
+            err('top() needs a whole number such as 5', a[1].pos);
+          } else lits[1] = a[1].value;
+          visit(a[1]);
+        }
+        return done('set', { set: { ...(rows ?? { fields: [], loose: true }), limited: true } });
+      }
+      case 'within_distance': {
+        arity(e, fn, 3, 3, "within_distance(rows, distance, 'unit')");
+        spatial();
+        if (a[1]) {
+          const t = visit(a[1]);
+          if (!convertible(t, 'number')) err('within_distance() needs a number for the distance', a[1].pos);
+        }
+        if (a[2]) {
+          const u = literalText(a[2], fn, literalHint('length-unit'));
+          const unit = u === null ? null : lengthUnit(u);
+          if (u !== null && unit === null) err(`within_distance() needs ${literalHint('length-unit')}`, a[2].pos);
+          lits[2] = unit ?? 'meters';
+        }
+        return done('set', { set: rows ?? { fields: [], loose: true } });
+      }
+      case 'intersecting':
+      case 'containing':
+      case 'within':
+        arity(e, fn, 1, 1, `${fn}(rows)`);
+        spatial();
+        return done('set', { set: rows ?? { fields: [], loose: true } });
+      case 'first':
+      case 'last':
+        arity(e, fn, 1, 1, `${fn}(rows)`);
+        return done('feature', { set: rows ?? { fields: [], loose: true } });
+      case 'nearest': {
+        arity(e, fn, 1, 3, "nearest(rows, max distance, 'unit')");
+        spatial();
+        if (a[1]) {
+          const t = visit(a[1]);
+          if (!convertible(t, 'number')) err('nearest() needs a number for the maximum distance', a[1].pos);
+        }
+        lits[2] = 'meters';
+        if (a[2]) {
+          const u = literalText(a[2], fn, literalHint('length-unit'));
+          const unit = u === null ? null : lengthUnit(u);
+          if (u !== null && unit === null) err(`nearest() needs ${literalHint('length-unit')}`, a[2].pos);
+          lits[2] = unit ?? 'meters';
+        }
+        return done('feature', { set: rows ?? { fields: [], loose: true } });
+      }
+      case 'distance_to': {
+        arity(e, fn, 1, 2, "distance_to(rows, 'unit')");
+        spatial();
+        lits[1] = 'meters';
+        if (a[1]) {
+          const u = literalText(a[1], fn, literalHint('length-unit'));
+          const unit = u === null ? null : lengthUnit(u);
+          if (u !== null && unit === null) err(`distance_to() needs ${literalHint('length-unit')}`, a[1].pos);
+          lits[1] = unit ?? 'meters';
+        }
+        return done('number');
+      }
+      case 'count':
+        arity(e, fn, 1, 1, 'count(rows)');
+        return done('number');
+      case 'exists':
+        arity(e, fn, 1, 1, 'exists(rows)');
+        return done('boolean');
+      case 'sum':
+      case 'avg':
+      case 'min':
+      case 'max':
+      case 'count_distinct':
+      case 'list': {
+        const sig = fn === 'list' ? "list(rows, value, ', ')" : `${fn}(rows, value)`;
+        arity(e, fn, 2, fn === 'list' ? 3 : 2, sig);
+        let t: ValueType = 'unknown';
+        if (a[1]) t = inRows(rows, () => visit(a[1]!));
+        if (fn === 'sum' || fn === 'avg') {
+          if (a[1] && !convertible(t, 'number')) err(`${fn}() adds up numbers; ${describe(a[1])} is ${showType(t)}`, a[1].pos);
+          return done('number', { domain: 'number' });
+        }
+        if (fn === 'count_distinct') {
+          if (a[1] && !convertible(t, 'text')) err(`${describe(a[1])} is ${showType(t)}`, a[1].pos);
+          return done('number', { domain: 'text' });
+        }
+        if (fn === 'list') {
+          if (a[1] && !convertible(t, 'text')) err(`${describe(a[1])} is ${showType(t)}`, a[1].pos);
+          if (a[2] && !convertible(visit(a[2]), 'text')) err('The separator is text', a[2].pos);
+          return done('string', { domain: 'text' });
+        }
+        // min and max keep the value's type: the latest date, say.
+        const dom: CompareDomain = t === 'number' ? 'number' : t === 'date' ? 'date' : t === 'boolean' ? 'boolean' : 'text';
+        if (t === 'list' || t === 'set' || t === 'feature') err(`${fn}() cannot compare ${showType(t)}`, a[1]!.pos);
+        return done(dom === 'text' ? 'string' : (dom as ValueType), { domain: dom });
+      }
+      case 'lookup': {
+        arity(e, fn, 4, 4, "lookup(rows, 'key field', value, 'result field')");
+        const key = literalText(a[1], fn, 'the key field name');
+        if (a[2]) {
+          const vt = visit(a[2]);
+          if (!convertible(vt, 'text')) err(`${describe(a[2])} is ${showType(vt)}`, a[2].pos);
+        }
+        const ret = literalText(a[3], fn, 'the result field name');
+        const fields = new Map((rows?.fields ?? []).map((f) => [f.name, f]));
+        const loose = rows === null || rows.loose === true;
+        if (key !== null && !fields.has(key) && !loose) err(`${rows?.source?.label ?? 'These rows'} have no field ${key}`, a[1]!.pos);
+        let t: ValueType = 'unknown';
+        if (ret !== null) {
+          const f = fields.get(ret);
+          if (f) t = f.type;
+          else if (!loose) err(`${rows?.source?.label ?? 'These rows'} have no field ${ret}`, a[3]!.pos);
+        }
+        lits[1] = key;
+        lits[3] = ret;
+        return done(t, { fieldType: t, set: rows ?? { fields: [], loose: true } });
+      }
+      default:
+        err(`Unknown function ${fn}()`, e.pos);
+        return done('unknown');
+    }
+  }
+
   const type = visit(root);
+  if (type === 'set' || type === 'feature') {
+    issues.push({
+      message:
+        type === 'set'
+          ? 'The result is a set of rows; summarize it with count(), max() or similar, or read one row with first(...).field'
+          : 'The result is a whole feature; read one of its fields with .name',
+      pos: root.pos,
+    });
+  }
   return { type, issues, info };
 }
 

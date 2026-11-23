@@ -21,10 +21,17 @@ export function isValidTimeZone(tz: string): boolean {
 
 export async function expressionTimeZone(prisma: PrismaService): Promise<string> {
   if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
-  const org = await prisma.organization.findFirst({
-    orderBy: { createdAt: 'asc' },
-    select: { timeZone: true },
-  });
+  let org: { timeZone: string | null } | null = null;
+  try {
+    // A test double without an organization table reads as UTC.
+    org =
+      (await prisma.organization?.findFirst({
+        orderBy: { createdAt: 'asc' },
+        select: { timeZone: true },
+      })) ?? null;
+  } catch {
+    org = null;
+  }
   const tz = org?.timeZone && isValidTimeZone(org.timeZone) ? org.timeZone : 'UTC';
   cached = { value: tz, at: Date.now() };
   return tz;

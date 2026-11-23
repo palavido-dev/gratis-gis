@@ -25,7 +25,7 @@ import {
   type ValueType,
 } from './expr/ast';
 import { checkExpression, type CheckOptions, type CheckResult } from './expr/check';
-import { evaluateChecked, toJsonValue, convertValue } from './expr/evaluate';
+import { evaluateChecked, toJsonValue, convertValue, type JsDataProvider } from './expr/evaluate';
 import { parseExpression } from './expr/parser';
 import { compileChecked, type CompiledSql, type SqlCompileOptions } from './expr/sql';
 import type { FeatureVal } from './expr/values';
@@ -50,7 +50,26 @@ export {
 export { parseExpression, MAX_EXPRESSION_LENGTH } from './expr/parser';
 export { checkExpression, type CheckOptions, type CheckResult } from './expr/check';
 export { FUNCTIONS, type FnSpec, type Category as FunctionCategory } from './expr/catalog';
-export { fieldSql, type CompiledSql, type SqlRowContext } from './expr/sql';
+export { compileChecked } from './expr/sql';
+export { evaluateChecked } from './expr/evaluate';
+export {
+  fieldSql,
+  NEAREST_CANDIDATES,
+  type CompiledSql,
+  type SqlDataAdapter,
+  type SqlRowContext,
+} from './expr/sql';
+export {
+  collectDataRefs,
+  DATA_FUNCTION_DOCS,
+  usesDataAccess,
+  type DataRef,
+  type DataResolver,
+  type DataSource,
+  type Resolved as ResolvedDataSource,
+} from './expr/data';
+export type { JsDataProvider } from './expr/evaluate';
+export type { FeatureVal as ExpressionFeature } from './expr/values';
 export { FORMAT_TOKENS } from './expr/dates';
 export { AREA_UNITS as EXPRESSION_AREA_UNITS, LENGTH_UNITS as EXPRESSION_LENGTH_UNITS } from './expr/geo';
 
@@ -93,6 +112,10 @@ export function compileExpressionSql(
 export interface EvaluateOptions extends CheckOptions {
   properties: Record<string, unknown>;
   geometry?: unknown;
+  /** The feature's id, for related(). */
+  id?: string;
+  /** Rows of other sources, for data access. */
+  rows?: JsDataProvider;
   now?: number;
   timeZone?: string;
   /** Convert the result, as the SQL compiler's `as`. */
@@ -113,7 +136,9 @@ export function evaluateExpressionValue(src: string | Expr, opts: EvaluateOption
     geometry: opts.geometry ?? null,
     fields: opts.fields,
   };
-  const env: { feature: FeatureVal; now?: number; timeZone?: string } = { feature };
+  if (opts.id !== undefined) feature.id = opts.id;
+  const env: { feature: FeatureVal; now?: number; timeZone?: string; data?: JsDataProvider } = { feature };
+  if (opts.rows) env.data = opts.rows;
   if (opts.now !== undefined) env.now = opts.now;
   if (opts.timeZone !== undefined) env.timeZone = opts.timeZone;
   let v = evaluateChecked(ast, checked, env);

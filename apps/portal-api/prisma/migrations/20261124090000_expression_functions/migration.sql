@@ -15,7 +15,7 @@ IMMUTABLE
 PARALLEL SAFE
 AS $$
   SELECT CASE
-    WHEN value ~ '^-?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$'
+    WHEN value ~ '^-?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?$'
       AND pg_input_is_valid(value, 'double precision')
     THEN value::double precision
   END

@@ -245,6 +245,90 @@ Area units: `'square-meters'` (the default), `'square-kilometers'`,
 `'kilometers'`, `'feet'`, `'us-survey-feet'`, `'yards'`, `'miles'`,
 `'nautical-miles'`.
 
+## Reading other rows
+
+An expression can read rows other than the feature it is evaluated
+for: the feature's related records, rows of another layer, and
+features nearby. This is what Arcade's FeatureSet functions do, and
+the answers here also work in places Arcade cannot use them.
+
+### Where the rows come from
+
+| Function | Rows |
+|---|---|
+| `related('inspections')` | This feature's rows in a related table. Name the table by its label. |
+| `layer('Hydrants')` | Every row of another layer you can see, named by its title. When two layers share a title, use the item id: `layer('8f2c...')`. A layer with several sublayers takes a second name: `layer('Utilities', 'Hydrants')`. |
+
+You only ever see rows you are allowed to see: a layer shared with you
+for your own rows only gives your rows.
+
+### Narrowing and sorting
+
+| Function | What it does |
+|---|---|
+| `filter(rows, condition)` | Keeps rows where the condition is true. |
+| `order_by(rows, value, 'desc')` | Sorts, smallest first or with `'desc'` largest first. Empty values sort last. |
+| `top(rows, n)` | The first n rows. Use it last: nothing can narrow rows after `top`. |
+| `within_distance(rows, distance, unit)` | Rows within a distance of this feature. |
+| `intersecting(rows)` | Rows whose shape touches or overlaps this feature. |
+| `containing(rows)` | Rows whose shape contains this feature, such as the district a point falls in. |
+| `within(rows)` | Rows inside this feature, such as the trees in a park. |
+
+Inside `filter`, `order_by` and the summaries below, `{{field}}` is a
+field of the row being looked at, and `$feature.field` is a field of
+the feature the expression is evaluated for:
+`filter(layer('Hydrants'), {{zone}} == $feature.zone)`.
+
+### Summaries
+
+| Function | What it gives |
+|---|---|
+| `count(rows)` | How many rows. |
+| `exists(rows)` | True when there is at least one. |
+| `sum(rows, value)`, `avg(rows, value)` | Total and average. The total of no rows is 0. |
+| `min(rows, value)`, `max(rows, value)` | Smallest and largest: numbers, dates or text. `max` of a date field is the latest date. |
+| `count_distinct(rows, value)` | How many different values. |
+| `list(rows, value, separator)` | The values as one piece of text, in row order. |
+
+### One row
+
+| Function | What it gives |
+|---|---|
+| `first(rows)`, `last(rows)` | The first or last row. Read a field with `.name`: `first(related('owners')).owner_name`. |
+| `nearest(rows, max distance, unit)` | The closest row. The distance limit is optional. |
+| `lookup(rows, 'key field', value, 'result field')` | The result field of the first row whose key field equals the value. |
+| `distance_to(rows, unit)` | Distance to the closest row. |
+
+Rows with no particular order come in a fixed order, so `first` gives
+the same row every time.
+
+### Examples
+
+- Latest inspection: `max(related('inspections'), {{inspected_on}})`
+- Times inspected: `count(related('inspections'))`
+- Last inspector: `first(order_by(related('inspections'), {{inspected_on}}, 'desc')).inspector`
+- Failed inspections this year: `count(filter(related('inspections'), {{result}} == 'Fail' AND year({{inspected_on}}) == year(today())))`
+- Days since last visit: `date_diff(today(), max(related('visits'), {{visited}}), 'days')`
+- Owner from a table: `lookup(layer('Owners'), 'parcel_id', {{parcel_id}}, 'owner_name')`
+- Nearest hydrant: `nearest(layer('Hydrants'), 1000, 'feet').hydrant_id`
+- Distance to it: `round(distance_to(layer('Hydrants'), 'feet'))`
+- Wells within a mile: `count(within_distance(layer('Wells'), 1, 'miles'))`
+- District a point is in: `first(containing(layer('Districts'))).name`
+- Zoning under a parcel: `list(intersecting(layer('Zoning')), {{zone}})`
+
+### Where it works
+
+Reading other rows works in **Calculate field** in the attribute
+table and in the **Filter** and **Calculate field** steps of a derived
+layer. In a derived layer, the layers an expression reads become
+inputs of the derived layer: they show on its item page, and a person
+can open the derived layer only when they can read every input in
+full.
+
+Distances are measured on the earth's surface. `nearest` and
+`distance_to` look at the closest few dozen candidates; give
+`nearest` a distance limit on very large layers.
+
 ## Examples
 
 - Hectares from acres: `round({{acres}} * 0.4047, 2)`
