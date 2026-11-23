@@ -54,6 +54,13 @@ export interface PortalInfo {
     baseUrl: string;
   };
 
+  /**
+   * The organization's time zone (IANA name). Expressions use it for
+   * today() so every client agrees on the date. Absent on older
+   * servers; treat as UTC.
+   */
+  timeZone?: string;
+
   auth: {
     /**
      * OIDC authentication. Today this is always 'oidc' (against the

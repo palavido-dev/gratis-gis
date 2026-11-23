@@ -333,6 +333,15 @@ export interface MapLayer {
   popup: MapLayerPopup;
   interactions: MapLayerInteractions;
   labels: MapLayerLabels;
+  /**
+   * Expression fields: values computed for every feature, used like
+   * fields as `expr.<name>` in labels (`{{expr.last_inspected}}`),
+   * popups, styling and filters. On a data layer they are computed on
+   * the server into the vector tiles, so they can read related
+   * records, other layers and nearby features. See
+   * MapLayerExpression.
+   */
+  expressions?: MapLayerExpression[];
   search: MapLayerSearch;
   /**
    * Optional single-clause attribute filter. Null means "show every
@@ -1064,6 +1073,82 @@ export interface MapLayerSearch {
   enabled: boolean;
   fields: string[];
   labelTemplate: string;
+}
+
+/**
+ * One expression field on a map layer. `name` is an identifier; the
+ * value appears on features as the property `expr.<name>`.
+ */
+export interface MapLayerExpression {
+  name: string;
+  /** Display label in pickers and popups. */
+  label?: string;
+  expression: string;
+  /**
+   * Layers and related tables the expression reads, resolved when
+   * the map was saved. Dependencies of the map (item page, sharing).
+   * Written by the server.
+   */
+  dataRefs?: Array<{ kind: 'related' | 'layer'; name: string; sublayer?: string; itemId: string; layerId: string }>;
+}
+
+/** Feature property prefix for expression fields. */
+export const EXPRESSION_FIELD_PREFIX = 'expr.';
+/** Most expression fields one layer carries. */
+export const MAX_LAYER_EXPRESSIONS = 10;
+export const LAYER_EXPRESSION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,40}$/;
+
+/** Base64url, browser and Node alike. */
+function b64urlEncode(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDecode(s: string): string | null {
+  if (!/^[A-Za-z0-9_-]*$/.test(s)) return null;
+  try {
+    const bin = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The `expr` tile parameter: a layer's expression fields, so the tile
+ * carries their values. Empty string when there are none.
+ */
+export function encodeTileExpressions(exprs: readonly MapLayerExpression[] | undefined): string {
+  const usable = (exprs ?? [])
+    .filter((e) => LAYER_EXPRESSION_NAME_RE.test(e.name) && e.expression.trim() !== '')
+    .slice(0, MAX_LAYER_EXPRESSIONS);
+  if (usable.length === 0) return '';
+  return b64urlEncode(JSON.stringify(usable.map((e) => [e.name, e.expression])));
+}
+
+/** Inverse of encodeTileExpressions; null when malformed. */
+export function decodeTileExpressions(raw: unknown): Array<{ name: string; expression: string }> | null {
+  if (typeof raw !== 'string' || raw.length > 40_000) return null;
+  const text = b64urlDecode(raw);
+  if (text === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length > MAX_LAYER_EXPRESSIONS) return null;
+  const out: Array<{ name: string; expression: string }> = [];
+  for (const p of parsed) {
+    if (!Array.isArray(p) || p.length !== 2) return null;
+    const [name, expression] = p as [unknown, unknown];
+    if (typeof name !== 'string' || !LAYER_EXPRESSION_NAME_RE.test(name)) return null;
+    if (typeof expression !== 'string' || expression.length > 4000) return null;
+    out.push({ name, expression });
+  }
+  return out;
 }
 
 /**

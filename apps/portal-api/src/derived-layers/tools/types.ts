@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type { DataResolver, SqlDataAdapter } from '@gratis-gis/shared-types';
 import type { FeatureField } from '@gratis-gis/shared-types';
 
 /**
@@ -12,6 +13,8 @@ import type { FeatureField } from '@gratis-gis/shared-types';
 export interface ToolValidateContext {
   /** Schema of the rows the tool will receive as input. */
   sourceSchema: FeatureField[];
+  /** Resolves the sources an expression reads, at save time. */
+  expressionData?: DataResolver;
 }
 
 /**
@@ -83,6 +86,10 @@ export interface ToolSqlFragment {
  */
 export interface ToolSqlContext {
   inputSchema?: FeatureField[];
+  /** IANA time zone for today() in expressions. Defaults to UTC. */
+  timeZone?: string;
+  /** Sources stored on expression steps, resolved for this read. */
+  expressionData?: { resolver: DataResolver; adapter: SqlDataAdapter };
 }
 
 /**

@@ -12,6 +12,7 @@ tags:
 related:
   - symbology-simple
   - map-editing-popups
+  - map-editing-expression-fields
 ---
 
 **Labels** render a text string per feature on the map. The
@@ -22,7 +23,10 @@ and zoom-visibility are all configurable.
 
 - **A layer** on the map.
 - **A label expression**. Plain text with field references in
- `{braces}`: `"{name}"`, `"{owner} ({acres} ac)"`, `"#{parcel_id}"`.
+ `{{braces}}`: `"{{name}}"`, `"{{owner}} ({{acres}} ac)"`. To label
+ with a computed value, such as the latest inspection date from a
+ related table, add an [expression field](/help/map-editing/expression-fields)
+ and use it as `{{expr.name}}`.
 - **A font and size**.
 - **A halo / outline** (optional) for legibility over busy
  basemaps.

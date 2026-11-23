@@ -1,20 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
 import type { FeatureField } from '@gratis-gis/shared-types';
-import {
-  compileExpression,
-  parseExpression,
-  validateExpression,
-  ExpressionError,
-  fieldRefTypeFor,
-  isSqlSafeFieldName,
-  SQL_SAFE_FIELD_NAME_RE,
-} from '@gratis-gis/shared-types';
 
+import { compileStepExpression, readDataRefs, validateStepExpression, type StoredDataRef } from './expression-step.js';
 import type { ToolGenerator, ToolSqlContext, ToolValidateContext } from './types.js';
-import { numericTextSql } from './numeric-text.js';
 
 export interface FilterParams {
+  /** Sources the expression reads, resolved on save. */
+  dataRefs?: StoredDataRef[];
   expression: string;
 }
 
@@ -24,40 +17,6 @@ export interface FilterParams {
  * pathological input that would blow up the SQL planner.
  */
 const MAX_EXPRESSION_LENGTH = 2000;
-
-/**
- * Resolve a {{field}} reference to a typed SQL expression against
- * the row's properties JSONB blob.  Numbers cast to double precision
- * (so arithmetic + numeric comparisons work), booleans cast to
- * boolean, strings stay as text.  Unknown types fall back to text,
- * which is the conservative pick: every JSONB value is representable
- * as text, and SQL's TEXT comparisons sort as the user expects.
- */
-function columnForField(
-  fieldName: string,
-  schema: FeatureField[],
-): string {
-  // Allowlist gate (SEC-expr-field-allowlist). The expression
-  // tokenizer already rejects non-matching refs; this assert keeps
-  // the SQL emitter from ever falling back to quote-doubling alone.
-  if (!isSqlSafeFieldName(fieldName)) {
-    throw new BadRequestException(
-      `filter field "${fieldName}" must match ${SQL_SAFE_FIELD_NAME_RE}`,
-    );
-  }
-  const ref = schema.find((f) => f.name === fieldName);
-  const raw = `(properties->>'${fieldName}')`;
-  switch (ref?.type) {
-    case 'number':
-      // Non-numeric text (empty, "n/a") reads as NULL instead of
-      // failing the whole query.
-      return numericTextSql(raw);
-    case 'boolean':
-      return `(${raw}::boolean)`;
-    default:
-      return raw;
-  }
-}
 
 /**
  * Attribute filter generator (#76).  Compiles the user's expression
@@ -95,31 +54,13 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
       );
     }
     // Parse to catch syntax errors at save time.
-    let ast;
-    try {
-      ast = parseExpression(expression);
-    } catch (err) {
-      if (err instanceof ExpressionError) {
-        throw new BadRequestException(
-          `filter.params.expression: ${err.message} (at position ${err.pos})`,
-        );
-      }
-      throw err;
-    }
-    // Schema check when we have the source schema (save time).
-    if (ctx?.sourceSchema) {
-      const schema = ctx.sourceSchema.map((f) => ({
-        name: f.name,
-        type: fieldRefTypeFor(f.type),
-      }));
-      const errors = validateExpression(ast, schema);
-      if (errors.length > 0) {
-        throw new BadRequestException(
-          `filter.params.expression: ${errors.join('; ')}`,
-        );
-      }
-    }
-    return { expression };
+    const dataRefs = validateStepExpression(
+      expression,
+      'filter.params.expression',
+      r.dataRefs,
+      ctx,
+    );
+    return dataRefs.length > 0 ? { expression, dataRefs } : { expression };
   },
 
   outputSchema(input: FeatureField[]): FeatureField[] {
@@ -130,8 +71,11 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     return 0;
   },
 
-  extractDependencies(): { itemIds: string[]; urls: string[] } {
-    return { itemIds: [], urls: [] };
+  extractDependencies(params: FilterParams): { itemIds: string[]; urls: string[] } {
+    return {
+      itemIds: [...new Set(readDataRefs(params.dataRefs).map((r) => r.itemId))],
+      urls: [],
+    };
   },
 
   toSql(
@@ -140,20 +84,12 @@ export const filterGenerator: ToolGenerator<FilterParams> = {
     paramOffset: number,
     ctx?: ToolSqlContext,
   ) {
-    // Parse again at SQL time.  This is cheap (the AST is built from
-    // a short string) and means save-time and read-time validation
-    // stay in lockstep without persisting the AST.
-    const ast = parseExpression(params.expression);
-    // The compiler emits no casts of its own, and properties->>'x' is
-    // always text, so `{{acres}} > 5` only works when the column is
-    // cast from the field's declared type. The caller threads the
-    // input schema for that; a field it does not know stays text.
-    const schema: FeatureField[] = ctx?.inputSchema ?? [];
-    const compiled = compileExpression(
-      ast,
-      (name) => columnForField(name, schema),
-      paramOffset,
-    );
+    // Compile at SQL time from the saved text, so save-time and
+    // read-time checks cannot drift. Fields the schema does not
+    // declare read as untyped text rather than failing the read.
+    const compiled = compileStepExpression(params.expression, inputAlias, paramOffset, ctx, {
+      predicate: true,
+    });
     const sql = `
       SELECT
         ${inputAlias}.global_id,

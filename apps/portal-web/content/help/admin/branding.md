@@ -25,6 +25,10 @@ save.
 - **Organization name.** Used in headers, navigation, email, and
   anywhere else the portal names your organization. It cannot be
   empty.
+- **Time zone.** The day `today()` means in
+  [expressions](/help/reference/expression-language), on the map, in
+  previews and in the field app. Leave it empty for UTC.
+  **Use this device** fills in the zone your computer is set to.
 - **Title.** The heading on the landing page. Leave it blank to use
   the organization name.
 - **Subtitle.** A one-line tagline under the title. Optional.

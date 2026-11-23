@@ -7,6 +7,8 @@ import {
   useMemo,
   useRef,
   useState,
+  createContext,
+  useContext,
 } from 'react';
 import {
   ChevronDown,
@@ -29,13 +31,11 @@ import {
   DEFAULT_BUFFER_STEP,
   DEFAULT_DERIVED_LAYER_FEATURE_LIMIT,
   DEFAULT_STEPS,
-  ExpressionError,
   LENGTH_UNITS,
   MAX_BUFFER_DISTANCE_METERS,
   UNIT_LABELS,
+  analyzeExpression,
   fieldRefTypeFor,
-  parseExpression,
-  validateExpression,
   type AreaUnit,
   type BufferParams,
   type CalculateGeometryParams,
@@ -46,6 +46,7 @@ import {
   type ToolStep,
 } from '@gratis-gis/shared-types';
 import { useFormat } from '@/lib/i18n/format';
+import { ExpressionBuilder } from '@/components/expression-builder';
 import { useT } from '@/lib/i18n/locale-context';
 import { useDerivedLayerCatalog } from './use-derived-layer-catalog';
 import { StableKeys } from '@/lib/stable-keys';
@@ -68,6 +69,13 @@ import { stepInputSchemas } from '@/lib/derived-step-schema';
  * recomputes `outputSchema` and `bbox` regardless, so the values we
  * send for those are placeholders and can be empty arrays.
  */
+/**
+ * The recipe's data-layer source, for the expression builder: it
+ * lists that layer's related tables and the layers an expression may
+ * read. Null for a derived-layer source.
+ */
+const ExpressionSourceContext = createContext<{ itemId: string; layerId: string } | null>(null);
+
 export function DerivedLayerBuilder({
   value,
   onChange,
@@ -244,6 +252,13 @@ export function DerivedLayerBuilder({
         </p>
       </section>
 
+      <ExpressionSourceContext.Provider
+        value={
+          value.source.kind === 'data_layer' && value.source.itemId && value.source.layerKey
+            ? { itemId: value.source.itemId, layerId: value.source.layerKey }
+            : null
+        }
+      >
       <PipelineSection
         pipeline={value.pipeline}
         source={value.source}
@@ -253,6 +268,7 @@ export function DerivedLayerBuilder({
         onRemoveStep={removeStep}
         onInsertStep={insertStepAt}
       />
+      </ExpressionSourceContext.Provider>
 
       <section className="space-y-2">
         <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
@@ -2452,10 +2468,10 @@ function CalculateFieldStepEditor({
   onChange,
   sourceFields,
 }: {
-  params: { outputName: string; outputType: 'number' | 'string' | 'boolean'; expression: string };
+  params: { outputName: string; outputType: 'number' | 'string' | 'boolean' | 'date'; expression: string };
   onChange: (next: {
     outputName: string;
-    outputType: 'number' | 'string' | 'boolean';
+    outputType: 'number' | 'string' | 'boolean' | 'date';
     expression: string;
   }) => void;
   sourceFields: FeatureField[];
@@ -2486,7 +2502,7 @@ function CalculateFieldStepEditor({
             onChange={(e) =>
               onChange({
                 ...params,
-                outputType: e.target.value as 'number' | 'string' | 'boolean',
+                outputType: e.target.value as 'number' | 'string' | 'boolean' | 'date',
               })
             }
             className="h-9 rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden"
@@ -2494,6 +2510,7 @@ function CalculateFieldStepEditor({
             <option value="number">{t('derivedLayerBuilder.outputTypeNumber')}</option>
             <option value="string">{t('derivedLayerBuilder.outputTypeString')}</option>
             <option value="boolean">{t('derivedLayerBuilder.outputTypeBoolean')}</option>
+            <option value="date">{t('derivedLayerBuilder.outputTypeDate')}</option>
           </select>
         </label>
       </div>
@@ -2528,131 +2545,31 @@ function ExpressionEditor({
   value: string;
   onChange: (next: string) => void;
   sourceFields: FeatureField[];
-  resultMode: 'boolean' | 'number' | 'string';
+  resultMode: 'boolean' | 'number' | 'string' | 'date';
 }) {
-  const { t } = useDerivedLayerCatalog();
-
-  const ref = useRef<HTMLTextAreaElement | null>(null);
-  function insert(text: string) {
-    const el = ref.current;
-    if (!el) return;
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + text + value.slice(end);
-    onChange(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      const caret = start + text.length;
-      try {
-        el.setSelectionRange(caret, caret);
-      } catch {
-        /* element may be hidden mid-update */
-      }
-    });
-  }
-
-  // Parse + validate live for inline error feedback.  Empty
-  // expression is fine here; the save-time validator surfaces the
-  // "expression required" error and we let the user keep typing
-  // without yelling about it on first focus.
-  const validation = useMemo(() => {
-    if (value.trim().length === 0) return { errors: [], info: null };
-    try {
-      const ast = parseExpression(value);
-      const errors = validateExpression(
-        ast,
-        sourceFields.map((f) => ({
-          name: f.name,
-          type: fieldRefTypeFor(f.type),
-        })),
-      );
-      return { errors, info: null as string | null };
-    } catch (err) {
-      if (err instanceof ExpressionError) {
-        return {
-          errors: [t('derivedLayerBuilder.exprErrorAt', { message: err.message, pos: err.pos })],
-          info: null,
-        };
-      }
-      return { errors: [t('derivedLayerBuilder.unknownParseError')], info: null };
-    }
-  }, [value, sourceFields]);
-
+  const source = useContext(ExpressionSourceContext);
   return (
-    <div className="space-y-2">
-      <p className="text-2xs uppercase tracking-wide text-muted">{label}</p>
-      <p className="text-2xs text-muted">{hint}</p>
-      {sourceFields.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-2xs uppercase tracking-wide text-muted">
-            {t('derivedLayerBuilder.insert')}
-          </span>
-          {sourceFields.map((f) => (
-            <button
-              key={f.name}
-              type="button"
-              onClick={() => insert(`{{${f.name}}}`)}
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs text-ink-1 hover:bg-surface-2"
-              title={`Insert {{${f.name}}}`}
-            >
-              <span className="text-muted">{'{{'}</span>
-              {f.name}
-              <span className="text-muted">{'}}'}</span>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="text-2xs uppercase tracking-wide text-muted">
-          {t('derivedLayerBuilder.operators')}
-        </span>
-        {['==', '!=', '<', '<=', '>', '>=', 'AND', 'OR', 'NOT', '+', '-', '*', '/', '(', ')'].map((op) => (
-          <button
-            key={op}
-            type="button"
-            onClick={() => insert(op === 'AND' || op === 'OR' || op === 'NOT' ? ` ${op} ` : op)}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 font-mono text-2xs text-ink-1 hover:bg-surface-2"
-          >
-            {op}
-          </button>
-        ))}
-        {(['if', 'upper', 'lower', 'concat', 'coalesce', 'abs', 'round'] as const).map((fn) => (
-          <button
-            key={fn}
-            type="button"
-            onClick={() => insert(`${fn}()`)}
-            className="inline-flex h-6 items-center gap-1 rounded border border-border bg-surface-1 px-2 font-mono text-2xs text-ink-1 hover:bg-surface-2"
-          >
-            {fn}()
-          </button>
-        ))}
-      </div>
-      <textarea
-        ref={ref}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={3}
-        placeholder={
-          resultMode === 'boolean'
-            ? "{{acres}} > 5 AND {{zoning}} == 'R1'"
-            : resultMode === 'number'
-              ? '{{acres}} * 0.4047'
-              : "concat({{first_name}}, ' ', {{last_name}})"
-        }
-        className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-hidden"
-      />
-      {validation.errors.length > 0 ? (
-        <ul className="space-y-0.5 text-2xs text-danger">
-          {validation.errors.map((e, i) => (
-            <li key={i}>{e}</li>
-          ))}
-        </ul>
-      ) : value.trim().length > 0 ? (
-        <p className="text-2xs text-success">
-          {t('derivedLayerBuilder.exprParsesOk')}
-        </p>
-      ) : null}
-    </div>
+    <ExpressionBuilder
+      label={label}
+      hint={hint}
+      value={value}
+      onChange={onChange}
+      fields={sourceFields.map((f) => ({ name: f.name, type: fieldRefTypeFor(f.type), label: f.label }))}
+      // The source layer's related tables and the layers the recipe
+      // may read. Previews of a whole recipe run in the step preview.
+      layer={source ?? undefined}
+      serverPreview={false}
+      expect={resultMode === 'string' ? 'any' : resultMode}
+      placeholder={
+        resultMode === 'boolean'
+          ? "{{acres}} > 5 AND {{zoning}} IN ('R1', 'R2')"
+          : resultMode === 'number'
+            ? 'round({{acres}} * 0.4047, 2)'
+            : resultMode === 'date'
+              ? "date_add({{inspected}}, 1, 'years')"
+              : "{{first_name}} + ' ' + {{last_name}}"
+      }
+    />
   );
 }
 

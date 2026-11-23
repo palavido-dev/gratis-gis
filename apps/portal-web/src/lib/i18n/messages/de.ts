@@ -616,6 +616,7 @@ export const de: Partial<CatalogShape> = {
   outputTypeNumber: 'Number',
   outputTypeString: 'String',
   outputTypeBoolean: 'Boolean',
+  outputTypeDate: 'Datum',
   expression: 'Expression',
   calcFieldHint: 'e.g. {{acres}} * 0.4047  •  concat({{first_name}}, \' \', {{last_name}})  •  if({{population}} > 1000, \'urban\', \'rural\')',
   insert: 'Insert:',

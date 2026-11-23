@@ -6,6 +6,7 @@ import {
   Controller,
   Get,
   NotFoundException,
+  Optional,
   Param,
   Query,
   Req,
@@ -32,9 +33,12 @@ import {
   type ParsedVia,
 } from '../data-layer/aggregate-params.js';
 import {
+  decodeTileExpressions,
   themesFromTags,
   type MapLayerFilter,
 } from '@gratis-gis/shared-types';
+import { ExpressionsService } from '../expressions/expressions.service.js';
+import type { TileComputed } from '../engine/data-layer.js';
 import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
 import {
@@ -82,6 +86,7 @@ export class PublicController {
     private readonly prisma: PrismaService,
     private readonly v3: DataLayerFeaturesService,
     private readonly itemsService: ItemsService,
+    @Optional() private readonly expressions?: ExpressionsService,
   ) {}
 
   /**
@@ -1053,6 +1058,7 @@ export class PublicController {
     @Query('where') whereRaw?: string,
     @Query('via') viaRaw?: string,
     @Query('include') includeRaw?: string,
+    @Query('expr') exprRaw?: string,
   ) {
     if (!isUuidShape(itemId)) {
       throw new NotFoundException('Item not found');
@@ -1101,6 +1107,7 @@ export class PublicController {
       maxFeaturesPerTile?: number;
       zoomRange?: { min: number; max: number };
       labelPoints?: boolean;
+      computed?: TileComputed;
     } = {};
     // The layer's tile settings narrow the field list (keeping what
     // this map says it reads), cap the feature count and bound the
@@ -1118,7 +1125,26 @@ export class PublicController {
     }
     if (plan.zoomRange) opts.zoomRange = plan.zoomRange;
     if (plan.labelPoints) opts.labelPoints = true;
-    const cacheControl = tileCacheControl(tileSettings, 'public');
+    // Expression fields for an anonymous viewer: anything they read
+    // must itself be public.
+    let readsOtherRows = false;
+    if (exprRaw && this.expressions) {
+      const exprs = decodeTileExpressions(exprRaw);
+      if (exprs === null) throw new BadRequestException('Invalid expr parameter.');
+      const full = await this.prisma.item.findFirst({
+        where: { id: itemId },
+        include: { shares: true },
+      });
+      if (full) {
+        const computed = await this.expressions.tileComputed(null, full, layerId, exprs);
+        if (computed) {
+          opts.computed = computed;
+          readsOtherRows = computed.bypassCache;
+        }
+      }
+    }
+    // A tile built from other layers' rows must not sit in a shared cache.
+    const cacheControl = tileCacheControl(tileSettings, readsOtherRows ? 'private' : 'public');
     if (layer.geometryType === null) opts.isTable = true;
     // The predicate an anonymous viewer's map sends. A relate is the
     // one that matters: without it the map layer drawn from a related

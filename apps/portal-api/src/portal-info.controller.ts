@@ -4,6 +4,7 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 
 import type { PortalInfo } from '@gratis-gis/shared-types';
+import { expressionTimeZone } from './expressions/time-zone.js';
 
 import { isAnalysisEnabled } from './analysis/analysis-tiers.js';
 import { Public } from './auth/public.decorator.js';
@@ -57,6 +58,7 @@ export class PortalInfoController {
         type: 'oidc',
         issuer: this.resolveIssuer(),
       },
+      timeZone: await expressionTimeZone(this.prisma),
       features: {
         feedback: isFeedbackEnabled(),
         scripts: isScriptsEnabled(),

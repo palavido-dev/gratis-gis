@@ -15,6 +15,7 @@ export interface BrandingConfig {
   landingHeroImageUrl: string | null;
   landingShowPublicItems: boolean;
   landingFeaturedItemIds: string[];
+  timeZone?: string | null;
 }
 
 export default async function AdminBrandingPage() {

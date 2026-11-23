@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
@@ -12,10 +13,11 @@ import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
 import {
   ExpressionError,
   describeViolations,
-  evaluateExpression,
+  checkExpression,
+  evaluateExpressionValue,
+  usesDataAccess,
   fieldRefTypeFor,
   parseExpression,
-  validateExpression,
   validateFeatureProperties,
   type FeatureField,
   type FieldDomain,
@@ -25,6 +27,8 @@ import {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { expressionTimeZone } from '../expressions/time-zone.js';
+import { ExpressionsService } from '../expressions/expressions.service.js';
 import { parseIntEnv } from '../common/env.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import {
@@ -42,6 +46,7 @@ import {
   type AggregateVia,
   type CreateFeatureArgs,
   type DeltaChange,
+  type TileComputed,
   type TileResult,
 } from '../engine/data-layer.js';
 /**
@@ -224,6 +229,7 @@ export class DataLayerFeaturesService {
     private readonly bboxRefresh: ItemBboxRefreshService,
     private readonly sharing: SharingService,
     private readonly authSync: AuthSyncService,
+    @Optional() private readonly expressions?: ExpressionsService,
   ) {}
 
   /**
@@ -1262,6 +1268,8 @@ export class DataLayerFeaturesService {
        * same empty body a table sublayer gets.
        */
       zoomRange?: { min: number; max: number };
+      /** Expression fields; see DataLayerEngine.mvtTile. */
+      computed?: TileComputed;
     } = {},
   ): Promise<TileResult> {
     if (
@@ -1293,6 +1301,7 @@ export class DataLayerFeaturesService {
         ? { maxFeaturesPerTile: opts.maxFeaturesPerTile }
         : {}),
       ...(opts.labelPoints === true ? { labelPoints: true } : {}),
+      ...(opts.computed ? { computed: opts.computed } : {}),
     });
   }
 
@@ -1801,7 +1810,7 @@ export class DataLayerFeaturesService {
     } catch (err) {
       if (err instanceof ExpressionError) {
         throw new BadRequestException(
-          `expression: ${err.message} (at position ${err.pos})`,
+          `expression: ${err.message} (at character ${err.pos + 1})`,
         );
       }
       throw err;
@@ -1877,10 +1886,42 @@ export class DataLayerFeaturesService {
             name,
             type: 'unknown' as const,
           }));
-    const validationErrors = validateExpression(ast, schemaRefs);
-    if (validationErrors.length > 0) {
+    const checkOpts = {
+      fields: schemaRefs,
+      allowUnknownFields: layerFields.length === 0,
+    };
+    const timeZone = await expressionTimeZone(this.prisma);
+    // An expression that reads other rows (related tables, other
+    // layers, nearby features) runs in SQL, where those rows are; the
+    // values are computed up front for every affected row and the
+    // per-row loop below uses them.
+    let sqlValues: Map<string, unknown> | null = null;
+    if (usesDataAccess(ast)) {
+      const item = await this.prisma.item.findUnique({
+        where: { id: args.itemId },
+        include: { shares: true },
+      });
+      if (!item) throw new NotFoundException('Item not found');
+      if (!this.expressions) {
+        throw new BadRequestException('Expressions that read other rows are not available here');
+      }
+      sqlValues = await this.expressions.valuesForFeatures({
+        viewer: args.user,
+        item,
+        layerId: args.layerId,
+        expression: args.expression,
+        ids: features.features.map((f) => String(f.id)),
+        as: args.outputType,
+      });
+    }
+    const analysis = sqlValues
+      ? { issues: [] as Array<{ message: string; pos: number }> }
+      : checkExpression(ast, checkOpts);
+    if (analysis.issues.length > 0) {
       throw new BadRequestException(
-        `expression: ${validationErrors.join('; ')}`,
+        `expression: ${analysis.issues
+          .map((i) => `${i.message} (at character ${i.pos + 1})`)
+          .join('; ')}`,
       );
     }
 
@@ -1911,7 +1952,13 @@ export class DataLayerFeaturesService {
       const oldValue = (f.properties as Record<string, unknown>)[args.outputName];
       let raw: unknown;
       try {
-        raw = evaluateExpression(ast, f.properties as Record<string, unknown>);
+        raw = sqlValues ? (sqlValues.get(String(f.id)) ?? null) : evaluateExpressionValue(ast, {
+          ...checkOpts,
+          properties: f.properties as Record<string, unknown>,
+          geometry: f.geometry ?? null,
+          as: args.outputType,
+          timeZone,
+        });
       } catch {
         errors += 1;
         raw = null;

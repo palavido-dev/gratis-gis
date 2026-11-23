@@ -18,9 +18,14 @@ import {
   isShareClipGeometry,
   sanitizeAttributionHtml,
   unsafeAppThemeTokenKeys,
+  collectDataRefs,
+  parseExpression,
+  type DataRef,
+  type DataResolver,
 } from '@gratis-gis/shared-types';
 
 import { isClosedGeoLimit } from '../common/closed-geo-limit.js';
+import { prepareExpressionData } from '../expressions/expression-data.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { normalizeTileSettingsInData } from '../data-layer/tile-settings.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
@@ -1770,6 +1775,12 @@ export class ItemsService {
         input.data,
       )) as Prisma.InputJsonValue;
     }
+    if (input.type === 'map') {
+      resolvedData = (await this.resolveMapExpressionSources(
+        user,
+        resolvedData,
+      )) as Prisma.InputJsonValue;
+    }
 
     // For form items (#281c), auto-materialize a paired data_layer
     // unless the form already declares a linkedLayerId. This is the
@@ -2068,9 +2079,11 @@ export class ItemsService {
       await this.assertReadableDerivedLayerInput(user, depId);
     }
     await this.assertDerivedInputsUnscoped(user, rawData);
+    const expressionData = await this.recipeExpressionData(user, source, rawData);
     const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
       source,
+      expressionData ? { expressionData } : {},
     );
     return enriched as unknown as Prisma.JsonValue;
   }
@@ -2195,6 +2208,104 @@ export class ItemsService {
     }
     if (item.type !== 'data_layer') return false;
     return isScopeLimited(await this.featureReadScope(user, item, layerKey));
+  }
+
+  /**
+   * Resolve the layers a recipe's expressions read (layer(),
+   * related()), for the save and preview paths. Shared mode: each one
+   * must be readable by the caller in full, as the recipe's other
+   * inputs must. Undefined when no expression reads other rows.
+   */
+  private async recipeExpressionData(
+    user: AuthUser,
+    source: Item,
+    rawData: unknown,
+  ): Promise<DataResolver | undefined> {
+    const d = rawData as { source?: { layerKey?: unknown }; pipeline?: unknown } | null;
+    const steps = Array.isArray(d?.pipeline) ? (d!.pipeline as Array<{ params?: unknown }>) : [];
+    const refs: DataRef[] = [];
+    for (const st of steps) {
+      const expr = (st?.params as { expression?: unknown } | null)?.expression;
+      if (typeof expr !== 'string') continue;
+      try {
+        refs.push(...collectDataRefs(parseExpression(expr)));
+      } catch {
+        // The step validator reports syntax errors with positions.
+      }
+    }
+    if (refs.length === 0) return undefined;
+    const layerKey = typeof d?.source?.layerKey === 'string' ? d.source.layerKey : '';
+    const prepared = await prepareExpressionData({
+      prisma: this.prisma,
+      sharing: this.sharing,
+      viewer: user,
+      item: { id: source.id, title: source.title, data: source.type === 'data_layer' ? source.data : null, orgId: source.orgId },
+      layerId: layerKey,
+      refs,
+      mode: 'shared',
+    });
+    return prepared.resolver;
+  }
+
+  /**
+   * Stamp each map layer expression with the sources it reads, as the
+   * saving user resolves them, so the map's dependencies (item page,
+   * sharing checks) include them. A source that does not resolve is
+   * left out rather than refused: the expression still shows its own
+   * error in the builder, and a map save is not the place to block.
+   */
+  private async resolveMapExpressionSources(user: AuthUser, data: unknown): Promise<unknown> {
+    const d = data as { layers?: unknown } | null;
+    if (!d || !Array.isArray(d.layers)) return data;
+    let changed = false;
+    const layers = await Promise.all(
+      (d.layers as Array<Record<string, unknown>>).map(async (l) => {
+        const exprs = Array.isArray(l?.expressions) ? (l.expressions as Array<Record<string, unknown>>) : null;
+        const src = l?.source as { kind?: unknown; itemId?: unknown; layerKey?: unknown } | undefined;
+        if (!exprs || exprs.length === 0) return l;
+        const next = await Promise.all(
+          exprs.slice(0, 10).map(async (ex) => {
+            const text = typeof ex?.expression === 'string' ? ex.expression : '';
+            const { dataRefs: _old, ...rest } = ex ?? {};
+            void _old;
+            let refs: DataRef[] = [];
+            try {
+              refs = collectDataRefs(parseExpression(text));
+            } catch {
+              refs = [];
+            }
+            if (refs.length === 0 || src?.kind !== 'data-layer' || typeof src.itemId !== 'string') {
+              changed = true;
+              return rest;
+            }
+            const item = await this.prisma.item.findUnique({ where: { id: src.itemId } });
+            if (!item) return rest;
+            const prepared = await prepareExpressionData({
+              prisma: this.prisma,
+              sharing: this.sharing,
+              viewer: user,
+              item,
+              layerId: typeof src.layerKey === 'string' ? src.layerKey : '',
+              refs,
+              mode: 'viewer',
+            });
+            changed = true;
+            return {
+              ...rest,
+              dataRefs: prepared.resolvedRefs.map((r) => ({
+                kind: r.ref.kind,
+                name: r.ref.name,
+                ...(r.ref.sublayer ? { sublayer: r.ref.sublayer } : {}),
+                itemId: r.itemId,
+                layerId: r.layerId,
+              })),
+            };
+          }),
+        );
+        return { ...l, expressions: next };
+      }),
+    );
+    return changed ? { ...(d as object), layers } : data;
   }
 
   /** Save and preview form of derivedInputScopeLimit: refuse. */
@@ -2398,7 +2509,12 @@ export class ItemsService {
     const sourceArg = args.source as Parameters<
       typeof this.derivedLayers.previewRecipe
     >[0]['source'];
+    const expressionData = await this.recipeExpressionData(user, source, {
+      source: args.source,
+      pipeline: args.pipeline,
+    });
     return this.derivedLayers.previewRecipe({
+      ...(expressionData ? { expressionData } : {}),
       source: sourceArg,
       pipeline,
       sourceItem: source,
@@ -2776,6 +2892,12 @@ export class ItemsService {
       nextData = (await this.enrichDerivedLayerData(
         user,
         input.data,
+      )) as Prisma.InputJsonValue;
+    }
+    if (nextData !== undefined && item.type === 'map') {
+      nextData = (await this.resolveMapExpressionSources(
+        user,
+        nextData,
       )) as Prisma.InputJsonValue;
     }
     // For form items, preserve linkedLayerId / linkedLayerKey across

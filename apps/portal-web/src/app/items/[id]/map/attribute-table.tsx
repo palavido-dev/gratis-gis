@@ -44,6 +44,7 @@ import {
 } from '@/lib/table-row-keys';
 import { formatDateTime, useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { ExpressionBuilder } from '@/components/expression-builder';
 import { DEFAULT_LOCALE, type SupportedLocale } from '@/lib/i18n/locales';
 import {
   Dialog,
@@ -55,6 +56,7 @@ import {
 import {
   andFilters,
   FILTER_IN_MAX_VALUES,
+  fieldRefTypeFor,
   matchesFilter,
 } from '@gratis-gis/shared-types';
 import type {
@@ -2517,28 +2519,7 @@ function CalculateFieldModal({
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  function insertFieldRef(name: string) {
-    const el = inputRef.current;
-    const token = `{{${name}}}`;
-    if (!el) {
-      setExpression((v) => v + token);
-      return;
-    }
-    const start = el.selectionStart ?? expression.length;
-    const end = el.selectionEnd ?? expression.length;
-    const next = expression.slice(0, start) + token + expression.slice(end);
-    setExpression(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      try {
-        el.setSelectionRange(start + token.length, start + token.length);
-      } catch {
-        /* element may be re-rendered */
-      }
-    });
-  }
 
   async function callServer(dryRun: boolean) {
     setError(null);
@@ -2664,36 +2645,28 @@ function CalculateFieldModal({
                 </select>
               )}
             </div>
-            <p className="text-2xs text-muted">
-              {t('mapAttributeTable.expressionHelp')}
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {referenceFields.map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => insertFieldRef(f)}
-                  className="inline-flex items-center gap-0.5 rounded-md border border-border bg-surface-1 px-2 py-0.5 font-mono text-2xs text-ink-1 hover:bg-surface-2"
-                >
-                  <span className="text-muted">{'{{'}</span>
-                  {f}
-                  <span className="text-muted">{'}}'}</span>
-                </button>
-              ))}
-            </div>
-            <textarea
-              ref={inputRef}
+            <ExpressionBuilder
               value={expression}
-              onChange={(e) => setExpression(e.target.value)}
-              rows={3}
+              onChange={(v) => {
+                setExpression(v);
+                setPreview(null);
+              }}
+              hint={t('mapAttributeTable.expressionHelp')}
+              fields={referenceFields.map((name) => {
+                const def = fieldDefs?.find((f) => f.name === name);
+                return def
+                  ? { name, type: fieldRefTypeFor(def.type), label: def.label }
+                  : { name, type: 'unknown' as const };
+              })}
+              layer={{ itemId, layerId: layerKey }}
+              expect={outputType === 'string' ? 'any' : outputType}
               placeholder={
                 outputType === 'number'
-                  ? '{{acres}} * 0.4047'
+                  ? 'round({{acres}} * 0.4047, 2)'
                   : outputType === 'string'
-                    ? "concat({{first_name}}, ' ', {{last_name}})"
+                    ? "{{first_name}} + ' ' + {{last_name}}"
                     : '{{population}} > 1000'
               }
-              className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 font-mono text-xs text-ink-0 focus:border-accent focus:outline-hidden"
             />
           </div>
 

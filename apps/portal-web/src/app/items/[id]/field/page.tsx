@@ -217,6 +217,13 @@ export default async function FieldRuntimePage(props: Props) {
      * (editable) so existing maps keep their current behavior.
      */
     mapLayerEditable: boolean;
+    /**
+     * Read by a map layer's expression fields (layer('...') or
+     * related('...')), not drawn itself. Kept so its rows are cached
+     * for offline use, where the expression fields are worked out on
+     * the device. Never an Add target.
+     */
+    expressionRef?: true;
   };
   const dataLayerRefs: LayerRef[] = [];
   const seenRefKeys = new Set<string>();
@@ -231,6 +238,21 @@ export default async function FieldRuntimePage(props: Props) {
     if (seenRefKeys.has(key)) continue;
     seenRefKeys.add(key);
     dataLayerRefs.push(ref);
+  }
+  for (const ml of mapData.layers ?? []) {
+    for (const ex of ml.expressions ?? []) {
+      for (const r of ex.dataRefs ?? []) {
+        const key = `${r.itemId}:${r.layerId}`;
+        if (seenRefKeys.has(key)) continue;
+        seenRefKeys.add(key);
+        dataLayerRefs.push({
+          dataLayerId: r.itemId,
+          layerKey: r.layerId,
+          mapLayerEditable: false,
+          expressionRef: true,
+        });
+      }
+    }
   }
 
   const uniqueDataLayerIds = Array.from(
@@ -276,7 +298,8 @@ export default async function FieldRuntimePage(props: Props) {
       ? data.layers.find((l) => l.id === ref.layerKey)
       : data.layers.find((l) => l.geometryType !== null);
     if (!sublayer) continue;
-    if (sublayer.geometryType === null) continue; // spatial-only at this pass
+    // Spatial-only at this pass, except tables an expression reads.
+    if (sublayer.geometryType === null && !ref.expressionRef) continue;
     // #271: skip layers the data_layer marks as not editable. A
     // read-only reference layer (e.g. Riverside County Parcels with
     // editingEnabled=false) is on the map for context, but the
@@ -294,7 +317,9 @@ export default async function FieldRuntimePage(props: Props) {
     // list because the panel falls back to "isTable" when it
     // can't find a matching entry.
     const addable =
-      sublayer.editingEnabled !== false && ref.mapLayerEditable !== false;
+      !ref.expressionRef &&
+      sublayer.editingEnabled !== false &&
+      ref.mapLayerEditable !== false;
     const binding = dc.formBindings?.[sublayer.id];
     // Phase C: enumerate child layers within the same data_layer
     // item that reference this layer via parentFkColumn. Used by
