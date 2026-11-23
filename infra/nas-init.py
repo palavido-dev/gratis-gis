@@ -528,6 +528,411 @@ LAN_SECURITY_HEADERS = """\theader {
 """
 
 
+# ---------------------------------------------------------------------
+# Status page.
+#
+# Caddy starts before everything else (see the caddy service) and shows
+# this page whenever the portal does not answer: on the first start,
+# during an update, and when something fails. It reads two small files
+# in the status volume: bootstrap.json (written here) and api.json
+# (written by portal-api, apps/portal-api/src/startup-status.ts). A
+# person who has never opened a container log can see what is going on
+# and, when the address cannot be found, set it with one click.
+#
+# No dollar signs anywhere in this block: this file is pasted into a
+# compose file, and Compose would read them as variables.
+# ---------------------------------------------------------------------
+
+STATUS_DIR = Path(os.environ.get("STATUS_DIR", "/status"))
+SETUP_PORT = 8099
+
+
+def ensure_status_dir() -> None:
+    try:
+        STATUS_DIR.mkdir(parents=True, exist_ok=True)
+        # portal-api runs as an unprivileged user and writes api.json here.
+        STATUS_DIR.chmod(0o1777)
+    except OSError:
+        pass
+
+
+def write_boot_status(phase: str, **extra: str) -> None:
+    """Best effort: a status write never stops the bootstrap."""
+    try:
+        body = {"phase": phase, "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        body.update({k: v for k, v in extra.items() if v})
+        tmp = STATUS_DIR / "bootstrap.json.tmp"
+        tmp.write_text(json.dumps(body) + "\n", encoding="utf-8")
+        tmp.chmod(0o644)
+        os.replace(tmp, STATUS_DIR / "bootstrap.json")
+    except OSError:
+        pass
+
+
+def write_status_page(boot: Path) -> None:
+    page_dir = boot / "status-page"
+    page_dir.mkdir(parents=True, exist_ok=True)
+    page_dir.chmod(0o755)
+    page = page_dir / "index.html"
+    page.write_text(STATUS_PAGE_HTML, encoding="utf-8")
+    page.chmod(0o644)
+
+
+# Added to every generated site block. handle_errors catches the 502
+# Caddy returns while portal-web or portal-api is not answering.
+STATUS_ROUTES = """\
+\t# Status page (nas-init.py, STATUS_PAGE_HTML). Shown while the portal
+\t# is starting, updating, or failed to start.
+\thandle /__gg_ping {
+\t\trespond "ok" 200
+\t}
+\thandle_path /__gg_status/* {
+\t\troot * /status
+\t\theader Cache-Control no-store
+\t\tfile_server
+\t}
+\thandle_errors 502 503 504 {
+\t\t@api path /api/*
+\t\thandle @api {
+\t\t\theader Retry-After 30
+\t\t\trespond `{"error":"GratisGIS is starting. Try again in a minute."}` 503
+\t\t}
+\t\thandle {
+\t\t\troot * /boot/status-page
+\t\t\trewrite * /index.html
+\t\t\theader Cache-Control no-store
+\t\t\theader X-GG-Status 1
+\t\t\tfile_server
+\t\t}
+\t}
+"""
+
+
+def check_browser_address(url: str) -> str:
+    """The error to show, or '' when the address can be used."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return "The address must start with http:// or https://."
+    if not parsed.hostname:
+        return "The address is missing the computer's name or number."
+    if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+        return "Use only the address, without anything after the port number."
+    return ""
+
+
+def ask_address_in_browser(port: str) -> str:
+    """Wait for the status page to send the address the browser used.
+
+    Runs only when no address could be detected or was set. The status
+    page shows the address in the browser's own address bar and a button
+    to use it. Caddy forwards /__gg_setup/* here on the compose network.
+    The port is not published.
+    """
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    chosen: dict[str, str] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, code: int, body: dict) -> None:
+            data = json.dumps(body).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self) -> None:  # noqa: N802 - http.server API
+            if self.path.rstrip("/") != "/__gg_setup/address":
+                self._send(404, {"error": "not found"})
+                return
+            if "application/json" not in (self.headers.get("Content-Type") or ""):
+                self._send(415, {"error": "send JSON"})
+                return
+            length = int(self.headers.get("Content-Length") or 0)
+            if length <= 0 or length > 2048:
+                self._send(400, {"error": "bad request"})
+                return
+            try:
+                data = json.loads(self.rfile.read(length).decode("utf-8"))
+                url = str(data.get("url", "")).strip().rstrip("/")
+            except (ValueError, AttributeError):
+                self._send(400, {"error": "bad request"})
+                return
+            problem = check_browser_address(url)
+            if problem:
+                self._send(400, {"error": problem})
+                return
+            if not chosen:
+                chosen["url"] = url
+            self._send(200, {"ok": True, "url": chosen["url"]})
+            threading.Thread(target=server.shutdown, daemon=True).start()
+
+        def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+            return
+
+    server = ThreadingHTTPServer(("0.0.0.0", SETUP_PORT), Handler)
+    write_boot_status("need-address", port=port)
+    print(
+        "\n========== GratisGIS ==========\n"
+        "Open this app's web page in a browser to finish setup.\n"
+        f"From another computer or phone: http://<this computer's address>:{port}\n"
+        "Click the button there to use that address.\n"
+        "===============================\n",
+        flush=True,
+    )
+    server.serve_forever()
+    server.server_close()
+    return chosen["url"]
+
+
+STATUS_PAGE_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>GratisGIS</title>
+<style>
+  :root { color-scheme: light dark; --accent: #0f766e; --ink: #1c1917; --muted: #57534e; --bg: #f5f5f4; --card: #ffffff; --line: #d6d3d1; --bad: #b42318; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #f5f5f4; --muted: #c4c0bc; --bg: #1c1917; --card: #292524; --line: #44403c; --accent: #2dd4bf; --bad: #f97066; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px;
+         background: var(--bg); color: var(--ink); font: 19px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { width: 100%; max-width: 560px; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 32px; }
+  .brand { font-weight: 700; font-size: 18px; color: var(--accent); letter-spacing: .01em; margin: 0 0 20px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 12px; }
+  p { margin: 0 0 14px; }
+  .muted { color: var(--muted); font-size: 16px; }
+  .spinner { width: 40px; height: 40px; border: 4px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+             animation: spin 1s linear infinite; margin: 8px 0 20px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+  .address { display: block; font: 600 20px/1.4 ui-monospace, Menlo, Consolas, monospace; background: var(--bg);
+             border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin: 8px 0 16px; word-break: break-all; }
+  button { font: 600 19px/1 system-ui, sans-serif; background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+           padding: 16px 22px; cursor: pointer; min-height: 52px; }
+  button.secondary { background: transparent; color: var(--accent); border: 2px solid var(--accent); }
+  button:disabled { opacity: .6; cursor: default; }
+  .bad { color: var(--bad); font-weight: 600; }
+  pre { white-space: pre-wrap; word-break: break-word; font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace;
+        background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; max-height: 320px; overflow: auto; }
+  details { margin: 14px 0; }
+  summary { cursor: pointer; font-weight: 600; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main aria-live="polite">
+  <p class="brand">GratisGIS</p>
+  <div id="view">
+    <div class="spinner" role="img" aria-label="Working"></div>
+    <h1>Starting GratisGIS</h1>
+    <p>This page will change by itself when it is ready.</p>
+  </div>
+  <noscript><p>Turn on JavaScript to see progress here, or refresh this page in a minute.</p></noscript>
+</main>
+<script>
+(function () {
+  var view = document.getElementById('view');
+  var STEPS = {
+    'setting-up': ['Setting up GratisGIS', 'This is the first start. GratisGIS is creating its database and sign-in. This takes a few minutes.'],
+    'starting': ['Starting GratisGIS', 'This usually takes about a minute.'],
+    'database-check': ['Checking the database', 'GratisGIS checks its database at every start. This is usually quick.'],
+    'database-rebuild': ['Updating the database', 'An update changed how the database sorts text, so GratisGIS is rebuilding its indexes. With a lot of data this can take several minutes. Leave the computer on.'],
+    'database-update': ['Applying updates', 'GratisGIS is updating its database to the new version. Leave the computer on.'],
+    'app-starting': ['Almost ready', 'The database is ready. GratisGIS is starting.'],
+    'ready': ['Almost ready', 'GratisGIS is starting its web pages.']
+  };
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) { for (var k in attrs) { node.setAttribute(k, attrs[k]); } }
+    if (text) { node.textContent = text; }
+    return node;
+  }
+
+  function minutesSince(iso) {
+    var t = Date.parse(iso || '');
+    if (!t) { return null; }
+    return Math.max(0, Math.round((Date.now() - t) / 60000));
+  }
+
+  function getJson(path) {
+    return fetch(path, { cache: 'no-store' }).then(function (r) {
+      return r.ok ? r.json() : null;
+    }).catch(function () { return null; });
+  }
+
+  function issueLink(log) {
+    var body = 'GratisGIS did not start. The status page showed:\\n\\n```\\n' + (log || '') + '\\n```\\n';
+    return 'https://github.com/palavido-dev/gratis-gis/issues/new?title=' +
+      encodeURIComponent('GratisGIS did not start') + '&body=' + encodeURIComponent(body.slice(0, 6000));
+  }
+
+  function showWorking(title, text, since, extra) {
+    view.replaceChildren();
+    view.appendChild(el('div', { 'class': 'spinner', role: 'img', 'aria-label': 'Working' }));
+    view.appendChild(el('h1', null, title));
+    if (text) { view.appendChild(el('p', null, text)); }
+    if (extra) { view.appendChild(extra); }
+    var mins = minutesSince(since);
+    var note = 'This page will change by itself when it is ready.';
+    if (mins !== null && mins >= 1) { note = 'Started ' + mins + (mins === 1 ? ' minute' : ' minutes') + ' ago. ' + note; }
+    view.appendChild(el('p', { 'class': 'muted' }, note));
+  }
+
+  // Plain words for the failures people hit most. The details below
+  // still carry the full error.
+  var HINTS = [
+    [/No space left on device|ENOSPC/i, 'The disk is full. Free up space on this computer, then restart the GratisGIS app.'],
+    [/ENOMEM|out of memory|heap out of memory|Killed/i, 'The computer ran out of memory. Close other apps or give GratisGIS more memory, then restart it.'],
+    [/ENOTFOUND postgres|ECONNREFUSED|Can.t reach database server|P1001/i, 'GratisGIS could not reach its database. It may still be starting. If this stays for more than a few minutes, restart the GratisGIS app.'],
+    [/collation/i, 'GratisGIS could not finish updating its database after an upgrade.'],
+    [/P3009|migrate found failed migrations|P3018/i, 'An update to the database did not finish.']
+  ];
+  function hintFor(log) {
+    for (var i = 0; i < HINTS.length; i++) { if (HINTS[i][0].test(log || '')) { return HINTS[i][1]; } }
+    return '';
+  }
+
+  function failureDetails(log, label) {
+    var box = el('details');
+    box.appendChild(el('summary', null, label));
+    var pre = el('pre', null, log || 'No details were recorded.');
+    box.appendChild(pre);
+    // The error is at the end. Show that part first.
+    box.addEventListener('toggle', function () { pre.scrollTop = pre.scrollHeight; });
+    setTimeout(function () { pre.scrollTop = pre.scrollHeight; }, 0);
+    var row = el('div', { 'class': 'row' });
+    var copy = el('button', { type: 'button', 'class': 'secondary' }, 'Copy the details');
+    copy.addEventListener('click', function () {
+      var done = function () { copy.textContent = 'Copied'; };
+      if (navigator.clipboard) { navigator.clipboard.writeText(log || '').then(done, done); } else { done(); }
+    });
+    var report = el('a', { href: issueLink(log), target: '_blank', rel: 'noopener' }, 'Report it on GitHub');
+    row.appendChild(copy);
+    row.appendChild(report);
+    box.appendChild(row);
+    return box;
+  }
+
+  function showFailed(api) {
+    view.replaceChildren();
+    view.appendChild(el('h1', null, 'GratisGIS could not start'));
+    var hint = hintFor(api.log);
+    if (hint) { view.appendChild(el('p', { 'class': 'bad' }, hint)); }
+    view.appendChild(el('p', null, 'GratisGIS tries again by itself, and this page will update if that works.'));
+    view.appendChild(el('p', null, 'If this page stays here, copy the details below and send them to whoever helps you with GratisGIS, or report them on GitHub.'));
+    var box = failureDetails(api.log, 'Show the details');
+    box.open = true;
+    view.appendChild(box);
+  }
+
+  function showSlow(since) {
+    var box = el('div');
+    box.appendChild(el('p', null, 'This is taking longer than usual. If the computer is busy or the database is large, give it a few more minutes.'));
+    box.appendChild(el('p', null, 'If nothing changes after 15 minutes, restart the GratisGIS app (in TrueNAS: Apps, then GratisGIS, then Restart; in Dockge: Restart). Your maps and data stay where they are.'));
+    showWorking('Still starting', '', since, box);
+  }
+
+  function showAddress(boot) {
+    var url = window.location.origin;
+    view.replaceChildren();
+    view.appendChild(el('h1', null, 'One question before setup'));
+    view.appendChild(el('p', null, 'Is this the address you will use to open GratisGIS?'));
+    view.appendChild(el('code', { 'class': 'address' }, url));
+    var local = /^(localhost|127\\.|\\[::1\\])/.test(window.location.hostname);
+    if (local) {
+      view.appendChild(el('p', { 'class': 'muted' }, 'This address only works on this computer. To use GratisGIS from other computers or phones, open this page from one of them, using this computer\\'s network address, and choose it there instead.'));
+    } else {
+      view.appendChild(el('p', { 'class': 'muted' }, 'Other computers and phones on your network will use this same address.'));
+    }
+    var msg = el('p', { 'class': 'bad', role: 'alert' });
+    var btn = el('button', { type: 'button' }, 'Yes, use this address');
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      btn.textContent = 'Saving';
+      msg.textContent = '';
+      fetch('/__gg_setup/address', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url })
+      }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (body) {
+          if (!r.ok) { throw new Error(body.error || 'Setup did not answer. Wait a moment and try again.'); }
+          showWorking(STEPS['setting-up'][0], STEPS['setting-up'][1], null);
+          timer = setTimeout(tick, 3000);
+        });
+      }).catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = 'Yes, use this address';
+        msg.textContent = err.message;
+      });
+    });
+    view.appendChild(btn);
+    view.appendChild(msg);
+  }
+
+  function render(boot, api) {
+    if (boot.phase === 'failed') { showFailed({ log: boot.detail }); return; }
+    if (boot.phase === 'setting-up') {
+      showWorking(STEPS['setting-up'][0], STEPS['setting-up'][1], boot.updated);
+      return;
+    }
+    if (api && api.phase === 'failed') { showFailed(api); return; }
+    var phase = api ? api.phase : 'starting';
+    var step = STEPS[phase] || STEPS.starting;
+    var since = api ? api.since : boot.updated;
+    var extra = null;
+    var text = step[1];
+    if (api && api.lastFailure) {
+      text = 'The last start did not work, so GratisGIS is trying again. ' + text;
+      extra = failureDetails(api.lastFailure.log, 'Why the last start failed');
+    }
+    // No progress for a while outside the slow database steps. A crash
+    // before the portal could write any status lands here too.
+    var quiet = phase !== 'database-rebuild' && phase !== 'database-update';
+    if (quiet && minutesSince(api ? api.updated : boot.updated) >= 6) {
+      showSlow(since);
+      if (extra) { view.insertBefore(extra, view.lastChild); }
+      return;
+    }
+    showWorking(step[0], text, since, extra);
+  }
+
+  var timer = null;
+  function tick() {
+    // When the portal answers, this request gets the real page: reload.
+    fetch('/', { method: 'HEAD', cache: 'no-store', redirect: 'manual' }).then(function (r) {
+      if (!r.headers.get('X-GG-Status') && (r.type === 'opaqueredirect' || r.status < 500)) {
+        window.location.reload();
+        return true;
+      }
+      return false;
+    }).catch(function () { return false; }).then(function (up) {
+      if (up) { return; }
+      return Promise.all([getJson('/__gg_status/bootstrap.json'), getJson('/__gg_status/api.json')]).then(function (res) {
+        var boot = res[0] || {};
+        var api = res[1];
+        if (boot.phase === 'need-address') { showAddress(boot); return; }
+        render(boot, api);
+        timer = setTimeout(tick, 4000);
+      });
+    });
+  }
+  tick();
+})();
+</script>
+</body>
+</html>
+"""
+
+
 def caddy_lan(port: str, tls: str, hosts: list[str] | None = None) -> str:
     tls_line = "\ttls internal\n" if tls == "internal" else ""
     site = f":{port}"
@@ -546,7 +951,7 @@ def caddy_lan(port: str, tls: str, hosts: list[str] | None = None) -> str:
 		max_size 51GiB
 	}}
 {LAN_SECURITY_HEADERS}
-
+{STATUS_ROUTES}
 	# Keycloak lives under /auth on this same address. The admin
 	# API and the master realm stay closed from the browser. The
 	# bootstrap container talks to Keycloak on the docker network.
@@ -619,7 +1024,7 @@ def caddy_public(portal: str, auth: str, storage: str, email: str) -> str:
 	request_body {{
 		max_size 51GiB
 	}}
-	# portal-api's /metrics is scraped on the docker network only.
+{STATUS_ROUTES}	# portal-api's /metrics is scraped on the docker network only.
 	@metrics path /metrics /metrics/*
 	handle @metrics {{
 		respond 404
@@ -1259,6 +1664,16 @@ def main() -> None:
         ready.unlink()
     env_path = boot / "env"
     previous = read_env(env_path) if env_path.exists() else None
+    # The status page goes up first, so Caddy has something to show
+    # from the very first second (see STATUS_PAGE_HTML).
+    ensure_status_dir()
+    write_status_page(boot)
+    write_boot_status("setting-up" if previous is None else "starting")
+    # An address chosen on the status page counts as GRATIS_BASE_URL.
+    # A GRATIS_BASE_URL set in the compose file still wins.
+    saved_address = boot / "base-url"
+    if not os.environ.get("GRATIS_BASE_URL", "").strip() and saved_address.exists():
+        os.environ["GRATIS_BASE_URL"] = saved_address.read_text(encoding="utf-8").strip()
     if previous:
         secret = {key: previous[key] for key in (
             "POSTGRES_PASSWORD",
@@ -1279,9 +1694,16 @@ def main() -> None:
     try:
         urls = resolve_urls(prior)
     except NeedAddress as exc:
-        print(address_help(exc.port), flush=True)
-        _pause_or_return()
-        return
+        if os.environ.get("GRATIS_SKIP_PATCH") == "1":
+            print(address_help(exc.port), flush=True)
+            return
+        # Ask on the status page instead of in the compose file.
+        chosen = ask_address_in_browser(exc.port)
+        saved_address.write_text(chosen + "\n", encoding="utf-8")
+        saved_address.chmod(0o644)
+        os.environ["GRATIS_BASE_URL"] = chosen
+        write_boot_status("setting-up" if previous is None else "starting")
+        urls = resolve_urls(None)
     values = assemble(urls, secret)
     write_env(env_path, values)
     write_service_envs(boot, values)
@@ -1328,6 +1750,7 @@ def main() -> None:
     tmp_ready = boot / "ready.tmp"
     tmp_ready.write_text(stamp + "\n", encoding="utf-8")
     os.replace(tmp_ready, ready)
+    write_boot_status("ready")
     print(text, flush=True)
     if os.environ.get("GRATIS_SKIP_PATCH") == "1":
         return
@@ -1340,5 +1763,18 @@ def main() -> None:
     _pause_or_return()
 
 
+def run() -> None:
+    """main(), with any failure shown on the status page too."""
+    try:
+        main()
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            write_boot_status("failed", detail=str(exc.code))
+        raise
+    except Exception as exc:  # noqa: BLE001 - shown, then re-raised
+        write_boot_status("failed", detail=f"{type(exc).__name__}: {exc}")
+        raise
+
+
 if __name__ == "__main__":
-    main()
+    run()

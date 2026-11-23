@@ -2,6 +2,7 @@
 import { Client } from 'pg';
 
 import { refreshCollations } from './maintenance/collation-refresh.js';
+import { writeStartupStatus } from './startup-status.js';
 
 /**
  * One-shot run before `prisma migrate deploy` (docker-entrypoint.sh
@@ -18,7 +19,13 @@ async function main(): Promise<void> {
       await client.connect();
       return client;
     },
-    (line) => console.log(`[collation] ${line}`),
+    (line) => {
+      console.log(`[collation] ${line}`);
+      // The slow case: tell the status page which database is being
+      // rebuilt, so a long wait does not look like a hang.
+      const rebuilding = /^collation version changed in (.+): rebuilding its indexes$/.exec(line);
+      if (rebuilding) writeStartupStatus('database-rebuild', { detail: rebuilding[1] });
+    },
   );
   if (!result.skipped && result.reindexed.length === 0 && result.postgisUpgraded.length === 0) {
     console.log('[collation] all databases current');

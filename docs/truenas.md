@@ -33,8 +33,17 @@ Images are `ghcr.io/palavido-dev/gratis-gis/*` (linux/amd64), tag
    other `8080` in the file alone. That number is the port inside
    the container.
 
-5. Click **Save**. The first start downloads the images. Wait until
-   the app is running. Then open the **bootstrap** logs. They look
+5. Click **Save**. The first start downloads the images. As soon as
+   the web page answers, open `http://<your NAS address>:8080` from a
+   computer or phone on your home network. A status page shows each
+   step of the first start and switches to GratisGIS by itself when
+   it is ready.
+
+   If the page asks **Is this the address you will use to open
+   GratisGIS?**, click **Yes, use this address**. That happens when
+   the stack cannot see your NAS address by itself (see below).
+
+6. Open the **bootstrap** logs for the first admin password. They look
    like this:
 
 ```
@@ -55,15 +64,29 @@ first-start log on a forum, in a GitHub issue, or in a screenshot.
 If you already changed the password, you do not need that log.
 
 Dockge works the same way: create a stack, paste the same file,
-leave the env box empty, deploy. Then read the bootstrap logs.
+leave the env box empty, deploy. Then open the web page and read
+the bootstrap logs.
 
-## If the log asks you to set GRATIS_BASE_URL
+## The status page
 
-The stack could not see a LAN address that opens from another
-computer. It skips network addresses (those end in `.0`), broadcast
-addresses (those end in `.255`), and Docker or TrueNAS bridge
-addresses. In the YAML you pasted, set your NAS address and start
-the app again:
+While GratisGIS starts, updates, or fails to start, its address shows
+a status page instead of an error. It says what is happening (setting
+up, updating the database, starting) and refreshes by itself. When a
+start fails, it shows the error in plain words, with the full details
+to copy into a bug report. It never shows passwords: values from the
+env file are removed before anything reaches the page.
+
+## If the stack cannot find your NAS address
+
+It skips network addresses (those end in `.0`), broadcast addresses
+(those end in `.255`), and Docker or TrueNAS bridge addresses. When
+nothing is left, the status page asks you to confirm the address in
+your browser's address bar. Open the page from another computer or a
+phone, using the NAS address, and click **Yes, use this address**.
+The choice is saved on the boot volume and kept on later starts.
+
+To set the address in the file instead (it wins over the page), set
+it in the YAML you pasted and start the app again:
 
 ```yaml
 GRATIS_BASE_URL: http://192.168.1.20:8080
