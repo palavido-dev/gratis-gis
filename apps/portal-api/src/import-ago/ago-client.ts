@@ -267,6 +267,21 @@ export class AgoClient {
     );
   }
 
+  /**
+   * Items related to this one, e.g. a web map's offline map areas
+   * (`Map2Area`). Forward direction: from this item outward.
+   */
+  async relatedItems(
+    itemId: string,
+    relationshipType: string,
+  ): Promise<Array<AgoItem & Record<string, unknown>>> {
+    const res = await this.fetchJson<{ relatedItems?: Array<AgoItem & Record<string, unknown>> }>(
+      `/content/items/${encodeURIComponent(itemId)}/relatedItems`,
+      { relationshipType, direction: 'forward' },
+    );
+    return Array.isArray(res.relatedItems) ? res.relatedItems : [];
+  }
+
   // ----------------------------------------------------------
   // Internals
   // ----------------------------------------------------------

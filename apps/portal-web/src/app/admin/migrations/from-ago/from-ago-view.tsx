@@ -72,6 +72,8 @@ interface ImportResult {
   portalItemType?: string;
   warnings: string[];
   error?: string;
+  /** Made alongside, e.g. a Field Maps map's data collection and forms. */
+  alsoCreated?: Array<{ portalItemId: string; portalItemType: string; title: string }>;
 }
 
 interface ImportedFolder {
@@ -1021,6 +1023,16 @@ export function FromAgoView() {
                       ) : (
                         ''
                       )}
+                      {row.alsoCreated?.map((extra) => (
+                        <a
+                          key={extra.portalItemId}
+                          className="block hover:underline"
+                          href={`/items/${extra.portalItemId}`}
+                          title={extra.title}
+                        >
+                          {extra.portalItemType === 'data_collection' ? 'data collection' : 'form'}
+                        </a>
+                      ))}
                     </td>
                     <td className="px-2 py-1.5 text-muted">
                       {row.error ?? row.warnings.join('; ')}

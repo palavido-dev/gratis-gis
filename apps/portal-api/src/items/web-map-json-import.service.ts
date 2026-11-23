@@ -138,6 +138,8 @@ export class WebMapJsonImportService {
      *  to a portal-rooted source. Surfaces in the import report so
      *  the operator can see the "no longer pointing at AGO" effect. */
     remappedToDataLayerCount: number;
+    /** Layers on portal data layers, for a Field Maps data collection. */
+    fieldLayers: ImportedFieldLayer[];
   }> {
     const { user, webMap } = args;
 
@@ -180,6 +182,7 @@ export class WebMapJsonImportService {
     // under query.sourceUrl; we never persist the lens itself
     // since v1 doesn't have a Lens registry.
     const layers: MapLayer[] = [];
+    const fieldLayers: ImportedFieldLayer[] = [];
     let skipped = 0;
     let remappedToDataLayerCount = 0;
     for (const lens of parsed.lenses) {
@@ -200,8 +203,17 @@ export class WebMapJsonImportService {
         ? matchAgoDataLayerSource(sourceUrl, args.agoDataLayerLookup)
         : null;
       if (dataLayerSource) {
-        layers.push(buildMapLayer({ lens, source: dataLayerSource, warnings }));
+        const built = buildMapLayer({ lens, source: dataLayerSource, warnings });
+        layers.push(built);
         remappedToDataLayerCount += 1;
+        const formInfo = (lens.query as { agoFormInfo?: unknown }).agoFormInfo;
+        fieldLayers.push({
+          dataLayerItemId: dataLayerSource.itemId,
+          layerKey: dataLayerSource.layerKey ?? '',
+          title: lens.name,
+          editable: built.interactions.editingEnabled,
+          ...(formInfo && typeof formInfo === 'object' ? { formInfo } : {}),
+        });
         continue;
       }
       const mapped = mapSourceFromUrl({
@@ -275,6 +287,7 @@ export class WebMapJsonImportService {
       layerCount: layers.length,
       skippedLayerCount: skipped,
       remappedToDataLayerCount,
+      fieldLayers,
     };
   }
 
@@ -356,7 +369,7 @@ function matchAgoDataLayerSource(
     string,
     { itemId: string; agoLayerIdToSublayerKey: Record<number, string> }
   >,
-): MapLayer['source'] | null {
+): Extract<MapLayer['source'], { kind: 'data-layer' }> | null {
   const url = sourceUrl.trim();
   if (!url) return null;
   // Match the same FeatureServer/MapServer + integer sublayer
@@ -496,6 +509,7 @@ function buildMapLayer(args: {
     opacity?: unknown;
     agoLabeling?: unknown;
     agoPopup?: unknown;
+    agoCapabilities?: unknown;
   };
   const imported = importLabelsAndPopup({
     labeling: q.agoLabeling,
@@ -518,7 +532,13 @@ function buildMapLayer(args: {
     style,
     renderer: { kind: 'simple' },
     popup: imported.popup,
-    interactions: { ...DEFAULT_LAYER_INTERACTIONS },
+    interactions: {
+      ...DEFAULT_LAYER_INTERACTIONS,
+      // A layer on a portal data layer stays editable on the map unless
+      // the web map turned editing off for it, as ArcGIS does. Whether
+      // anyone can actually edit still follows the data layer.
+      editingEnabled: args.source.kind === 'data-layer' && mapAllowsEditing(q.agoCapabilities),
+    },
     labels: imported.labels,
     ...(imported.expressions.length > 0 ? { expressions: imported.expressions } : {}),
     search: { ...DEFAULT_LAYER_SEARCH },
@@ -863,4 +883,25 @@ export function arcgisServiceKey(url: string): string {
     .replace(/\/+$/, '')
     .replace(/\/\d+$/, '')
     .toLowerCase();
+}
+
+/** One imported map layer that reads a portal data layer. */
+export interface ImportedFieldLayer {
+  dataLayerItemId: string;
+  layerKey: string;
+  title: string;
+  /** The web map lets this layer be edited. */
+  editable: boolean;
+  /** The layer's Field Maps form, when it has one. */
+  formInfo?: object;
+}
+
+/**
+ * Whether a web map layer's `capabilities` override leaves editing
+ * on. No override means the service decides, which the data layer's
+ * own editing setting stands in for.
+ */
+export function mapAllowsEditing(capabilities: unknown): boolean {
+  if (typeof capabilities !== 'string') return true;
+  return /\b(create|update|delete|editing)\b/i.test(capabilities);
 }

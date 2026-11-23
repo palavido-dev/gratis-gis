@@ -12,8 +12,10 @@ and what doesn't.
 > live references and does not copy features. Admins can copy a
 > hosted feature service into a portal data layer from Admin,
 > Migrations, From ArcGIS Online. That same run rewrites web maps
-> onto those layers. The importer skips apps, dashboards, and
-> forms. File upload of an exported geodatabase or shapefile is
+> onto those layers. A web map set up for Field Maps also becomes a
+> data collection, with a form for each layer's Field Maps form and
+> an offline area for each offline map area. The importer skips
+> apps, dashboards, and Survey123 forms. File upload of an exported geodatabase or shapefile is
 > still a valid copy path. This guide has not been re-checked
 > against a live ArcGIS Online org on this pass.
 
@@ -29,6 +31,7 @@ and what doesn't.
 | Sharing settings | `item_share` rows + `access` field on each item | Per-item; cascade through folders |
 | Folder | `folder` item with `childItemIds` | Manual recreation; bulk folder import is a v2 candidate |
 | Symbology / popups | `MapData.layers[].style` + `popup` | Comes through WebMap import; usually needs an admin polish |
+| Field Maps map, forms, offline map areas | `data_collection` + `form` items + offline areas | From ArcGIS Online importer, with the web map |
 | Scheduled exports / reports | (deferred to v1.1) | -- |
 
 ## Step 0: inventory and decide what comes across
