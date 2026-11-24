@@ -1,0 +1,260 @@
+{
+  "_readme": "Raw SQL sites per file. Every site has a row in docs/security/raw-sql-inventory.md. Regenerate with: node scripts/check-raw-sql.mjs --update",
+  "files": {
+    "apps/portal-api/src/admin/diagnostics.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/admin/housekeeping-schedule.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/admin/housekeeping.service.ts": {
+      "prisma": 7,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/admin/readiness.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/admin/resource-quota.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/analysis/analysis-bridge.worker.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/analysis/analysis-target-stamp.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/backup/backup.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/cron/leader-election.service.ts": {
+      "prisma": 0,
+      "pg": 3,
+      "raw": 0
+    },
+    "apps/portal-api/src/data-layer/features.controller.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/data-layer/search-index-jobs.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/data-layer/search-index.service.ts": {
+      "prisma": 8,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/data-layer/stamp-layer-source.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/data-layer/tables.service.ts": {
+      "prisma": 4,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/derived-layers/derived-layers.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/derived-layers/result-cache.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/engine/copy-writer.ts": {
+      "prisma": 0,
+      "pg": 10,
+      "raw": 0
+    },
+    "apps/portal-api/src/engine/data-layer.ts": {
+      "prisma": 24,
+      "pg": 8,
+      "raw": 17
+    },
+    "apps/portal-api/src/engine/engine.service.ts": {
+      "prisma": 4,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/engine/tile-cache.service.ts": {
+      "prisma": 0,
+      "pg": 1,
+      "raw": 0
+    },
+    "apps/portal-api/src/expressions/expressions.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/features/features.service.ts": {
+      "prisma": 22,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/feedback/feedback.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/forms/forms.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/geocoding/geocoder-indexes.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/geocoding/geocoding.service.ts": {
+      "prisma": 11,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/health.controller.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/import-jobs/import-jobs.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/items/data-snapshot.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/items/item-bbox-refresh.service.ts": {
+      "prisma": 3,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/items/item-data-lock.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/items/items.service.ts": {
+      "prisma": 12,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/items/last-usage-stamp.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/maintenance/collation-refresh.ts": {
+      "prisma": 0,
+      "pg": 6,
+      "raw": 0
+    },
+    "apps/portal-api/src/maintenance/partition-runway.service.ts": {
+      "prisma": 4,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/maintenance/trash-purge.service.ts": {
+      "prisma": 3,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/metrics/job-metrics.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/notifications/notifications-cron.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/offline-package/offline-package.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/osm/osm-scrub.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/osm/osm.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/postgis-live/postgis-live.service.ts": {
+      "prisma": 0,
+      "pg": 7,
+      "raw": 0
+    },
+    "apps/portal-api/src/postgis-live/postgis-table-preview.ts": {
+      "prisma": 0,
+      "pg": 2,
+      "raw": 0
+    },
+    "apps/portal-api/src/public/ogc/records-core.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/public/public.controller.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/scripts/script-runner.worker.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/scripts/script-schedule.service.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/storage/key-ownership.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/storage/storage.controller.ts": {
+      "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/tile-layer/pyramid.worker.ts": {
+      "prisma": 9,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/tools/recipe-runner.service.ts": {
+      "prisma": 5,
+      "pg": 0,
+      "raw": 0
+    }
+  }
+}
