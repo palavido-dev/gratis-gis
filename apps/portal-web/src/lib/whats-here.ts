@@ -47,15 +47,110 @@ export interface LayerScreen {
   breakdown?: { field: string; rows: ScreenRow[]; truncated: boolean };
 }
 
-/** Distances offered as one tap. Feet and miles because most users
- *  think in them; the custom box takes any unit. */
-export const DISTANCE_PRESETS: ReadonlyArray<{ key: string; meters: number }> = [
-  { key: 'none', meters: 0 },
-  { key: 'ft100', meters: 30.48 },
-  { key: 'ft500', meters: 152.4 },
-  { key: 'mi025', meters: 402.336 },
-  { key: 'mi1', meters: 1609.344 },
+/** The user's measurement system, from their profile. */
+export type UnitSystem = 'metric' | 'imperial';
+
+/**
+ * Distances offered as one tap, in the units the user thinks in. The
+ * custom box takes any distance in any unit either way.
+ */
+export const DISTANCE_PRESETS: Record<UnitSystem, ReadonlyArray<{ key: string; meters: number }>> = {
+  imperial: [
+    { key: 'none', meters: 0 },
+    { key: 'ft100', meters: 30.48 },
+    { key: 'ft500', meters: 152.4 },
+    { key: 'mi025', meters: 402.336 },
+    { key: 'mi1', meters: 1609.344 },
+  ],
+  metric: [
+    { key: 'none', meters: 0 },
+    { key: 'm25', meters: 25 },
+    { key: 'm100', meters: 100 },
+    { key: 'm500', meters: 500 },
+    { key: 'km1', meters: 1000 },
+  ],
+};
+
+/**
+ * What a bare point or address gets as its first distance: a point on
+ * its own only finds what lies under it, which is rarely the question.
+ */
+export const POINT_DEFAULT_METERS: Record<UnitSystem, number> = {
+  imperial: 152.4,
+  metric: 150,
+};
+
+export interface ScreenUnits {
+  areaUnit: AreaUnit;
+  lengthUnit: DistanceUnit;
+}
+
+const UNIT_DEFAULTS: Record<UnitSystem, ScreenUnits> = {
+  imperial: { areaUnit: 'acres', lengthUnit: 'feet' },
+  metric: { areaUnit: 'hectares', lengthUnit: 'meters' },
+};
+
+/** Same profile key the map's area scale reads (lib/map-area-scale). */
+const PROFILE_UNITS_KEY = 'gg-profile-units';
+const STORED_UNITS_KEY = 'gg-whats-here-units';
+
+const AREA_UNITS: readonly AreaUnit[] = [
+  'square-meters',
+  'hectares',
+  'square-kilometers',
+  'square-feet',
+  'acres',
+  'square-miles',
 ];
+const LENGTH_UNITS: readonly DistanceUnit[] = ['meters', 'kilometers', 'feet', 'miles'];
+
+/** The profile's metric/imperial choice. Unset reads as imperial,
+ *  matching the map's scale bar. */
+export function profileUnitSystem(): UnitSystem {
+  try {
+    return window.localStorage.getItem(PROFILE_UNITS_KEY) === 'metric' ? 'metric' : 'imperial';
+  } catch {
+    return 'imperial';
+  }
+}
+
+/**
+ * The units a screen opens with. In order: what this user last picked
+ * here, what the author set for this app, the profile's system.
+ */
+export function initialUnits(args: {
+  system: UnitSystem;
+  author?: Partial<ScreenUnits>;
+}): ScreenUnits {
+  const base = { ...UNIT_DEFAULTS[args.system], ...stripUndefined(args.author ?? {}) };
+  try {
+    const raw = window.localStorage.getItem(STORED_UNITS_KEY);
+    if (!raw) return base;
+    const stored = JSON.parse(raw) as Partial<Record<keyof ScreenUnits, unknown>>;
+    return {
+      areaUnit: AREA_UNITS.includes(stored.areaUnit as AreaUnit)
+        ? (stored.areaUnit as AreaUnit)
+        : base.areaUnit,
+      lengthUnit: LENGTH_UNITS.includes(stored.lengthUnit as DistanceUnit)
+        ? (stored.lengthUnit as DistanceUnit)
+        : base.lengthUnit,
+    };
+  } catch {
+    return base;
+  }
+}
+
+export function rememberUnits(units: ScreenUnits): void {
+  try {
+    window.localStorage.setItem(STORED_UNITS_KEY, JSON.stringify(units));
+  } catch {
+    /* private mode: the choice lasts for this visit only */
+  }
+}
+
+function stripUndefined<T extends object>(o: T): Partial<T> {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
 
 const METERS_PER: Record<DistanceUnit, number> = {
   meters: 1,

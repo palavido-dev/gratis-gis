@@ -51,6 +51,10 @@ import {
   AreaExpiredError,
   DISTANCE_PRESETS,
   MAX_DISTANCE_METERS,
+  POINT_DEFAULT_METERS,
+  initialUnits,
+  profileUnitSystem,
+  rememberUnits,
   percentOfArea,
   pickedAreaGeometry,
   registerArea,
@@ -59,6 +63,7 @@ import {
   toMeters,
   type LayerScreen,
   type ResolvedArea,
+  type UnitSystem,
 } from '@/lib/whats-here';
 import { fetchFeatureFromServer } from '../fetch-feature';
 import { geocode, type SearchResult } from '../search-sources';
@@ -94,6 +99,12 @@ export interface WhatsHereToolProps {
   mapLayers: MapLayer[];
   /** Fired while the tool owns map clicks, so the host disarms others. */
   onDrawActiveChange?: (active: boolean) => void;
+  /** Metric or imperial. Defaults to the user's profile setting. */
+  unitSystem?: UnitSystem;
+  /** Author's default units (an app widget's settings). The user can
+   *  still change them, and their own last choice wins next time. */
+  defaultAreaUnit?: AreaUnit;
+  defaultLengthUnit?: DistanceUnit;
 }
 
 const OVERLAY_SOURCE = 'whats-here';
@@ -121,8 +132,12 @@ export function WhatsHereTool({
   onClose,
   mapLayers,
   onDrawActiveChange,
+  unitSystem,
+  defaultAreaUnit,
+  defaultLengthUnit,
 }: WhatsHereToolProps) {
   const t = useT();
+  const [system] = useState<UnitSystem>(() => unitSystem ?? profileUnitSystem());
   const [mode, setMode] = useState<AreaMode>('draw');
   const [shape, setShape] = useState<DrawShape>('polygon');
   // The shape as the user made it, before the distance.
@@ -130,14 +145,26 @@ export function WhatsHereTool({
   const [distanceMeters, setDistanceMeters] = useState(0);
   const [customOpen, setCustomOpen] = useState(false);
   const [customValue, setCustomValue] = useState('');
-  const [customUnit, setCustomUnit] = useState<DistanceUnit>('feet');
+  const [customUnit, setCustomUnit] = useState<DistanceUnit>(
+    system === 'metric' ? 'meters' : 'feet',
+  );
   const [area, setArea] = useState<ResolvedArea | null>(null);
   const [areaError, setAreaError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [results, setResults] = useState<Record<string, LayerState>>({});
   const [breakdowns, setBreakdowns] = useState<Record<string, string>>({});
-  const [areaUnit, setAreaUnit] = useState<AreaUnit>('acres');
-  const [lengthUnit, setLengthUnit] = useState<DistanceUnit>('feet');
+  const [units, setUnits] = useState(() =>
+    initialUnits({
+      system,
+      author: { areaUnit: defaultAreaUnit, lengthUnit: defaultLengthUnit },
+    }),
+  );
+  const { areaUnit, lengthUnit } = units;
+  const changeUnits = (patch: Partial<typeof units>) => {
+    const next = { ...units, ...patch };
+    setUnits(next);
+    rememberUnits(next);
+  };
   const [picked, setPicked] = useState<PickedFeature[]>([]);
   const [pickError, setPickError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
@@ -308,7 +335,7 @@ export function WhatsHereTool({
     setQuery(p.label);
     // An address is a spot; without a distance it finds only what is
     // under that spot. Offer a sensible radius the first time.
-    if (distanceMeters === 0) setDistanceMeters(152.4);
+    if (distanceMeters === 0) setDistanceMeters(POINT_DEFAULT_METERS[system]);
     setSource({ type: 'Point', coordinates: p.center });
   }
 
@@ -316,10 +343,9 @@ export function WhatsHereTool({
   // which is rarely the question. Default it once.
   useEffect(() => {
     if (mode === 'point' && source?.type === 'Point' && distanceMeters === 0) {
-      setDistanceMeters(152.4);
+      setDistanceMeters(POINT_DEFAULT_METERS[system]);
     }
     // Only when a point first appears.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, source?.type]);
 
   // ---- Screening ------------------------------------------------------
@@ -580,7 +606,6 @@ export function WhatsHereTool({
       setCustomOpen(false);
     }
     // startOver is stable enough; this is the close transition only.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // ---- Derived ----------------------------------------------------------
@@ -598,10 +623,11 @@ export function WhatsHereTool({
   const pending = layers.filter((l) => results[l.mapLayerId]?.status === 'loading');
   const failed = layers.filter((l) => results[l.mapLayerId]?.status === 'error');
 
+  const presets = DISTANCE_PRESETS[system];
   const presetKey = useMemo(() => {
-    const p = DISTANCE_PRESETS.find((d) => Math.abs(d.meters - distanceMeters) < 0.001);
+    const p = presets.find((d) => Math.abs(d.meters - distanceMeters) < 0.001);
     return p ? p.key : 'custom';
-  }, [distanceMeters]);
+  }, [distanceMeters, presets]);
 
   function applyCustom() {
     const n = Number(customValue.replace(',', '.'));
@@ -803,7 +829,7 @@ export function WhatsHereTool({
         <section>
           <p className="mb-1 text-xs font-medium text-ink-1">{t('whatsHere.distanceHeading')}</p>
           <div className="flex flex-wrap gap-1">
-            {DISTANCE_PRESETS.map((p) => (
+            {presets.map((p) => (
               <button
                 key={p.key}
                 type="button"
@@ -896,18 +922,38 @@ export function WhatsHereTool({
                   </p>
                 </div>
                 {resolving ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : null}
-                <select
-                  value={areaUnit}
-                  onChange={(e) => setAreaUnit(e.target.value as AreaUnit)}
-                  aria-label={t('whatsHere.areaUnitAria')}
-                  className="h-8 rounded border border-border bg-surface-0 px-1 text-xs"
-                >
-                  {(Object.keys(AREA_UNIT_LABELS) as AreaUnit[]).map((u) => (
-                    <option key={u} value={u}>
-                      {AREA_UNIT_LABELS[u]}
-                    </option>
-                  ))}
-                </select>
+              </div>
+              {/* Both units in one place: they apply to every card and to
+                  the spreadsheet, and each user's choice is remembered. */}
+              <div className="mt-1 flex gap-1">
+                <label className="flex min-w-0 flex-1 items-center gap-1 text-2xs text-muted">
+                  {t('whatsHere.areaUnitLabel')}
+                  <select
+                    value={areaUnit}
+                    onChange={(e) => changeUnits({ areaUnit: e.target.value as AreaUnit })}
+                    className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-0 px-1 text-xs text-ink-1"
+                  >
+                    {(Object.keys(AREA_UNIT_LABELS) as AreaUnit[]).map((u) => (
+                      <option key={u} value={u}>
+                        {AREA_UNIT_LABELS[u]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex min-w-0 flex-1 items-center gap-1 text-2xs text-muted">
+                  {t('whatsHere.lengthUnitLabel')}
+                  <select
+                    value={lengthUnit}
+                    onChange={(e) => changeUnits({ lengthUnit: e.target.value as DistanceUnit })}
+                    className="h-7 min-w-0 flex-1 rounded border border-border bg-surface-0 px-1 text-xs text-ink-1"
+                  >
+                    {(Object.keys(DISTANCE_UNIT_LABELS) as DistanceUnit[]).map((u) => (
+                      <option key={u} value={u}>
+                        {DISTANCE_UNIT_LABELS[u]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
               {layersLoading ? (
@@ -929,7 +975,6 @@ export function WhatsHereTool({
                     areaSqm={area?.squareMeters ?? 0}
                     areaUnit={areaUnit}
                     lengthUnit={lengthUnit}
-                    onLengthUnit={setLengthUnit}
                     breakdown={breakdowns[layer.mapLayerId] ?? ''}
                     onBreakdown={(f) => setBreakdown(layer, f)}
                   />
@@ -1023,7 +1068,6 @@ function LayerCard({
   areaSqm,
   areaUnit,
   lengthUnit,
-  onLengthUnit,
   breakdown,
   onBreakdown,
 }: {
@@ -1032,7 +1076,6 @@ function LayerCard({
   areaSqm: number;
   areaUnit: AreaUnit;
   lengthUnit: DistanceUnit;
-  onLengthUnit: (u: DistanceUnit) => void;
   breakdown: string;
   onBreakdown: (field: string) => void;
 }) {
@@ -1063,20 +1106,6 @@ function LayerCard({
           {measure(total.measure)}
           {pct(total.measure) ? (
             <span className="text-muted"> · {t('whatsHere.ofArea', { pct: pct(total.measure)! })}</span>
-          ) : null}
-          {layer.geometry === 'line' ? (
-            <select
-              value={lengthUnit}
-              onChange={(e) => onLengthUnit(e.target.value as DistanceUnit)}
-              aria-label={t('whatsHere.lengthUnitAria')}
-              className="ml-2 h-6 rounded border border-border bg-surface-0 px-1 font-sans text-2xs"
-            >
-              {(Object.keys(DISTANCE_UNIT_LABELS) as DistanceUnit[]).map((u) => (
-                <option key={u} value={u}>
-                  {DISTANCE_UNIT_LABELS[u]}
-                </option>
-              ))}
-            </select>
           ) : null}
         </p>
       ) : null}
