@@ -18,6 +18,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -231,6 +232,29 @@ function formatGb(bytes: number): string {
  *     an existing BackupRun row on the same deployment).
  *   - Selective restore (subset of tables, single MinIO object).
  */
+/** Off-site settings that stay as they are on the live server through a restore. */
+const OFFSITE_CONFIG_COLUMNS = {
+  offsiteEnabled: true,
+  offsiteEndpoint: true,
+  offsiteRegion: true,
+  offsiteBucket: true,
+  offsitePrefix: true,
+  offsitePathStyle: true,
+  offsiteAccessKeyId: true,
+  offsiteSecretEncrypted: true,
+  offsiteSecretIv: true,
+  offsitePublicKey: true,
+  offsiteInstallId: true,
+  offsiteNameKeyEncrypted: true,
+  offsiteNameKeyIv: true,
+  offsiteRetentionDays: true,
+  offsiteAlertDays: true,
+  offsiteMirrorThresholdBytes: true,
+  offsiteKeyChangedAt: true,
+  offsiteKeyChangedBy: true,
+  offsitePreviousFingerprint: true,
+} as const;
+
 @Injectable()
 export class BackupRestoreService {
   private readonly log = new Logger(BackupRestoreService.name);
@@ -520,14 +544,22 @@ export class BackupRestoreService {
     }
   }
 
-  /** Live backup history, read before pg_restore replaces it. */
+  /**
+   * Live backup history, read before pg_restore replaces it. Also the
+   * live off-site settings: the archive's copy may name an older public
+   * key, a cleared secret or another folder, and none of that should
+   * come back with the data.
+   */
   async snapshotBackupHistory() {
-    const [runs, notices, restores] = await Promise.all([
+    const [runs, notices, restores, offsiteNotices, restoreTests, config] = await Promise.all([
       this.prisma.backupRun.findMany(),
       this.prisma.backupFailureNotice.findMany(),
       this.prisma.backupRestore.findMany(),
+      this.prisma.backupOffsiteNotice.findMany(),
+      this.prisma.backupRestoreTest.findMany(),
+      this.prisma.backupConfig.findFirst({ select: OFFSITE_CONFIG_COLUMNS }),
     ]);
-    return { runs, notices, restores };
+    return { runs, notices, restores, offsiteNotices, restoreTests, offsite: config };
   }
 
   /**
@@ -547,6 +579,22 @@ export class BackupRestoreService {
       this.prisma.backupFailureNotice.createMany({ data: history.notices }),
       this.prisma.backupRestore.deleteMany({}),
       this.prisma.backupRestore.createMany({ data: history.restores }),
+      this.prisma.backupOffsiteNotice.deleteMany({}),
+      this.prisma.backupOffsiteNotice.createMany({ data: history.offsiteNotices }),
+      this.prisma.backupRestoreTest.deleteMany({}),
+      this.prisma.backupRestoreTest.createMany({
+        data: history.restoreTests.map((t) => ({
+          ...t,
+          summary: t.summary === null ? Prisma.DbNull : (t.summary as Prisma.InputJsonValue),
+        })),
+      }),
+      // The archive's record of mirrored files is older than the bucket:
+      // trusting it could let clean-up remove files newer runs still
+      // use. Empty means "upload everything again", never a delete.
+      this.prisma.backupOffsiteObject.deleteMany({}),
+      ...(history.offsite
+        ? [this.prisma.backupConfig.updateMany({ data: history.offsite })]
+        : []),
     ]);
   }
 

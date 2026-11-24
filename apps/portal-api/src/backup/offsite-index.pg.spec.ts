@@ -24,6 +24,7 @@ import { applyTestMigrations } from '../testing/apply-test-migrations.js';
 import { FakeS3 } from '../testing/fake-s3.js';
 import type { BackupService } from './backup.service.js';
 import { generateOffsiteKeyPair } from './offsite-crypto.js';
+import { BackupRestoreService } from './backup-restore.service.js';
 import { PrismaMirrorIndex } from './offsite-mirror.js';
 import { OffsiteService } from './offsite.service.js';
 
@@ -127,6 +128,43 @@ d('off-site backups against Postgres', () => {
     await pool.query(`UPDATE backup_restore_test SET status = 'passed'`);
     await prisma.backupRestoreTest.create({ data: { filename: 'c.tar.gz' } });
     await pool.query('DELETE FROM backup_restore_test');
+  });
+
+  it('a restore inside the portal keeps the live off-site settings and empties the mirror index', async () => {
+    await pool.query('DELETE FROM backup_config');
+    const live = generateOffsiteKeyPair().publicKey.text;
+    const old = generateOffsiteKeyPair().publicKey.text;
+    await pool.query(
+      `INSERT INTO backup_config (id, offsite_enabled, offsite_public_key, offsite_install_id, offsite_prefix)
+       VALUES ($1, true, $2, 'live-install', 'live/')`,
+      [randomUUID(), live],
+    );
+    const svc = new BackupRestoreService(
+      prisma as unknown as PrismaService,
+      { get: (_k: string, d?: string) => d } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const history = await svc.snapshotBackupHistory();
+    // What pg_restore of an older archive leaves behind.
+    await pool.query(
+      `UPDATE backup_config SET offsite_public_key = $1, offsite_install_id = 'old-install', offsite_prefix = 'old/'`,
+      [old],
+    );
+    await pool.query(
+      `INSERT INTO backup_offsite_object (target, name, key_fingerprint, plain_bytes, sealed_bytes, last_run_at)
+       VALUES ('t', 'n', 'f', 1, 2, now() - interval '90 days')`,
+    );
+    await svc.restoreBackupHistory(history);
+    const row = (
+      await pool.query<{ k: string; i: string; p: string }>(
+        'SELECT offsite_public_key AS k, offsite_install_id AS i, offsite_prefix AS p FROM backup_config',
+      )
+    ).rows[0]!;
+    expect(row).toEqual({ k: live, i: 'live-install', p: 'live/' });
+    expect((await pool.query('SELECT 1 FROM backup_offsite_object')).rowCount).toBe(0);
+    await pool.query('DELETE FROM backup_config');
   });
 
   it('the local index records, finds, moves forward and removes rows', async () => {

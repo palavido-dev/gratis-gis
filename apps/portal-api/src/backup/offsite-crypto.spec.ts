@@ -289,6 +289,35 @@ describe('interop with infra/recovery/offsite-key.mjs', () => {
     expect(node(['fingerprint', pubText]).stdout.toString().trim()).toBe(fp);
   }, 30_000);
 
+  it('the script never replaces an existing output file, the key file included', async () => {
+    const key = generateOffsiteKeyPair();
+    const keyPath = path.join(dir, 'k.ggkey');
+    const keyBytes = await sealKeyFile(key, PASS, { logN: 14 });
+    fs.writeFileSync(keyPath, keyBytes);
+    fs.writeFileSync(path.join(dir, 'pass'), PASS);
+    fs.writeFileSync(path.join(dir, 'plain'), 'hello');
+    const enc = node(['encrypt', key.publicKey.text, path.join(dir, 'plain'), keyPath]);
+    expect(enc.status).toBe(1);
+    expect(enc.stderr.toString()).toMatch(/already exists/);
+    expect(fs.readFileSync(keyPath).equals(keyBytes)).toBe(true);
+    expect(
+      node(['encrypt', key.publicKey.text, path.join(dir, 'plain'), path.join(dir, 'p.enc')])
+        .status,
+    ).toBe(0);
+    const dec = node([
+      'decrypt',
+      keyPath,
+      path.join(dir, 'p.enc'),
+      keyPath,
+      '--passphrase-file',
+      path.join(dir, 'pass'),
+    ]);
+    expect(dec.status).toBe(1);
+    expect(fs.readFileSync(keyPath).equals(keyBytes)).toBe(true);
+    // Nothing is left behind by the refused runs.
+    expect(fs.readdirSync(dir).filter((n) => n.startsWith('.offsite-key-'))).toEqual([]);
+  }, 30_000);
+
   it('a key file sealed here opens with the script, and seal.mjs opens the key file', async () => {
     const key = generateOffsiteKeyPair();
     fs.writeFileSync(path.join(dir, 'k.ggkey'), await sealKeyFile(key, PASS, { logN: 14 }));

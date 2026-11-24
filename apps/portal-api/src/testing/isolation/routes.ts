@@ -150,6 +150,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'PATCH /api/admin/backup/offsite': op(),
   'POST /api/admin/backup/offsite/test': op(),
   'POST /api/admin/backup/offsite/check-key': op(),
+  'POST /api/admin/backup/offsite/take-over': op(),
   'POST /api/admin/backup/runs/:id/offsite': op({
     params: { id: '=00000000-0000-4000-8000-000000000001' },
   }),

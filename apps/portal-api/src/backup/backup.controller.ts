@@ -124,7 +124,7 @@ class UpdateConfigDto {
  * Off-site settings patch. Secrets are write-only: the response never
  * echoes them, and an omitted secret keeps the saved one.
  */
-class UpdateOffsiteDto {
+export class UpdateOffsiteDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsBoolean()
   enabled?: boolean | null;
 
@@ -163,14 +163,20 @@ class UpdateOffsiteDto {
   mirrorThresholdBytes?: number | null;
 }
 
+/** "Take over this folder": the start of the install id that owns it now. */
+export class TakeOverOffsiteDto {
+  @IsString() @MaxLength(40)
+  owner!: string;
+}
+
 /** "Check my key": a public key or its fingerprint, pasted again. */
-class CheckOffsiteKeyDto {
+export class CheckOffsiteKeyDto {
   @IsString() @MaxLength(200)
   value!: string;
 }
 
 /** Start a backup test; confirmBytes when free space cannot be measured. */
-class StartRestoreTestDto {
+export class StartRestoreTestDto {
   @IsOptional() @IsInt() @Min(0)
   confirmBytes?: number;
 }
@@ -229,6 +235,7 @@ export class BackupController {
       | 'backup.test',
     targetId: string,
     outcome: 'succeeded' | 'failed',
+    detail?: Record<string, string | number | boolean | null>,
   ): void {
     if (!this.audit) return;
     void this.audit.record({
@@ -238,6 +245,7 @@ export class BackupController {
       targetType: 'backup',
       targetId,
       outcome,
+      ...(detail ? { detail } : {}),
     });
   }
 
@@ -300,8 +308,38 @@ export class BackupController {
   @Patch('offsite')
   async updateOffsite(@CurrentUser() user: AuthUser, @Body() dto: UpdateOffsiteDto) {
     const updated = await this.offsite().updateConfig(dto, user.id);
-    this.note(user, 'backup.offsite', user.orgId, 'succeeded');
+    const change = updated.savedKeyChange;
+    // A changed public key is written to the audit log with both
+    // fingerprints (they are not secret).
+    this.note(
+      user,
+      'backup.offsite',
+      user.orgId,
+      'succeeded',
+      change
+        ? {
+            keyChanged: true,
+            oldKeyFingerprint: change.from ?? 'none',
+            newKeyFingerprint: change.to ?? 'none',
+          }
+        : undefined,
+    );
     return updated;
+  }
+
+  /**
+   * After a restore on a new server: make this portal the owner of the
+   * bucket folder the old one wrote to. The admin types the start of
+   * the old install id, which the refusal message shows.
+   */
+  @Post('offsite/take-over')
+  @HttpCode(200)
+  async takeOverOffsite(@CurrentUser() user: AuthUser, @Body() dto: TakeOverOffsiteDto) {
+    const res = await this.offsite().takeOverFolder(dto.owner);
+    this.note(user, 'backup.offsite', user.orgId, 'succeeded', {
+      folderTakenOverFrom: res.previousOwner,
+    });
+    return res;
   }
 
   /** Write, list and delete one small file in the bucket. */
