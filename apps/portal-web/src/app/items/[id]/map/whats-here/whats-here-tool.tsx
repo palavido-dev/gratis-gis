@@ -484,10 +484,24 @@ export function WhatsHereTool({
 
   // ---- Map overlay ----------------------------------------------------
 
+  // What the overlay should show right now. The effect that adds the
+  // sources reads this, so a source created after the area resolved
+  // still starts with the area in it.
+  const overlayRef = useRef<{
+    area: GeoJSON.FeatureCollection;
+    picked: GeoJSON.FeatureCollection;
+  }>({
+    area: { type: 'FeatureCollection', features: [] },
+    picked: { type: 'FeatureCollection', features: [] },
+  });
+
   useEffect(() => {
     if (!map || !open) return;
     const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
     const add = () => {
+      // Before the first style has loaded there is nowhere to add to;
+      // the 'styledata' and 'idle' listeners below come back here.
+      if (!map.style) return;
       if (!map.getSource(OVERLAY_SOURCE)) {
         map.addSource(OVERLAY_SOURCE, { type: 'geojson', data: empty });
         map.addLayer({
@@ -532,13 +546,34 @@ export function WhatsHereTool({
           paint: { 'line-color': PICK_COLOR, 'line-width': 2 },
         });
       }
+      (map.getSource(OVERLAY_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+        overlayRef.current.area,
+      );
+      (map.getSource(PICKED_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+        overlayRef.current.picked,
+      );
     };
-    if (map.isStyleLoaded()) add();
-    else map.once('load', add);
+    // Not gated on isStyleLoaded(): that stays false while any tile is
+    // still loading, and waiting for a 'load' that already fired left
+    // the area outline off the map. Adding needs only the style.
+    try {
+      add();
+    } catch {
+      /* style mid-swap; a listener below retries */
+    }
     // A basemap switch replaces the style and drops these; put them back.
-    map.on('styledata', add);
+    const retry = () => {
+      try {
+        add();
+      } catch {
+        /* next event */
+      }
+    };
+    map.on('styledata', retry);
+    map.once('idle', retry);
     return () => {
-      map.off('styledata', add);
+      map.off('styledata', retry);
+      map.off('idle', retry);
       for (const id of [OVERLAY_POINT, OVERLAY_LINE, OVERLAY_FILL, PICKED_LINE, PICKED_FILL]) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -557,16 +592,22 @@ export function WhatsHereTool({
     if (mode === 'address' && source?.type === 'Point') {
       features.push({ type: 'Feature', geometry: source, properties: {} });
     }
-    const src = map.getSource(OVERLAY_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    src?.setData({ type: 'FeatureCollection', features });
-    const pickedSrc = map.getSource(PICKED_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    pickedSrc?.setData({
-      type: 'FeatureCollection',
-      features:
-        mode === 'features'
-          ? picked.map((p) => ({ type: 'Feature', geometry: p.geometry, properties: {} }))
-          : [],
-    });
+    overlayRef.current = {
+      area: { type: 'FeatureCollection', features },
+      picked: {
+        type: 'FeatureCollection',
+        features:
+          mode === 'features'
+            ? picked.map((p) => ({ type: 'Feature', geometry: p.geometry, properties: {} }))
+            : [],
+      },
+    };
+    (map.getSource(OVERLAY_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+      overlayRef.current.area,
+    );
+    (map.getSource(PICKED_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+      overlayRef.current.picked,
+    );
   }, [map, open, area, picked, mode, source]);
 
   // ---- Reset ------------------------------------------------------------
@@ -712,7 +753,7 @@ export function WhatsHereTool({
 
   return createPortal(
     <div
-      className="absolute bottom-28 left-3 z-30 flex max-h-[calc(100%-9rem)] w-[min(24rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
+      className="absolute bottom-28 left-3 z-30 flex max-h-[calc(100%-14rem)] w-[min(24rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
       role="dialog"
       aria-label={t('whatsHere.title')}
     >
