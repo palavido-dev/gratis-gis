@@ -69,7 +69,7 @@ export class MetricsService {
   private readonly jobs: JobMetricsReader;
 
   constructor(
-    prisma: PrismaService,
+    private readonly prisma: PrismaService,
     @Optional() @Inject(TILE_CACHE_STATS)
     private readonly tileCache: TileCacheStatsSource | null,
     @Optional() @Inject(DB_POOL_STATS)
@@ -104,6 +104,7 @@ export class MetricsService {
     this.registerTileCache(registry);
     this.registerDbPool(registry);
     this.registerJobs(registry);
+    this.registerStorageUsage(registry);
     this.registry = registry;
   }
 
@@ -248,6 +249,47 @@ export class MetricsService {
     });
   }
 
+  /**
+   * The last storage usage reconcile, install-wide. Read from its saved
+   * summary; no org is ever a label.
+   */
+  private registerStorageUsage(registry: Registry): void {
+    const prisma = this.prisma;
+    let pending: Promise<StorageReconcileSnapshot | null> | null = null;
+    const snapshot = () => {
+      if (!pending) {
+        pending = readStorageReconcile(prisma).finally(() => {
+          pending = null;
+        });
+      }
+      return pending;
+    };
+    new Gauge({
+      name: 'gratisgis_storage_usage_reconcile_finished_seconds',
+      help: 'Unix time the last storage usage reconcile finished, 0 before the first.',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.finishedSeconds ?? 0);
+      },
+    });
+    new Gauge({
+      name: 'gratisgis_storage_usage_drift_bytes',
+      help: 'Bytes the last storage usage reconcile repaired, summed over organizations as absolute values.',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.driftBytes ?? 0);
+      },
+    });
+    new Gauge({
+      name: 'gratisgis_storage_usage_unattributed_objects',
+      help: 'Stored objects the last reconcile could not tie to an organization (reported, never deleted).',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.unattributed ?? 0);
+      },
+    });
+  }
+
   private registerJobs(registry: Registry): void {
     const jobs = this.jobs;
     // Read once per scrape and shared by the gauges below. The reader
@@ -312,5 +354,24 @@ export class MetricsService {
         this.set(jobs.lastError ? 1 : 0);
       },
     });
+  }
+}
+
+type StorageReconcileSnapshot = { finishedSeconds: number; driftBytes: number; unattributed: number };
+
+async function readStorageReconcile(prisma: PrismaService): Promise<StorageReconcileSnapshot | null> {
+  try {
+    const row = await prisma.systemSetting.findUnique({ where: { key: 'storage_usage.last_reconcile' } });
+    const v = row?.value as
+      | { finishedAt?: string; unattributed?: number; orgs?: Array<{ drift?: number }> }
+      | undefined;
+    if (!v?.finishedAt) return null;
+    return {
+      finishedSeconds: Math.floor(Date.parse(v.finishedAt) / 1000) || 0,
+      driftBytes: (v.orgs ?? []).reduce((n, o) => n + Math.abs(o.drift ?? 0), 0),
+      unattributed: v.unattributed ?? 0,
+    };
+  } catch {
+    return null;
   }
 }
