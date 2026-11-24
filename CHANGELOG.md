@@ -16,6 +16,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
 - `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
+- Save as for maps: make your own copy of any map you can open, from
+  the map builder or the map's page, with unsaved changes and,
+  optionally, its markup. The copy starts private. `POST
+  /api/items/:id/copy` does the same over the API (#797).
 
 ### Security
 
