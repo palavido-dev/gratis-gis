@@ -518,7 +518,8 @@ export class DerivedLayersService {
     opts: {
       bbox?: [number, number, number, number];
       at?: string;
-      boundaryClipId?: string;
+      /** Clip geometry, already resolved and approved by the caller. */
+      boundaryGeometry?: object;
     } = {},
   ): Promise<{ type: 'FeatureCollection'; features: unknown[] }> {
     const data = item.data as unknown as DerivedLayerData | null;
@@ -640,7 +641,7 @@ export class DerivedLayersService {
     opts: {
       bbox?: [number, number, number, number];
       at?: string;
-      boundaryClipId?: string;
+      boundaryGeometry?: object;
     };
     visited: Set<string>;
     /** The source item's data when the caller already has it. */
@@ -784,23 +785,15 @@ export class DerivedLayersService {
           `geom IS NOT NULL AND ST_Intersects(geom, ST_MakeEnvelope($${b - 3}, $${b - 2}, $${b - 1}, $${b}, 4326))`,
         );
       }
-      if (opts.boundaryClipId) {
-        const boundary = await this.prisma.item.findFirst({
-          where: {
-            id: opts.boundaryClipId,
-            type: 'geo_boundary',
-            deletedAt: null,
-          },
-          select: { data: true },
-        });
-        const g = (boundary?.data as { geometry?: unknown } | null)?.geometry;
-        if (g && typeof g === 'object') {
-          params.push(JSON.stringify(g));
-          const p = params.length;
-          contentConditions.push(
-            `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${p}::text), 4326))`,
-          );
-        }
+      // The caller (ItemsService.getGeoJson) resolves the clip and
+      // applies the boundary access rule; only an approved geometry
+      // reaches this point.
+      if (opts.boundaryGeometry) {
+        params.push(JSON.stringify(opts.boundaryGeometry));
+        const p = params.length;
+        contentConditions.push(
+          `geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON($${p}::text), 4326))`,
+        );
       }
 
       sourceAlias = `${prefix}_source`;

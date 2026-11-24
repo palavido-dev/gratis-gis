@@ -48,6 +48,7 @@ import {
   legacyTableScopeConditions,
   type FeatureScope,
 } from './sharing.service.js';
+import { resolveClipBoundaryGeometry } from './clip-boundary.js';
 import { DataSnapshotService } from './data-snapshot.service.js';
 import {
   bboxWriteForData,
@@ -3965,7 +3966,17 @@ export class ItemsService {
       if ((await this.derivedInputScopeLimit(user, item.data)) !== null) {
         return { type: 'FeatureCollection', features: [] };
       }
-      return this.derivedLayers.getGeoJson(item, source, opts);
+      const { boundaryClipId, ...derivedOpts } = opts;
+      const derivedClip = await resolveClipBoundaryGeometry(
+        { prisma: this.prisma, sharing: this.sharing },
+        user,
+        item,
+        boundaryClipId,
+      );
+      return this.derivedLayers.getGeoJson(item, source, {
+        ...derivedOpts,
+        ...(derivedClip ? { boundaryGeometry: derivedClip } : {}),
+      });
     }
 
     if (item.type !== 'data_layer') {
@@ -3983,22 +3994,14 @@ export class ItemsService {
     } | null;
 
     // Resolve the boundary clip once up front so both v1 and v2
-    // branches can use it. Bypasses per-user authz on the boundary
-    // (see DataLayerFeaturesController.resolveBoundaryGeometry for the
-    // rationale).
-    let boundaryGeom: unknown | null = null;
-    if (opts.boundaryClipId) {
-      const row = await this.prisma.item.findFirst({
-        where: {
-          id: opts.boundaryClipId,
-          type: 'geo_boundary',
-          deletedAt: null,
-        },
-        select: { data: true },
-      });
-      const g = (row?.data as { geometry?: unknown } | null)?.geometry;
-      if (g && typeof g === 'object') boundaryGeom = g;
-    }
+    // branches can use it. Same rule as the v3 feature routes: see
+    // resolveClipBoundaryGeometry.
+    const boundaryGeom = await resolveClipBoundaryGeometry(
+      { prisma: this.prisma, sharing: this.sharing },
+      user,
+      item,
+      opts.boundaryClipId,
+    );
 
     // A v3 layer keeps its features in the observation table, not in
     // an fs_ table, so the table query below would throw (500). The
