@@ -55,6 +55,26 @@ RUN apt-get update \
 # CREATE EXTENSION lives in the migration that first uses it; this
 # Dockerfile just needs to ship the binaries.
 
+# pgBackRest for the opt-in continuous backup overlay
+# (infra/docker-compose.pitr.yml, docs/cloud/backup-design.md). Unused
+# unless that overlay is on: nothing runs it and no config points at a
+# repository. It comes from the PGDG repository the base image already
+# uses; Debian's own trixie package is older. Releases before 2.59.3
+# made weak encryption salts (pgBackRest security notice, 2026-10-04),
+# so the build stops on anything older. The directories are created
+# here so the postgres user can write its queue and lock files.
+RUN set -eu; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends pgbackrest; \
+    rm -rf /var/lib/apt/lists/*; \
+    v="$(pgbackrest version | awk '{print $2}')"; \
+    if ! dpkg --compare-versions "$v" ge 2.59.3; then \
+      echo "pgbackrest $v is older than 2.59.3" >&2; exit 1; \
+    fi; \
+    install -d -o postgres -g postgres -m 750 \
+      /var/spool/pgbackrest /var/log/pgbackrest /var/lib/pgbackrest; \
+    install -d -m 755 /etc/pgbackrest
+
 # First-boot SQL and the Keycloak database script. The production
 # compose also bind-mounts these files over the same paths. A NAS
 # install has no checkout, so the copies in the image are what run.

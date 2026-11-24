@@ -1,0 +1,10 @@
+[Unit]
+Description=GratisGIS continuous backup - health metrics every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=gg-pitr-status.service
+
+[Install]
+WantedBy=timers.target

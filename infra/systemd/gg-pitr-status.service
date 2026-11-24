@@ -1,0 +1,13 @@
+[Unit]
+Description=GratisGIS continuous backup - write health metrics
+After=docker.service
+ConditionPathExists=/opt/gratis-gis/infra/.env.pitr
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gratis-gis
+ExecStartPre=/usr/bin/mkdir -p /var/lib/gratis-gis/pitr
+# Exit 1 means an ALERT line was printed. The leading "-" keeps that
+# from marking the unit failed; the alert is in the journal and in
+# gg_pitr_alert in the metrics file, which the monitor reads.
+ExecStart=-/opt/gratis-gis/infra/pitr-status.sh --textfile /var/lib/gratis-gis/pitr/status.prom

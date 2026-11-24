@@ -36,6 +36,10 @@ __pycache__/
 # Same secrets, same rule.
 .env.prod.bak*
 .env.staging.bak*
+# Continuous backup bucket key and encryption passphrase
+# (infra/pitr/pitr.env.example is the committed template).
+.env.pitr
+.env.pitr.*
 
 # MaxMind account credentials for the analytics GeoLite2 download
 # (see infra/analytics/geoip-update.sh). Never commit a license key.

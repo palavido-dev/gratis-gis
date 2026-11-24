@@ -195,6 +195,14 @@ gg_render_realm_import \
 echo "Wrote infra/keycloak/import/realm-gratis-gis.json"
 
 COMPOSE=(docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod)
+# Continuous backups are opt-in (docs/cloud/backup-design.md). Once
+# infra/.env.pitr exists, every deploy must keep the archive settings,
+# or the next `up` would restart postgres without them and archiving
+# would stop with no error.
+if [[ -f infra/.env.pitr ]]; then
+  COMPOSE=(docker compose -f infra/docker-compose.prod.yml -f infra/docker-compose.pitr.yml --env-file infra/.env.prod)
+  echo "Continuous backups: on (infra/.env.pitr found)."
+fi
 
 echo "=== Building images ==="
 # The nightly `docker builder prune` drops the build cache, so the

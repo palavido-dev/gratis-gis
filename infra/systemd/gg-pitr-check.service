@@ -1,0 +1,10 @@
+[Unit]
+Description=GratisGIS continuous backup - pgbackrest check (WAL reaches the repository)
+After=docker.service
+ConditionPathExists=/opt/gratis-gis/infra/.env.pitr
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gratis-gis
+ExecStartPre=/usr/bin/mkdir -p /var/lib/gratis-gis/pitr
+ExecStart=-/opt/gratis-gis/infra/pitr-status.sh --check-only --textfile /var/lib/gratis-gis/pitr/check.prom

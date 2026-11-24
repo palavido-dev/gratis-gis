@@ -1,0 +1,99 @@
+# Opt-in continuous backup and point-in-time restore for the VPS stack.
+#
+#   docker compose -f infra/docker-compose.prod.yml \
+#     -f infra/docker-compose.pitr.yml --env-file infra/.env.prod ...
+#
+# deploy.sh adds this file by itself when infra/.env.pitr exists.
+# Without that file nothing here is used and the stack is unchanged.
+# First-time setup: infra/pitr-setup.sh. Design and restore steps:
+# docs/cloud/backup-design.md and docs/cloud/restore-runbook.md.
+#
+# Paths are relative to infra/, the directory of the first compose file.
+
+services:
+  postgres:
+    # Compose replaces `command` as a whole; it does not merge lists.
+    # Everything from docker-compose.prod.yml is repeated below, then
+    # the archive settings are added at the end. Keep the two in step:
+    # infra/test_prod_config.py fails when a flag in the base file is
+    # missing here.
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_partman_bgw,pg_stat_statements
+      - -c
+      - pg_partman_bgw.interval=3600
+      - -c
+      - pg_partman_bgw.role=${POSTGRES_USER:-gratisgis}
+      - -c
+      - pg_partman_bgw.dbname=${POSTGRES_DB:-gratisgis}
+      - -c
+      - shared_buffers=1GB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - autovacuum_work_mem=128MB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - jit=off
+      - -c
+      - max_parallel_workers=4
+      - -c
+      - max_parallel_workers_per_gather=2
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - min_wal_size=512MB
+      - -c
+      - wal_buffers=32MB
+      - -c
+      - wal_compression=zstd
+      - -c
+      - temp_file_limit=4GB
+      - -c
+      - idle_in_transaction_session_timeout=300000
+      - -c
+      - track_io_timing=on
+      - -c
+      - log_temp_files=10MB
+      - -c
+      - log_lock_waits=on
+      - -c
+      - pg_stat_statements.track=all
+      - -c
+      - pg_stat_statements.max=5000
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - vacuum_cost_limit=1000
+      # Continuous archiving. Every finished 16 MB WAL file is pushed,
+      # encrypted, to the bucket. archive_timeout closes a WAL file
+      # after at most 60 seconds when anything was written, so a quiet
+      # system loses about a minute plus upload time if the server dies.
+      # GG_PITR_ARCHIVE_MODE=off is for restore drills only
+      # (pitr-restore.sh --drill): a command-line flag beats the
+      # archive_mode=off that pgBackRest writes into
+      # postgresql.auto.conf, so the drill has to turn it off here.
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=${GG_PITR_ARCHIVE_MODE:-on}
+      - -c
+      - archive_command=pgbackrest --stanza=gratisgis archive-push %p
+      - -c
+      - archive_timeout=60
+    env_file:
+      - .env.pitr
+    environment:
+      # pgBackRest connects over the local socket as the image's
+      # superuser, which is POSTGRES_USER, not "postgres".
+      PGBACKREST_PG1_USER: ${POSTGRES_USER:-gratisgis}
+    volumes:
+      - ./pitr/pgbackrest.conf:/etc/pgbackrest/pgbackrest.conf:ro
