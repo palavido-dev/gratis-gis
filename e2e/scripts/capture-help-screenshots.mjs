@@ -216,6 +216,28 @@ const SHOTS = [
     },
   },
   {
+    file: 'map-editing/whats-here-results.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+      await page.getByRole('button', { name: "What's here" }).first().click();
+      await page.getByRole('radio', { name: 'Address' }).click();
+      await page.getByPlaceholder('Search for an address or place').fill('Elkins, WV');
+      await page.getByText(/^Elkins, Randolph County/).first().click({ timeout: 15_000 });
+      await page.getByRole('button', { name: '1 mi', exact: true }).click();
+      await page.waitForTimeout(6000);
+    },
+  },
+  {
+    file: 'items/map-save-as.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
+      await page.getByRole('button', { name: 'Save as', exact: true }).first().click();
+      await page.waitForTimeout(1000);
+    },
+  },
+  {
     file: 'map-editing/comments-panel.png',
     as: 'contributor',
     async run(page) {
