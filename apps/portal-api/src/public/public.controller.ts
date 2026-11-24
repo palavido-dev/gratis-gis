@@ -38,6 +38,7 @@ import {
   type MapLayerFilter,
 } from '@gratis-gis/shared-types';
 import { ExpressionsService } from '../expressions/expressions.service.js';
+import { AreaOfInterestService } from '../area-of-interest/area-of-interest.service.js';
 import type { TileComputed } from '../engine/data-layer.js';
 import { streamFeatureCollection } from '../data-layer/feature-stream.js';
 import { loadOsmPresetCatalog } from '../osm/preset-catalog.js';
@@ -86,6 +87,7 @@ export class PublicController {
     private readonly prisma: PrismaService,
     private readonly v3: DataLayerFeaturesService,
     private readonly itemsService: ItemsService,
+    private readonly areas: AreaOfInterestService,
     @Optional() private readonly expressions?: ExpressionsService,
   ) {}
 
@@ -712,12 +714,14 @@ export class PublicController {
     }
 
     const via = await this.resolvePublicVia(parsed.via);
+    const areaOfInterestId = await this.areas.touch(parsed.areaId);
 
     const opts: {
       groupBy?: string[];
       aggs: typeof parsed.aggs;
       bbox?: [number, number, number, number];
       geoLimit?: unknown;
+      areaOfInterestId?: string;
       where?: typeof parsed.where;
       via?: EngineVia;
       bin?: typeof parsed.bin;
@@ -732,6 +736,7 @@ export class PublicController {
     if (parsed.bin) opts.bin = parsed.bin;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
+    if (areaOfInterestId) opts.areaOfInterestId = areaOfInterestId;
     const tierClip = await publicTierGeoLimit(
       this.prisma,
       item.publicGeoBoundaryId,

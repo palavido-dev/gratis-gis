@@ -945,6 +945,23 @@ export function dataLayerSourceSqlFragment(
   `;
 }
 
+/**
+ * Aggregate ops. `area` and `length` are ground measures in square
+ * meters and meters, taken on the geography: of each feature, or with
+ * an area of interest, of the part of each feature inside it. They are
+ * what a site screen reports ("148 acres of row crop in this parcel"),
+ * which no stored attribute can answer once the shape is cut.
+ */
+export type AggregateOp =
+  | 'count'
+  | 'countDistinct'
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max'
+  | 'area'
+  | 'length';
+
 export interface AggregateFeaturesArgs {
     itemId: string;
     layerId: string;
@@ -960,9 +977,10 @@ export interface AggregateFeaturesArgs {
     asOf?: Date;
     /** Attribute names to group by. Empty = one row over the layer. */
     groupBy?: string[];
-    /** Requested aggregates. `count` needs no field. */
+    /** Requested aggregates. `count`, `area` and `length` need no
+     *  field. */
     aggs: Array<{
-      op: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
+      op: AggregateOp;
       field?: string;
       /** Result key. Caller-supplied so the widget can address it. */
       as: string;
@@ -970,6 +988,14 @@ export interface AggregateFeaturesArgs {
     bbox?: [number, number, number, number];
     geoLimit?: GeoJsonGeometry;
     boundaryClip?: GeoJsonGeometry;
+    /**
+     * What's Here (#796): the id of an `area_of_interest` row. Only
+     * features that touch the area count, and `area` / `length`
+     * measure just the part inside it. The caller has checked the row
+     * exists (AreaOfInterestService.touch); a missing one would match
+     * nothing and report zeros.
+     */
+    areaOfInterestId?: string;
     ownRowsOnly?: { userId: string };
     /**
      * Attribute predicate. The caller has already checked every field
@@ -3440,6 +3466,9 @@ export class DataLayerEngine {
             ...(args.boundaryClip !== undefined
               ? { boundaryClip: args.boundaryClip }
               : {}),
+            ...(args.areaOfInterestId !== undefined
+              ? { areaOfInterestId: args.areaOfInterestId }
+              : {}),
             ...(args.ownRowsOnly !== undefined
               ? { ownRowsOnly: args.ownRowsOnly }
               : {}),
@@ -3485,6 +3514,22 @@ export class DataLayerEngine {
       const json = JSON.stringify(args.boundaryClip);
       contentFilters.push(
         Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, ST_SetSRID(ST_GeomFromGeoJSON(${json}::text), 4326))`,
+      );
+    }
+    // The area is read once, in its own CTE, and referenced as a
+    // scalar subquery, which Postgres runs once as an InitPlan rather
+    // than per row.
+    const aoiCte =
+      args.areaOfInterestId !== undefined
+        ? Prisma.sql`aoi AS MATERIALIZED (
+            SELECT geom AS g FROM area_of_interest WHERE id = ${args.areaOfInterestId}
+          ),`
+        : Prisma.empty;
+    if (args.areaOfInterestId !== undefined) {
+      // A content predicate: it reads the latest geometry, so a
+      // feature moved out of the area stops counting.
+      contentFilters.push(
+        Prisma.sql`AND geom IS NOT NULL AND ST_Intersects(geom, (SELECT g FROM aoi))`,
       );
     }
     if (args.ownRowsOnly !== undefined) {
@@ -3592,6 +3637,26 @@ export class DataLayerEngine {
         // NULLs are excluded by COUNT's own semantics, which is right:
         // "no value recorded" is not a distinct value.
         return Prisma.sql`COUNT(DISTINCT attrs->>${a.field!})::double precision AS ${alias}`;
+      }
+      if (a.op === 'area' || a.op === 'length') {
+        // Stored shapes are not guaranteed valid (imports keep what
+        // they were given), and ST_Intersection throws on an invalid
+        // polygon, which would fail the whole screen over one parcel.
+        // ST_MakeValid only where needed: it is not free.
+        const valid = Prisma.sql`CASE WHEN ST_IsValid(geom) THEN geom ELSE ST_MakeValid(geom) END`;
+        const part =
+          args.areaOfInterestId !== undefined
+            ? Prisma.sql`ST_Intersection(${valid}, (SELECT g FROM aoi))`
+            : valid;
+        // ST_CollectionExtract keeps only the polygons (3) or the lines
+        // (2) of what the cut produced. A polygon cut along the area's
+        // edge can come back as a collection with a stray line or
+        // point in it, and the geography measures want one dimension.
+        // A point layer measures 0 either way, and SUM over no rows is
+        // NULL, so both read as 0 rather than "no data".
+        return a.op === 'area'
+          ? Prisma.sql`COALESCE(SUM(ST_Area(ST_CollectionExtract(${part}, 3)::geography)), 0)::double precision AS ${alias}`
+          : Prisma.sql`COALESCE(SUM(ST_Length(ST_CollectionExtract(${part}, 2)::geography)), 0)::double precision AS ${alias}`;
       }
       // Non-numeric values become NULL rather than erroring the whole
       // request: a column that is numeric for 99% of rows still gives
@@ -3706,12 +3771,16 @@ export class DataLayerEngine {
     // `geom` is projected only when there are content predicates,
     // since a bbox or geo limit is the only thing that reads it and
     // carrying a geometry column through the collapse is not free.
+    const measuresGeom = args.aggs.some(
+      (a) => a.op === 'area' || a.op === 'length',
+    );
     const collapseCols =
-      contentFilters.length > 0
+      contentFilters.length > 0 || measuresGeom
         ? Prisma.sql`entity, attrs, geom, kind`
         : Prisma.sql`entity, attrs, kind`;
     const rows = await this.prisma.$queryRaw<AggRow[]>`
       WITH ${viaCte ? Prisma.sql`${viaCte},` : Prisma.empty}
+      ${aoiCte}
       agg AS MATERIALIZED (
         SELECT ${selectList}
         FROM (

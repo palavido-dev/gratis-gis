@@ -338,6 +338,23 @@ model StorageUploadGrant {
   @@map("storage_upload_grant")
 }
 
+/// An area of interest for What's Here (#796): a drawn shape, a
+/// buffered point or line, or the union of picked features, resolved
+/// once so each layer read can name it by id (`?area=`). The id is a
+/// hash of the geometry, so the same area is one row. Holds a shape
+/// and nothing else: no feature data, no owner, no org. Rows unused
+/// for a week are pruned on the next registration.
+model AreaOfInterest {
+  id           String                                @id
+  geom         Unsupported("geometry(Geometry, 4326)")
+  squareMeters Float                                 @map("square_meters")
+  createdAt    DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt   DateTime                              @default(now()) @map("last_used_at") @db.Timestamptz(6)
+
+  @@index([lastUsedAt])
+  @@map("area_of_interest")
+}
+
 /// Bytes held by one staged upload or queued import. Released when
 /// the import finishes or fails. No per-org cap sums these rows.
 model StorageReservation {
