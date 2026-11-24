@@ -469,8 +469,20 @@ export default async function CustomAppRuntimePage(props: Props) {
         >,
       );
   /**
-   * Layers for a map widget: the app's sources first, then the map's
-   * own, DE-DUPLICATED by id.
+   * Layers for a map widget.
+   *
+   * With a map item behind the widget, the map decides what is drawn
+   * (#797): its own layers, in its own order, and nothing else. A
+   * source reading one of them swaps in its copy, which may carry a
+   * relate (`via`) the map's own copy does not. A source whose layer
+   * is not on the map still feeds charts and tables, but is not
+   * drawn: an app made from a map adopts the map's layers as
+   * sources, and drawing those made a layer removed from the map
+   * linger in every app built on it.
+   *
+   * With no map item, the sources are all there is to draw: the
+   * app's sources first, then the default map's own, DE-DUPLICATED
+   * by id.
    *
    * Since a source whose layer is already on the map adopts that
    * layer rather than publishing a copy, several sources reading one
@@ -479,9 +491,18 @@ export default async function CustomAppRuntimePage(props: Props) {
    * four times, which the canvas tolerated and the legend did not:
    * it listed "Monitoring sites" once per source.
    */
-  const mergeLayers = (own: MapLayer[]): MapLayer[] => {
+  const mergeLayers = (own: MapLayer[], fromMapItem: boolean): MapLayer[] => {
     const seen = new Set<string>();
     const out: MapLayer[] = [];
+    if (fromMapItem) {
+      const sourceCopy = new Map(resolvedTargets.map((t) => [t.mapLayer.id, t.mapLayer]));
+      for (const l of own) {
+        if (seen.has(l.id)) continue;
+        seen.add(l.id);
+        out.push(sourceCopy.get(l.id) ?? l);
+      }
+      return out;
+    }
     for (const l of [...resolvedTargets.map((t) => t.mapLayer), ...own]) {
       if (seen.has(l.id)) continue;
       seen.add(l.id);
@@ -493,7 +514,7 @@ export default async function CustomAppRuntimePage(props: Props) {
   const baseMapData: MapData = {
     ...(referencedMapData ?? DEFAULT_MAP),
     ...(targetExtent ?? {}),
-    layers: mergeLayers(baseLayers),
+    layers: mergeLayers(baseLayers, referencedMapData !== null),
   };
 
   // #363: per-Map-widget MapData. When a Map widget has its own
@@ -512,7 +533,7 @@ export default async function CustomAppRuntimePage(props: Props) {
       if (!overrideData) continue;
       widgetMapData[w.id] = {
         ...overrideData,
-        layers: mergeLayers(overrideData.layers ?? []),
+        layers: mergeLayers(overrideData.layers ?? [], true),
       };
     }
   }
