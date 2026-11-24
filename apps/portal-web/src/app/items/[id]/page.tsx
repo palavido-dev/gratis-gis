@@ -130,6 +130,7 @@ import { DeleteItemButton } from './delete-button';
 import { ReassignOwnerButton } from './reassign-owner-button';
 import { AddToMapButton } from './add-to-map-button';
 import { MapEditor } from './map/map-editor';
+import { SaveMapCopyButton } from './map/save-map-copy-dialog';
 import { DataLayerEditor } from './data-layer/editor';
 import { ImportJobsBanner } from './import-jobs-banner';
 import {
@@ -179,6 +180,19 @@ type ItemWithShares = Item & { shares: ItemShare[] };
 
 // The type-pill palette and the access icons moved into ItemPills,
 // which is the only thing that rendered them.
+
+/** #797: whether a map has markup worth offering to copy. */
+function mapHasMarkup(data: unknown): boolean {
+  const drawings = (data as { drawings?: unknown } | null)?.drawings;
+  return (
+    Array.isArray(drawings) &&
+    drawings.some(
+      (d) =>
+        Array.isArray((d as { features?: unknown } | null)?.features) &&
+        (d as { features: unknown[] }).features.length > 0,
+    )
+  );
+}
 
 export default async function ItemDetailPage(props: Props) {
   const searchParams = await props.searchParams;
@@ -936,6 +950,7 @@ export default async function ItemDetailPage(props: Props) {
           itemTitle={item.title}
           initial={{ ...DEFAULT_MAP, ...((item.data ?? {}) as Partial<MapData>) }}
           canEdit={mapItemCanEdit}
+          canCreate={hasCapability(me, 'can_publish_items')}
           editableLayerItemIds={editableLayerItemIds}
           resolvedPermissionItemIds={resolvedPermissionItemIds}
           {...(searchParams?.add ? { addItemId: searchParams.add } : {})}
@@ -983,6 +998,14 @@ export default async function ItemDetailPage(props: Props) {
                 : t('mapCard.viewBody', undefined, locale)}
             </p>
           </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {hasCapability(me, 'can_publish_items') ? (
+            <SaveMapCopyButton
+              sourceId={item.id}
+              sourceTitle={item.title}
+              hasMarkup={mapHasMarkup(item.data)}
+            />
+          ) : null}
           <Link
             href={`/items/${item.id}?view=configure`}
             className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-medium text-accent-foreground hover:opacity-90"
@@ -995,6 +1018,7 @@ export default async function ItemDetailPage(props: Props) {
               ? t('mapCard.editAction', undefined, locale)
               : t('mapCard.viewAction', undefined, locale)}
           </Link>
+          </div>
         </section>
       ) : item.type === 'data_layer' ? (
         <>

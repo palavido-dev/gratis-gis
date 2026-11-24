@@ -970,6 +970,23 @@ export const en = {
     mapNamePlaceholder: 'Map name',
     cancel: 'Cancel',
   },
+  mapSaveAs: {
+    button: 'Save as',
+    title: 'Save as a new map',
+    description: 'Makes a new map that you own. The original is not changed.',
+    descriptionUnsaved:
+      'Makes a new map that you own, with your unsaved changes. The original stays as it was last saved.',
+    nameLabel: 'Name',
+    defaultTitle: 'Copy of {title}',
+    includeMarkup: 'Include markup',
+    includeMarkupHint: 'Redlines and notes drawn on this map.',
+    layersNote:
+      'The new map starts private. Its layers point at the same data as the original, so data edits show in both.',
+    submit: 'Save copy',
+    saving: 'Saving...',
+    cancel: 'Cancel',
+    failed: 'Could not save the copy',
+  },
   mapMeasure: {
     title: 'Measure',
     closeAria: 'Close measure',
