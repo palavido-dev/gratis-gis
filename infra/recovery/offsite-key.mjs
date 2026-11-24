@@ -54,6 +54,7 @@ import {
   randomBytes,
   scryptSync,
   timingSafeEqual,
+  verify as edVerify,
 } from 'node:crypto';
 import {
   createReadStream,
@@ -64,7 +65,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { verify as edVerify } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 
 // ---- GROF1 (backup files) ----------------------------------------
