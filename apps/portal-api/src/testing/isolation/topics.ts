@@ -1221,6 +1221,36 @@ function ownOrgListTopics(): Topic[] {
       },
     },
     {
+      name: "a group cannot take a member from another org, so a group share never crosses orgs",
+      modes: BOTH,
+      async run({ app, fx, pool }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const r = await api(app.baseUrl, A.users.admin, 'POST', `/api/groups/${A.groupId}/members`, {
+          userId: B.users.viewer.id,
+        });
+        if (r.status !== 404) p.push(`A adding B's user to A's group: expected 404, got ${short(r)}`);
+        const rows = await pool.query(
+          'SELECT 1 FROM group_member WHERE group_id = $1 AND user_id = $2',
+          [A.groupId, B.users.viewer.id],
+        );
+        if (rows.rowCount) p.push("B's user became a member of A's group");
+        // Control: A's own user can be added.
+        const own = await api(app.baseUrl, A.users.admin, 'POST', `/api/groups/${A.groupId}/members`, {
+          userId: A.users.viewer.id,
+        });
+        if (own.status < 200 || own.status >= 300) p.push(`control: A adding A's user got ${short(own)}`);
+        // Put the fixture back as the seed left it.
+        await api(
+          app.baseUrl,
+          A.users.admin,
+          'DELETE',
+          `/api/groups/${A.groupId}/members/${A.users.viewer.id}`,
+        );
+        return verdict(p);
+      },
+    },
+    {
       name: 'single mode lists and feeds keep showing every public item',
       modes: ['single'],
       async run({ app, fx }) {
