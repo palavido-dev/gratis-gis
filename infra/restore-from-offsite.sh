@@ -7,7 +7,7 @@
 #   infra/restore-from-offsite.sh --env-file infra/.env.prod \
 #     --key-file /root/portal.ggkey --passphrase-file /root/portal.ggkey.pass \
 #     [--archive NAME | --mirror-run NAME] [--replace-existing] \
-#     [--confirm-database NAME]
+#     [--confirm-database NAME] [--allow-unverified-copy]
 #
 # Before you run it: install GratisGIS on the new server with the
 # installer (same release as the backup, or newer), and add the
@@ -18,17 +18,19 @@
 # server, and its passphrase into a file only root can read.
 #
 # What it does, in order:
-#   1. Open the key file with the passphrase, before anything else.
-#   2. Show the copy it will use (its name, date, size and the key it
-#      was encrypted to) and what will be replaced (project, database,
+#   1. Open the key file with the passphrase, before anything else, and
+#      list the verify keys it trusts.
+#   2. Check the copy's signature against those verify keys. Show the
+#      copy it will use (its name, date, size, the key it was encrypted
+#      to and the verify key that signed it) and what will be replaced (project, database,
 #      row counts), and ask you to type the database name. Nothing has
 #      changed before this point. A database that is in use (it has
 #      users) is refused unless you pass --replace-existing. Without a
 #      terminal, --confirm-database also needs the copy named with
 #      --archive or --mirror-run.
-#   3. Download that copy into the backups volume, check its checksum
-#      and decrypt it. The work runs in the portal-api image, which
-#      already has the tools.
+#   3. Download that copy into the backups volume, check its size and
+#      SHA-256 against the signed record, and only then decrypt it. The
+#      work runs in the portal-api image, which already has the tools.
 #   4. Stop the portal's own services (not the database or MinIO).
 #   5. Save the current database with pg_dump into the backups volume,
 #      check the saved file reads back, then replace the database: drop
@@ -37,13 +39,21 @@
 #   6. Run the database migrations, so an older backup matches this code.
 #   7. Empty this server's index of mirrored files, give this server a
 #      new off-site install id and turn off-site copies off, so it never
-#      cleans up the bucket by mistake. To make it the portal in use,
-#      turn them on again on Admin, Backup and take over the folder.
+#      cleans up the bucket by mistake. Remove the signing key that came
+#      with the backup: this server makes its own, whose verify key you
+#      add to your key file. To make it the portal in use, turn off-site
+#      copies on again on Admin, Backup and take over the folder.
 #   8. Put the stored files back into MinIO.
 #   9. Start everything and print counts next to the backup's own.
 #
 # A copy dated in the future, or well after the provider recorded it,
 # is never picked as the newest; it is used only when named.
+#
+# Signatures: the newest copy whose signature verifies is used. A copy
+# that is not signed (made before signing existed), or signed by a key
+# your key file does not hold, is used only with --allow-unverified-copy,
+# or, in a terminal, after you type UNVERIFIED. Nothing then proves your
+# portal made it. A copy whose signature does not verify is never used.
 #
 # The key file and the passphrase file are given to the restore helper
 # on standard input. Neither is ever an argument, an environment
@@ -63,6 +73,7 @@ REPLACE_EXISTING=0
 ARCHIVE=""
 MIRROR_RUN=""
 LIST_ONLY=0
+ALLOW_UNVERIFIED=0
 OUT_DIR="/app/backups/offsite-restore"
 # Services this script stops and starts. The database, MinIO and the
 # proxy keep running.
@@ -167,6 +178,26 @@ ggo_usage() {
   sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'
 }
 
+# The helper found only copies it cannot verify. In a terminal, ask for
+# UNVERIFIED typed in full; otherwise the flag must be on the command line.
+ggo_confirm_unverified() {
+  if [[ ! -t 0 ]] || [[ ! -r /dev/tty ]]; then
+    ggo_die "this copy cannot be verified (see above). To restore it anyway, pass --allow-unverified-copy"
+  fi
+  {
+    echo ""
+    echo "WARNING: NO SIGNATURE CHECK. Nothing proves your portal made this copy:"
+    echo "anyone who could write to the bucket could have put it there."
+    echo "Continue only for a copy made before signing existed, or when you"
+    echo "have not added this portal's verify key to your key file yet."
+    printf 'Type UNVERIFIED to use it anyway: '
+  } >/dev/tty
+  local typed
+  IFS= read -r typed </dev/tty || true
+  [[ "$typed" == "UNVERIFIED" ]] || ggo_die "not confirmed; nothing was changed"
+  ALLOW_UNVERIFIED=1
+}
+
 ggo_parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -180,6 +211,7 @@ ggo_parse_args() {
       --archive) ARCHIVE="${2:-}"; shift 2 ;;
       --mirror-run) MIRROR_RUN="${2:-}"; shift 2 ;;
       --list) LIST_ONLY=1; shift ;;
+      --allow-unverified-copy) ALLOW_UNVERIFIED=1; shift ;;
       -h | --help) ggo_usage; exit 0 ;;
       *) ggo_die "unknown argument: $1 (see --help)" ;;
     esac
@@ -276,10 +308,21 @@ ggo_main() {
   grep -qx postgres <<<"$running" || ggo_die "the postgres service of project $PROJECT is not running; install and start the stack first"
 
   ggo_step "1. Open the key file"
-  local fingerprint
-  fingerprint="$(ggo_cli_key check-key | ggo_kv fingerprint)" || fingerprint=""
+  local key_info fingerprint verify_count
+  key_info="$(ggo_cli_key check-key)" || key_info=""
+  fingerprint="$(ggo_kv fingerprint <<<"$key_info")"
   [[ -n "$fingerprint" ]] || ggo_die "the key file did not open; check the key file and its passphrase"
   echo "Key fingerprint: $fingerprint"
+  verify_count="$(ggo_kv verifyKeys <<<"$key_info")"
+  if [[ "${verify_count:-0}" == "0" ]]; then
+    echo "Verify keys:     none. The key file cannot check who made a copy; add the"
+    echo "                 verify key from Admin, Backup with: offsite-key.mjs trust"
+  else
+    local line
+    while IFS= read -r line; do
+      [[ "$line" == verifyKey=* ]] && echo "Verify key:      ${line#verifyKey=}"
+    done <<<"$key_info"
+  fi
 
   # Which copy: the one named, or the newest good one of either kind.
   # Nothing is downloaded or changed here.
@@ -293,7 +336,18 @@ ggo_main() {
     describe_args=(--run "$MIRROR_RUN")
   fi
   local described copy_kind copy_name copy_created copy_uploaded copy_bytes copy_fp copy_suspect copy_prefix
-  described="$(ggo_cli describe "${describe_args[@]}")" || ggo_die "could not find the copy to restore (see the message above)"
+  local copy_sig copy_signer copy_install rc=0
+  # Exit status 3 from the helper: only copies it cannot verify.
+  local unverified_args=()
+  [[ "$ALLOW_UNVERIFIED" == "1" ]] && unverified_args=(--allow-unverified-copy)
+  described="$(ggo_cli_key describe "${describe_args[@]}" "${unverified_args[@]}")" || rc=$?
+  if [[ "$rc" == "3" ]]; then
+    ggo_confirm_unverified
+    unverified_args=(--allow-unverified-copy)
+    rc=0
+    described="$(ggo_cli_key describe "${describe_args[@]}" "${unverified_args[@]}")" || rc=$?
+  fi
+  [[ "$rc" == "0" ]] || ggo_die "could not find a copy to restore (see the message above)"
   copy_kind="$(ggo_kv kind <<<"$described")"
   copy_name="$(ggo_kv name <<<"$described")"
   copy_created="$(ggo_kv created <<<"$described")"
@@ -302,6 +356,16 @@ ggo_main() {
   copy_fp="$(ggo_kv fingerprint <<<"$described")"
   copy_suspect="$(ggo_kv suspect <<<"$described")"
   copy_prefix="$(ggo_kv prefix <<<"$described")"
+  copy_sig="$(ggo_kv signature <<<"$described")"
+  copy_signer="$(ggo_kv signedBy <<<"$described")"
+  copy_install="$(ggo_kv install <<<"$described")"
+  case "$copy_sig" in
+    verified) ;;
+    unsigned | untrusted | foreign)
+      [[ "$ALLOW_UNVERIFIED" == "1" ]] || ggo_die "the helper offered a copy that is not verified"
+      ;;
+    *) ggo_die "unexpected signature state: $copy_sig" ;;
+  esac
   ggo_valid_prefix "$copy_prefix" || ggo_die "unexpected bucket folder name: $copy_prefix"
   if [[ "$copy_kind" == "mirror" ]]; then
     ggo_valid_mirror_run "$copy_name" || ggo_die "unexpected copy name"
@@ -322,6 +386,14 @@ ggo_main() {
   echo "Uploaded:  $copy_uploaded"
   echo "Size:      $(ggo_size "$copy_bytes") encrypted"
   echo "Key:       $copy_fp"
+  if [[ "$copy_sig" == "verified" ]]; then
+    echo "Signed by: $copy_signer (verified with your key file; portal install ${copy_install:0:8})"
+  else
+    echo "Signature: NOT VERIFIED ($copy_sig${copy_signer:+, signed by $copy_signer})"
+    echo ""
+    echo "WARNING: nothing proves your portal made this copy. You chose to restore it"
+    echo "with --allow-unverified-copy or by typing UNVERIFIED."
+  fi
   if [[ -n "$copy_suspect" ]]; then
     echo ""
     echo "WARNING: this copy is dated $([[ "$copy_suspect" == "future" ]] && echo "in the future" || echo "after the provider recorded its upload")."
@@ -352,13 +424,13 @@ ggo_main() {
   ggo_step "3. Download and decrypt"
   local fetched dump_cmd database objects archive_path=""
   if [[ "$copy_kind" == "mirror" ]]; then
-    fetched="$(ggo_cli_key fetch-mirror --out "$OUT_DIR" --run "$MIRROR_RUN" --confirm-copy "$MIRROR_RUN")"
+    fetched="$(ggo_cli_key fetch-mirror --out "$OUT_DIR" --run "$MIRROR_RUN" --confirm-copy "$MIRROR_RUN" "${unverified_args[@]}")"
     local dump
     dump="$(ggo_kv dump <<<"$fetched")"
     [[ "$dump" == "$OUT_DIR/"* ]] || ggo_die "unexpected dump path"
     dump_cmd=(cat "$dump")
   else
-    fetched="$(ggo_cli_key fetch --out "$OUT_DIR" --name "$ARCHIVE" --confirm-copy "$ARCHIVE")"
+    fetched="$(ggo_cli_key fetch --out "$OUT_DIR" --name "$ARCHIVE" --confirm-copy "$ARCHIVE" "${unverified_args[@]}")"
     archive_path="$(ggo_kv archive <<<"$fetched")"
     [[ "$archive_path" == "$OUT_DIR/"* ]] || ggo_die "unexpected archive path"
     database="$(ggo_kv database <<<"$fetched")"
@@ -406,19 +478,26 @@ ggo_main() {
   # A new install id (the portal makes one on next use): this server
   # does not own the bucket folder until an admin takes it over. The
   # folder restored from is kept as the setting, since the default
-  # folder name comes from the install id.
+  # folder name comes from the install id. The signing key that came
+  # with the dump is removed, never reused: this server makes its own.
+  # Its verify key is kept as an earlier key, so copies the old server
+  # signed still count for retention once this server takes over.
   ggo_psql "$PG_DB" \
     -c "TRUNCATE backup_offsite_object" \
-    -c "UPDATE backup_config SET offsite_enabled = false, offsite_install_id = NULL, offsite_prefix = COALESCE(offsite_prefix, '$copy_prefix')"
+    -c "UPDATE backup_config SET offsite_enabled = false, offsite_install_id = NULL, offsite_prefix = COALESCE(offsite_prefix, '$copy_prefix')" \
+    -c "UPDATE backup_config SET offsite_previous_verify_keys = array_append(COALESCE(offsite_previous_verify_keys, ARRAY[]::text[]), offsite_verify_key) WHERE offsite_verify_key IS NOT NULL" \
+    -c "UPDATE backup_config SET offsite_signing_key_encrypted = NULL, offsite_signing_key_iv = NULL, offsite_verify_key = NULL, offsite_signing_key_changed_at = NULL, offsite_signing_key_changed_by = NULL"
   echo "Off-site copies are off on this server, and it does not own the bucket folder."
   echo "If this server replaces the old one: on Admin, Backup, turn off-site copies on"
   echo "and use \"Take over this folder\". For a test restore, leave them off."
+  echo "This server makes its own signing key. Add its verify key (shown on Admin,"
+  echo "Backup) to your key file with offsite-key.mjs trust before you rely on new copies."
 
   ggo_step "8. Put the stored files back"
   ggo_compose up -d minio
   local put
   if [[ "$copy_kind" == "mirror" ]]; then
-    put="$(ggo_cli_key put-mirror-objects --run "$MIRROR_RUN")"
+    put="$(ggo_cli_key put-mirror-objects --run "$MIRROR_RUN" --work "$OUT_DIR" "${unverified_args[@]}")"
   else
     put="$(ggo_cli put-objects --archive "$archive_path")"
   fi
