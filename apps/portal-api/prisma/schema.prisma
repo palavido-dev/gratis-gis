@@ -374,6 +374,66 @@ model StorageReservation {
   @@map("storage_reservation")
 }
 
+/// One object in object storage, for each organization's storage
+/// usage. Written when an upload completes, with the size read from
+/// the store (never the client's), and marked deleted when the object
+/// is removed. Moving an item to the trash changes nothing here; the
+/// purge that deletes its objects does. The daily reconcile compares
+/// these rows with the bucket and repairs both tables.
+///
+/// No foreign keys: a row outlives its item (purge), and when an
+/// organization is removed these rows are the list of what to delete.
+model StorageObject {
+  key       String    @id
+  orgId     String    @map("org_id") @db.Uuid
+  kind      String
+  bytes     BigInt
+  itemId    String?   @map("item_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([orgId, kind], map: "storage_object_org_kind_idx")
+  @@map("storage_object")
+}
+
+/// Running totals per organization. Object columns change in the same
+/// transaction as the storage_object row they follow, so reading usage
+/// is one row. Feature columns are the sum of layer_storage_usage.
+model OrgStorageUsage {
+  orgId        String    @id @map("org_id") @db.Uuid
+  bytes        BigInt    @default(0)
+  objects      BigInt    @default(0)
+  featureBytes BigInt    @default(0) @map("feature_bytes")
+  featureCount BigInt    @default(0) @map("feature_count")
+  /// Last reconcile of this org's objects, and what it had to fix.
+  reconciledAt DateTime? @map("reconciled_at") @db.Timestamptz(6)
+  driftBytes   BigInt    @default(0) @map("drift_bytes")
+  driftObjects Int       @default(0) @map("drift_objects")
+  updatedAt    DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("org_storage_usage")
+}
+
+/// Estimated size of one layer's feature rows: live feature count
+/// times the average row size of a sample. Indexes and table bloat
+/// are not counted. Re-measured when the count moves more than 10%
+/// from the sampled count, or after a week.
+model LayerStorageUsage {
+  itemId       String    @map("item_id") @db.Uuid
+  layerKey     String    @map("layer_key")
+  orgId        String    @map("org_id") @db.Uuid
+  featureCount BigInt    @default(0) @map("feature_count")
+  avgRowBytes  Int       @default(0) @map("avg_row_bytes")
+  sampledCount BigInt    @default(0) @map("sampled_count")
+  estBytes     BigInt    @default(0) @map("est_bytes")
+  sampledAt    DateTime? @map("sampled_at") @db.Timestamptz(6)
+  measuredAt   DateTime? @map("measured_at") @db.Timestamptz(6)
+
+  @@id([itemId, layerKey])
+  @@index([orgId, measuredAt], map: "layer_storage_usage_org_measured_idx")
+  @@map("layer_storage_usage")
+}
+
 model BackupFailureNotice {
   runId     String   @id @map("run_id") @db.Uuid
   noticedAt DateTime @default(now()) @map("noticed_at") @db.Timestamptz(6)
