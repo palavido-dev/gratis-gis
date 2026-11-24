@@ -35,6 +35,19 @@ import type { ItemType } from '@prisma/client';
  * pulling Nest dependencies. Pure function, easy to unit test if
  * we add a test harness for items.
  */
+/**
+ * An item's bbox may include a referenced item's extent when both are
+ * in the same org, or the referenced item is public (its extent is
+ * already visible to everyone). The background refresh and the
+ * housekeeping recompute both use this rule.
+ */
+export function mayUseExtentOf(
+  owner: { orgId: string },
+  referenced: { orgId: string; access: string },
+): boolean {
+  return referenced.orgId === owner.orgId || referenced.access === 'public';
+}
+
 export function itemBbox(
   type: ItemType,
   data: unknown,
