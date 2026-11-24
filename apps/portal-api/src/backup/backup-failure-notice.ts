@@ -35,11 +35,13 @@ export class BackupFailureNotice {
    * "failed:<run id>" for an upload that failed, "stale:<run id or
    * none>" for a quiet period, "key:<fingerprint>:<time>" for a changed
    * public key, "signing:<fingerprint>:<time>" for a new signing key,
-   * "suspect:<copy>" for a copy whose date cannot be trusted,
-   * "unverified:<copy>" for a copy whose signature does not check.
-   * Same recipients and notification type as a failed backup;
-   * the payload says which kind it is. Never carries an error message,
-   * a key or a bucket name; fingerprints are not secret.
+   * "set-aside:<digest>" for one retention pass's summary of copies set
+   * aside (the digest names the set, so the same set is not announced
+   * twice), "retention-stopped:<day>" for a retention pass stopped by
+   * a record it could not read. Same recipients and notification type
+   * as a failed backup; the payload says which kind it is. Never
+   * carries an error message, a key or a bucket name; fingerprints are
+   * not secret.
    */
   async announceOffsite(
     key: string,
@@ -49,13 +51,17 @@ export class BackupFailureNotice {
         | 'offsite_failed'
         | 'offsite_stale'
         | 'offsite_key_changed'
-        | 'offsite_suspect_copy'
-        | 'offsite_signing_key_changed'
-        | 'offsite_unverified_copy';
+        | 'offsite_set_aside'
+        | 'offsite_retention_stopped'
+        | 'offsite_signing_key_changed';
       days?: number | null;
       from?: string | null;
       to?: string | null;
       name?: string;
+      count?: number;
+      badSignature?: number;
+      dated?: number;
+      automatic?: boolean;
     },
   ): Promise<boolean> {
     try {
@@ -63,18 +69,28 @@ export class BackupFailureNotice {
     } catch {
       return false;
     }
-    const body: Record<string, string | number | null> = { kind: payload.kind };
-    if (payload.runId) body.runId = payload.runId;
-    if (payload.days !== undefined) body.days = payload.days;
-    if (payload.from !== undefined) body.from = payload.from;
-    if (payload.to !== undefined) body.to = payload.to;
-    if (payload.name !== undefined) body.name = payload.name;
+    const body: Record<string, string | number | boolean | null> = Object.fromEntries(
+      (
+        [
+          ['kind', payload.kind],
+          ['runId', payload.runId || undefined],
+          ['days', payload.days],
+          ['from', payload.from],
+          ['to', payload.to],
+          ['name', payload.name],
+          ['count', payload.count],
+          ['badSignature', payload.badSignature],
+          ['dated', payload.dated],
+          ['automatic', payload.automatic],
+        ] as Array<[string, string | number | boolean | null | undefined]>
+      ).filter((e): e is [string, string | number | boolean | null] => e[1] !== undefined),
+    );
     await this.notifyOperatorAdmins(body);
     this.log.warn(`off-site backup notice queued (${payload.kind})`);
     return true;
   }
 
-  private async notifyOperatorAdmins(payload: Record<string, string | number | null>) {
+  private async notifyOperatorAdmins(payload: Record<string, string | number | boolean | null>) {
     // Same lookup as OperatorOrgGuard: GRATIS_OPERATOR_ORG_ID when set,
     // the oldest organization otherwise, and nobody when the variable
     // is malformed.

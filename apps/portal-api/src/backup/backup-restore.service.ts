@@ -617,16 +617,18 @@ export class BackupRestoreService {
   }
 
   /**
-   * The live off-site settings, and an empty record of mirrored files.
-   * The archive's record is older than the bucket: trusting it could
-   * let clean-up remove files newer runs still use. Empty means
-   * "upload everything again", never a delete.
+   * The live off-site settings, and an empty record of mirrored files
+   * and of the mirror runs this server started. The archive's record is
+   * older than the bucket: trusting it could let clean-up remove files
+   * newer runs still use. Empty means "upload everything again under
+   * new names", never a delete or a replaced file.
    */
   private keptOffsiteOps(
     history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>>,
   ) {
     return [
       this.prisma.backupOffsiteObject.deleteMany({}),
+      this.prisma.backupOffsiteMirrorRun.deleteMany({}),
       ...(history.offsite
         ? [this.prisma.backupConfig.updateMany({ data: history.offsite })]
         : []),

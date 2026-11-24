@@ -19,6 +19,7 @@ import {
   type OffsitePrivateKey,
 } from './offsite-crypto.js';
 import { generateSigningKey, signManifest, type OffsiteSigningKey } from './offsite-sign.js';
+import { MAX_SET_ASIDE_CHECKED } from './offsite-mirror.js';
 import { OffsiteService } from './offsite.service.js';
 
 const SECRET = 'S3CR3T-access-key-value-0001';
@@ -695,11 +696,14 @@ describe('OffsiteService', () => {
     expect(s3.objects.has(`${PREFIX}archives/${good}`)).toBe(true);
     expect(s3.objects.has(`${PREFIX}archives/${planted}`)).toBe(true);
     expect(s3.objects.has(`${PREFIX}archives/${older}`)).toBe(false);
-    expect(notice.announceOffsite).toHaveBeenCalledWith(`suspect:${planted}`, {
-      kind: 'offsite_suspect_copy',
+    expect(notice.announceOffsite).toHaveBeenCalledWith(expect.stringMatching(/^set-aside:/), {
+      kind: 'offsite_set_aside',
+      count: 1,
+      badSignature: 0,
+      dated: 1,
       name: planted,
     });
-    expect(logged.join('\n')).toMatch(/dated in the future/);
+    expect(logged.join('\n')).toMatch(/1 with a date that cannot be trusted/);
   });
 
   describe('retention and signatures', () => {
@@ -791,16 +795,84 @@ describe('OffsiteService', () => {
       expect(has(forged)).toBe(true);
       expect(has(changed)).toBe(true);
       expect(has(older)).toBe(false);
-      for (const n of [forged, changed]) {
-        expect(notice.announceOffsite).toHaveBeenCalledWith(`unverified:${n}`, {
-          kind: 'offsite_unverified_copy',
-          name: n,
-        });
-      }
+      // One summary notice for the pass, not one per copy.
+      expect(notice.announceOffsite).toHaveBeenCalledTimes(1);
+      expect(notice.announceOffsite).toHaveBeenCalledWith(expect.stringMatching(/^set-aside:/), {
+        kind: 'offsite_set_aside',
+        count: 2,
+        badSignature: 2,
+        dated: 0,
+        name: [forged, changed].sort().join(', '),
+      });
       expect(logged.join('\n')).toMatch(
-        /not signed by this portal, or its signature does not match/,
+        /2 not signed by this portal or not matching their signature/,
       );
     });
+
+    it('reads at most a fixed number of badly signed copies per pass, and then deletes nothing older', async () => {
+      marker();
+      const own = await svc.signingKey();
+      const older = `backup-${stamp(50)}-66666666.tar.gz.enc`;
+      putCopy(older, 50, signedSidecar(older, own));
+      const stranger = generateSigningKey();
+      for (let i = 0; i < MAX_SET_ASIDE_CHECKED + 2; i += 1) {
+        const n = `backup-${stamp(1 + i / 1000)}-${String(i).padStart(8, '0')}.tar.gz.enc`;
+        putCopy(n, 1, signedSidecar(n, stranger));
+      }
+      s3.calls.length = 0;
+      await svc.enforceRetention(await svc.settings(), s3);
+      expect(has(older)).toBe(true);
+      expect(s3.calls.filter((c) => c === 'DeleteObjectCommand')).toHaveLength(0);
+      expect(s3.calls.filter((c) => c === 'GetObjectCommand').length).toBeLessThanOrEqual(
+        MAX_SET_ASIDE_CHECKED + 2,
+      );
+      expect(notice.announceOffsite).toHaveBeenCalledTimes(1);
+      expect(notice.announceOffsite.mock.calls[0]![1]).toMatchObject({
+        kind: 'offsite_set_aside',
+        count: MAX_SET_ASIDE_CHECKED,
+        badSignature: MAX_SET_ASIDE_CHECKED,
+      });
+      expect(logged.join('\n')).toMatch(/older off-site copies were not checked this pass/);
+    });
+
+    it.each([
+      ['cannot be read', null],
+      ['is not JSON', Buffer.from('{not json')],
+      ['is not an object', Buffer.from('[]')],
+    ])(
+      'a sidecar that %s stops the pass with nothing deleted, and is reported',
+      async (_l, body) => {
+        marker();
+        const own = await svc.signingKey();
+        const good = `backup-${stamp(40)}-11111111.tar.gz.enc`;
+        const older = `backup-${stamp(50)}-66666666.tar.gz.enc`;
+        putCopy(good, 40, signedSidecar(good, own));
+        putCopy(older, 50, signedSidecar(older, own));
+        if (body) {
+          s3.objects.get(`${PREFIX}archives/${good}.json`)!.body = body;
+        } else {
+          const send = s3.send.bind(s3);
+          jest.spyOn(s3, 'send').mockImplementation(async (c) => {
+            const cmd = c as { constructor: { name: string }; input: Record<string, unknown> };
+            if (
+              cmd.constructor.name === 'GetObjectCommand' &&
+              cmd.input.Key === `${PREFIX}archives/${good}.json`
+            ) {
+              throw Object.assign(new Error('fake read failure'), { name: 'InternalError' });
+            }
+            return send(c as never);
+          });
+        }
+        expect(await svc.enforceRetention(await svc.settings(), s3)).toBe(0);
+        expect(has(older)).toBe(true);
+        expect(has(good)).toBe(true);
+        expect(notice.announceOffsite).toHaveBeenCalledWith(
+          expect.stringMatching(/^retention-stopped:\d{4}-\d{2}-\d{2}$/),
+          { kind: 'offsite_retention_stopped', name: good },
+        );
+        expect(logged.join('\n')).toMatch(/Off-site retention stopped.*Nothing was deleted/);
+      },
+    );
 
     it('an unsigned copy from another install id never counts as the newest', async () => {
       marker();
@@ -865,6 +937,7 @@ describe('OffsiteService', () => {
         kind: 'offsite_signing_key_changed',
         from: res.from,
         to: res.to,
+        automatic: false,
       });
       const info = await svc.signingInfo();
       expect(info.previousFingerprints).toEqual([first.verifyKey.fingerprintText]);
@@ -877,15 +950,43 @@ describe('OffsiteService', () => {
       });
     });
 
-    it('a stored key that no longer opens is replaced, and the admins are told', async () => {
+    it('a stored key that no longer matches is replaced, its verify key is not trusted, and the admins are told', async () => {
       const first = await svc.signingKey();
-      configRow.offsiteVerifyKey = generateSigningKey().verifyKey.text;
+      await svc.replaceSigningKey('admin-user');
+      const kept = [...(configRow.offsitePreviousVerifyKeys as string[])];
+      expect(kept).toEqual([first.verifyKey.text]);
+      const planted = generateSigningKey().verifyKey;
+      configRow.offsiteVerifyKey = planted.text;
+      notice.announceOffsite.mockClear();
       const next = await svc.signingKey();
-      expect(next.verifyKey.text).not.toBe(first.verifyKey.text);
-      expect(notice.announceOffsite).toHaveBeenCalledWith(
-        expect.stringMatching(/^signing:/),
-        expect.objectContaining({ kind: 'offsite_signing_key_changed' }),
-      );
+      expect(next.verifyKey.text).not.toBe(planted.text);
+      // The verify key that did not match is never carried over.
+      expect(configRow.offsitePreviousVerifyKeys).toEqual(kept);
+      expect((await svc.signingInfo()).previousFingerprints).not.toContain(planted.fingerprintText);
+      expect(notice.announceOffsite).toHaveBeenCalledWith(expect.stringMatching(/^signing:/), {
+        kind: 'offsite_signing_key_changed',
+        from: planted.fingerprintText,
+        to: next.verifyKey.fingerprintText,
+        automatic: true,
+      });
+      expect(logged.join('\n')).toMatch(/replaced automatically.*is not kept/);
+    });
+
+    it('two key changes at once cannot lose a key: the second is refused', async () => {
+      const first = await svc.signingKey();
+      // Both requests read the same row before either writes.
+      const snapshot = { ...configRow };
+      const backup = (svc as unknown as { backup: { configRow: jest.Mock } }).backup;
+      backup.configRow.mockImplementation(async () => ({ ...snapshot }));
+      const results = await Promise.allSettled([
+        svc.replaceSigningKey('admin-a'),
+        svc.replaceSigningKey('admin-b'),
+      ]);
+      backup.configRow.mockImplementation(async () => configRow);
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const failed = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+      expect(String(failed.reason)).toMatch(/changed at the same time/);
+      expect(configRow.offsitePreviousVerifyKeys).toEqual([first.verifyKey.text]);
     });
 
     it('refuses a private key pasted as a verify key', async () => {

@@ -183,6 +183,9 @@ describe('runRestore', () => {
       backupOffsiteObject: {
         deleteMany: jest.fn(() => 'deleteOffsiteObjects'),
       },
+      backupOffsiteMirrorRun: {
+        deleteMany: jest.fn(() => 'deleteOffsiteMirrorRuns'),
+      },
       backupConfig: {
         findFirst: jest.fn(async () => ({ offsitePublicKey: 'ggpub1:live' })),
         updateMany: jest.fn((a: unknown) => ({ updateConfig: a })),
@@ -270,6 +273,7 @@ describe('runRestore', () => {
       data: { offsitePublicKey: 'ggpub1:live' },
     });
     expect(t.prisma.backupOffsiteObject.deleteMany).toHaveBeenCalledWith({});
+    expect(t.prisma.backupOffsiteMirrorRun.deleteMany).toHaveBeenCalledWith({});
     // Snapshot is taken before pg_restore replaces the tables.
     const snapOrder = t.prisma.backupRun.findMany.mock.invocationCallOrder[0]!;
     const restoreOrder = t.pgRestore.mock.invocationCallOrder[0]!;
@@ -302,6 +306,7 @@ describe('runRestore', () => {
     expect(t.tx).toHaveBeenCalledTimes(1);
     expect(t.tx).toHaveBeenCalledWith([
       'deleteOffsiteObjects',
+      'deleteOffsiteMirrorRuns',
       { updateConfig: { data: { offsitePublicKey: 'ggpub1:live' } } },
     ]);
     expect(existsSync(restoreMarkerPath())).toBe(true);

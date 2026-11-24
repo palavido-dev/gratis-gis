@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -281,78 +281,158 @@ describe('offsite-cli', () => {
   });
 
   describe('copies that cannot be verified', () => {
-    const UNVERIFIED = '--allow-unverified-copy';
+    const FOREIGN = '--allow-foreign-install';
+    const UNTRUSTED = '--allow-untrusted-signer';
+    const UNSIGNED = '--allow-unsigned-copy';
+    const ALL = [FOREIGN, UNTRUSTED, UNSIGNED];
+    const OTHER_INSTALL = 'dddd2222-aaaa-4bbb-8ccc-000000000002';
     const outDir = () => path.join(dir, 'restore');
+    const reset = () => {
+      out.length = 0;
+      errs.length = 0;
+    };
 
-    it('refuses an unsigned copy without the flag, and restores it with the flag', async () => {
+    it('refuses an unsigned copy without its own flag, and restores it with that flag', async () => {
       const side = sidecar();
       delete side.signature;
       setSidecar(NAME, side);
       expect(await runCli(['describe', ...withKey()], io())).toBe(3);
-      expect(errs.join(' ')).toMatch(/No verified copy.*--allow-unverified-copy/);
+      expect(out).toContain('needs=unsigned');
+      expect(errs.join(' ')).toMatch(/No verified copy.*NOT SIGNED.*--allow-unsigned-copy/);
       expect(await runCli(['fetch', ...confirmed('--out', outDir())], io())).toBe(3);
+      // A flag admits only its own state.
+      expect(await runCli(['describe', ...withKey(FOREIGN, UNTRUSTED)], io())).toBe(3);
       expect(fs.existsSync(outDir())).toBe(false);
-      out.length = 0;
-      errs.length = 0;
-      expect(await runCli(['fetch', ...confirmed('--out', outDir(), UNVERIFIED)], io())).toBe(0);
+      reset();
+      expect(await runCli(['fetch', ...confirmed('--out', outDir(), UNSIGNED)], io())).toBe(0);
       expect(out).toContain('signature=unsigned');
-      expect(errs.join(' ')).toMatch(/WARNING: this copy is NOT SIGNED/);
+      expect(out.some((l) => l.startsWith('signedBy='))).toBe(false);
+      expect(errs.join('\n')).toMatch(/STATE: NOT SIGNED/);
+      expect(errs.join('\n')).toMatch(/Not checked: who made this copy/);
       expect(fs.readFileSync(path.join(outDir(), NAME)).equals(original)).toBe(true);
     });
 
-    it('refuses a copy signed by a key the key file does not hold', async () => {
+    it('an untrusted signer is a claim, never shown as checked, and needs its own flag', async () => {
       const side = sidecar();
-      side.signature = signManifest(manifestOf(side), generateSigningKey());
+      const other = generateSigningKey();
+      side.signature = signManifest(manifestOf(side), other);
       setSidecar(NAME, side);
       expect(await runCli(['describe', ...withKey('--name', NAME)], io())).toBe(3);
-      expect(errs.join(' ')).toMatch(/not in the key file/);
-      out.length = 0;
-      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(0);
+      expect(out).toContain('needs=untrusted');
+      expect(errs.join(' ')).toMatch(/claims the verify key .* so that claim is not checked/);
+      expect(errs.join(' ')).not.toMatch(/offsite-key\.mjs trust|add it/);
+      expect(await runCli(['describe', ...withKey('--name', NAME, FOREIGN, UNSIGNED)], io())).toBe(
+        3,
+      );
+      reset();
+      expect(await runCli(['describe', ...withKey('--name', NAME, UNTRUSTED)], io())).toBe(0);
       expect(out).toContain('signature=untrusted');
+      expect(out).toContain(`claimedSigner=${other.verifyKey.fingerprintText}`);
+      expect(out.some((l) => l.startsWith('signedBy=') || l.startsWith('install='))).toBe(false);
+      expect(errs.join('\n')).toMatch(
+        /STATE: SIGNER NOT CHECKED\. The copy claims the verify key .*; that claim is not checked/,
+      );
     });
 
-    it('treats every copy as unverified when the key file has no verify key yet', async () => {
+    it('treats every copy as untrusted when the key file has no verify key yet', async () => {
       fs.writeFileSync(keyFile, await sealKeyFile(key, PASS, { logN: 14 }));
       expect(await runCli(['describe', ...withKey()], io())).toBe(3);
+      expect(out).toContain('needs=untrusted');
       expect(errs.join(' ')).toMatch(/holds no verify key yet.*offsite-key.mjs trust/);
-      out.length = 0;
-      expect(await runCli(['describe', ...withKey(UNVERIFIED)], io())).toBe(0);
+      reset();
+      expect(await runCli(['describe', ...withKey(UNTRUSTED)], io())).toBe(0);
       expect(out).toContain('signature=untrusted');
     });
 
-    it('marks a copy signed for another portal install as foreign', async () => {
+    it('a copy signed for another portal install needs its own flag, and says what was checked', async () => {
       const side = sidecar();
-      side.signature = signManifest(
-        { ...manifestOf(side), install: 'dddd2222-aaaa-4bbb-8ccc-000000000002' },
-        signer,
-      );
+      side.signature = signManifest({ ...manifestOf(side), install: OTHER_INSTALL }, signer);
       setSidecar(NAME, side);
       expect(await runCli(['describe', ...withKey('--name', NAME)], io())).toBe(3);
-      expect(errs.join(' ')).toMatch(/another portal install/);
+      expect(out).toContain('needs=foreign');
+      expect(errs.join(' ')).toMatch(/SIGNED FOR ANOTHER PORTAL INSTALL.*--allow-foreign-install/);
+      expect(
+        await runCli(['describe', ...withKey('--name', NAME, UNTRUSTED, UNSIGNED)], io()),
+      ).toBe(3);
+      reset();
+      expect(await runCli(['describe', ...withKey('--name', NAME, FOREIGN)], io())).toBe(0);
+      expect(out).toContain('signature=foreign');
+      expect(out).toContain(`signedBy=${signer.verifyKey.fingerprintText}`);
+      expect(out).toContain(`install=${OTHER_INSTALL}`);
+      expect(errs.join('\n')).toMatch(/STATE: SIGNED FOR ANOTHER PORTAL INSTALL/);
+      expect(errs.join('\n')).toMatch(/Not checked: that the portal this folder belongs to/);
+      reset();
+      expect(await runCli(['fetch', ...confirmed('--out', outDir(), FOREIGN)], io())).toBe(0);
+      expect(fs.readFileSync(path.join(outDir(), NAME)).equals(original)).toBe(true);
+    });
+
+    it('a foreign copy is checked against its signed record, never the unsigned sidecar fields', async () => {
+      const side = sidecar();
+      side.signature = signManifest({ ...manifestOf(side), install: OTHER_INSTALL }, signer);
+      // The archive is changed, and the plain sidecar fields made to match it.
+      const obj = remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!;
+      const body = Buffer.from(obj.body);
+      body[200]! ^= 1;
+      obj.body = body;
+      side.sealedSha256 = createHash('sha256').update(body).digest('hex');
+      side.sealedBytes = body.length;
+      setSidecar(NAME, side);
+      expect(await runCli(['fetch', ...confirmed('--out', outDir(), FOREIGN)], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(/does not match the checksum in its signed record/);
+      expect(fs.readdirSync(outDir())).toEqual([]);
+    });
+
+    it('with no verified copy, prefers a foreign copy, then an untrusted one, then an unsigned one', async () => {
+      // The real copy loses its signature (unsigned, the newest of all).
+      const oldestForeign = 'backup-2026-11-18T02-00-00-000-cccccccc.tar.gz';
+      const untrusted = 'backup-2026-11-20T02-00-00-000-cccccccc.tar.gz';
+      plantSigned(oldestForeign, signer, { install: OTHER_INSTALL });
+      plantSigned(untrusted, generateSigningKey());
+      const side = sidecar();
+      delete side.signature;
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey(...ALL)], io())).toBe(0);
+      expect(out).toContain(`name=${oldestForeign}`);
+      expect(out).toContain('signature=foreign');
+      // Only the foreign flag is enough for that choice; the others are not.
+      reset();
+      expect(await runCli(['describe', ...withKey(UNTRUSTED, UNSIGNED)], io())).toBe(3);
+      expect(out).toContain('needs=foreign');
+      // Without a foreign copy, the untrusted one beats the newer unsigned one.
+      remote.objects.delete(sideKey(oldestForeign));
+      reset();
+      expect(await runCli(['describe', ...withKey(...ALL)], io())).toBe(0);
+      expect(out).toContain(`name=${untrusted}`);
+      expect(out).toContain('signature=untrusted');
+      remote.objects.delete(sideKey(untrusted));
+      reset();
+      expect(await runCli(['describe', ...withKey(...ALL)], io())).toBe(0);
+      expect(out).toContain(`name=${NAME}`);
+      expect(out).toContain('signature=unsigned');
     });
 
     it.each([
       ['a changed signed field', { bytes: '1' }],
       ['a renamed copy', { name: 'archives/backup-2026-11-20T02-00-00-000-cccccccc.tar.gz.enc' }],
       ['a copy moved from another folder', { prefix: 'gratisgis-other/' }],
-    ])('never uses %s, even with the flag', async (_label, change) => {
+    ])('never uses %s, even with every flag', async (_label, change) => {
       const side = sidecar();
       side.signature = signManifest({ ...manifestOf(side), ...change }, signer);
       setSidecar(NAME, side);
-      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(1);
+      expect(await runCli(['describe', ...withKey('--name', NAME, ...ALL)], io())).toBe(1);
       expect(errs.join(' ')).toMatch(/Refusing this copy: The signature is for another copy/);
       expect(
-        await runCli(['fetch', ...confirmed('--out', outDir(), '--name', NAME, UNVERIFIED)], io()),
+        await runCli(['fetch', ...confirmed('--out', outDir(), '--name', NAME, ...ALL)], io()),
       ).toBe(1);
       expect(fs.existsSync(outDir())).toBe(false);
     });
 
-    it('never uses a manifest changed after signing, even with the flag', async () => {
+    it('never uses a manifest changed after signing, even with every flag', async () => {
       const side = sidecar();
       const sig = side.signature as { manifest: string };
       sig.manifest = sig.manifest.replace(/created=2026/, 'created=2027');
       setSidecar(NAME, side);
-      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(1);
+      expect(await runCli(['describe', ...withKey('--name', NAME, ...ALL)], io())).toBe(1);
       expect(errs.join(' ')).toMatch(/signature does not verify/);
     });
 
@@ -361,7 +441,7 @@ describe('offsite-cli', () => {
       plantSigned(other);
       // Copy A gets the sidecar that was signed for copy B.
       setSidecar(NAME, sidecar(other));
-      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(1);
+      expect(await runCli(['describe', ...withKey('--name', NAME, ...ALL)], io())).toBe(1);
       expect(errs.join(' ')).toMatch(/the name does not match/);
     });
 
@@ -374,7 +454,7 @@ describe('offsite-cli', () => {
       const side = sidecar();
       delete side.signature;
       setSidecar(NAME, side);
-      expect(await runCli(['describe', ...withKey(UNVERIFIED)], io())).toBe(0);
+      expect(await runCli(['describe', ...withKey(...ALL)], io())).toBe(0);
       expect(out).toContain(`name=${older}`);
       expect(out).toContain('signature=verified');
       expect(errs.join('\n')).toMatch(new RegExp(`Skipped ${bad.slice(0, 30)}.*BAD SIGNATURE`));
@@ -652,7 +732,19 @@ describe('offsite-cli', () => {
         expect(out).toContain(`latest=${NAME}`);
         // The copy was signed for its first folder: moved, it is refused.
         out.length = 0;
-        expect(await runCli(['describe', ...withKey('--allow-unverified-copy')], io())).toBe(1);
+        expect(
+          await runCli(
+            [
+              'describe',
+              ...withKey(
+                '--allow-foreign-install',
+                '--allow-untrusted-signer',
+                '--allow-unsigned-copy',
+              ),
+            ],
+            io(),
+          ),
+        ).toBe(1);
         expect(errs.join(' ')).toMatch(/the folder does not match/);
       }
       for (const refused of candidates.filter((c) => !pageAccepts(c))) {

@@ -68,4 +68,53 @@ describe('off-site notices', () => {
       'A backup did not finish on Acme',
     );
   });
+
+  it('renders the set-aside summary, a stopped clean-up, and who changed the signing key', () => {
+    const ctx = { orgLabel: 'Acme', baseUrl: 'https://p.example' };
+    const aside = renderNotification(
+      'backup_failed',
+      { kind: 'offsite_set_aside', count: 5, badSignature: 3, dated: 2, name: 'a, b and 3 more' },
+      ctx,
+    )!;
+    expect(aside.subject).toBe('Off-site backup copies were set aside on Acme');
+    expect(aside.text).toContain('5 off-site copies in the bucket were set aside: 3 not signed');
+    expect(aside.text).toContain('Copies: a, b and 3 more');
+    const stopped = renderNotification(
+      'backup_failed',
+      { kind: 'offsite_retention_stopped', name: 'mirror:x' },
+      ctx,
+    )!;
+    expect(stopped.subject).toBe('Off-site backup clean-up stopped on Acme');
+    expect(stopped.text).toContain('deleted nothing');
+    const auto = renderNotification(
+      'backup_failed',
+      { kind: 'offsite_signing_key_changed', from: 'a', to: 'b', automatic: true },
+      ctx,
+    )!;
+    expect(auto.text).toContain('The server replaced it by itself');
+    const byAdmin = renderNotification(
+      'backup_failed',
+      { kind: 'offsite_signing_key_changed', from: 'a', to: 'b', automatic: false },
+      ctx,
+    )!;
+    expect(byAdmin.text).toContain('An admin replaced it');
+  });
+
+  it('carries only the fields given, and never an empty run id', async () => {
+    const { notice, notifications } = make();
+    await notice.announceOffsite('set-aside:x', {
+      kind: 'offsite_set_aside',
+      count: 2,
+      badSignature: 1,
+      dated: 1,
+      name: 'a, b',
+    });
+    expect(notifications.notifyMany).toHaveBeenCalledWith(expect.anything(), 'backup_failed', {
+      kind: 'offsite_set_aside',
+      count: 2,
+      badSignature: 1,
+      dated: 1,
+      name: 'a, b',
+    });
+  });
 });

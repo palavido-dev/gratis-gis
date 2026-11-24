@@ -662,6 +662,10 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       from?: string | null;
       to?: string | null;
       name?: string;
+      count?: number;
+      badSignature?: number;
+      dated?: number;
+      automatic?: boolean;
     },
     ctx,
   ) => {
@@ -683,8 +687,12 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       const from = typeof payload.from === 'string' ? payload.from : 'none';
       const to = typeof payload.to === 'string' ? payload.to : 'none';
       const subject = `The off-site backup signing key was changed on ${ctx.orgLabel}`;
+      const how =
+        payload.automatic === true
+          ? `The server replaced it by itself because the stored key could not be opened or did not match its verify key. Copies signed with the old key are no longer counted as good by this server.`
+          : `An admin replaced it on Admin, Backup.`;
       const line =
-        `The key this portal signs off-site backup copies with was replaced. ` +
+        `The key this portal signs off-site backup copies with was replaced. ${how} ` +
         `Add the new verify key to your key file (Admin, Backup shows it). ` +
         `If you did not expect this, check Admin, Backup now.`;
       const text = `${line}\nOld verify key fingerprint: ${from}\nNew verify key fingerprint: ${to}\n`;
@@ -693,22 +701,26 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
         `<p>Old verify key fingerprint: ${escapeHtml(from)}<br>New verify key fingerprint: ${escapeHtml(to)}</p>`;
       return { subject, text, html };
     }
-    if (payload.kind === 'offsite_unverified_copy') {
+    if (payload.kind === 'offsite_set_aside') {
       const name = typeof payload.name === 'string' ? payload.name : '';
-      const subject = `An off-site backup copy was set aside on ${ctx.orgLabel}`;
+      const count = typeof payload.count === 'number' ? payload.count : 0;
+      const bad = typeof payload.badSignature === 'number' ? payload.badSignature : 0;
+      const dated = typeof payload.dated === 'number' ? payload.dated : 0;
+      const subject = `Off-site backup copies were set aside on ${ctx.orgLabel}`;
       const line =
-        `An off-site copy in the bucket is not signed by this portal, or its signature does not match the copy. ` +
-        `It is not used for restores or deleted by retention. Check who can write to the bucket.`;
-      const text = `${line}\nCopy: ${name}\n`;
-      const html = `<p>${escapeHtml(line)}</p><p>Copy: ${escapeHtml(name)}</p>`;
+        `${count} off-site copies in the bucket were set aside: ${bad} not signed by this portal or not matching their signature, ` +
+        `${dated} dated in the future or after the provider recorded them. ` +
+        `They are not used for restores or deleted by retention. Check who can write to the bucket.`;
+      const text = `${line}\nCopies: ${name}\n`;
+      const html = `<p>${escapeHtml(line)}</p><p>Copies: ${escapeHtml(name)}</p>`;
       return { subject, text, html };
     }
-    if (payload.kind === 'offsite_suspect_copy') {
+    if (payload.kind === 'offsite_retention_stopped') {
       const name = typeof payload.name === 'string' ? payload.name : '';
-      const subject = `An off-site backup copy was set aside on ${ctx.orgLabel}`;
+      const subject = `Off-site backup clean-up stopped on ${ctx.orgLabel}`;
       const line =
-        `An off-site copy in the bucket is dated in the future, or after the provider recorded it. ` +
-        `It is not used for restores or deleted by retention. Check who can write to the bucket.`;
+        `The record of an off-site copy could not be read, so this server deleted nothing from the bucket. ` +
+        `Check the bucket and who can write to it.`;
       const text = `${line}\nCopy: ${name}\n`;
       const html = `<p>${escapeHtml(line)}</p><p>Copy: ${escapeHtml(name)}</p>`;
       return { subject, text, html };

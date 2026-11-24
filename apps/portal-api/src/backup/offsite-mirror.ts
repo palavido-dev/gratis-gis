@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -26,6 +26,7 @@ import {
   selectExpired,
   setAsideReason,
   stampFromName,
+  suspectDate,
   type ArtifactTrust,
   type OffsiteArtifact,
 } from './offsite-rules.js';
@@ -67,7 +68,10 @@ export interface MirrorIndexLine {
 
 /** A row of the server's own record of mirrored files. */
 export interface MirrorIndexRow {
+  /** The file's name in the bucket: new and random for every upload. */
   name: string;
+  /** Which stored file and version it holds (see mirrorSourceId). */
+  source: string;
   keyFingerprint: string;
   plainBytes: number;
   sealedBytes: number;
@@ -81,16 +85,25 @@ export interface MirrorIndexRow {
  * The server's own record of what mirror mode uploaded. The bucket is
  * encrypted to a key this server does not hold, so it can never read
  * a run's file list back; this record is how it knows which files are
- * already there. Losing it is harmless: every file is uploaded again.
+ * already there. Losing it costs a full upload: every file is uploaded
+ * again under a new name, and nothing already in the bucket changes.
  */
 export interface MirrorIndexStore {
-  find(target: string, names: string[]): Promise<Map<string, MirrorIndexRow>>;
+  /** The newest row for each of these sources. */
+  find(target: string, sources: string[]): Promise<Map<string, MirrorIndexRow>>;
+  /** Which of these bucket names the index holds. */
+  known(target: string, names: string[]): Promise<Set<string>>;
   record(target: string, row: MirrorIndexRow): Promise<void>;
   /** Move lastRunAt forward to `runAt` for these names. */
   touch(target: string, names: string[], runAt: Date): Promise<void>;
   /** Names whose newest run is older than `before`, oldest first. */
   olderThan(target: string, before: Date, limit: number): Promise<string[]>;
   remove(target: string, names: string[]): Promise<void>;
+  /** Note a mirror run this server starts, before it uploads anything. */
+  recordRun(target: string, runId: string): Promise<void>;
+  /** The mirror runs this server started. */
+  runIds(target: string): Promise<Set<string>>;
+  forgetRuns(target: string, runIds: string[]): Promise<void>;
 }
 
 /** Prisma calls MirrorIndexStore needs; the real client and test fakes both fit. */
@@ -99,6 +112,7 @@ export interface MirrorIndexPrisma {
     findMany(args: unknown): Promise<
       Array<{
         name: string;
+        source: string;
         keyFingerprint: string;
         plainBytes: bigint;
         sealedBytes: bigint;
@@ -111,20 +125,29 @@ export interface MirrorIndexPrisma {
     updateMany(args: unknown): Promise<{ count: number }>;
     deleteMany(args: unknown): Promise<{ count: number }>;
   };
+  backupOffsiteMirrorRun: {
+    findMany(args: unknown): Promise<Array<{ runId: string }>>;
+    upsert(args: unknown): Promise<unknown>;
+    deleteMany(args: unknown): Promise<{ count: number }>;
+  };
 }
 
 export class PrismaMirrorIndex implements MirrorIndexStore {
   constructor(private readonly prisma: MirrorIndexPrisma) {}
 
-  async find(target: string, names: string[]) {
+  async find(target: string, sources: string[]) {
     const out = new Map<string, MirrorIndexRow>();
-    if (names.length === 0) return out;
+    if (sources.length === 0) return out;
+    // Newest first, so the first row seen for a source is its newest.
     const rows = await this.prisma.backupOffsiteObject.findMany({
-      where: { target, name: { in: names } },
+      where: { target, source: { in: sources } },
+      orderBy: { lastRunAt: 'desc' },
     });
     for (const r of rows) {
-      out.set(r.name, {
+      if (out.has(r.source)) continue;
+      out.set(r.source, {
         name: r.name,
+        source: r.source,
         keyFingerprint: r.keyFingerprint,
         plainBytes: Number(r.plainBytes),
         sealedBytes: Number(r.sealedBytes),
@@ -136,8 +159,18 @@ export class PrismaMirrorIndex implements MirrorIndexStore {
     return out;
   }
 
+  async known(target: string, names: string[]) {
+    if (names.length === 0) return new Set<string>();
+    const rows = await this.prisma.backupOffsiteObject.findMany({
+      where: { target, name: { in: names } },
+      select: { name: true },
+    });
+    return new Set(rows.map((r) => r.name));
+  }
+
   async record(target: string, row: MirrorIndexRow) {
     const data = {
+      source: row.source,
       keyFingerprint: row.keyFingerprint,
       plainBytes: BigInt(row.plainBytes),
       sealedBytes: BigInt(row.sealedBytes),
@@ -175,6 +208,29 @@ export class PrismaMirrorIndex implements MirrorIndexStore {
     if (names.length === 0) return;
     await this.prisma.backupOffsiteObject.deleteMany({ where: { target, name: { in: names } } });
   }
+
+  async recordRun(target: string, runId: string) {
+    await this.prisma.backupOffsiteMirrorRun.upsert({
+      where: { target_runId: { target, runId } },
+      create: { target, runId },
+      update: {},
+    });
+  }
+
+  async runIds(target: string) {
+    const rows = await this.prisma.backupOffsiteMirrorRun.findMany({
+      where: { target },
+      select: { runId: true },
+    });
+    return new Set(rows.map((r) => r.runId));
+  }
+
+  async forgetRuns(target: string, runIds: string[]) {
+    if (runIds.length === 0) return;
+    await this.prisma.backupOffsiteMirrorRun.deleteMany({
+      where: { target, runId: { in: runIds } },
+    });
+  }
 }
 
 /**
@@ -188,23 +244,36 @@ export function mirrorTarget(s: Pick<OffsiteSettings, 'endpoint' | 'bucket' | 'p
 }
 
 /**
- * The name a stored file gets in the bucket: an HMAC, under a key only
+ * Which stored file and version a mirrored file holds, for the local
+ * index only (never a name in the bucket): an HMAC, under a key only
  * this server has, of the public key's fingerprint and the file's key,
  * size and ETag. A changed file, or a new public key, gives a new
- * name, so older runs still find the version they recorded and no file
- * is ever overwritten with one encrypted to another key. Without the
- * server's key the name says nothing about the file.
+ * source, so it is uploaded again.
  */
-export function mirrorObjectName(
+export function mirrorSourceId(
   nameKey: Buffer,
   fingerprint: Buffer,
   key: string,
   size: number,
   etag: string | null,
 ): string {
-  return `${createHmac('sha256', nameKey)
+  return createHmac('sha256', nameKey)
     .update(`v1\0${fingerprint.toString('hex')}\0${key}\0${size}\0${etag ?? ''}`)
-    .digest('hex')}${OFFSITE_LAYOUT.sealed}`;
+    .digest('hex');
+}
+
+/**
+ * A new name for a file about to be uploaded: 32 random bytes, and
+ * never a name the bucket already lists. Every upload gets its own
+ * name, so no upload ever replaces a file an earlier run refers to,
+ * even when the local index was lost. The name says nothing about the
+ * file.
+ */
+export function newMirrorObjectName(inBucket: { get(name: string): number | undefined }): string {
+  for (;;) {
+    const name = `${randomBytes(32).toString('hex')}${OFFSITE_LAYOUT.sealed}`;
+    if (inBucket.get(name) === undefined) return name;
+  }
 }
 
 /** Folder name of a mirror run: the archive's time stamp and run id. */
@@ -244,6 +313,29 @@ async function* readFileLazily(file: string): AsyncGenerator<Buffer> {
 }
 
 const BATCH = 500;
+
+/**
+ * Retention reads at most this many done markers with a bad signature
+ * per pass; older complete runs are then left for a later pass.
+ */
+export const MAX_SET_ASIDE_CHECKED = 100;
+
+/** A file the local index does not know must be at least this old to be removed. */
+export const ORPHAN_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** At most this many such files are removed per pass. */
+export const MAX_ORPHANS_PER_PASS = 1000;
+
+export type MirrorRun = OffsiteArtifact & { keys: string[]; sealedBytes: number };
+
+/** Mirror runs as one retention pass sees them (see classifyRuns). */
+export interface ClassifiedRuns {
+  runs: MirrorRun[];
+  /** The first run whose done marker could not be read or parsed. */
+  unreadable: string | null;
+  /** Complete runs not checked this pass. */
+  unchecked: number;
+}
 
 /** The largest file index a mirror run writes: about 13 million files. */
 export const MAX_INDEX_BYTES = 2 * 1024 ** 3;
@@ -435,6 +527,8 @@ export async function sweepIndexLeftovers(dir: string, now = Date.now()): Promis
 export class OffsiteMirror {
   /** Largest file index a run may write. Lowered in tests. */
   maxIndexBytes = MAX_INDEX_BYTES;
+  /** Unknown files removed per retention pass at most. Lowered in tests. */
+  maxOrphansPerPass = MAX_ORPHANS_PER_PASS;
 
   constructor(
     private readonly log: Logger | null,
@@ -452,13 +546,10 @@ export class OffsiteMirror {
    * Mirror runs in the bucket, newest first, with their keys and
    * stored size. Only folders named as the portal names runs count.
    */
-  async listRuns(
-    s3: S3Like,
-    s: OffsiteSettings,
-  ): Promise<Array<OffsiteArtifact & { keys: string[]; sealedBytes: number }>> {
+  async listRuns(s3: S3Like, s: OffsiteSettings, signal?: AbortSignal): Promise<MirrorRun[]> {
     const prefix = this.runsPrefix(s);
-    const byId = new Map<string, OffsiteArtifact & { keys: string[]; sealedBytes: number }>();
-    for await (const o of listObjects(s3, s.bucket!, prefix)) {
+    const byId = new Map<string, MirrorRun>();
+    for await (const o of listObjects(s3, s.bucket!, prefix, signal)) {
       const rest = o.key.slice(prefix.length);
       const slash = rest.indexOf('/');
       if (slash <= 0) continue;
@@ -486,7 +577,9 @@ export class OffsiteMirror {
   /**
    * Read a run's done marker and check its signature against `trusted`
    * (and, when given, the install ids expected for this folder).
-   * `trust` is how the server's retention counts it.
+   * `trust` is how the server's retention counts it. `readError` is set
+   * when the marker could not be read or is not a JSON object; such a
+   * run is never counted as unsigned.
    */
   async checkRun(
     s3: S3Like,
@@ -495,7 +588,12 @@ export class OffsiteMirror {
     trusted: readonly OffsiteVerifyKey[],
     installIds: readonly string[],
     signal?: AbortSignal,
-  ): Promise<{ check: CopyCheck; trust: ArtifactTrust; done: Record<string, unknown> | null }> {
+  ): Promise<{
+    check: CopyCheck;
+    trust: ArtifactTrust;
+    done: Record<string, unknown> | null;
+    readError: boolean;
+  }> {
     let done: Record<string, unknown> | null = null;
     try {
       const raw: unknown = JSON.parse(
@@ -508,7 +606,10 @@ export class OffsiteMirror {
           )
         ).toString('utf8'),
       );
-      done = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+      done =
+        raw && typeof raw === 'object' && !Array.isArray(raw)
+          ? (raw as Record<string, unknown>)
+          : null;
     } catch (e) {
       if (signal?.aborted) throw e;
       done = null;
@@ -521,8 +622,9 @@ export class OffsiteMirror {
           signer: null,
           reason: 'The done marker could not be read.',
         },
-        trust: 'unsigned',
+        trust: 'bad',
         done: null,
+        readError: true,
       };
     }
     const check = checkSignature(done, trusted, {
@@ -531,7 +633,7 @@ export class OffsiteMirror {
       name: runId,
       installIds,
     });
-    return { check, trust: artifactTrust(check, done, s.installId), done };
+    return { check, trust: artifactTrust(check, done, s.installId), done, readError: false };
   }
 
   async upload(a: {
@@ -592,19 +694,23 @@ export class OffsiteMirror {
     let uploaded = 0;
     let reused = 0;
 
+    // Noted before anything is uploaded, so clean-up knows this run
+    // folder is this server's even if the run stops half way.
+    await a.index.recordRun(target, runId);
+
     const handle = async (batch: Array<{ key: string; size: number; etag: string | null }>) => {
       const named = batch.map((o) => ({
         o,
-        name: mirrorObjectName(a.nameKey, pub.fingerprint, o.key, o.size, o.etag),
+        source: mirrorSourceId(a.nameKey, pub.fingerprint, o.key, o.size, o.etag),
       }));
       const known = await a.index.find(
         target,
-        named.map((n) => n.name),
+        named.map((n) => n.source),
       );
       const touched: string[] = [];
-      for (const { o, name } of named) {
+      for (const { o, source } of named) {
         if (a.signal.aborted) throw new Error('Stopped.');
-        const row = known.get(name);
+        const row = known.get(source);
         // Reused only with a recorded checksum: the signed index names
         // the checksum of every file it refers to.
         if (
@@ -612,22 +718,26 @@ export class OffsiteMirror {
           row.keyFingerprint === fp &&
           row.plainBytes === o.size &&
           row.sealedSha256 !== null &&
-          inBucket.get(name) === row.sealedBytes
+          inBucket.get(row.name) === row.sealedBytes
         ) {
           await index.write(
             JSON.stringify({
               k: o.key,
-              o: name,
+              o: row.name,
               s: o.size,
               ...(row.contentType ? { t: row.contentType } : {}),
               z: row.sealedBytes,
               h: row.sealedSha256,
             }),
           );
-          touched.push(name);
+          touched.push(row.name);
           reused += 1;
           continue;
         }
+        // Not known, or no longer in the bucket as recorded: upload it
+        // under a new name. Whatever an earlier run left under another
+        // name stays as it is.
+        const name = newMirrorObjectName(inBucket);
         let got: { Body?: unknown; ContentLength?: number; ContentType?: string };
         try {
           got = (await src.s3.send(new GetObjectCommand({ Bucket: src.bucket, Key: o.key }), {
@@ -650,6 +760,7 @@ export class OffsiteMirror {
         });
         await a.index.record(target, {
           name,
+          source,
           keyFingerprint: fp,
           plainBytes: size,
           sealedBytes: up.bytes,
@@ -776,16 +887,64 @@ export class OffsiteMirror {
   }
 
   /**
+   * List the mirror runs and check the done marker of each complete
+   * one with a usable date, newest first, for retention. Stops at the
+   * first marker that cannot be read or parsed (`unreadable`): the
+   * caller then deletes nothing. After MAX_SET_ASIDE_CHECKED runs with a
+   * bad signature, older complete runs are not checked this pass
+   * (`unchecked`) and are left out of `runs`: never deleted, and no
+   * file is collected while any is left out.
+   */
+  async classifyRuns(
+    s3: S3Like,
+    s: OffsiteSettings,
+    now: Date,
+    trusted: readonly OffsiteVerifyKey[],
+    signal?: AbortSignal,
+  ): Promise<ClassifiedRuns> {
+    const all = await this.listRuns(s3, s, signal);
+    const runs: MirrorRun[] = [];
+    let bad = 0;
+    let unchecked = 0;
+    for (const r of all) {
+      if (!r.complete || suspectDate(r, now)) {
+        runs.push(r);
+        continue;
+      }
+      if (bad >= MAX_SET_ASIDE_CHECKED) {
+        unchecked += 1;
+        continue;
+      }
+      if (signal?.aborted) throw signal.reason as Error;
+      const c = await this.checkRun(s3, s, r.id, trusted, [], signal);
+      if (c.readError) return { runs: [], unreadable: `mirror:${r.id}`, unchecked: 0 };
+      r.trust = c.trust;
+      if (c.trust === 'bad') bad += 1;
+      runs.push(r);
+    }
+    return { runs, unreadable: null, unchecked };
+  }
+
+  /**
    * Delete mirror runs older than the window (never the newest
-   * complete one), then files no remaining run can refer to.
+   * complete one), then files no remaining run can refer to. `classified`
+   * comes from classifyRuns; with an unreadable marker nothing is done.
    *
    * Works from the bucket listing and the local index only. A file's
    * row says the newest run that referred to it; every retained
    * complete run is at least as new as the oldest one, so a file whose
-   * newest run is older than that is referred to by none. Files the
-   * local index does not know are never deleted. The row goes first,
-   * so a stop half way leaves a file the next run uploads again rather
-   * than a row for a file that is gone.
+   * newest run is older than that is referred to by none. The row goes
+   * first, so a stop half way leaves a file the index does not know
+   * rather than a row for a file that is gone.
+   *
+   * A file the local index does not know (left by a lost or emptied
+   * index, a restore, or a run stopped half way) may still be named by
+   * a run made before the index was lost. It is removed only when every
+   * run folder in the bucket is one this server started with its
+   * current index (see MirrorIndexStore.recordRun), so no run can name
+   * it; and only when the bucket says it is older than
+   * ORPHAN_GRACE_MS, at most MAX_ORPHANS_PER_PASS per pass. Until the
+   * older runs age out, such files are kept and counted.
    *
    * `collectFiles` is false while another upload may be running; then
    * only runs are removed.
@@ -796,27 +955,25 @@ export class OffsiteMirror {
     now: Date,
     index: MirrorIndexStore | null,
     collectFiles: boolean,
+    classified: ClassifiedRuns,
     signal?: AbortSignal,
-    trusted?: readonly OffsiteVerifyKey[],
   ): Promise<{
     removed: number;
     unknownKept: number;
+    orphansRemoved: number;
     suspect: Array<{ id: string; why: 'future' | 'after-upload' | 'bad-signature' | null }>;
   }> {
     // A stopped upload's clean-up stops too: its claim is already gone.
     const stop = () => {
       if (signal?.aborted) throw signal.reason as Error;
     };
-    const runs = await this.listRuns(s3, s);
-    if (runs.length === 0) return { removed: 0, unknownKept: 0, suspect: [] };
-    if (trusted) {
-      for (const r of runs) {
-        if (!r.complete) continue;
-        stop();
-        r.trust = (await this.checkRun(s3, s, r.id, trusted, [], signal)).trust;
-      }
-    }
+    const none = { removed: 0, unknownKept: 0, orphansRemoved: 0, suspect: [] };
+    if (classified.unreadable !== null) return none;
+    const runs = classified.runs;
+    if (runs.length === 0) return none;
     const { usable, suspect } = partitionByDate(runs, now);
+    const suspectIds = suspect.map((r) => ({ id: r.id, why: setAsideReason(r, now) }));
+    const target = mirrorTarget(s);
     let removed = 0;
     const expired = new Set(selectExpired(runs, now, s.retentionDays));
     for (const r of runs.filter((x) => expired.has(x.id))) {
@@ -830,15 +987,14 @@ export class OffsiteMirror {
         await deleteObject(s3, s.bucket!, k, signal);
         removed += 1;
       }
+      if (index) await index.forgetRuns(target, [r.id]);
     }
     // Runs with a suspect date never decide which files are old.
     const kept = usable.filter((r) => !expired.has(r.id) && r.complete);
-    const suspectIds = suspect.map((r) => ({ id: r.id, why: setAsideReason(r, now) }));
-    if (kept.length === 0 || !index || !collectFiles) {
-      return { removed, unknownKept: 0, suspect: suspectIds };
+    if (kept.length === 0 || !index || !collectFiles || classified.unchecked > 0) {
+      return { removed, unknownKept: 0, orphansRemoved: 0, suspect: suspectIds };
     }
     const oldest = new Date(Math.min(...kept.map((r) => r.createdAt.getTime())));
-    const target = mirrorTarget(s);
     const objectsPrefix = this.objectsPrefix(s);
     for (;;) {
       stop();
@@ -851,21 +1007,51 @@ export class OffsiteMirror {
       }
       if (names.length < BATCH) break;
     }
-    // Report, never delete, files the local index does not know (left
-    // by a restore or by an earlier index).
+
+    // Files the local index does not know. Every run folder now in the
+    // bucket must be one this server started; run ids it noted whose
+    // folder is gone are forgotten.
+    stop();
+    const folders = (await this.listRuns(s3, s, signal)).map((r) => r.id);
+    const ours = await index.runIds(target);
+    const allOurs = folders.every((id) => ours.has(id));
+    const inBucket = new Set(folders);
+    await index.forgetRuns(
+      target,
+      [...ours].filter((id) => !inBucket.has(id)),
+    );
+    const graceEnd = now.getTime() - ORPHAN_GRACE_MS;
     let unknownKept = 0;
-    let batch: string[] = [];
-    const countUnknown = async () => {
-      const known = await index.find(target, batch);
-      unknownKept += batch.filter((n) => !known.has(n)).length;
+    let orphansRemoved = 0;
+    let batch: Array<{ name: string; lastModified: Date | null }> = [];
+    const sweep = async () => {
+      const known = await index.known(
+        target,
+        batch.map((b) => b.name),
+      );
+      for (const b of batch) {
+        if (known.has(b.name)) continue;
+        const old = b.lastModified !== null && b.lastModified.getTime() < graceEnd;
+        if (allOurs && old && orphansRemoved < this.maxOrphansPerPass) {
+          stop();
+          await deleteObject(s3, s.bucket!, `${objectsPrefix}${b.name}`, signal);
+          orphansRemoved += 1;
+          removed += 1;
+        } else {
+          unknownKept += 1;
+        }
+      }
       batch = [];
     };
-    for await (const o of listObjects(s3, s.bucket!, objectsPrefix)) {
-      batch.push(o.key.slice(objectsPrefix.length));
-      if (batch.length >= BATCH) await countUnknown();
+    for await (const o of listObjects(s3, s.bucket!, objectsPrefix, signal)) {
+      const name = o.key.slice(objectsPrefix.length);
+      // Only names mirror mode writes.
+      if (!OBJECT_NAME_RE.test(name)) continue;
+      batch.push({ name, lastModified: o.lastModified });
+      if (batch.length >= BATCH) await sweep();
     }
-    if (batch.length) await countUnknown();
-    return { removed, unknownKept, suspect: suspectIds };
+    if (batch.length) await sweep();
+    return { removed, unknownKept, orphansRemoved, suspect: suspectIds };
   }
 
   // ---------------------------------------------------------------
@@ -873,9 +1059,15 @@ export class OffsiteMirror {
   // ---------------------------------------------------------------
 
   /**
-   * Download and decrypt a chosen mirror run's dump and manifest into
-   * --out. With a verified manifest every object is checked against it
-   * (size and SHA-256 of the encrypted bytes) before it is decrypted.
+   * Download and decrypt a chosen mirror run's dump, manifest and file
+   * index into --out, then check that every file the index lists is in
+   * the bucket with its recorded size. Nothing is changed anywhere
+   * else, so the restore script can stop before it touches the
+   * database. With a signed manifest (`signed`: the signature verified)
+   * each object is checked against it (size and SHA-256 of the
+   * encrypted bytes) before it is decrypted, and `done` is not used.
+   * Without one, the done marker's unsigned checksums are used where
+   * there are any: they catch damage, not a deliberate change.
    */
   async cliFetch(
     io: CliIo & { offsite: (s: OffsiteSettings) => S3Like },
@@ -883,7 +1075,7 @@ export class OffsiteMirror {
     s: OffsiteSettings,
     key: OffsitePrivateKey,
     runId: string,
-    verified: MirrorManifest | null,
+    signed: MirrorManifest | null,
     done: Record<string, unknown> | null,
   ) {
     const val = (n: string) => {
@@ -895,48 +1087,98 @@ export class OffsiteMirror {
     if (!MIRROR_RUN_RE.test(runId)) throw new Error('Unexpected mirror run name.');
     const s3 = io.offsite(s);
     const folder = `${this.runsPrefix(s)}${runId}/`;
-    const d = (done ?? {}) as {
-      database?: { name?: unknown; sealedSha256?: unknown };
-      index?: { files?: unknown };
+    const d = (signed ? {} : (done ?? {})) as {
+      database?: { sealedSha256?: unknown };
+      index?: { files?: unknown; sealedSha256?: unknown };
     };
     const dir = path.join(outDir, runId);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
     const unchecked = (sha: unknown): ObjectCheck | null =>
       typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha) ? { bytes: null, sha256: sha } : null;
+    const part = (p: 'dump' | 'manifest' | 'index'): ObjectCheck | null =>
+      signed ? { bytes: Number(signed[`${p}.bytes`]), sha256: signed[`${p}.sha256`] } : null;
     io.err(`Downloading, checking and decrypting mirror run ${runId}...`);
     await fetchChecked(
       s3,
       s.bucket!,
       `${folder}database.dump${OFFSITE_LAYOUT.sealed}`,
       path.join(dir, 'database.dump'),
-      verified
-        ? { bytes: Number(verified['dump.bytes']), sha256: verified['dump.sha256'] }
-        : unchecked(d.database?.sealedSha256),
+      part('dump') ?? unchecked(d.database?.sealedSha256),
       key,
     );
+    const manifestFile = path.join(dir, 'manifest.json');
     await fetchChecked(
       s3,
       s.bucket!,
       `${folder}manifest.json${OFFSITE_LAYOUT.sealed}`,
-      path.join(dir, 'manifest.json'),
-      verified
-        ? { bytes: Number(verified['manifest.bytes']), sha256: verified['manifest.sha256'] }
-        : null,
+      manifestFile,
+      part('manifest'),
       key,
     );
-    const db = typeof d.database?.name === 'string' ? d.database.name : 'gratisgis';
+    // The database name from the decrypted manifest, which the signed
+    // record covers; never from the plain done marker.
+    let db = 'gratisgis';
+    try {
+      const man = JSON.parse(await fs.readFile(manifestFile, 'utf8')) as { databases?: unknown };
+      if (Array.isArray(man.databases) && typeof man.databases[0] === 'string') {
+        db = man.databases[0];
+      }
+    } catch {
+      throw new Error("The run's manifest is damaged.");
+    }
     if (!/^[A-Za-z0-9_.-]{1,63}$/.test(db))
       throw new Error('The run names an unexpected database.');
+
+    // Every file the index lists must be in the bucket, with the size
+    // the index records, before the restore changes anything.
+    const indexFile = path.join(dir, 'objects.jsonl');
+    await fetchChecked(
+      s3,
+      s.bucket!,
+      `${folder}objects.jsonl${OFFSITE_LAYOUT.sealed}`,
+      indexFile,
+      part('index') ?? unchecked(d.index?.sealedSha256),
+      key,
+    );
+    io.err('Checking that every file of the run is in the bucket...');
+    const listed = new PackedListing();
+    const objectsPrefix = this.objectsPrefix(s);
+    for await (const o of listObjects(s3, s.bucket!, objectsPrefix)) {
+      listed.add(o.key.slice(objectsPrefix.length), o.size);
+    }
+    listed.finish();
+    let count = 0;
+    for await (const text of lines(readFileLazily(indexFile))) {
+      const l = parseIndexLine(text, signed !== null);
+      const size = listed.get(l.o);
+      if (size === undefined) {
+        throw new Error(
+          `The run's file ${l.o} is not in the bucket. Nothing was restored; choose another copy.`,
+        );
+      }
+      if (l.z !== undefined && size !== l.z) {
+        throw new Error(
+          `The run's file ${l.o} has ${size} bytes in the bucket; the run's index says ${l.z}. Nothing was restored; choose another copy.`,
+        );
+      }
+      count += 1;
+    }
+    if (signed && count !== Number(signed['index.files'])) {
+      throw new Error(
+        `The file index lists ${count} files; the signed run says ${signed['index.files']}.`,
+      );
+    }
     io.out(`run=${runId}`);
     io.out(`dump=${path.join(dir, 'database.dump')}`);
     io.out(`database=${db}`);
-    io.out(`objects=${Number(verified ? verified['index.files'] : (d.index?.files ?? 0))}`);
+    io.out(`objects=${count}`);
   }
 
   /**
    * Put every file a chosen mirror run names back into the local store.
-   * With a verified manifest the file index is checked against it, and
-   * each file against the index, before it is decrypted.
+   * With a signed manifest (the signature verified) the file index is
+   * checked against it, and each file against the index, before it is
+   * decrypted.
    */
   async cliPutObjects(
     io: CliIo & { offsite: (s: OffsiteSettings) => S3Like },
@@ -1058,6 +1300,12 @@ export async function downloadChecked(
   const body = await getObjectStream(s3, bucket, objectKey);
   for await (const c of body) {
     const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
+    // Stop as soon as it is larger than the record says.
+    if (expect && expect.bytes !== null && bytes + b.length > expect.bytes) {
+      throw new Error(
+        `The downloaded object is larger than the ${expect.bytes} bytes its record says. Nothing was decrypted.`,
+      );
+    }
     hash.update(b);
     let off = 0;
     while (off < b.length) {

@@ -35,7 +35,12 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
  * refuses a second backup_run row with offsite_status 'running' (the
  * partial unique index) with P2002.
  */
-export function makePrisma(runs: Row[], configRow: Row, objects: Row[] = []) {
+export function makePrisma(
+  runs: Row[],
+  configRow: Row,
+  objects: Row[] = [],
+  mirrorRuns: Row[] = [],
+) {
   const pickFrom = (
     rows: Row[],
     args: {
@@ -156,6 +161,27 @@ export function makePrisma(runs: Row[], configRow: Row, objects: Row[] = []) {
         const keep = objects.filter((o) => !matches(o, where));
         const n = objects.length - keep.length;
         objects.splice(0, objects.length, ...keep);
+        return { count: n };
+      }),
+    },
+    backupOffsiteMirrorRun: {
+      rows: mirrorRuns,
+      findMany: jest.fn(async (args: Parameters<typeof pickFrom>[1]) => pickFrom(mirrorRuns, args)),
+      upsert: jest.fn(
+        async (args: {
+          where: { target_runId: { target: string; runId: string } };
+          create: Row;
+        }) => {
+          const w = args.where.target_runId;
+          const hit = mirrorRuns.find((r) => r.target === w.target && r.runId === w.runId);
+          if (!hit) mirrorRuns.push({ ...args.create, id: `${w.target}\0${w.runId}` });
+          return hit ?? mirrorRuns.at(-1);
+        },
+      ),
+      deleteMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
+        const keep = mirrorRuns.filter((o) => !matches(o, where));
+        const n = mirrorRuns.length - keep.length;
+        mirrorRuns.splice(0, mirrorRuns.length, ...keep);
         return { count: n };
       }),
     },

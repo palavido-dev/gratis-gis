@@ -102,6 +102,7 @@ d('off-site backups against Postgres', () => {
   beforeEach(async () => {
     await pool.query('DELETE FROM backup_run');
     await pool.query('DELETE FROM backup_offsite_object');
+    await pool.query('DELETE FROM backup_offsite_mirror_run');
   });
 
   it('allows at most one off-site upload marked running', async () => {
@@ -154,9 +155,10 @@ d('off-site backups against Postgres', () => {
       [old],
     );
     await pool.query(
-      `INSERT INTO backup_offsite_object (target, name, key_fingerprint, plain_bytes, sealed_bytes, last_run_at)
-       VALUES ('t', 'n', 'f', 1, 2, now() - interval '90 days')`,
+      `INSERT INTO backup_offsite_object (target, name, source, key_fingerprint, plain_bytes, sealed_bytes, last_run_at)
+       VALUES ('t', 'n', 's', 'f', 1, 2, now() - interval '90 days')`,
     );
+    await pool.query(`INSERT INTO backup_offsite_mirror_run (target, run_id) VALUES ('t', 'r')`);
     await svc.restoreBackupHistory(history);
     const row = (
       await pool.query<{ k: string; i: string; p: string }>(
@@ -165,6 +167,7 @@ d('off-site backups against Postgres', () => {
     ).rows[0]!;
     expect(row).toEqual({ k: live, i: 'live-install', p: 'live/' });
     expect((await pool.query('SELECT 1 FROM backup_offsite_object')).rowCount).toBe(0);
+    expect((await pool.query('SELECT 1 FROM backup_offsite_mirror_run')).rowCount).toBe(0);
     await pool.query('DELETE FROM backup_config');
   });
 
@@ -214,50 +217,67 @@ d('off-site backups against Postgres', () => {
     const index = new PrismaMirrorIndex(prisma as never);
     const t1 = new Date('2026-11-01T00:00:00Z');
     const t2 = new Date('2026-11-10T00:00:00Z');
-    await index.record('target-a', {
-      name: 'n1.enc',
+    const t3 = new Date('2026-11-12T00:00:00Z');
+    const row = (name: string, source: string, lastRunAt: Date, extra = {}) => ({
+      name,
+      source,
       keyFingerprint: 'fp',
       plainBytes: 3,
       sealedBytes: 134,
       sealedSha256: 'a'.repeat(64),
       contentType: 'text/plain',
-      lastRunAt: t1,
+      lastRunAt,
+      ...extra,
     });
-    await index.record('target-a', {
-      name: 'n2.enc',
-      keyFingerprint: 'fp',
-      plainBytes: 5 * GB,
-      sealedBytes: 5 * GB + 200_000,
-      sealedSha256: null,
-      contentType: null,
-      lastRunAt: t1,
-    });
-    await index.record('target-b', {
-      name: 'n1.enc',
-      keyFingerprint: 'fp',
-      plainBytes: 1,
-      sealedBytes: 132,
-      sealedSha256: 'b'.repeat(64),
-      contentType: null,
-      lastRunAt: t1,
-    });
-    const found = await index.find('target-a', ['n1.enc', 'n2.enc', 'missing.enc']);
-    expect([...found.keys()].sort()).toEqual(['n1.enc', 'n2.enc']);
-    expect(found.get('n2.enc')!.plainBytes).toBe(5 * GB);
-    expect(found.get('n1.enc')!.contentType).toBe('text/plain');
-    expect(found.get('n1.enc')!.sealedSha256).toBe('a'.repeat(64));
-    expect(found.get('n2.enc')!.sealedSha256).toBeNull();
+    await index.record('target-a', row('n1.enc', 's1', t1));
+    await index.record(
+      'target-a',
+      row('n2.enc', 's2', t1, {
+        plainBytes: 5 * GB,
+        sealedBytes: 5 * GB + 200_000,
+        sealedSha256: null,
+        contentType: null,
+      }),
+    );
+    await index.record('target-b', row('n1.enc', 's1', t1, { sealedSha256: 'b'.repeat(64) }));
+    const found = await index.find('target-a', ['s1', 's2', 'missing']);
+    expect([...found.keys()].sort()).toEqual(['s1', 's2']);
+    expect(found.get('s2')!.plainBytes).toBe(5 * GB);
+    expect(found.get('s1')!.name).toBe('n1.enc');
+    expect(found.get('s1')!.contentType).toBe('text/plain');
+    expect(found.get('s1')!.sealedSha256).toBe('a'.repeat(64));
+    expect(found.get('s2')!.sealedSha256).toBeNull();
+    // A second upload of the same source gets its own row; find gives
+    // the newest, and the older row stays until clean-up.
+    await index.record('target-a', row('n3.enc', 's1', t3));
+    expect((await index.find('target-a', ['s1'])).get('s1')!.name).toBe('n3.enc');
+    expect([...(await index.known('target-a', ['n1.enc', 'n3.enc', 'x.enc']))].sort()).toEqual([
+      'n1.enc',
+      'n3.enc',
+    ]);
 
     await index.touch('target-a', ['n1.enc'], t2);
     // Never moves backwards.
     await index.touch('target-a', ['n1.enc'], t1);
-    expect((await index.find('target-a', ['n1.enc'])).get('n1.enc')!.lastRunAt).toEqual(t2);
     expect(await index.olderThan('target-a', new Date('2026-11-05T00:00:00Z'), 10)).toEqual([
       'n2.enc',
     ]);
     await index.remove('target-a', ['n2.enc']);
-    expect((await index.find('target-a', ['n2.enc'])).size).toBe(0);
-    expect((await index.find('target-b', ['n1.enc'])).size).toBe(1);
+    expect((await index.find('target-a', ['s2'])).size).toBe(0);
+    expect((await index.find('target-b', ['s1'])).size).toBe(1);
+
+    // The record of mirror runs this server started.
+    await index.recordRun('target-a', '2026-11-01T00-00-00-000-aaaaaaaa');
+    await index.recordRun('target-a', '2026-11-01T00-00-00-000-aaaaaaaa');
+    await index.recordRun('target-a', '2026-11-02T00-00-00-000-bbbbbbbb');
+    await index.recordRun('target-b', '2026-11-03T00-00-00-000-cccccccc');
+    expect([...(await index.runIds('target-a'))].sort()).toEqual([
+      '2026-11-01T00-00-00-000-aaaaaaaa',
+      '2026-11-02T00-00-00-000-bbbbbbbb',
+    ]);
+    await index.forgetRuns('target-a', ['2026-11-01T00-00-00-000-aaaaaaaa']);
+    expect([...(await index.runIds('target-a'))]).toEqual(['2026-11-02T00-00-00-000-bbbbbbbb']);
+    expect((await index.runIds('target-b')).size).toBe(1);
   });
 
   it('a mirror upload through the real database reuses what it recorded', async () => {
@@ -372,6 +392,44 @@ d('off-site backups against Postgres', () => {
       for (const o of remote.objects.values()) {
         expect(o.body.includes(Buffer.from(cfg.offsiteSigningKeyEncrypted!))).toBe(false);
       }
+      const runsRecorded = await pool.query(
+        'SELECT count(*)::int AS n FROM backup_offsite_mirror_run',
+      );
+      expect(runsRecorded.rows[0].n).toBe(2);
+
+      // The index is emptied, as a restore does: the next run uploads
+      // under new names and leaves every file already there as it was.
+      const objectsPrefix = 'pg/mirror/objects/';
+      const before = new Map(
+        [...remote.objects.entries()]
+          .filter(([k]) => k.startsWith(objectsPrefix))
+          .map(([k, o]) => [k, Buffer.from(o.body)]),
+      );
+      await pool.query('TRUNCATE backup_offsite_object, backup_offsite_mirror_run');
+      const r3 = await addRun(
+        new Date(Date.now() - 3_600_000),
+        'backup-2026-11-24T02-00-00-000-cccccccc.tar.gz',
+      );
+      execFileSync('tar', [
+        '-czf',
+        join(dir, 'backup-2026-11-24T02-00-00-000-cccccccc.tar.gz'),
+        '-C',
+        stage,
+        'manifest.json',
+        'postgres',
+      ]);
+      await (
+        await svc.startUpload(r3, 100 * GB)
+      )?.done;
+      const third = [...remote.objects.keys()]
+        .filter((k) => k.endsWith('done.json'))
+        .sort()
+        .at(-1)!;
+      expect(JSON.parse(remote.objects.get(third)!.body.toString())).toMatchObject({
+        uploaded: 2,
+        reused: 0,
+      });
+      for (const [k, b] of before) expect(remote.objects.get(k)!.body.equals(b)).toBe(true);
     } finally {
       for (const k of ENV_KEYS) {
         if (saved[k] === undefined) delete process.env[k];

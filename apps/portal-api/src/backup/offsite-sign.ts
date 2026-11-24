@@ -443,7 +443,7 @@ export function checkSignature(
       trust: 'untrusted',
       manifest: m,
       signer,
-      reason: `Signed by the verify key ${signer}, which is not in the key file.`,
+      reason: `It claims the verify key ${signer}, which is not in the key file, so that claim is not checked.`,
     };
   }
   let sig: Buffer;

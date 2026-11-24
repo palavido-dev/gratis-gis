@@ -5,12 +5,12 @@
  * inside the portal-api image:
  *
  *   node dist/backup/offsite-cli.js list
- *   node dist/backup/offsite-cli.js describe KEY [--name ARCHIVE | --run RUN] [UNVERIFIED]
+ *   node dist/backup/offsite-cli.js describe KEY [--name ARCHIVE | --run RUN] [ALLOW]
  *   node dist/backup/offsite-cli.js check-key KEY
- *   node dist/backup/offsite-cli.js fetch KEY --out DIR --confirm-copy NAME [--name ARCHIVE] [UNVERIFIED]
- *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR --confirm-copy NAME [--run RUN] [UNVERIFIED]
+ *   node dist/backup/offsite-cli.js fetch KEY --out DIR --confirm-copy NAME [--name ARCHIVE] [ALLOW]
+ *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR --confirm-copy NAME [--run RUN] [ALLOW]
  *   node dist/backup/offsite-cli.js put-objects --archive FILE
- *   node dist/backup/offsite-cli.js put-mirror-objects KEY --run RUN [--work DIR] [UNVERIFIED]
+ *   node dist/backup/offsite-cli.js put-mirror-objects KEY --run RUN [--work DIR] [ALLOW]
  *   node dist/backup/offsite-cli.js count-objects
  *
  * where KEY is either `--key-file F --passphrase-stdin` (the passphrase
@@ -30,19 +30,38 @@
  * key (offsite-sign.ts). The key file holds the verify keys the admin
  * added to it. Every command that uses a copy checks its signature
  * against those keys first, before anything is downloaded, decrypted
- * or changed, and then checks each downloaded object's size and
- * SHA-256 against the signed record before decrypting it. A copy that
- * is not signed (made before signing existed), or is signed by a key
- * the key file does not hold, or by another portal install, is used
- * only with UNVERIFIED, which is --allow-unverified-copy; without it
- * the command exits with status 3. A copy whose signature does not
- * verify, or is for another copy, is never used.
+ * or changed. A copy is in one of these states:
+ *
+ *   verified   signed with a verify key in the key file, for this
+ *              folder's portal install. Used without a flag.
+ *   foreign    signed with a verify key in the key file, but for
+ *              another portal install. Used with --allow-foreign-install.
+ *   untrusted  names a verify key the key file does not hold, so the
+ *              signature is not checked. Used with --allow-untrusted-signer.
+ *   unsigned   no signature (made before signing existed). Used with
+ *              --allow-unsigned-copy.
+ *   bad        a signature that does not verify, or is for another
+ *              copy. Never used.
+ *
+ * ALLOW above is any of those three flags; each one admits only its
+ * own state. Without the flag a command exits with status 3 and prints
+ * needs=<state>. For a verified or foreign copy, the size and SHA-256
+ * of each downloaded object are checked against the signed record
+ * before it is decrypted; nothing unsigned is used for that. For an
+ * untrusted or unsigned copy only the unsigned records in the bucket
+ * are there to check against, which catches damage but not a
+ * deliberate change.
  *
  * `describe` names the copy a restore would use (the one named, or the
- * newest verified one) with its date, size, key fingerprint and who
- * signed it, and changes nothing. `fetch` and `fetch-mirror` download
- * only when --confirm-copy repeats that copy's name. A copy dated in the
- * future is never picked as the newest; it is used only when named.
+ * newest verified one) with its date, size, key fingerprint, its state
+ * and what was and was not checked, and changes nothing. With no
+ * verified copy, the newest foreign copy is offered first, then the
+ * newest untrusted one, then the newest unsigned one. `fetch` and
+ * `fetch-mirror` download only when --confirm-copy repeats that
+ * copy's name. A copy dated in the future is never picked as the
+ * newest; it is used only when named. `fetch-mirror` also checks,
+ * before it finishes, that every file the run's index lists is in the
+ * bucket with the recorded size.
  */
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -75,6 +94,7 @@ import {
   type CopyCheck,
   type CopyTrust,
   type MirrorManifest,
+  type SignedManifest,
 } from './offsite-sign.js';
 import {
   createOffsiteClient,
@@ -94,13 +114,26 @@ const FINGERPRINT_RE = /^[0-9a-f]{4}(?:-[0-9a-f]{4}){7}$/;
 /** How deep, and through how many folders, the restore looks for a portal folder. */
 const FIND_DEPTH = 4;
 const FIND_FOLDERS = 200;
-/** The flag that lets a restore use a copy whose origin cannot be checked. */
-export const ALLOW_UNVERIFIED = '--allow-unverified-copy';
-/** Exit status when a copy is not verified and ALLOW_UNVERIFIED was not given. */
+/** A copy that is not verified but may be used with its own flag. */
+export type AllowedState = 'foreign' | 'untrusted' | 'unsigned';
+/** The flag that admits each state, and only that state. */
+export const ALLOW_FLAGS: Readonly<Record<AllowedState, string>> = {
+  foreign: '--allow-foreign-install',
+  untrusted: '--allow-untrusted-signer',
+  unsigned: '--allow-unsigned-copy',
+};
+/** Exit status when a copy is not verified and its flag was not given. */
 export const EXIT_UNVERIFIED = 3;
 
-/** The copy is not verified, and the flag to use it anyway was not given. */
-class UnverifiedCopyError extends Error {}
+/** The copy is not verified, and the flag for its state was not given. */
+class UnverifiedCopyError extends Error {
+  constructor(
+    message: string,
+    readonly state: AllowedState,
+  ) {
+    super(message);
+  }
+}
 
 const EMPTY_ROW: OffsiteRow = {
   offsiteEnabled: null,
@@ -353,8 +386,19 @@ interface ChosenCopy {
   fingerprint: string;
   suspect: string | null;
   check: CopyCheck;
+  /**
+   * The signed manifest, when the signature verified with a key in the
+   * key file (verified or foreign). Every size and SHA-256 check uses
+   * it; then nothing unsigned is used for integrity.
+   */
+  signed: SignedManifest | null;
   /** The sidecar or done marker, as read. Only its signed manifest is trusted. */
   marker: Record<string, unknown> | null;
+}
+
+/** A signature that verified with a key in the key file. */
+function signedManifest(check: CopyCheck): SignedManifest | null {
+  return check.trust === 'verified' || check.trust === 'foreign' ? check.manifest : null;
 }
 
 /**
@@ -408,13 +452,27 @@ async function checkCopy(
   };
 }
 
-const TRUST_WORDS: Record<CopyTrust, string> = {
+const TRUST_WORDS: Readonly<Record<CopyTrust, string>> = {
   verified: 'verified',
   unsigned: 'NOT SIGNED',
-  untrusted: 'signed by a key that is not in the key file',
-  foreign: 'signed for another portal install',
+  untrusted: 'SIGNER NOT CHECKED: it names a verify key that is not in the key file',
+  foreign: 'SIGNED FOR ANOTHER PORTAL INSTALL',
   bad: 'BAD SIGNATURE',
 };
+
+/** Order of preference when no copy is verified. */
+const FALLBACK_ORDER: readonly AllowedState[] = ['foreign', 'untrusted', 'unsigned'];
+
+function isAllowedState(t: CopyTrust): t is AllowedState {
+  return t === 'foreign' || t === 'untrusted' || t === 'unsigned';
+}
+
+function needFlag(state: AllowedState, what: string): UnverifiedCopyError {
+  return new UnverifiedCopyError(
+    `${what} (${TRUST_WORDS[state]}). To restore it anyway, pass ${ALLOW_FLAGS[state]}.`,
+    state,
+  );
+}
 
 async function chooseCopy(
   s: OffsiteSettings,
@@ -426,7 +484,7 @@ async function chooseCopy(
 ): Promise<ChosenCopy> {
   const wantedArchive = arg(args, '--name');
   const wantedRun = arg(args, '--run');
-  const allow = args.includes(ALLOW_UNVERIFIED);
+  const allowed = (t: AllowedState) => args.includes(ALLOW_FLAGS[t]);
   if (wantedArchive !== null && wantedRun !== null)
     throw new Error('Give --name or --run, not both.');
   if (wantedArchive !== null && !ARCHIVE_NAME_RE.test(wantedArchive))
@@ -461,8 +519,9 @@ async function chooseCopy(
     pick = { kind: 'mirror', a: r };
   } else {
     // Newest first, either kind; dates that cannot be trusted never
-    // make a copy the newest. The first verified copy wins; copies that
-    // cannot be verified are listed and used only with the flag.
+    // make a copy the newest. The first verified copy wins. Without
+    // one, the newest copy of the most trustworthy other state is
+    // offered, and used only with that state's flag.
     const all: Candidate[] = [
       ...archives.map((a) => ({ kind: 'archive' as const, a })),
       ...runs.map((a) => ({ kind: 'mirror' as const, a })),
@@ -470,7 +529,7 @@ async function chooseCopy(
       .filter((c) => !suspectDate(c.a, now))
       .sort((x, y) => y.a.createdAt.getTime() - x.a.createdAt.getTime());
     if (all.length === 0) throw new Error('No complete off-site copy was found.');
-    let fallback: { c: Candidate; checked: Checked } | null = null;
+    const fallback = new Map<AllowedState, { c: Candidate; checked: Checked }>();
     for (const c of all) {
       const r = await checkCopy(s3, s, c.kind, c.a, key, installIds);
       const label = c.kind === 'archive' ? c.a.id.replace(/\.enc$/, '') : `mirror:${c.a.id}`;
@@ -480,17 +539,16 @@ async function chooseCopy(
         break;
       }
       err(`Skipped ${label}: ${TRUST_WORDS[r.check.trust]}. ${r.check.reason ?? ''}`.trim());
-      if (!fallback && r.check.trust !== 'bad') fallback = { c, checked: r };
+      const t = r.check.trust;
+      if (isAllowedState(t) && !fallback.has(t)) fallback.set(t, { c, checked: r });
     }
     if (!pick) {
-      if (!fallback) throw new Error('No off-site copy with a good signature was found.');
-      if (!allow) {
-        throw new UnverifiedCopyError(
-          `No verified copy was found. The newest usable one cannot be verified (${TRUST_WORDS[fallback.checked.check.trust]}). To restore it anyway, pass ${ALLOW_UNVERIFIED}.`,
-        );
-      }
-      pick = fallback.c;
-      checked = fallback.checked;
+      const state = FALLBACK_ORDER.find((t) => fallback.has(t));
+      if (!state) throw new Error('No off-site copy with a good signature was found.');
+      const f = fallback.get(state)!;
+      if (!allowed(state)) throw needFlag(state, 'No verified copy was found. The best one left');
+      pick = f.c;
+      checked = f.checked;
     }
   }
   if (!checked) checked = await checkCopy(s3, s, pick.kind, pick.a, key, installIds);
@@ -500,12 +558,10 @@ async function chooseCopy(
       `Refusing this copy: ${check.reason ?? 'its signature does not verify.'} It was not made by your portal as it is, so it is never restored.`,
     );
   }
-  if (check.trust !== 'verified' && !allow) {
-    throw new UnverifiedCopyError(
-      `This copy cannot be verified (${TRUST_WORDS[check.trust]}). ${check.reason ?? ''} To restore it anyway, pass ${ALLOW_UNVERIFIED}.`,
-    );
+  if (isAllowedState(check.trust) && !allowed(check.trust)) {
+    throw needFlag(check.trust, `This copy is not verified. ${check.reason ?? ''}`.trim());
   }
-  const m = check.trust === 'verified' ? check.manifest : null;
+  const m = signedManifest(check);
   let fingerprint = 'unknown';
   if (m) fingerprint = m.key;
   else {
@@ -522,8 +578,41 @@ async function chooseCopy(
     fingerprint,
     suspect: suspectDate(pick.a, now),
     check,
+    signed: m,
     marker: checked.marker,
   };
+}
+
+/** What was and was not checked for the chosen copy, in plain words. */
+export function checkedLines(c: Pick<ChosenCopy, 'check' | 'signed'>): string[] {
+  const sig = c.check.signer ?? 'unknown';
+  switch (c.check.trust) {
+    case 'verified':
+      return [
+        `Signature: verified with the verify key ${sig} in your key file, for the portal install ${c.signed?.install.slice(0, 8) ?? '?'} this folder belongs to.`,
+        'Checked: the size and SHA-256 of every downloaded file, against the signed record, before it is decrypted.',
+      ];
+    case 'foreign':
+      return [
+        `STATE: SIGNED FOR ANOTHER PORTAL INSTALL. The signature verified with the verify key ${sig} in your key file, but it names the portal install ${c.signed?.install.slice(0, 8) ?? '?'}, which is not one this folder belongs to.`,
+        'Checked: the signature, and the size and SHA-256 of every downloaded file against the signed record, before it is decrypted.',
+        'Not checked: that the portal this folder belongs to made this copy.',
+      ];
+    case 'untrusted':
+      return [
+        `STATE: SIGNER NOT CHECKED. The copy claims the verify key ${sig}; that claim is not checked, because your key file does not hold that key.`,
+        'Not checked: who made this copy. Nothing proves your portal made it.',
+        'Checked only against unsigned records in the bucket: the size and SHA-256 of the downloaded files. That catches damage, not a deliberate change.',
+      ];
+    case 'unsigned':
+      return [
+        'STATE: NOT SIGNED. The copy carries no signature.',
+        'Not checked: who made this copy. Nothing proves your portal made it.',
+        'Checked only against unsigned records in the bucket, where there are any: the size and SHA-256 of the downloaded files. That catches damage, not a deliberate change.',
+      ];
+    default:
+      return ['STATE: BAD SIGNATURE. This copy is never used.'];
+  }
 }
 
 function printCopy(io: CliIo, c: ChosenCopy) {
@@ -534,15 +623,13 @@ function printCopy(io: CliIo, c: ChosenCopy) {
   result(io, 'bytes', c.bytes);
   result(io, 'fingerprint', c.fingerprint);
   result(io, 'signature', c.check.trust);
-  if (c.check.signer) result(io, 'signedBy', c.check.signer);
-  if (c.check.trust === 'verified' && c.check.manifest)
-    result(io, 'install', c.check.manifest.install);
+  // A signer is named as checked only when its signature verified.
+  if (c.signed && c.check.signer) result(io, 'signedBy', c.check.signer);
+  else if (c.check.trust === 'untrusted' && c.check.signer)
+    result(io, 'claimedSigner', c.check.signer);
+  if (c.signed) result(io, 'install', c.signed.install);
   if (c.suspect) result(io, 'suspect', c.suspect);
-  if (c.check.trust !== 'verified') {
-    io.err(
-      `WARNING: this copy is ${TRUST_WORDS[c.check.trust]}. Nothing proves your portal made it. ${c.check.reason ?? ''}`.trim(),
-    );
-  }
+  for (const line of checkedLines(c)) io.err(line);
 }
 
 async function cmdDescribe(io: CliIo, args: string[], now: Date) {
@@ -598,10 +685,11 @@ async function cmdFetch(io: CliIo, args: string[], now: Date) {
   assertKeyMatches(chosen, key);
   const name = chosen.name;
   const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${name}${OFFSITE_LAYOUT.sealed}`;
-  const m = chosen.check.trust === 'verified' ? (chosen.check.manifest as ArchiveManifest) : null;
-  // Without a verified signature the sidecar's own checksum still
-  // catches damage, though not a deliberate change.
-  const side = chosen.marker ?? {};
+  // With a signature that verified (verified or foreign), only the
+  // signed record is used. Without one, the sidecar's own checksum
+  // still catches damage, though not a deliberate change.
+  const m = chosen.signed as ArchiveManifest | null;
+  const side = m ? {} : (chosen.marker ?? {});
   const sideSha =
     typeof side.sealedSha256 === 'string' && /^[0-9a-f]{64}$/.test(side.sealedSha256)
       ? side.sealedSha256
@@ -645,8 +733,8 @@ async function cmdFetchMirror(io: CliIo, args: string[], now: Date) {
     s,
     key,
     chosen.name,
-    chosen.check.trust === 'verified' ? (chosen.check.manifest as MirrorManifest) : null,
-    chosen.marker,
+    chosen.signed as MirrorManifest | null,
+    chosen.signed ? null : chosen.marker,
   );
 }
 
@@ -661,7 +749,7 @@ async function cmdPutMirrorObjects(io: CliIo, args: string[], now: Date) {
     s,
     key,
     chosen.name,
-    chosen.check.trust === 'verified' ? (chosen.check.manifest as MirrorManifest) : null,
+    chosen.signed as MirrorManifest | null,
     arg(args, '--work') ?? os.tmpdir(),
   );
 }
@@ -815,7 +903,12 @@ export async function runCli(argv: string[], io: CliIo, now = new Date()): Promi
   } catch (e) {
     const msg = describeS3Error(e);
     io.err(`offsite: ${msg}`);
-    return e instanceof UnverifiedCopyError ? EXIT_UNVERIFIED : 1;
+    if (e instanceof UnverifiedCopyError) {
+      // Tells the restore script which state to ask about.
+      io.out(`needs=${e.state}`);
+      return EXIT_UNVERIFIED;
+    }
+    return 1;
   }
 }
 

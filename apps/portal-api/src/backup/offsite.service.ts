@@ -69,6 +69,7 @@ import {
   type EndpointPolicy,
 } from './offsite-endpoint.js';
 import {
+  MAX_SET_ASIDE_CHECKED,
   OffsiteMirror,
   PrismaMirrorIndex,
   sweepIndexLeftovers,
@@ -82,6 +83,7 @@ import {
   selectExpired,
   setAsideReason,
   staleNoticeKey,
+  suspectDate,
 } from './offsite-rules.js';
 import {
   createOffsiteClient,
@@ -101,6 +103,8 @@ const AAD_NAME_KEY = 'backup-offsite:mirror-name-key';
 const AAD_SIGNING_KEY = 'backup-offsite:signing-key';
 /** Earlier verify keys kept, newest last. */
 const MAX_PREVIOUS_VERIFY_KEYS = 20;
+/** Names of set-aside copies given in one log line or notice. */
+const SET_ASIDE_NAMES = 20;
 
 /** An upload whose beat is older than this belongs to a dead process. */
 const STALE_UPLOAD_MS = 5 * 60 * 1000;
@@ -495,7 +499,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   /**
    * Make a new signing key. The old verify key is kept in the list of
    * this portal's earlier keys, so copies it signed still count as
-   * good. The operator admins get a notice with both fingerprints.
+   * good, but only when the stored key opened and matched its verify
+   * key: a verify key that did not match is never trusted. The change
+   * is made only if the stored key is still the one read, so two
+   * changes at once cannot lose a key. The operator admins get a
+   * notice with both fingerprints, saying whether an admin or the
+   * server made the change.
    */
   async replaceSigningKey(
     by: string | null,
@@ -512,17 +521,32 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const row = await this.backup.configRow();
     const made = generateSigningKey();
     const enc = encryptCredential(made.seed.toString('base64'), AAD_SIGNING_KEY);
-    let from: OffsiteVerifyKey | null = null;
+    const current =
+      row.offsiteSigningKeyEncrypted && row.offsiteSigningKeyIv
+        ? this.openSigningKey(
+            row.offsiteSigningKeyEncrypted,
+            row.offsiteSigningKeyIv,
+            row.offsiteVerifyKey,
+          )
+        : null;
+    // Named in the notice either way; kept as an earlier key only when
+    // it is the verify key of the key that was in use.
+    let stored: OffsiteVerifyKey | null = null;
     try {
-      from = row.offsiteVerifyKey ? parseVerifyKey(row.offsiteVerifyKey) : null;
+      stored = row.offsiteVerifyKey ? parseVerifyKey(row.offsiteVerifyKey) : null;
     } catch {
-      from = null;
+      stored = null;
     }
-    const previous = (row.offsitePreviousVerifyKeys ?? []).filter((t) => t !== from?.text);
-    if (from) previous.push(from.text);
+    const keep = current ? current.verifyKey : null;
+    const previous = (row.offsitePreviousVerifyKeys ?? []).filter((t) => t !== keep?.text);
+    if (keep) previous.push(keep.text);
     const changedAt = new Date();
-    await this.prisma.backupConfig.update({
-      where: { id: row.id },
+    const res = await this.prisma.backupConfig.updateMany({
+      where: {
+        id: row.id,
+        offsiteSigningKeyEncrypted: row.offsiteSigningKeyEncrypted ?? null,
+        offsiteVerifyKey: row.offsiteVerifyKey ?? null,
+      },
       data: {
         offsiteSigningKeyEncrypted: enc.ciphertext,
         offsiteSigningKeyIv: enc.iv,
@@ -532,22 +556,54 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         offsiteSigningKeyChangedBy: by,
       },
     });
+    if (res.count !== 1) {
+      // Changed by someone else since it was read.
+      if (why === 'unreadable') {
+        const again = await this.backup.configRow();
+        const theirs =
+          again.offsiteSigningKeyEncrypted && again.offsiteSigningKeyIv
+            ? this.openSigningKey(
+                again.offsiteSigningKeyEncrypted,
+                again.offsiteSigningKeyIv,
+                again.offsiteVerifyKey,
+              )
+            : null;
+        if (theirs) {
+          return {
+            key: theirs,
+            from: stored?.fingerprintText ?? null,
+            to: theirs.verifyKey.fingerprintText,
+          };
+        }
+      }
+      throw new ConflictException(
+        'The signing key was changed at the same time by another request. Reload the page and try again.',
+      );
+    }
     const to = made.verifyKey.fingerprintText;
-    this.log.warn(
-      `The off-site signing key was replaced (verify key ${from?.fingerprintText ?? 'none'} is now ${to}). Add the new verify key to your key file; copies signed before stay valid with the old one.`,
-    );
+    const from = stored?.fingerprintText ?? null;
+    if (why === 'unreadable') {
+      this.log.warn(
+        `The off-site signing key was replaced automatically (verify key ${from ?? 'none'} is now ${to}). The old verify key is not kept as one of this portal's keys. Add the new verify key to your key file.`,
+      );
+    } else {
+      this.log.warn(
+        `The off-site signing key was replaced by an admin (verify key ${from ?? 'none'} is now ${to}). Add the new verify key to your key file; copies signed before stay valid with the old one.`,
+      );
+    }
     try {
       await this.notice?.announceOffsite(`signing:${to}:${changedAt.toISOString()}`, {
         kind: 'offsite_signing_key_changed',
-        from: from?.fingerprintText ?? null,
+        from,
         to,
+        automatic: why === 'unreadable',
       });
     } catch (e) {
       this.log.warn(
         `The signing key change notice could not be sent: ${e instanceof Error ? e.message : e}`,
       );
     }
-    return { key: made, from: from?.fingerprintText ?? null, to };
+    return { key: made, from, to };
   }
 
   /** This portal's verify keys, current and earlier: the ones its retention trusts. */
@@ -1467,6 +1523,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
    * when no other upload is running. Bucket versioning or object lock
    * at the provider is what protects history from a compromised
    * server; see the help page.
+   *
+   * Every sidecar and done marker is read before anything is deleted.
+   * One that cannot be read or parsed stops the pass: nothing is
+   * deleted, and it is reported once (see reportStopped).
    */
   async enforceRetention(
     s: OffsiteSettings,
@@ -1492,12 +1552,26 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const archivesPrefix = `${s.prefix}${OFFSITE_LAYOUT.archives}`;
     const listing = [];
     for await (const o of listObjects(s3, s.bucket!, archivesPrefix, signal)) listing.push(o);
-    const artifacts = archiveArtifacts(listing, archivesPrefix);
+    const all = archiveArtifacts(listing, archivesPrefix).sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    );
     // Only signed copies this portal can verify count as good; a copy
-    // with a bad signature is set aside like a future-dated one.
+    // with a bad signature is set aside like a future-dated one. Newest
+    // first; after MAX_SET_ASIDE_CHECKED bad ones, older complete copies
+    // are left out of this pass (never deleted, checked next time).
     const trusted = await this.ownVerifyKeys();
-    for (const a of artifacts) {
-      if (!a.complete) continue;
+    const artifacts: typeof all = [];
+    let bad = 0;
+    let unchecked = 0;
+    for (const a of all) {
+      if (!a.complete || suspectDate(a, now)) {
+        artifacts.push(a);
+        continue;
+      }
+      if (bad >= MAX_SET_ASIDE_CHECKED) {
+        unchecked += 1;
+        continue;
+      }
       stop();
       let sidecar: unknown = null;
       try {
@@ -1506,8 +1580,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         );
       } catch (e) {
         if (signal?.aborted) throw e;
-        a.trust = 'unsigned';
-        continue;
+        sidecar = null;
+      }
+      if (!sidecar || typeof sidecar !== 'object' || Array.isArray(sidecar)) {
+        await this.reportStopped(a.id, now);
+        return 0;
       }
       a.trust = artifactTrust(
         checkSignature(sidecar, trusted, {
@@ -1519,6 +1596,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         sidecar,
         s.installId,
       );
+      if (a.trust === 'bad') bad += 1;
+      artifacts.push(a);
+    }
+    const runs = await this.mirror.classifyRuns(s3, s, now, trusted, signal);
+    if (runs.unreadable !== null) {
+      await this.reportStopped(runs.unreadable, now);
+      return 0;
     }
     let removed = 0;
     for (const id of selectExpired(artifacts, now, s.retentionDays)) {
@@ -1538,48 +1622,82 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const collect = !(await this.otherUploadRunning(self));
     if (!collect)
       this.log.log('Another off-site upload is running; mirror files are not collected this time.');
-    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect, signal, trusted);
+    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect, runs, signal);
     removed += m.removed;
-    if (m.unknownKept > 0) {
+    if (m.orphansRemoved > 0) {
       this.log.log(
-        `${m.unknownKept} mirrored file(s) in the bucket are not in this server's index and were kept. A bucket lifecycle rule can remove them once they are older than your retention window.`,
+        `Removed ${m.orphansRemoved} mirrored file(s) that no run in the bucket can refer to.`,
       );
     }
-    const suspect = [
+    if (m.unknownKept > 0) {
+      this.log.log(
+        `${m.unknownKept} mirrored file(s) in the bucket are not in this server's index and were kept. They are removed once every run in the bucket was made by this server since its index started.`,
+      );
+    }
+    if (unchecked + runs.unchecked > 0) {
+      this.log.warn(
+        `${unchecked + runs.unchecked} older off-site copies were not checked this pass because many copies were set aside; they were kept, and no mirrored file was collected.`,
+      );
+    }
+    const setAside = [
       ...partitionByDate(artifacts, now).suspect.map((a) => ({
         id: a.id,
         why: setAsideReason(a, now),
       })),
       ...m.suspect.map((r) => ({ id: `mirror:${r.id}`, why: r.why })),
     ];
-    for (const x of suspect) await this.reportSuspect(x.id, x.why);
+    await this.reportSetAside(setAside);
     if (removed > 0) this.log.log(`Off-site retention removed ${removed} object(s).`);
     return removed;
   }
 
   /**
-   * A copy whose name is dated in the future, or well after the
-   * provider says it was written, was not made by this portal's clock.
-   * It is kept, never counted as the newest copy, and reported once.
+   * A sidecar or done marker that could not be read or parsed stops
+   * the retention pass with nothing deleted. One log line per pass,
+   * and at most one notice a day.
    */
-  private async reportSuspect(id: string, why: string | null): Promise<void> {
-    if (why === 'bad-signature') {
-      this.log.warn(
-        `Off-site copy ${id} is not signed by this portal, or its signature does not match the copy. It was not used or deleted. Check who can write to the bucket.`,
-      );
-    } else {
-      this.log.warn(
-        `Off-site copy ${id} is dated ${why === 'future' ? 'in the future' : 'after the provider recorded its upload'}. It was not used or deleted. Check who can write to the bucket.`,
-      );
-    }
+  private async reportStopped(id: string, now: Date): Promise<void> {
+    this.log.warn(
+      `Off-site retention stopped: the record of copy ${id} could not be read. Nothing was deleted. Check the bucket.`,
+    );
     try {
-      await this.notice?.announceOffsite(
-        `${why === 'bad-signature' ? 'unverified' : 'suspect'}:${id}`,
-        {
-          kind: why === 'bad-signature' ? 'offsite_unverified_copy' : 'offsite_suspect_copy',
-          name: id,
-        },
-      );
+      await this.notice?.announceOffsite(`retention-stopped:${now.toISOString().slice(0, 10)}`, {
+        kind: 'offsite_retention_stopped',
+        name: id,
+      });
+    } catch {
+      // The log line above stands.
+    }
+  }
+
+  /**
+   * Copies set aside this pass (dated in the future, or after the
+   * provider recorded them, or with a bad signature): kept, never
+   * counted as the newest copy. One log line and one summary notice
+   * per pass, with counts and at most SET_ASIDE_NAMES names; the same
+   * set of copies is not announced twice.
+   */
+  private async reportSetAside(
+    copies: Array<{ id: string; why: 'future' | 'after-upload' | 'bad-signature' | null }>,
+  ): Promise<void> {
+    if (copies.length === 0) return;
+    const badSignature = copies.filter((c) => c.why === 'bad-signature').length;
+    const dated = copies.length - badSignature;
+    const ids = copies.map((c) => c.id).sort();
+    const names = ids.slice(0, SET_ASIDE_NAMES).join(', ');
+    const more = ids.length > SET_ASIDE_NAMES ? ` and ${ids.length - SET_ASIDE_NAMES} more` : '';
+    this.log.warn(
+      `${copies.length} off-site copies were set aside (${badSignature} not signed by this portal or not matching their signature, ${dated} with a date that cannot be trusted): ${names}${more}. They were not used or deleted. Check who can write to the bucket.`,
+    );
+    const digest = createHash('sha256').update(ids.join('\n')).digest('hex').slice(0, 32);
+    try {
+      await this.notice?.announceOffsite(`set-aside:${digest}`, {
+        kind: 'offsite_set_aside',
+        count: copies.length,
+        badSignature,
+        dated,
+        name: `${names}${more}`,
+      });
     } catch {
       // The log line above stands.
     }

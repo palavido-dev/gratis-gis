@@ -537,7 +537,10 @@ describe('interop with infra/recovery/offsite-key.mjs', () => {
     const other = await makeCopy(randomBytes(100), generateSigningKey());
     r = node(withPass('verify', kf, other.side, other.enc));
     expect(r.status).toBe(1);
-    expect(r.stderr.toString()).toMatch(/not in the key file/);
+    expect(r.stderr.toString()).toMatch(
+      /claims the verify key .*not in the key file, so that claim is not checked/,
+    );
+    expect(r.stderr.toString()).not.toMatch(/trust/);
     // A good sidecar under another copy's name.
     const good = await makeCopy(randomBytes(100));
     fs.copyFileSync(
