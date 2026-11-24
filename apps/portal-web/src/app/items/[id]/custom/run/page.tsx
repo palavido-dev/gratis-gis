@@ -33,6 +33,8 @@ import {
 } from '@gratis-gis/shared-types';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch, hasSession, publicApiFetch } from '@/lib/api';
+import { getPortalFeatures } from '@/lib/portal-features';
+import { withListOrgId } from '@/lib/public-org';
 import { CustomRuntimeClient } from '../runtime-client';
 
 interface Props {
@@ -396,7 +398,11 @@ export default async function CustomAppRuntimePage(props: Props) {
   // because that loop needs to know which layers a map already draws.
   const [basemapItems, themeItems] = await Promise.all([
     fetchItemList<Array<Item<BasemapData>>>(
-      '/api/items?type=basemap&full=1',
+      withListOrgId(
+        '/api/items?type=basemap&full=1',
+        item.orgId,
+        (await getPortalFeatures()).multiTenant,
+      ),
     ).catch(() => [] as Array<Item<BasemapData>>),
     fetchItemList<Array<Item<ThemeItemData> & { seedKind?: string | null }>>(
       isAnonymous

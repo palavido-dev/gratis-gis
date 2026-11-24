@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { landingOrgSlug, publicOrgSlug, withOrgQuery } from './public-org';
+import { landingOrgSlug, publicOrgSlug, withListOrgId, withOrgQuery } from './public-org';
 
 describe('publicOrgSlug', () => {
   it('reads the org slug from search params or a query object', () => {
@@ -32,5 +32,15 @@ describe('landingOrgSlug', () => {
     expect(landingOrgSlug({ org: 'acme' }, true)).toBe('acme');
     expect(landingOrgSlug({ org: 'acme' }, false)).toBeUndefined();
     expect(landingOrgSlug(undefined, true)).toBeUndefined();
+  });
+});
+
+describe('withListOrgId', () => {
+  it("names the item's org on a signed-out list only when the install serves many orgs", () => {
+    const path = '/api/items?type=basemap&full=1';
+    expect(withListOrgId(path, 'o 1', true)).toBe('/api/items?type=basemap&full=1&orgId=o%201');
+    expect(withListOrgId('/api/items', 'o1', true)).toBe('/api/items?orgId=o1');
+    expect(withListOrgId(path, 'o1', false)).toBe(path);
+    expect(withListOrgId(path, undefined, true)).toBe(path);
   });
 });
