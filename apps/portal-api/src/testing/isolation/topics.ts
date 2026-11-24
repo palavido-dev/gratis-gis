@@ -446,6 +446,65 @@ export const TOPICS: Topic[] = [
     },
   },
   {
+    name: "expressions: layer names resolve inside the caller's org",
+    modes: BOTH,
+    async run(state) {
+      const { app, fx } = state;
+      const p: string[] = [];
+      // A layer whose title only A uses, with A's marker in its rows.
+      const { id } = await createItem(state, fx.A.users.admin, {
+        type: 'data_layer',
+        title: 'Only in A layer',
+        access: 'private',
+        data: {
+          version: 3,
+          layers: [
+            {
+              id: LAYER_ID,
+              name: 'Sites',
+              geometryType: 'point',
+              fields: [{ name: 'note', type: 'string' }],
+            },
+          ],
+        },
+      });
+      if (!id) return verdict(['A could not create its layer']);
+      await api(
+        app.baseUrl,
+        fx.A.users.admin,
+        'POST',
+        `/api/items/${id}/layers/${LAYER_ID}/features`,
+        {
+          features: [
+            {
+              geometry: { type: 'Point', coordinates: [140, -35] },
+              properties: { note: fx.A.secrets[0] },
+            },
+          ],
+        },
+      );
+      const layer = fx.B.items['data_layer:private']!;
+      const r = await api(
+        app.baseUrl,
+        fx.B.users.admin,
+        'POST',
+        `/api/items/${layer}/layers/${LAYER_ID}/expressions/evaluate`,
+        {
+          expressions: {
+            sameTitle: "nearest(layer('Shared title data_layer private')).note",
+            onlyA: "nearest(layer('Only in A layer')).note",
+          },
+        },
+      );
+      if (r.status !== 200 && r.status !== 201) p.push(`evaluate: ${short(r)}`);
+      const leaks = fx.A.secrets.filter((x) => r.text.includes(x));
+      if (leaks.length) p.push(`B's expression read A's rows: ${leaks.join(', ')}`);
+      if (!r.text.includes(fx.B.secrets[0]!))
+        p.push(`control: the same title did not find B's own layer: ${short(r)}`);
+      return verdict(p);
+    },
+  },
+  {
     name: "realtime: a ticket for one map cannot join another org's map room",
     modes: BOTH,
     async run(state) {
