@@ -96,6 +96,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- An app built on a map now draws exactly the map's layers. A layer removed
+  from the map no longer stays on the app's map. The app's Layers list
+  still feeds charts and tables, and marks any layer that is not on the
+  map (#797).
 - Saving a notification preference, or an organization's default for
   a notification, no longer fails with a server error. A migration
   changes `notification_type_default.type` and `.channel` to the enum
