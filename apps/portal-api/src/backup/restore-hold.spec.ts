@@ -169,6 +169,24 @@ describe('runRestore', () => {
         createMany: jest.fn((a: unknown) => ({ createRestores: a })),
         create: jest.fn(async () => ({ id: 'audit-1' })),
       },
+      // Off-site state the restore keeps from the live server.
+      backupOffsiteNotice: {
+        findMany: jest.fn(async () => []),
+        deleteMany: jest.fn(() => 'deleteOffsiteNotices'),
+        createMany: jest.fn((a: unknown) => ({ createOffsiteNotices: a })),
+      },
+      backupRestoreTest: {
+        findMany: jest.fn(async () => []),
+        deleteMany: jest.fn(() => 'deleteRestoreTests'),
+        createMany: jest.fn((a: unknown) => ({ createRestoreTests: a })),
+      },
+      backupOffsiteObject: {
+        deleteMany: jest.fn(() => 'deleteOffsiteObjects'),
+      },
+      backupConfig: {
+        findFirst: jest.fn(async () => ({ offsitePublicKey: 'ggpub1:live' })),
+        updateMany: jest.fn((a: unknown) => ({ updateConfig: a })),
+      },
       $transaction: tx,
     };
     const file = archive(
@@ -246,6 +264,12 @@ describe('runRestore', () => {
     expect(t.prisma.backupFailureNotice.createMany).toHaveBeenCalledWith({
       data: [{ runId: 'run-old' }],
     });
+    // The live off-site settings win, and the archive's record of
+    // mirrored files is emptied.
+    expect(t.prisma.backupConfig.updateMany).toHaveBeenCalledWith({
+      data: { offsitePublicKey: 'ggpub1:live' },
+    });
+    expect(t.prisma.backupOffsiteObject.deleteMany).toHaveBeenCalledWith({});
     // Snapshot is taken before pg_restore replaces the tables.
     const snapOrder = t.prisma.backupRun.findMany.mock.invocationCallOrder[0]!;
     const restoreOrder = t.pgRestore.mock.invocationCallOrder[0]!;

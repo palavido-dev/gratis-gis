@@ -670,11 +670,16 @@ export class OffsiteMirror {
     now: Date,
     index: MirrorIndexStore | null,
     collectFiles: boolean,
+    signal?: AbortSignal,
   ): Promise<{
     removed: number;
     unknownKept: number;
     suspect: Array<{ id: string; why: 'future' | 'after-upload' | null }>;
   }> {
+    // A stopped upload's clean-up stops too: its claim is already gone.
+    const stop = () => {
+      if (signal?.aborted) throw signal.reason as Error;
+    };
     const runs = await this.listRuns(s3, s);
     if (runs.length === 0) return { removed: 0, unknownKept: 0, suspect: [] };
     const { usable, suspect } = partitionByDate(runs, now);
@@ -687,7 +692,8 @@ export class OffsiteMirror {
           Number(x.endsWith(OFFSITE_LAYOUT.doneMarker)),
       );
       for (const k of ordered) {
-        await deleteObject(s3, s.bucket!, k);
+        stop();
+        await deleteObject(s3, s.bucket!, k, signal);
         removed += 1;
       }
     }
@@ -701,11 +707,12 @@ export class OffsiteMirror {
     const target = mirrorTarget(s);
     const objectsPrefix = this.objectsPrefix(s);
     for (;;) {
+      stop();
       const names = await index.olderThan(target, oldest, BATCH);
       if (names.length === 0) break;
       await index.remove(target, names);
       for (const n of names) {
-        await deleteObject(s3, s.bucket!, `${objectsPrefix}${n}`);
+        await deleteObject(s3, s.bucket!, `${objectsPrefix}${n}`, signal);
         removed += 1;
       }
       if (names.length < BATCH) break;

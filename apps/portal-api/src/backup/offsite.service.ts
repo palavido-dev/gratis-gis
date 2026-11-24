@@ -1151,7 +1151,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const collect = !(await this.otherUploadRunning(self));
     if (!collect)
       this.log.log('Another off-site upload is running; mirror files are not collected this time.');
-    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect);
+    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect, signal);
     removed += m.removed;
     if (m.unknownKept > 0) {
       this.log.log(
