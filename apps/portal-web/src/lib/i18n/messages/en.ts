@@ -1042,6 +1042,17 @@ export const en = {
     csvArea: 'Area',
     csvLength: 'Length',
     csvPercent: 'Percent of area',
+    report: {
+      button: 'PDF',
+      title: "What's here report",
+      generated: 'Made',
+      place: 'Place',
+      picked: 'Shapes picked',
+      nothingIn: 'Nothing found in:',
+      by: 'by',
+      unavailable: 'Could not read:',
+      failed: 'Could not make the PDF',
+    },
   },
   mapSaveAs: {
     button: 'Save as',

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import type * as maplibregl from 'maplibre-gl';
+
 import { parseApiError } from '@/lib/api-error';
 import { AreaExpiredError, fetchAggregate } from '@/lib/layer-aggregate';
 import type { AreaUnit, DistanceUnit } from '@/lib/measure';
@@ -349,4 +351,86 @@ export function screenCsv(args: {
   // CRLF and a BOM: Excel on Windows opens UTF-8 CSV correctly only
   // with the BOM, and names with accents are common in this data.
   return `\uFEFF${lines.join('\r\n')}\r\n`;
+}
+
+/** What the report needs that the panel already knows. */
+export interface ReportBody {
+  areaId: string;
+  distanceMeters: number;
+  layers: Array<{ itemId: string; layerKey: string; title: string; breakdownField?: string }>;
+  areaUnit: AreaUnit;
+  lengthUnit: DistanceUnit;
+  paper: 'letter' | 'a4';
+  locale: string;
+  timeZone: string;
+  labels: Record<string, string>;
+  place?: string;
+  picked: string[];
+  mapImage?: string;
+}
+
+/**
+ * Ask the server for the PDF. The server reads every layer again under
+ * the caller's own access, so the body carries what to report on and
+ * never a number. Throws AreaExpiredError when the area has lapsed.
+ */
+export async function requestReport(body: ReportBody, failure: string): Promise<Blob> {
+  const res = await fetch('/api/portal/whats-here/report', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 410) throw new AreaExpiredError('This area has expired.');
+  if (!res.ok) throw new Error(await parseApiError(res, failure));
+  return res.blob();
+}
+
+/**
+ * A picture of the map for the report, framed on the area. The camera
+ * moves only when the area is not already in view, and goes back
+ * after. Null when the canvas cannot be read (a basemap served without
+ * CORS taints it): the report then goes out without a map.
+ */
+export async function snapshotMap(
+  map: maplibregl.Map,
+  bbox: [number, number, number, number],
+): Promise<string | null> {
+  const [w, s, e, n] = bbox;
+  const view = map.getBounds();
+  const inView = view.contains([w, s]) && view.contains([e, n]);
+  const camera = {
+    center: map.getCenter(),
+    zoom: map.getZoom(),
+    bearing: map.getBearing(),
+    pitch: map.getPitch(),
+  };
+  const settle = (event: 'idle' | 'render') =>
+    new Promise<void>((resolve) => {
+      const timer = window.setTimeout(resolve, 8000);
+      map.once(event, () => {
+        window.clearTimeout(timer);
+        resolve();
+      });
+    });
+  try {
+    if (!inView) {
+      const idle = settle('idle');
+      map.fitBounds(
+        [
+          [w, s],
+          [e, n],
+        ],
+        { padding: 40, maxZoom: 18, duration: 0 },
+      );
+      await idle;
+    }
+    const rendered = settle('render');
+    map.triggerRepaint();
+    await rendered;
+    return map.getCanvas().toDataURL('image/jpeg', 0.85);
+  } catch {
+    return null;
+  } finally {
+    if (!inView) map.jumpTo(camera);
+  }
 }

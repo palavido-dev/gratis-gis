@@ -244,6 +244,10 @@ function isAnonymousPostAllowed(suffix: string): boolean {
   // area-of-interest.controller.ts for why that stands in for the
   // honeypot). Exact path, no parameters.
   if (suffix === 'areas-of-interest') return true;
+  // What's Here PDF (#796) on a public app. portal-api's handler is
+  // @Public(), throttled to 10/min, and reads public layers only for
+  // an anonymous caller (whats-here-report.service.ts). Exact path.
+  if (suffix === 'whats-here/report') return true;
   // Tool-run for publicly-shared Custom Web Apps embedding an OSM
   // tool. portal-api's POST /api/tools/:id/run is @Public() and
   // refuses any tool item whose access != 'public' (and any output

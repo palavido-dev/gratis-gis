@@ -994,6 +994,17 @@ export const fr: Partial<CatalogShape> = {
     csvArea: 'Surface',
     csvLength: 'Longueur',
     csvPercent: 'Pourcentage de la zone',
+    report: {
+      button: 'PDF',
+      title: 'Rapport Ce qui est ici',
+      generated: 'Créé le',
+      place: 'Lieu',
+      picked: 'Formes choisies',
+      nothingIn: 'Rien trouvé dans :',
+      by: 'par',
+      unavailable: 'Lecture impossible :',
+      failed: 'Impossible de créer le PDF',
+    },
   },
   mapSaveAs: {
     button: 'Enregistrer sous',
