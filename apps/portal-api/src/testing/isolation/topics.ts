@@ -745,6 +745,34 @@ const REFERENCE_CASES: ReferenceCase[] = [
     data: (ref) => ({ action: { kind: 'open-item', targetItemId: ref } }),
   },
   { label: 'print template map', type: 'print_template', data: (ref) => ({ defaultMapId: ref }) },
+  {
+    label: 'basemap composed map',
+    type: 'basemap',
+    data: (ref) => ({ version: 1, kind: 'composed-map', mapItemId: ref }),
+  },
+  {
+    label: 'data layer pick list',
+    type: 'data_layer',
+    data: (ref) => ({
+      version: 3,
+      layers: [
+        {
+          id: LAYER_ID,
+          name: 'Sites',
+          geometryType: 'point',
+          fields: [
+            {
+              name: 'kind',
+              type: 'string',
+              label: 'Kind',
+              nullable: true,
+              domain: { type: 'coded-value-ref', pickListItemId: ref },
+            },
+          ],
+        },
+      ],
+    }),
+  },
 ];
 
 /**
