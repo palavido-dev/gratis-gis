@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   AreaExpiredError,
+  DISTANCE_PRESETS,
+  initialUnits,
   measureOpFor,
   percentOfArea,
   pickedAreaGeometry,
+  profileUnitSystem,
+  rememberUnits,
   screenCsv,
   screenLayer,
   toMeters,
@@ -139,5 +143,55 @@ describe('screenCsv', () => {
     expect(lines[1]).toBe('Land Cover,,3,1,,50');
     // A value that a spreadsheet would run as a formula stays text.
     expect(lines[2]).toBe(`Land Cover,"'=cmd|calc",1,1,,50`);
+  });
+});
+
+describe('screen units', () => {
+  const store = new Map<string, string>();
+  beforeEach(() => {
+    store.clear();
+    (globalThis as { window?: unknown }).window = {
+      localStorage: {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => void store.set(k, v),
+      },
+    };
+  });
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it('follows the profile system, imperial when unset', () => {
+    expect(profileUnitSystem()).toBe('imperial');
+    store.set('gg-profile-units', 'metric');
+    expect(profileUnitSystem()).toBe('metric');
+    expect(initialUnits({ system: 'metric' })).toEqual({
+      areaUnit: 'hectares',
+      lengthUnit: 'meters',
+    });
+  });
+
+  it('takes the author default over the system, and the user choice over both', () => {
+    expect(
+      initialUnits({ system: 'imperial', author: { areaUnit: 'square-miles' } }),
+    ).toEqual({ areaUnit: 'square-miles', lengthUnit: 'feet' });
+    rememberUnits({ areaUnit: 'hectares', lengthUnit: 'kilometers' });
+    expect(
+      initialUnits({ system: 'imperial', author: { areaUnit: 'square-miles' } }),
+    ).toEqual({ areaUnit: 'hectares', lengthUnit: 'kilometers' });
+  });
+
+  it('ignores a stored unit it does not know', () => {
+    store.set('gg-whats-here-units', JSON.stringify({ areaUnit: 'furlongs', lengthUnit: 'miles' }));
+    expect(initialUnits({ system: 'imperial' })).toEqual({ areaUnit: 'acres', lengthUnit: 'miles' });
+  });
+
+  it('works with no storage at all', () => {
+    delete (globalThis as { window?: unknown }).window;
+    expect(initialUnits({ system: 'metric' })).toEqual({ areaUnit: 'hectares', lengthUnit: 'meters' });
+  });
+
+  it('offers metric distances to metric users', () => {
+    expect(DISTANCE_PRESETS.metric.map((p) => p.meters)).toEqual([0, 25, 100, 500, 1000]);
   });
 });
