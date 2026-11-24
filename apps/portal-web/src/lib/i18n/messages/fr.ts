@@ -994,6 +994,12 @@ export const fr: Partial<CatalogShape> = {
     csvArea: 'Surface',
     csvLength: 'Longueur',
     csvPercent: 'Pourcentage de la zone',
+    copyLink: 'Lien',
+    copyLinkHint: 'Copier un lien qui ouvre cette zone',
+    linkCopied: 'Lien copié. Toute personne qui peut ouvrir cette carte voit la même zone.',
+    linkCopyByHand: 'Copiez ce lien :',
+    linkTooBig: 'Cette zone est trop détaillée pour être partagée par un lien. Essayez avec moins de formes.',
+    linkArea: 'Cette zone vient d’un lien. Choisissez Dessiner, Point, Adresse ou Choisir des formes pour en commencer une autre.',
     report: {
       button: 'PDF',
       title: 'Rapport Ce qui est ici',

@@ -434,3 +434,147 @@ export async function snapshotMap(
     if (!inView) map.jumpTo(camera);
   }
 }
+
+// ---- Share links ------------------------------------------------------
+
+/** What a share link carries: the area as made, before the distance. */
+export interface SharedArea {
+  geometry: GeoJSON.Geometry;
+  distanceMeters: number;
+  place?: string;
+  /** Map layer id to the field its results were broken down by. */
+  breakdowns?: Record<string, string>;
+}
+
+/** The hash key: `#wh=<code>`. */
+export const SHARE_HASH_KEY = 'wh';
+/** Past this a link is cut off by chat apps and mail clients. */
+const MAX_LINK_CODE = 32_000;
+/** Largest decoded payload a link may carry. */
+const MAX_DECODED = 2 * 1024 * 1024;
+
+function roundCoords(value: unknown, digits: number): unknown {
+  if (typeof value === 'number') return Number(value.toFixed(digits));
+  if (Array.isArray(value)) return value.map((v) => roundCoords(v, digits));
+  return value;
+}
+
+function roundGeometry(g: GeoJSON.Geometry, digits: number): GeoJSON.Geometry {
+  if (g.type === 'GeometryCollection') {
+    return { type: 'GeometryCollection', geometries: g.geometries.map((x) => roundGeometry(x, digits)) };
+  }
+  return { ...g, coordinates: roundCoords(g.coordinates, digits) } as GeoJSON.Geometry;
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(code: string): Uint8Array {
+  const b64 = code.replace(/-/g, '+').replace(/_/g, '/');
+  const s = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
+async function pipe(bytes: Uint8Array, stream: GenericTransformStream): Promise<Uint8Array> {
+  const out = new Blob([new Uint8Array(bytes)]).stream().pipeThrough(stream);
+  return new Uint8Array(await new Response(out).arrayBuffer());
+}
+
+const canCompress = () => typeof CompressionStream !== 'undefined';
+
+/**
+ * The area as a link code. Compressed where the browser can (`z`
+ * prefix), plain otherwise (`j`). Coordinates are rounded to about
+ * 10 cm, then 1 m if the link is still long. Null when even that is
+ * too long to share as a link.
+ */
+export async function encodeSharedArea(area: SharedArea): Promise<string | null> {
+  for (const digits of [6, 5]) {
+    const json = JSON.stringify({
+      v: 1,
+      g: roundGeometry(area.geometry, digits),
+      d: Math.round(area.distanceMeters * 100) / 100,
+      ...(area.place ? { p: area.place } : {}),
+      ...(area.breakdowns && Object.keys(area.breakdowns).length > 0 ? { b: area.breakdowns } : {}),
+    });
+    const bytes = new TextEncoder().encode(json);
+    const code = canCompress()
+      ? `z${toBase64Url(await pipe(bytes, new CompressionStream('deflate-raw')))}`
+      : `j${toBase64Url(bytes)}`;
+    if (code.length <= MAX_LINK_CODE) return code;
+  }
+  return null;
+}
+
+const GEOMETRY_TYPES = new Set([
+  'Point',
+  'MultiPoint',
+  'LineString',
+  'MultiLineString',
+  'Polygon',
+  'MultiPolygon',
+  'GeometryCollection',
+]);
+
+/** A link code back to an area, or null for anything malformed. The
+ *  server checks the shape again when the area is registered. */
+export async function decodeSharedArea(code: string): Promise<SharedArea | null> {
+  try {
+    if (code.length > MAX_LINK_CODE + 1) return null;
+    const kind = code[0];
+    const raw = fromBase64Url(code.slice(1));
+    let bytes: Uint8Array;
+    if (kind === 'z' && canCompress()) bytes = await pipe(raw, new DecompressionStream('deflate-raw'));
+    else if (kind === 'j') bytes = raw;
+    else return null;
+    if (bytes.length > MAX_DECODED) return null;
+    const v = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+    const g = v.g as GeoJSON.Geometry | undefined;
+    if (v.v !== 1 || !g || typeof g !== 'object' || !GEOMETRY_TYPES.has(g.type)) return null;
+    const d = typeof v.d === 'number' && Number.isFinite(v.d) && v.d >= 0 ? v.d : 0;
+    const out: SharedArea = { geometry: g, distanceMeters: d };
+    if (typeof v.p === 'string' && v.p.length <= 500) out.place = v.p;
+    if (v.b && typeof v.b === 'object' && !Array.isArray(v.b)) {
+      const b = Object.fromEntries(
+        Object.entries(v.b as Record<string, unknown>).filter(
+          (e): e is [string, string] => typeof e[1] === 'string' && e[1].length <= 100,
+        ),
+      );
+      if (Object.keys(b).length > 0) out.breakdowns = b;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** The code in the page's `#wh=` hash, if any. */
+export function readShareHash(): string | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  return params.get(SHARE_HASH_KEY);
+}
+
+/** Drop `#wh=` once applied, so the address bar stops claiming an area
+ *  the user may since have changed. Other hash parts stay. */
+export function clearShareHash(): void {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  if (!params.has(SHARE_HASH_KEY)) return;
+  params.delete(SHARE_HASH_KEY);
+  const rest = params.toString();
+  const url = `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ''}`;
+  window.history.replaceState(window.history.state, '', url);
+}
+
+/** A share link for the current page. */
+export function shareUrl(code: string): string {
+  const params = new URLSearchParams(window.location.hash.slice(1));
+  params.set(SHARE_HASH_KEY, code);
+  return `${window.location.origin}${window.location.pathname}${window.location.search}#${params.toString()}`;
+}

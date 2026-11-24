@@ -996,6 +996,12 @@ export const es: Partial<CatalogShape> = {
     csvArea: 'Área',
     csvLength: 'Longitud',
     csvPercent: 'Porcentaje del área',
+    copyLink: 'Enlace',
+    copyLinkHint: 'Copiar un enlace que abre esta área',
+    linkCopied: 'Enlace copiado. Quien pueda abrir este mapa verá la misma área.',
+    linkCopyByHand: 'Copie este enlace:',
+    linkTooBig: 'Esta área es demasiado detallada para compartirla como enlace. Pruebe con menos formas.',
+    linkArea: 'Esta área viene de un enlace. Elija Dibujar, Punto, Dirección o Elegir formas para empezar otra.',
     report: {
       button: 'PDF',
       title: 'Informe de qué hay aquí',

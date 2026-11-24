@@ -66,7 +66,7 @@ import { MarkupPanel } from './markup-panel';
 import { SaveMapCopyDialog } from './save-map-copy-dialog';
 import { ElevationProfileTool } from './elevation-profile';
 import { MeasureTool } from './measure-tool';
-import { WhatsHereTool } from './whats-here/whats-here-tool';
+import { useSharedWhatsHere, WhatsHereTool } from './whats-here/whats-here-tool';
 import { VisibilityTool } from './visibility-tool';
 import { mapHasElevationSource, resolveDemForBbox } from '@/lib/dem-resolver';
 import {
@@ -497,6 +497,11 @@ export function MapEditor({
   const [measureOpen, setMeasureOpen] = useState(false);
   // #796 What's Here. Owns map clicks while open, like Measure.
   const [whatsHereOpen, setWhatsHereOpen] = useState(false);
+  // A What's Here share link (#wh=) opens the panel on its area.
+  const sharedWhatsHere = useSharedWhatsHere();
+  useEffect(() => {
+    if (sharedWhatsHere) setWhatsHereOpen(true);
+  }, [sharedWhatsHere]);
   // #154: Markup panel + per-map drawing sets. Hydrated from the
   // initial map data so a fresh page-load renders existing
   // drawings on the canvas immediately. The panel manages writes
@@ -2383,6 +2388,7 @@ export function MapEditor({
             onClose={() => setWhatsHereOpen(false)}
             mapLayers={map.layers}
             onDrawActiveChange={onClickToolActive}
+            shared={sharedWhatsHere}
           />
           {hasElevation ? (
             <ElevationProfileTool

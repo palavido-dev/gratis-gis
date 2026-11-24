@@ -25,6 +25,7 @@ import {
   Download,
   FileText,
   Hexagon,
+  Link2,
   Loader2,
   MapPin,
   MousePointerClick,
@@ -51,6 +52,11 @@ import {
 import {
   AreaExpiredError,
   DISTANCE_PRESETS,
+  clearShareHash,
+  decodeSharedArea,
+  encodeSharedArea,
+  readShareHash,
+  shareUrl,
   MAX_DISTANCE_METERS,
   POINT_DEFAULT_METERS,
   initialUnits,
@@ -66,6 +72,7 @@ import {
   toMeters,
   type LayerScreen,
   type ResolvedArea,
+  type SharedArea,
   type UnitSystem,
 } from '@/lib/whats-here';
 import { fetchFeatureFromServer } from '../fetch-feature';
@@ -79,7 +86,9 @@ import {
 } from '../use-terra-draw';
 import { useScreenLayers, type ScreenLayerInfo } from './use-screen-layers';
 
-type AreaMode = 'draw' | 'point' | 'address' | 'features';
+// 'link' is an area that came in on a share link: shown as is, not
+// in the mode switch. Picking a mode starts over from there.
+type AreaMode = 'draw' | 'point' | 'address' | 'features' | 'link';
 type DrawShape = 'polygon' | 'rectangle' | 'circle' | 'freehand';
 
 interface PickedFeature {
@@ -108,6 +117,30 @@ export interface WhatsHereToolProps {
    *  still change them, and their own last choice wins next time. */
   defaultAreaUnit?: AreaUnit;
   defaultLengthUnit?: DistanceUnit;
+  /** An area from a share link (useSharedWhatsHere). Applied once,
+   *  the first time the panel is open with it. */
+  shared?: SharedArea | null;
+}
+
+/**
+ * The area in the page's `#wh=` share link, once decoded. A host opens
+ * the panel when this turns non-null and passes it on as `shared`.
+ */
+export function useSharedWhatsHere(): SharedArea | null {
+  const [shared, setShared] = useState<SharedArea | null>(null);
+  useEffect(() => {
+    const code = readShareHash();
+    if (!code) return;
+    let live = true;
+    void decodeSharedArea(code).then((area) => {
+      if (live) setShared(area);
+      if (!area) clearShareHash();
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  return shared;
 }
 
 const OVERLAY_SOURCE = 'whats-here';
@@ -140,6 +173,7 @@ export function WhatsHereTool({
   unitSystem,
   defaultAreaUnit,
   defaultLengthUnit,
+  shared,
 }: WhatsHereToolProps) {
   const t = useT();
   const locale = useLocale();
@@ -179,6 +213,8 @@ export function WhatsHereTool({
   const [placeLabel, setPlaceLabel] = useState<string | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [linkNote, setLinkNote] = useState<string | null>(null);
+  const [linkFallback, setLinkFallback] = useState<string | null>(null);
 
   const { layers, loading: layersLoading } = useScreenLayers(mapLayers, open);
   const layersRef = useRef(layers);
@@ -613,7 +649,7 @@ export function WhatsHereTool({
     // The resolved area is what was screened, so that is the outline.
     // An address point stays visible as the spot it was measured from.
     if (area) features.push({ type: 'Feature', geometry: area.geometry, properties: {} });
-    if (mode === 'address' && source?.type === 'Point') {
+    if ((mode === 'address' || mode === 'link') && source?.type === 'Point') {
       features.push({ type: 'Feature', geometry: source, properties: {} });
     }
     overlayRef.current = {
@@ -648,6 +684,8 @@ export function WhatsHereTool({
     setArea(null);
     setAreaError(null);
     setResults({});
+    setLinkNote(null);
+    setLinkFallback(null);
   }, [clearDrawing]);
 
   function switchMode(next: AreaMode) {
@@ -672,6 +710,49 @@ export function WhatsHereTool({
     }
     // startOver is stable enough; this is the close transition only.
   }, [open]);
+
+  // ---- Share links ----------------------------------------------------
+
+  const appliedShareRef = useRef<SharedArea | null>(null);
+  useEffect(() => {
+    if (!open || !shared || appliedShareRef.current === shared) return;
+    appliedShareRef.current = shared;
+    startOver();
+    setMode('link');
+    setDistanceMeters(shared.distanceMeters);
+    setPlaceLabel(shared.place ?? null);
+    setBreakdowns(shared.breakdowns ?? {});
+    // The receiver's map opens wherever it was saved: show the area.
+    flyOnResolveRef.current = true;
+    setSource(shared.geometry);
+    clearShareHash();
+  }, [open, shared, startOver]);
+
+  async function copyLink() {
+    if (!source) return;
+    setLinkFallback(null);
+    const code = await encodeSharedArea({
+      geometry: source,
+      distanceMeters,
+      ...((mode === 'address' || mode === 'link') && placeLabel ? { place: placeLabel } : {}),
+      breakdowns,
+    });
+    if (!code) {
+      setLinkNote(t('whatsHere.linkTooBig'));
+      return;
+    }
+    const url = shareUrl(code);
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkNote(t('whatsHere.linkCopied'));
+      window.setTimeout(() => setLinkNote(null), 3000);
+    } catch {
+      // No clipboard (an insecure origin, or permission refused): show
+      // the link so it can be copied by hand.
+      setLinkNote(t('whatsHere.linkCopyByHand'));
+      setLinkFallback(url);
+    }
+  }
 
   // ---- Panel placement ------------------------------------------------
 
@@ -785,7 +866,7 @@ export function WhatsHereTool({
           unavailable: t('whatsHere.report.unavailable'),
           truncated: t('whatsHere.breakdownTruncated'),
         },
-        ...(mode === 'address' && placeLabel ? { place: placeLabel } : {}),
+        ...((mode === 'address' || mode === 'link') && placeLabel ? { place: placeLabel } : {}),
         picked: mode === 'features' ? picked.slice(0, 200).map((p) => `${p.label} (${p.layerTitle})`) : [],
         ...(mapImage ? { mapImage } : {}),
       });
@@ -954,6 +1035,13 @@ export function WhatsHereTool({
                 </ul>
               ) : null}
             </div>
+          ) : null}
+
+          {mode === 'link' ? (
+            <p className="mt-2 text-xs text-muted">
+              {placeLabel ? `${placeLabel}. ` : ''}
+              {t('whatsHere.linkArea')}
+            </p>
           ) : null}
 
           {mode === 'features' ? (
@@ -1166,6 +1254,20 @@ export function WhatsHereTool({
         </section>
       </div>
 
+      {linkNote ? (
+        <div role="status" className="border-t border-border px-3 py-1.5 text-xs text-ink-1">
+          {linkNote}
+          {linkFallback ? (
+            <input
+              readOnly
+              value={linkFallback}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label={t('whatsHere.copyLink')}
+              className="mt-1 block w-full rounded border border-border bg-surface-1 px-1.5 py-1 text-2xs"
+            />
+          ) : null}
+        </div>
+      ) : null}
       {reportError ? (
         <p role="alert" className="border-t border-border px-3 py-1.5 text-xs text-danger">
           {reportError}
@@ -1197,12 +1299,23 @@ export function WhatsHereTool({
         </button>
         <button
           type="button"
-          onClick={zoomToArea}
-          disabled={!area}
+          onClick={() => void copyLink()}
+          disabled={!source}
+          title={t('whatsHere.copyLinkHint')}
           className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
         >
+          <Link2 className="h-3.5 w-3.5" />
+          {t('whatsHere.copyLink')}
+        </button>
+        <button
+          type="button"
+          onClick={zoomToArea}
+          disabled={!area}
+          aria-label={t('whatsHere.zoomTo')}
+          title={t('whatsHere.zoomTo')}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+        >
           <ZoomIn className="h-3.5 w-3.5" />
-          {t('whatsHere.zoomTo')}
         </button>
         <button
           type="button"
