@@ -184,9 +184,20 @@ export class RestoreTestService {
     if (!run) throw new NotFoundException('There is no finished backup on this server to test.');
     const archive = await this.backup.resolveArchivePath(run.id);
     await this.checkSpace(confirmedBytes);
-    const row = await this.prisma.backupRestoreTest.create({
-      data: { runId: run.id, filename: archive.filename, ...(startedBy ? { startedBy } : {}) },
-    });
+    // The partial unique index backup_restore_test_one_running_idx lets
+    // only one test be "running": a second start at the same moment
+    // would otherwise drop the first one's scratch database.
+    let row;
+    try {
+      row = await this.prisma.backupRestoreTest.create({
+        data: { runId: run.id, filename: archive.filename, ...(startedBy ? { startedBy } : {}) },
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') {
+        throw new ConflictException('A backup test is already running.');
+      }
+      throw e;
+    }
     void this.perform(row.id, archive.path).catch((e: unknown) =>
       this.log.error(`Backup test ${row.id} stopped: ${e instanceof Error ? e.message : e}`),
     );

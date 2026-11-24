@@ -387,7 +387,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       (after.endpoint ?? null) !== (before.endpoint ?? null) ||
       (after.accessKeyId ?? null) !== (before.accessKeyId ?? null);
     const hadSecret = before.secretAccessKey !== null || after.secretAccessKey !== null;
-    if (targetChanged && hadSecret && !typedSecret) {
+    // Going back to the environment's endpoint, key id and secret
+    // together is not a move: those three were set together.
+    const allFromEnvironment =
+      next.offsiteEndpoint === null &&
+      next.offsiteAccessKeyId === null &&
+      (clearing || row.offsiteSecretEncrypted === null);
+    if (targetChanged && hadSecret && !typedSecret && !allFromEnvironment) {
       throw new BadRequestException(
         'Enter the secret access key again when you change the endpoint or the access key id.',
       );
@@ -471,17 +477,17 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         `The off-site public key was changed (fingerprint ${keyFrom ?? 'none'} is now ${keyTo ?? 'none'}). New copies use the new key; older copies still open only with the old private key.`,
       );
       if (keyFrom !== null) {
-        await this.notice
-          ?.announceOffsite(`key:${keyTo ?? 'none'}:${changedAt.toISOString()}`, {
+        try {
+          await this.notice?.announceOffsite(`key:${keyTo ?? 'none'}:${changedAt.toISOString()}`, {
             kind: 'offsite_key_changed',
             from: keyFrom,
             to: keyTo,
-          })
-          .catch((e: unknown) =>
-            this.log.warn(
-              `The key change notice could not be sent: ${e instanceof Error ? e.message : e}`,
-            ),
+          });
+        } catch (e) {
+          this.log.warn(
+            `The key change notice could not be sent: ${e instanceof Error ? e.message : e}`,
           );
+        }
       }
     }
     this.log.log(
@@ -1173,9 +1179,14 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     this.log.warn(
       `Off-site copy ${id} is dated ${why === 'future' ? 'in the future' : 'after the provider recorded its upload'}. It was not used or deleted. Check who can write to the bucket.`,
     );
-    await this.notice
-      ?.announceOffsite(`suspect:${id}`, { kind: 'offsite_suspect_copy', name: id })
-      .catch(() => undefined);
+    try {
+      await this.notice?.announceOffsite(`suspect:${id}`, {
+        kind: 'offsite_suspect_copy',
+        name: id,
+      });
+    } catch {
+      // The log line above stands.
+    }
   }
 
   // ---------------------------------------------------------------

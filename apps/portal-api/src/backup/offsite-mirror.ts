@@ -312,20 +312,21 @@ class IndexFile {
   constructor(
     readonly dir: string,
     readonly file: string,
+    readonly limit: number,
   ) {}
 
-  static async open(nextTo: string): Promise<IndexFile> {
+  static async open(nextTo: string, limit: number): Promise<IndexFile> {
     const dir = await fs.mkdtemp(path.join(path.dirname(nextTo), '.offsite-index-'));
-    const f = new IndexFile(dir, path.join(dir, 'objects.jsonl'));
+    const f = new IndexFile(dir, path.join(dir, 'objects.jsonl'), limit);
     f.out = createWriteStream(f.file, { flags: 'wx', mode: 0o600 });
     return f;
   }
 
   async write(line: string): Promise<void> {
     const b = Buffer.from(`${line}\n`, 'utf8');
-    if (this.bytes + b.length > MAX_INDEX_BYTES) {
+    if (this.bytes + b.length > this.limit) {
       throw new Error(
-        `The file index of this mirror run would be larger than ${MAX_INDEX_BYTES / 1024 ** 3} GB.`,
+        `The file index of this mirror run would be larger than ${Math.max(1, Math.round(this.limit / 1024 ** 3))} GB.`,
       );
     }
     this.bytes += b.length;
@@ -376,6 +377,9 @@ class IndexFile {
  * retained run can refer to them.
  */
 export class OffsiteMirror {
+  /** Largest file index a run may write. Lowered in tests. */
+  maxIndexBytes = MAX_INDEX_BYTES;
+
   constructor(
     private readonly log: Logger | null,
     private readonly backup: Pick<BackupService, 'sourceStore'> | null,
@@ -469,7 +473,7 @@ export class OffsiteMirror {
     inBucket.finish();
 
     const src = this.backup.sourceStore();
-    const index = await IndexFile.open(a.archivePath);
+    const index = await IndexFile.open(a.archivePath, this.maxIndexBytes);
     try {
       return await this.uploadRun(a, { runId, runAt, folder, target, inBucket, src, index });
     } finally {

@@ -117,6 +117,18 @@ d('off-site backups against Postgres', () => {
     await pool.query(`UPDATE backup_run SET offsite_status = 'running' WHERE id = $1`, [b]);
   });
 
+  it('allows at most one backup test marked running', async () => {
+    await pool.query('DELETE FROM backup_restore_test');
+    await prisma.backupRestoreTest.create({ data: { filename: 'a.tar.gz' } });
+    // Prisma reports it as P2002, which the service turns into "already running".
+    await expect(
+      prisma.backupRestoreTest.create({ data: { filename: 'b.tar.gz' } }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await pool.query(`UPDATE backup_restore_test SET status = 'passed'`);
+    await prisma.backupRestoreTest.create({ data: { filename: 'c.tar.gz' } });
+    await pool.query('DELETE FROM backup_restore_test');
+  });
+
   it('the local index records, finds, moves forward and removes rows', async () => {
     const index = new PrismaMirrorIndex(prisma as never);
     const t1 = new Date('2026-11-01T00:00:00Z');

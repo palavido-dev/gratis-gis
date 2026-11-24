@@ -307,6 +307,35 @@ describe('OffsiteService', () => {
       ).rejects.toThrow(/secret access key again/);
     });
 
+    it('an environment secret cannot be moved to a new endpoint in two saves', async () => {
+      // Save 1: a new endpoint with a throwaway secret typed (allowed).
+      await svc.updateConfig(
+        { endpoint: 'https://evil.example.test', secretAccessKey: 'throwaway-value' },
+        null,
+      );
+      // Save 2: clear the typed secret, hoping the environment's applies.
+      await expect(svc.updateConfig({ secretAccessKey: '' }, null)).rejects.toThrow(
+        /server environment also sets a secret/,
+      );
+      // Clearing together with the endpoint hands everything back to the environment.
+      await svc.updateConfig({ secretAccessKey: '', endpoint: null }, null);
+      const s = await svc.settings();
+      expect(s.endpoint).toBe('https://s3.example.test');
+      expect(s.secretAccessKey).toBe(SECRET);
+    });
+
+    it('a saved secret that no longer opens is not replaced by the environment secret', async () => {
+      await svc.updateConfig(
+        { endpoint: 'https://b.example.test', secretAccessKey: 'saved-for-b-value' },
+        null,
+      );
+      // Changed behind the page: the saved secret no longer opens.
+      configRow.offsiteEndpoint = 'https://c.example.test';
+      const s = await svc.settings();
+      expect(s.secretAccessKey).toBeNull();
+      expect(s.secretAccessKey).not.toBe(SECRET);
+    });
+
     it('a saved secret no longer opens once the endpoint is changed behind the page', async () => {
       delete process.env.BACKUP_OFFSITE_SECRET_ACCESS_KEY;
       await svc.updateConfig({ secretAccessKey: 'db-secret-value-2' }, null);
@@ -555,6 +584,134 @@ describe('OffsiteService', () => {
         `other-portal/archives/${older}`,
       ].sort(),
     );
+  });
+
+  it('a copy dated in the future is kept, reported, and does not stop retention', async () => {
+    const put = (name: string, lastModified: Date) =>
+      s3.objects.set(`${PREFIX}archives/${name}`, {
+        body: Buffer.from('x'),
+        lastModified,
+        etag: '"x"',
+      });
+    const stamp = (at: Date) => at.toISOString().replace(/[:.]/g, '-').replace('Z', '');
+    const good = `backup-${stamp(new Date(Date.now() - 40 * DAY))}-11111111.tar.gz.enc`;
+    const older = `backup-${stamp(new Date(Date.now() - 50 * DAY))}-22222222.tar.gz.enc`;
+    const planted = 'backup-2099-01-01T00-00-00-000-44444444.tar.gz.enc';
+    for (const n of [good, `${good}.json`]) put(n, new Date(Date.now() - 40 * DAY));
+    for (const n of [older, `${older}.json`]) put(n, new Date(Date.now() - 50 * DAY));
+    for (const n of [planted, `${planted}.json`]) put(n, new Date());
+    const removed = await svc.enforceRetention(await svc.settings(), s3);
+    // The good copy is still the newest one kept; the older one goes.
+    expect(removed).toBe(2);
+    expect(s3.objects.has(`${PREFIX}archives/${good}`)).toBe(true);
+    expect(s3.objects.has(`${PREFIX}archives/${planted}`)).toBe(true);
+    expect(s3.objects.has(`${PREFIX}archives/${older}`)).toBe(false);
+    expect(notice.announceOffsite).toHaveBeenCalledWith(`suspect:${planted}`, {
+      kind: 'offsite_suspect_copy',
+      name: planted,
+    });
+    expect(logged.join('\n')).toMatch(/dated in the future/);
+  });
+
+  describe('an upload that stops getting answers', () => {
+    it('is stopped by its time limit, marked failed, and frees the claim', async () => {
+      svc.uploadTimeLimit = () => 60;
+      s3.hold();
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('failed');
+      expect(String(runs[0]!.offsiteError)).toMatch(/took longer than/);
+      expect(notice.announceOffsite).toHaveBeenCalledWith('failed:run-1', {
+        runId: 'run-1',
+        kind: 'offsite_failed',
+      });
+      // The next upload can start at once.
+      s3.release();
+      svc.uploadTimeLimit = () => 60_000;
+      addRun('run-2', 'backup-2026-11-24T03-00-00-000-bbbbbbbb.tar.gz', new Date());
+      await runUpload('run-2');
+      expect(runs[1]!.offsiteStatus).toBe('succeeded');
+    });
+
+    it('scales the limit with the size of the upload', async () => {
+      const { uploadTimeLimitMs } = await import('./offsite.service.js');
+      expect(uploadTimeLimitMs(0)).toBe(2 * 60 * 60 * 1000);
+      expect(uploadTimeLimitMs(50 * 1024 ** 3)).toBeGreaterThan(50 * 60 * 60 * 1000);
+    });
+  });
+
+  describe('a changed public key', () => {
+    beforeEach(() => {
+      delete process.env.BACKUP_OFFSITE_PUBLIC_KEY;
+    });
+
+    it('is recorded with who and when, and every operator admin is told', async () => {
+      const first = await svc.updateConfig({ publicKey: key.publicKey.text }, 'admin-1');
+      // Setting the first key is recorded but is not a replacement.
+      expect(first.savedKeyChange).toEqual({ from: null, to: key.publicKey.fingerprintText });
+      expect(notice.announceOffsite).not.toHaveBeenCalled();
+      const next = generateOffsiteKeyPair().publicKey;
+      const res = await svc.updateConfig({ publicKey: next.text }, 'admin-2');
+      expect(res.savedKeyChange).toEqual({
+        from: key.publicKey.fingerprintText,
+        to: next.fingerprintText,
+      });
+      expect(configRow.offsiteKeyChangedBy).toBe('admin-2');
+      expect(configRow.offsitePreviousFingerprint).toBe(key.publicKey.fingerprintText);
+      expect(res.keyChange).toMatchObject({ previousFingerprint: key.publicKey.fingerprintText });
+      expect(notice.announceOffsite).toHaveBeenCalledWith(expect.stringMatching(/^key:/), {
+        kind: 'offsite_key_changed',
+        from: key.publicKey.fingerprintText,
+        to: next.fingerprintText,
+      });
+      // Saving other settings is not a key change.
+      notice.announceOffsite.mockClear();
+      const again = await svc.updateConfig({ retentionDays: 9 }, 'admin-2');
+      expect(again.savedKeyChange).toBeNull();
+      expect(notice.announceOffsite).not.toHaveBeenCalled();
+    });
+
+    it('removing the key is announced too', async () => {
+      await svc.updateConfig({ publicKey: key.publicKey.text, enabled: false }, null);
+      await svc.updateConfig({ publicKey: null, enabled: false }, null);
+      expect(notice.announceOffsite).toHaveBeenCalledWith(expect.stringMatching(/^key:none:/), {
+        kind: 'offsite_key_changed',
+        from: key.publicKey.fingerprintText,
+        to: null,
+      });
+    });
+  });
+
+  describe('taking over a folder after a restore', () => {
+    const OLD = 'aaaaaaaa-1111-4222-8333-444444444444';
+    beforeEach(() => {
+      s3.objects.set(`${PREFIX}gratisgis-install.json`, {
+        body: Buffer.from(JSON.stringify({ installId: OLD })),
+        lastModified: new Date(),
+        etag: '"m"',
+      });
+    });
+
+    it('needs the start of the old install id typed, then claims the folder', async () => {
+      await expect(svc.takeOverFolder('wrong')).rejects.toThrow(/Type aaaaaaaa/);
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('failed');
+      expect(String(runs[0]!.offsiteError)).toMatch(/Take over this folder/);
+      expect(await svc.takeOverFolder('AAAAAAAA')).toEqual({ previousOwner: 'aaaaaaaa' });
+      const marker = JSON.parse(
+        s3.objects.get(`${PREFIX}gratisgis-install.json`)!.body.toString(),
+      ) as { installId: string; takenOverFrom: string };
+      expect(marker).toMatchObject({ installId: configRow.offsiteInstallId, takenOverFrom: OLD });
+      addRun('run-2', 'backup-2026-11-24T03-00-00-000-bbbbbbbb.tar.gz', new Date());
+      await runUpload('run-2');
+      expect(runs[1]!.offsiteStatus).toBe('succeeded');
+      await expect(svc.takeOverFolder('aaaaaaaa')).rejects.toThrow(/already owns/);
+    });
+
+    it('refuses while an upload is running', async () => {
+      runs[0]!.offsiteStatus = 'running';
+      runs[0]!.offsiteHeartbeatAt = new Date();
+      await expect(svc.takeOverFolder('aaaaaaaa')).rejects.toThrow(/upload is running/);
+    });
   });
 
   it('"Upload again" is refused for a copy retention would delete at once', async () => {

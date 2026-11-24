@@ -168,6 +168,15 @@ describe('RestoreTestService', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
+  it('a second test started at the same moment is refused by the database index', async () => {
+    const { s, prisma } = service({ BACKUP_PGDUMP_DOCKER_CONTAINER: 'db' });
+    df = 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/x 1 1 99999999 1% /d\n';
+    prisma.backupRestoreTest.create.mockRejectedValueOnce(
+      Object.assign(new Error('unique'), { code: 'P2002' }),
+    );
+    await expect(s.start('u1')).rejects.toThrow(/already running/);
+    expect(s.perform).not.toHaveBeenCalled();
+  });
   it('passes on a good archive, feeding the whole dump to pg_restore, and drops the scratch database', async () => {
     const res = await svc.perform('t1', archive);
     expect(res).toEqual({ ok: true, error: null });

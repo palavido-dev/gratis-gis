@@ -19,7 +19,7 @@ import {
   unsealStream,
   type OffsitePrivateKey,
 } from './offsite-crypto.js';
-import { mirrorObjectName, mirrorRunId } from './offsite-mirror.js';
+import { mirrorObjectName, mirrorRunId, PackedListing } from './offsite-mirror.js';
 import { OffsiteService } from './offsite.service.js';
 
 const KEY_PASS = 'mirror key passphrase 0123';
@@ -54,6 +54,34 @@ describe('mirrorObjectName', () => {
     expect(a).not.toBe(
       `${createHash('sha256').update('items/a/photo.jpg\u000010\u0000"e1"').digest('hex')}.enc`,
     );
+  });
+});
+
+describe('PackedListing', () => {
+  it('finds each name and size, in any listing order, and ignores other names', () => {
+    const names = Array.from({ length: 3000 }, () => `${randomBytes(32).toString('hex')}.enc`);
+    const p = new PackedListing();
+    names.forEach((n, i) => p.add(n, i * 7));
+    p.add('not-a-mirror-name.enc', 1);
+    p.add(`${'A'.repeat(64)}.enc`, 1);
+    p.finish();
+    expect(p.size).toBe(3000);
+    names.forEach((n, i) => expect(p.get(n)).toBe(i * 7));
+    expect(p.get(`${'0'.repeat(64)}.enc`)).toBeUndefined();
+    expect(p.get('not-a-mirror-name.enc')).toBeUndefined();
+    // Sorted input, the usual case, needs no sort.
+    const sorted = new PackedListing();
+    for (const n of [...names].sort()) sorted.add(n, 1);
+    sorted.finish();
+    expect(sorted.get(names[0]!)).toBe(1);
+  });
+
+  it('keeps about 40 bytes per listed file', () => {
+    const p = new PackedListing();
+    for (let i = 0; i < 10_000; i += 1) p.add(`${randomBytes(32).toString('hex')}.enc`, i);
+    p.finish();
+    const held = (p as unknown as { buf: Buffer }).buf.length;
+    expect(held).toBeLessThanOrEqual(10_000 * 40 * 2);
   });
 });
 
@@ -309,6 +337,43 @@ describe('off-site mirror mode', () => {
     expect(files()).toHaveLength(2);
     expect(files()).toContain(`${OBJECTS}${'f'.repeat(64)}.enc`);
     expect(objects).toHaveLength(1);
+  });
+
+  it('writes the file index through a temporary file and always removes it', async () => {
+    await sourcePut('a.txt', 'a', 'text/plain');
+    await sourcePut('b.txt', 'b', 'text/plain');
+    const tmpLeft = () => fs.readdirSync(dir).filter((n) => n.startsWith('.offsite-index-'));
+    const run = await upload(
+      addRun('abababab-0000-4000-8000-00000000000b', new Date(Date.now() - DAY)).id as string,
+    );
+    expect(run.offsiteStatus).toBe('succeeded');
+    expect(tmpLeft()).toEqual([]);
+    // Over the size limit: the run fails, and the file still goes.
+    (svc as unknown as { mirror: { maxIndexBytes: number } }).mirror.maxIndexBytes = 10;
+    const second = await upload(
+      addRun('cdcdcdcd-0000-4000-8000-00000000000c', new Date()).id as string,
+    );
+    expect(second.offsiteStatus).toBe('failed');
+    expect(String(second.offsiteError)).toMatch(/file index of this mirror run would be larger/);
+    expect(tmpLeft()).toEqual([]);
+  });
+
+  it('a run dated in the future never decides which files are old', async () => {
+    await sourcePut('keep.txt', 'keep', 'text/plain');
+    await upload(
+      addRun('12121212-0000-4000-8000-000000000012', new Date(Date.now() - 40 * DAY)).id as string,
+    );
+    const planted = '2099-01-01T00-00-00-000-34343434';
+    remote.objects.set(`${PREFIX}mirror/runs/${planted}/done.json`, {
+      body: Buffer.from('{}'),
+      lastModified: new Date(),
+      etag: '"d"',
+    });
+    const before = files();
+    await svc.enforceRetention(await svc.settings(), remote);
+    // The 40-day-old run is still the newest good one, so its files stay.
+    expect(files()).toEqual(before);
+    expect(remote.objects.has(`${PREFIX}mirror/runs/${planted}/done.json`)).toBe(true);
   });
 
   it('does not collect files while another upload is running', async () => {
