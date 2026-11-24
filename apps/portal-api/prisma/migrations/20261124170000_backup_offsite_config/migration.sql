@@ -3,7 +3,9 @@
 -- variable. The bucket secret and the mirror naming key are stored
 -- encrypted by the API, never in clear. Off-site files are encrypted
 -- to the admin's public key; the matching private key is never on the
--- server.
+-- server. Each copy is also signed with a key the server makes for
+-- itself (Ed25519), stored with the same cipher; its public half, the
+-- verify key, goes into the admin's key file.
 ALTER TABLE "backup_config"
   ADD COLUMN "offsite_enabled" BOOLEAN,
   ADD COLUMN "offsite_endpoint" TEXT,
@@ -23,4 +25,10 @@ ALTER TABLE "backup_config"
   ADD COLUMN "offsite_mirror_threshold_bytes" BIGINT,
   ADD COLUMN "offsite_key_changed_at" TIMESTAMPTZ(6),
   ADD COLUMN "offsite_key_changed_by" UUID,
-  ADD COLUMN "offsite_previous_fingerprint" TEXT;
+  ADD COLUMN "offsite_previous_fingerprint" TEXT,
+  ADD COLUMN "offsite_signing_key_encrypted" TEXT,
+  ADD COLUMN "offsite_signing_key_iv" TEXT,
+  ADD COLUMN "offsite_verify_key" TEXT,
+  ADD COLUMN "offsite_previous_verify_keys" TEXT[] DEFAULT ARRAY[]::TEXT[],
+  ADD COLUMN "offsite_signing_key_changed_at" TIMESTAMPTZ(6),
+  ADD COLUMN "offsite_signing_key_changed_by" UUID;

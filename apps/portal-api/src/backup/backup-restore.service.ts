@@ -253,6 +253,14 @@ const OFFSITE_CONFIG_COLUMNS = {
   offsiteKeyChangedAt: true,
   offsiteKeyChangedBy: true,
   offsitePreviousFingerprint: true,
+  // The live signing key, never the archive's: a restore must not bring
+  // back a signing key from the dump.
+  offsiteSigningKeyEncrypted: true,
+  offsiteSigningKeyIv: true,
+  offsiteVerifyKey: true,
+  offsitePreviousVerifyKeys: true,
+  offsiteSigningKeyChangedAt: true,
+  offsiteSigningKeyChangedBy: true,
 } as const;
 
 @Injectable()

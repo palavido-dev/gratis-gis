@@ -16,7 +16,19 @@ export interface OffsiteArtifact {
   complete: boolean;
   /** When the bucket says the first of its files was written, if known. */
   lastModified?: Date | null;
+  /**
+   * What its signature says (see offsite-sign.ts):
+   * - verified: signed by a trusted key and matching the copy.
+   * - legacy: not signed, made by this portal before signing existed.
+   * - unsigned: not signed, and not known to be this portal's.
+   * - bad: anything else (a signature that does not verify or does not
+   *   match, an unknown signer, another portal's install id).
+   * Unset means it was not checked, and counts as legacy.
+   */
+  trust?: ArtifactTrust;
 }
+
+export type ArtifactTrust = 'verified' | 'legacy' | 'unsigned' | 'bad';
 
 /**
  * How far a name's time stamp may be ahead of the clock (or of the time
@@ -39,37 +51,60 @@ export function suspectDate(a: OffsiteArtifact, now: Date): 'future' | 'after-up
   return null;
 }
 
-/** Split artifacts into those with a usable date and those set aside. */
+/**
+ * Why a copy is set aside (kept, never counted as the newest, never
+ * deleted by retention, reported), or null: a suspect date, or a
+ * signature that is bad.
+ */
+export function setAsideReason(
+  a: OffsiteArtifact,
+  now: Date,
+): 'future' | 'after-upload' | 'bad-signature' | null {
+  return suspectDate(a, now) ?? (a.trust === 'bad' ? 'bad-signature' : null);
+}
+
+/** Split artifacts into those usable and those set aside. */
 export function partitionByDate<T extends OffsiteArtifact>(
   artifacts: readonly T[],
   now: Date,
 ): { usable: T[]; suspect: T[] } {
   const usable: T[] = [];
   const suspect: T[] = [];
-  for (const a of artifacts) (suspectDate(a, now) ? suspect : usable).push(a);
+  for (const a of artifacts) (setAsideReason(a, now) ? suspect : usable).push(a);
   return { usable, suspect };
 }
 
-/** The newest complete artifact with a usable date, or null. */
+/**
+ * The newest good copy, or null: the newest complete verified copy
+ * with a usable date. Only when there is none, the newest complete
+ * legacy copy (made by this portal before signing existed). Unsigned
+ * copies not known to be this portal's, and set-aside ones, never are.
+ */
 export function newestGood<T extends OffsiteArtifact>(
   artifacts: readonly T[],
   now: Date,
 ): T | null {
-  let best: T | null = null;
+  let verified: T | null = null;
+  let legacy: T | null = null;
   for (const a of partitionByDate(artifacts, now).usable) {
     if (!a.complete) continue;
-    if (!best || a.createdAt.getTime() > best.createdAt.getTime()) best = a;
+    const t = a.trust ?? 'legacy';
+    if (t === 'verified') {
+      if (!verified || a.createdAt.getTime() > verified.createdAt.getTime()) verified = a;
+    } else if (t === 'legacy') {
+      if (!legacy || a.createdAt.getTime() > legacy.createdAt.getTime()) legacy = a;
+    }
   }
-  return best;
+  return verified ?? legacy;
 }
 
 /**
  * Artifacts retention may delete: every one created before the
  * cutoff, except the newest complete one, which is kept whatever its
  * age. Incomplete artifacts younger than the cutoff are kept too,
- * since one of them may be an upload still running. Artifacts whose
- * date is suspect (see suspectDate) are neither deleted nor counted
- * as the newest: the caller reports them.
+ * since one of them may be an upload still running. Artifacts set
+ * aside (a suspect date or a bad signature, see setAsideReason) are
+ * neither deleted nor counted as the newest: the caller reports them.
  */
 export function selectExpired(
   artifacts: readonly OffsiteArtifact[],

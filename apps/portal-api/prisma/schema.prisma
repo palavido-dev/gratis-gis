@@ -403,6 +403,8 @@ model BackupOffsiteObject {
   keyFingerprint String   @map("key_fingerprint")
   plainBytes     BigInt   @map("plain_bytes")
   sealedBytes    BigInt   @map("sealed_bytes")
+  /// SHA-256 of the encrypted file, hex. Rows without it are uploaded again.
+  sealedSha256   String?  @map("sealed_sha256")
   contentType    String?  @map("content_type")
   uploadedAt     DateTime @default(now()) @map("uploaded_at") @db.Timestamptz(6)
   lastRunAt      DateTime @map("last_run_at") @db.Timestamptz(6)
@@ -887,6 +889,18 @@ model BackupConfig {
   offsiteKeyChangedAt        DateTime? @map("offsite_key_changed_at") @db.Timestamptz(6)
   offsiteKeyChangedBy        String?   @map("offsite_key_changed_by") @db.Uuid
   offsitePreviousFingerprint String?   @map("offsite_previous_fingerprint")
+  /// The key this server signs off-site copies with (Ed25519 seed),
+  /// AES-256-GCM under CREDENTIAL_ENCRYPTION_KEY. Never returned.
+  offsiteSigningKeyEncrypted String?   @map("offsite_signing_key_encrypted")
+  offsiteSigningKeyIv        String?   @map("offsite_signing_key_iv")
+  /// Its public half (ggver1:...), shown on the page.
+  offsiteVerifyKey           String?   @map("offsite_verify_key")
+  /// Earlier verify keys of this portal, so older signed copies still
+  /// count as good for retention.
+  offsitePreviousVerifyKeys  String[]  @default([]) @map("offsite_previous_verify_keys")
+  /// When the signing key was last made, and by whom (null: by the server).
+  offsiteSigningKeyChangedAt DateTime? @map("offsite_signing_key_changed_at") @db.Timestamptz(6)
+  offsiteSigningKeyChangedBy String?   @map("offsite_signing_key_changed_by") @db.Uuid
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by") @db.Uuid
@@ -992,6 +1006,8 @@ model BackupRun {
   offsiteSha256     String?   @map("offsite_sha256")
   /// Fingerprint of the public key the copy was encrypted to.
   offsiteKeyFingerprint String? @map("offsite_key_fingerprint")
+  /// Fingerprint of the verify key that checks the copy's signature.
+  offsiteVerifyFingerprint String? @map("offsite_verify_fingerprint")
   offsiteError      String?   @map("offsite_error")
   offsiteStartedAt  DateTime? @map("offsite_started_at") @db.Timestamptz(6)
   offsiteFinishedAt DateTime? @map("offsite_finished_at") @db.Timestamptz(6)

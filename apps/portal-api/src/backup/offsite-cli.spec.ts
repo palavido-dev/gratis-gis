@@ -7,6 +7,7 @@ import * as path from 'node:path';
 
 import { Logger } from '@nestjs/common';
 
+import { _resetKeyCacheForTests } from '../items/credential-cipher.js';
 import { FakeS3 } from '../testing/fake-s3.js';
 import { emptyConfigRow, makePrisma, type Row } from '../testing/offsite-fixtures.js';
 import type { BackupService } from './backup.service.js';
@@ -14,6 +15,12 @@ import { runCli, type CliIo } from './offsite-cli.js';
 import { normalizePrefix, validateOffsitePatch } from './offsite-config.js';
 import { endpointPolicy } from './offsite-endpoint.js';
 import { generateOffsiteKeyPair, sealKeyFile, type OffsitePrivateKey } from './offsite-crypto.js';
+import {
+  generateSigningKey,
+  signManifest,
+  type ArchiveManifest,
+  type OffsiteSigningKey,
+} from './offsite-sign.js';
 import { OffsiteService } from './offsite.service.js';
 
 const PASS = 'cli test passphrase 98765';
@@ -38,6 +45,8 @@ describe('offsite-cli', () => {
   let original: Buffer;
   let key: OffsitePrivateKey;
   let keyFile: string;
+  /** The portal's own signing key, as the service made it. */
+  let signer: OffsiteSigningKey;
   const withKey = (...args: string[]) => [...args, '--key-file', keyFile, '--passphrase-stdin'];
   const confirmed = (...args: string[]) => withKey(...args, '--confirm-copy', NAME);
 
@@ -100,7 +109,11 @@ describe('offsite-cli', () => {
 
     // Make a real off-site copy with the service.
     const saved = { ...process.env };
-    Object.assign(process.env, ENV, { BACKUP_OFFSITE_PUBLIC_KEY: key.publicKey.text });
+    Object.assign(process.env, ENV, {
+      BACKUP_OFFSITE_PUBLIC_KEY: key.publicKey.text,
+      CREDENTIAL_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+    });
+    _resetKeyCacheForTests();
     jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     const runs: Row[] = [
       {
@@ -124,9 +137,50 @@ describe('offsite-cli', () => {
     svc.endpointCheck = async () => undefined;
     const handle = await svc.startUpload(String(runs[0]!.id), 9);
     await handle?.done;
+    signer = await svc.signingKey();
     process.env = saved;
+    _resetKeyCacheForTests();
     expect(runs[0]!.offsiteStatus).toBe('succeeded');
+    // The admin added the portal's verify key to the key file.
+    fs.writeFileSync(
+      keyFile,
+      await sealKeyFile(key, PASS, {
+        logN: 14,
+        verifyKeys: [String((cfg as Row).offsiteVerifyKey)],
+      }),
+    );
   });
+
+  const sideKey = (name = NAME) => `${PREFIX}archives/${name}.enc.json`;
+  const sidecar = (name = NAME) =>
+    JSON.parse(remote.objects.get(sideKey(name))!.body.toString()) as Record<string, unknown>;
+  const setSidecar = (name: string, j: unknown) => {
+    remote.objects.set(sideKey(name), {
+      ...remote.objects.get(sideKey(NAME))!,
+      body: Buffer.from(JSON.stringify(j)),
+    });
+  };
+  const manifestOf = (j: Record<string, unknown>) =>
+    (j.signature as { manifest: string }).manifest
+      .split('\n')
+      .slice(1, -1)
+      .reduce(
+        (o, l) => {
+          const i = l.indexOf('=');
+          o[l.slice(0, i)] = l.slice(i + 1);
+          return o;
+        },
+        {} as Record<string, string>,
+      ) as unknown as ArchiveManifest;
+  /** A second, properly signed copy of the same bytes under another name. */
+  const plantSigned = (name: string, by: OffsiteSigningKey = signer, change = {}) => {
+    const src = remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!;
+    remote.objects.set(`${PREFIX}archives/${name}.enc`, { ...src, lastModified: new Date() });
+    const side = sidecar();
+    const m = { ...manifestOf(side), name: `archives/${name}.enc`, ...change };
+    side.signature = signManifest(m, by);
+    setSidecar(name, side);
+  };
 
   afterEach(() => {
     jest.restoreAllMocks();
@@ -157,16 +211,20 @@ describe('offsite-cli', () => {
     }
   });
 
-  it('check-key opens the key file and prints its fingerprint', async () => {
+  it('check-key opens the key file and prints its fingerprint and trusted verify keys', async () => {
     stdin = `${PASS}\r\n`;
     expect(await runCli(['check-key', '--key-file', keyFile, '--passphrase-stdin'], io())).toBe(0);
-    expect(out).toEqual([`fingerprint=${key.publicKey.fingerprintText}`]);
+    expect(out).toEqual([
+      `fingerprint=${key.publicKey.fingerprintText}`,
+      'verifyKeys=1',
+      `verifyKey=${signer.verifyKey.fingerprintText}`,
+    ]);
   });
 
   it('takes the key file and passphrase together on standard input', async () => {
     stdin = `${fs.readFileSync(keyFile).toString('base64')}\n${PASS}\r\n`;
     expect(await runCli(['check-key', '--key-stdin'], io())).toBe(0);
-    expect(out).toEqual([`fingerprint=${key.publicKey.fingerprintText}`]);
+    expect(out[0]).toBe(`fingerprint=${key.publicKey.fingerprintText}`);
     out.length = 0;
     stdin = `${fs.readFileSync(keyFile).toString('base64')}\nthe wrong passphrase entirely`;
     expect(await runCli(['check-key', '--key-stdin'], io())).toBe(1);
@@ -179,7 +237,8 @@ describe('offsite-cli', () => {
     const outDir = path.join(dir, 'restore');
     // A partial file from an interrupted run does not get in the way.
     fs.mkdirSync(outDir, { recursive: true });
-    fs.writeFileSync(path.join(outDir, `.partial-${NAME}`), 'left over');
+    fs.writeFileSync(path.join(outDir, `${NAME}.partial`), 'left over');
+    fs.writeFileSync(path.join(outDir, `${NAME}.enc.partial`), 'left over');
     expect(await runCli(['fetch', ...confirmed('--out', outDir)], io())).toBe(0);
     expect(out.slice(-4)).toEqual([
       `archive=${path.join(outDir, NAME)}`,
@@ -191,18 +250,136 @@ describe('offsite-cli', () => {
     expect(fs.statSync(path.join(outDir, NAME)).mode & 0o777).toBe(0o600);
   });
 
-  it('refuses a copy whose checksum does not match the sidecar, and leaves nothing behind', async () => {
-    const sideKey = `${PREFIX}archives/${NAME}.enc.json`;
-    const side = JSON.parse(remote.objects.get(sideKey)!.body.toString()) as Record<
-      string,
-      unknown
-    >;
-    side.sealedSha256 = '0'.repeat(64);
-    remote.objects.get(sideKey)!.body = Buffer.from(JSON.stringify(side));
+  it('refuses a changed byte of the copy before decrypting, and leaves nothing behind', async () => {
+    const obj = remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!;
+    const body = Buffer.from(obj.body);
+    body[200]! ^= 1;
+    obj.body = body;
     const outDir = path.join(dir, 'restore');
     expect(await runCli(['fetch', ...confirmed('--out', outDir)], io())).toBe(1);
-    expect(errs.join(' ')).toMatch(/checksum/);
+    expect(errs.join(' ')).toMatch(/does not match the checksum in its signed record/);
     expect(fs.readdirSync(outDir)).toEqual([]);
+  });
+
+  it('ignores the unsigned checksum fields of a signed sidecar', async () => {
+    const side = sidecar();
+    side.sealedSha256 = '0'.repeat(64);
+    side.sealedBytes = 1;
+    setSidecar(NAME, side);
+    expect(await runCli(['fetch', ...confirmed('--out', path.join(dir, 'restore'))], io())).toBe(0);
+  });
+
+  it('describe says the copy is verified and which verify key signed it', async () => {
+    expect(await runCli(['describe', ...withKey()], io())).toBe(0);
+    expect(out).toEqual(
+      expect.arrayContaining([
+        'signature=verified',
+        `signedBy=${signer.verifyKey.fingerprintText}`,
+        `install=${INSTALL}`,
+      ]),
+    );
+  });
+
+  describe('copies that cannot be verified', () => {
+    const UNVERIFIED = '--allow-unverified-copy';
+    const outDir = () => path.join(dir, 'restore');
+
+    it('refuses an unsigned copy without the flag, and restores it with the flag', async () => {
+      const side = sidecar();
+      delete side.signature;
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey()], io())).toBe(3);
+      expect(errs.join(' ')).toMatch(/No verified copy.*--allow-unverified-copy/);
+      expect(await runCli(['fetch', ...confirmed('--out', outDir())], io())).toBe(3);
+      expect(fs.existsSync(outDir())).toBe(false);
+      out.length = 0;
+      errs.length = 0;
+      expect(await runCli(['fetch', ...confirmed('--out', outDir(), UNVERIFIED)], io())).toBe(0);
+      expect(out).toContain('signature=unsigned');
+      expect(errs.join(' ')).toMatch(/WARNING: this copy is NOT SIGNED/);
+      expect(fs.readFileSync(path.join(outDir(), NAME)).equals(original)).toBe(true);
+    });
+
+    it('refuses a copy signed by a key the key file does not hold', async () => {
+      const side = sidecar();
+      side.signature = signManifest(manifestOf(side), generateSigningKey());
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey('--name', NAME)], io())).toBe(3);
+      expect(errs.join(' ')).toMatch(/not in the key file/);
+      out.length = 0;
+      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(0);
+      expect(out).toContain('signature=untrusted');
+    });
+
+    it('treats every copy as unverified when the key file has no verify key yet', async () => {
+      fs.writeFileSync(keyFile, await sealKeyFile(key, PASS, { logN: 14 }));
+      expect(await runCli(['describe', ...withKey()], io())).toBe(3);
+      expect(errs.join(' ')).toMatch(/holds no verify key yet.*offsite-key.mjs trust/);
+      out.length = 0;
+      expect(await runCli(['describe', ...withKey(UNVERIFIED)], io())).toBe(0);
+      expect(out).toContain('signature=untrusted');
+    });
+
+    it('marks a copy signed for another portal install as foreign', async () => {
+      const side = sidecar();
+      side.signature = signManifest(
+        { ...manifestOf(side), install: 'dddd2222-aaaa-4bbb-8ccc-000000000002' },
+        signer,
+      );
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey('--name', NAME)], io())).toBe(3);
+      expect(errs.join(' ')).toMatch(/another portal install/);
+    });
+
+    it.each([
+      ['a changed signed field', { bytes: '1' }],
+      ['a renamed copy', { name: 'archives/backup-2026-11-20T02-00-00-000-cccccccc.tar.gz.enc' }],
+      ['a copy moved from another folder', { prefix: 'gratisgis-other/' }],
+    ])('never uses %s, even with the flag', async (_label, change) => {
+      const side = sidecar();
+      side.signature = signManifest({ ...manifestOf(side), ...change }, signer);
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(/Refusing this copy: The signature is for another copy/);
+      expect(
+        await runCli(['fetch', ...confirmed('--out', outDir(), '--name', NAME, UNVERIFIED)], io()),
+      ).toBe(1);
+      expect(fs.existsSync(outDir())).toBe(false);
+    });
+
+    it('never uses a manifest changed after signing, even with the flag', async () => {
+      const side = sidecar();
+      const sig = side.signature as { manifest: string };
+      sig.manifest = sig.manifest.replace(/created=2026/, 'created=2027');
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(/signature does not verify/);
+    });
+
+    it('never uses a sidecar swapped in from another copy', async () => {
+      const other = 'backup-2026-11-23T02-00-00-000-cccccccc.tar.gz';
+      plantSigned(other);
+      // Copy A gets the sidecar that was signed for copy B.
+      setSidecar(NAME, sidecar(other));
+      expect(await runCli(['describe', ...withKey('--name', NAME, UNVERIFIED)], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(/the name does not match/);
+    });
+
+    it('picks the newest verified copy over newer unsigned or badly signed ones', async () => {
+      const older = 'backup-2026-11-20T02-00-00-000-cccccccc.tar.gz';
+      plantSigned(older);
+      // A newer copy is badly signed; the real copy loses its signature.
+      const bad = 'backup-2026-11-24T09-00-00-000-cccccccc.tar.gz';
+      plantSigned(bad, signer, { bytes: '7' });
+      const side = sidecar();
+      delete side.signature;
+      setSidecar(NAME, side);
+      expect(await runCli(['describe', ...withKey(UNVERIFIED)], io())).toBe(0);
+      expect(out).toContain(`name=${older}`);
+      expect(out).toContain('signature=verified');
+      expect(errs.join('\n')).toMatch(new RegExp(`Skipped ${bad.slice(0, 30)}.*BAD SIGNATURE`));
+      expect(errs.join('\n')).toMatch(new RegExp(`Skipped ${NAME.slice(0, 30)}.*NOT SIGNED`));
+    });
   });
 
   it('refuses a wrong passphrase before downloading, and never prints it', async () => {
@@ -216,7 +393,10 @@ describe('offsite-cli', () => {
 
   it('says which key a copy needs when given another one', async () => {
     const other = generateOffsiteKeyPair();
-    fs.writeFileSync(keyFile, await sealKeyFile(other, PASS, { logN: 14 }));
+    fs.writeFileSync(
+      keyFile,
+      await sealKeyFile(other, PASS, { logN: 14, verifyKeys: [signer.verifyKey.text] }),
+    );
     const outDir = path.join(dir, 'restore');
     expect(await runCli(['fetch', ...confirmed('--out', outDir)], io())).toBe(1);
     expect(errs.join(' ')).toContain(key.publicKey.fingerprintText);
@@ -253,7 +433,7 @@ describe('offsite-cli', () => {
   });
 
   it('describe names the copy a restore would use, with its date, size and key', async () => {
-    expect(await runCli(['describe'], io())).toBe(0);
+    expect(await runCli(['describe', ...withKey()], io())).toBe(0);
     expect(out).toEqual(
       expect.arrayContaining([
         'kind=archive',
@@ -269,12 +449,40 @@ describe('offsite-cli', () => {
 
   it('describe picks the newer of the newest archive and the newest mirror run', async () => {
     const run = '2026-11-24T05-00-00-000-abababab';
-    remote.objects.set(`${PREFIX}mirror/runs/${run}/done.json`, {
-      body: Buffer.from(JSON.stringify({ keyFingerprint: key.publicKey.fingerprintText })),
+    const folder = `mirror/runs/${run}/`;
+    const h = 'a'.repeat(64);
+    remote.objects.set(`${PREFIX}${folder}done.json`, {
+      body: Buffer.from(
+        JSON.stringify({
+          keyFingerprint: key.publicKey.fingerprintText,
+          signature: signManifest(
+            {
+              kind: 'mirror',
+              format: 'GROF1',
+              install: INSTALL,
+              prefix: PREFIX,
+              run,
+              created: '2026-11-24T05:00:00.000Z',
+              key: key.publicKey.fingerprintText,
+              'dump.name': `${folder}database.dump.enc`,
+              'dump.bytes': '1',
+              'dump.sha256': h,
+              'manifest.name': `${folder}manifest.json.enc`,
+              'manifest.bytes': '1',
+              'manifest.sha256': h,
+              'index.name': `${folder}objects.jsonl.enc`,
+              'index.bytes': '1',
+              'index.sha256': h,
+              'index.files': '0',
+            },
+            signer,
+          ),
+        }),
+      ),
       lastModified: new Date(),
       etag: '"d"',
     });
-    expect(await runCli(['describe'], io())).toBe(0);
+    expect(await runCli(['describe', ...withKey()], io())).toBe(0);
     expect(out).toEqual(expect.arrayContaining(['kind=mirror', `name=${run}`]));
     out.length = 0;
     // fetch refuses to download a mirror run; it names the right command.
@@ -303,14 +511,8 @@ describe('offsite-cli', () => {
   describe('a copy dated in the future', () => {
     const PLANTED = 'backup-2099-01-01T00-00-00-000-dddddddd.tar.gz';
     beforeEach(() => {
-      // A complete-looking copy whose name claims a later date.
-      const src = remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!;
-      const side = remote.objects.get(`${PREFIX}archives/${NAME}.enc.json`)!;
-      remote.objects.set(`${PREFIX}archives/${PLANTED}.enc`, { ...src, lastModified: new Date() });
-      remote.objects.set(`${PREFIX}archives/${PLANTED}.enc.json`, {
-        ...side,
-        lastModified: new Date(),
-      });
+      // A complete, even correctly signed, copy whose name claims a later date.
+      plantSigned(PLANTED);
     });
 
     it('is never picked as the newest copy, and list says it was set aside', async () => {
@@ -318,14 +520,19 @@ describe('offsite-cli', () => {
       expect(out).toContain(`latest=${NAME}`);
       expect(errs.join('\n')).toMatch(new RegExp(`set aside.*${PLANTED.slice(0, 20)}`));
       out.length = 0;
-      expect(await runCli(['describe'], io())).toBe(0);
+      expect(await runCli(['describe', ...withKey()], io())).toBe(0);
       expect(out).toContain(`name=${NAME}`);
     });
 
     it('is used only when named, and then flagged', async () => {
-      expect(await runCli(['describe', '--name', PLANTED], io())).toBe(0);
+      expect(await runCli(['describe', ...withKey('--name', PLANTED)], io())).toBe(0);
       expect(out).toContain(`name=${PLANTED}`);
       expect(out).toContain('suspect=future');
+    });
+
+    it('a copy whose sidecar belongs to another copy is refused when named', async () => {
+      setSidecar(PLANTED, sidecar());
+      expect(await runCli(['describe', ...withKey('--name', PLANTED)], io())).toBe(1);
     });
   });
 
@@ -440,9 +647,13 @@ describe('offsite-cli', () => {
         ENV.BACKUP_OFFSITE_PREFIX = given;
         out.length = 0;
         errs.length = 0;
-        expect(await runCli(['describe'], io())).toBe(0);
+        expect(await runCli(['list'], io())).toBe(0);
         expect(out).toContain(`prefix=${folder}`);
-        expect(out).toContain(`name=${NAME}`);
+        expect(out).toContain(`latest=${NAME}`);
+        // The copy was signed for its first folder: moved, it is refused.
+        out.length = 0;
+        expect(await runCli(['describe', ...withKey('--allow-unverified-copy')], io())).toBe(1);
+        expect(errs.join(' ')).toMatch(/the folder does not match/);
       }
       for (const refused of candidates.filter((c) => !pageAccepts(c))) {
         expect(shellAccepts(refused)).toBe(false);

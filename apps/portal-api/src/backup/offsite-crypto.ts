@@ -21,6 +21,7 @@ import {
   toBuffer,
   unsealStream as grcv2UnsealStream,
 } from './offsite-grcv2.js';
+import { OffsiteSignError, parseVerifyKey, type OffsiteVerifyKey } from './offsite-sign.js';
 
 /**
  * Public-key encryption for off-site backup files.
@@ -95,6 +96,15 @@ export interface OffsitePrivateKey {
   readonly keyObject: KeyObject;
   readonly publicKey: OffsitePublicKey;
 }
+
+/** The opened key file: the private key and the verify keys it trusts. */
+export interface OffsiteKeyFile extends OffsitePrivateKey {
+  /** Verify keys of the portals whose signed copies this file accepts. */
+  readonly verifyKeys: readonly OffsiteVerifyKey[];
+}
+
+/** The most verify keys one key file holds. */
+export const MAX_TRUSTED_VERIFY_KEYS = 64;
 
 // ---------------------------------------------------------------
 // Keys and their text forms
@@ -268,7 +278,7 @@ async function* once(buf: Buffer): AsyncGenerator<Buffer> {
 export async function sealKeyFile(
   key: OffsitePrivateKey,
   passphrase: string,
-  opts: { logN?: number } = {},
+  opts: { logN?: number; verifyKeys?: readonly string[] } = {},
 ): Promise<Buffer> {
   const pass = normalizePassphrase(passphrase);
   checkKeyPassphrase(pass);
@@ -279,6 +289,7 @@ export async function sealKeyFile(
     privateKey: privateText(d),
     publicKey: key.publicKey.text,
     fingerprint: key.publicKey.fingerprintText,
+    ...(opts.verifyKeys && opts.verifyKeys.length > 0 ? { verifyKeys: [...opts.verifyKeys] } : {}),
   });
   const k = await newSealKey(pass, opts);
   return collectAll(grcv2SealStream(once(Buffer.from(body, 'utf8')), k));
@@ -288,11 +299,17 @@ export async function sealKeyFile(
  * Open the admin's sealed key file. Only the restore helper calls
  * this, on the server being restored; the running portal never does.
  */
-export async function openKeyFile(file: Buffer, passphrase: string): Promise<OffsitePrivateKey> {
+export async function openKeyFile(file: Buffer, passphrase: string): Promise<OffsiteKeyFile> {
   if (file.length > 64 * 1024) throw new OffsiteCryptoError('This is not a GratisGIS key file.');
   const pass = normalizePassphrase(passphrase);
   const plain = await collectAll(grcv2UnsealStream(once(file), pass, new SealKeyCache(1)));
-  let parsed: { kind?: unknown; version?: unknown; privateKey?: unknown; publicKey?: unknown };
+  let parsed: {
+    kind?: unknown;
+    version?: unknown;
+    privateKey?: unknown;
+    publicKey?: unknown;
+    verifyKeys?: unknown;
+  };
   try {
     parsed = JSON.parse(plain.toString('utf8')) as typeof parsed;
   } catch {
@@ -309,7 +326,35 @@ export async function openKeyFile(file: Buffer, passphrase: string): Promise<Off
   if (typeof parsed.publicKey === 'string' && parsed.publicKey !== key.publicKey.text) {
     throw new OffsiteCryptoError('The key file is damaged: its two halves do not match.');
   }
-  return key;
+  return { ...key, verifyKeys: trustedVerifyKeys(parsed.verifyKeys) };
+}
+
+/** The verify keys a key file trusts. Older key files have none. */
+function trustedVerifyKeys(raw: unknown): OffsiteVerifyKey[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > MAX_TRUSTED_VERIFY_KEYS) {
+    throw new OffsiteCryptoError('The key file is damaged: its list of verify keys is not valid.');
+  }
+  const out: OffsiteVerifyKey[] = [];
+  for (const t of raw) {
+    if (typeof t !== 'string') {
+      throw new OffsiteCryptoError(
+        'The key file is damaged: its list of verify keys is not valid.',
+      );
+    }
+    try {
+      const k = parseVerifyKey(t);
+      if (!out.some((o) => o.fingerprint.equals(k.fingerprint))) out.push(k);
+    } catch (e) {
+      if (e instanceof OffsiteSignError) {
+        throw new OffsiteCryptoError(
+          'The key file is damaged: one of its verify keys is not valid.',
+        );
+      }
+      throw e;
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------

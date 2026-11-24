@@ -34,8 +34,10 @@ export class BackupFailureNotice {
    * One notice per off-site event, keyed in backup_offsite_notice:
    * "failed:<run id>" for an upload that failed, "stale:<run id or
    * none>" for a quiet period, "key:<fingerprint>:<time>" for a changed
-   * public key, "suspect:<copy>" for a copy whose date cannot be
-   * trusted. Same recipients and notification type as a failed backup;
+   * public key, "signing:<fingerprint>:<time>" for a new signing key,
+   * "suspect:<copy>" for a copy whose date cannot be trusted,
+   * "unverified:<copy>" for a copy whose signature does not check.
+   * Same recipients and notification type as a failed backup;
    * the payload says which kind it is. Never carries an error message,
    * a key or a bucket name; fingerprints are not secret.
    */
@@ -43,7 +45,13 @@ export class BackupFailureNotice {
     key: string,
     payload: {
       runId?: string;
-      kind: 'offsite_failed' | 'offsite_stale' | 'offsite_key_changed' | 'offsite_suspect_copy';
+      kind:
+        | 'offsite_failed'
+        | 'offsite_stale'
+        | 'offsite_key_changed'
+        | 'offsite_suspect_copy'
+        | 'offsite_signing_key_changed'
+        | 'offsite_unverified_copy';
       days?: number | null;
       from?: string | null;
       to?: string | null;

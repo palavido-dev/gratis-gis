@@ -54,6 +54,16 @@ import {
   type OffsitePublicKey,
 } from './offsite-crypto.js';
 import {
+  artifactTrust,
+  checkSignature,
+  generateSigningKey,
+  parseVerifyKey,
+  signingKeyFromSeed,
+  signManifest,
+  type OffsiteSigningKey,
+  type OffsiteVerifyKey,
+} from './offsite-sign.js';
+import {
   assertEndpointReachable,
   endpointPolicy,
   type EndpointPolicy,
@@ -70,8 +80,8 @@ import {
   OFFSITE_LAYOUT,
   partitionByDate,
   selectExpired,
+  setAsideReason,
   staleNoticeKey,
-  suspectDate,
 } from './offsite-rules.js';
 import {
   createOffsiteClient,
@@ -88,6 +98,9 @@ import { readTarEntry } from './tar-cli.js';
 /** AAD prefixes for the stored secrets; a value cannot move between them. */
 const AAD_SECRET = 'backup-offsite:secret-access-key';
 const AAD_NAME_KEY = 'backup-offsite:mirror-name-key';
+const AAD_SIGNING_KEY = 'backup-offsite:signing-key';
+/** Earlier verify keys kept, newest last. */
+const MAX_PREVIOUS_VERIFY_KEYS = 20;
 
 /** An upload whose beat is older than this belongs to a dead process. */
 const STALE_UPLOAD_MS = 5 * 60 * 1000;
@@ -144,6 +157,20 @@ export interface OffsiteKeyChange {
   /** Name of the admin who saved it, when known. */
   by: string | null;
   previousFingerprint: string | null;
+}
+
+/** The signing key, as the page shows it. Its private half never leaves the server. */
+export interface OffsiteSigningInfo {
+  /** The verify key (ggver1:...), null until the first one is made. */
+  verifyKey: string | null;
+  fingerprint: string | null;
+  changedAt: string | null;
+  /** Name of the admin who asked for a new one; null when the server made it. */
+  changedBy: string | null;
+  /** Fingerprints of earlier verify keys of this portal, newest first. */
+  previousFingerprints: string[];
+  /** False when the server cannot store a signing key (no CREDENTIAL_ENCRYPTION_KEY). */
+  available: boolean;
 }
 
 /** What the page shows under the settings. */
@@ -317,14 +344,260 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   async getPublicConfig(): Promise<
-    OffsitePublicConfig & { status: OffsiteStatusSummary; keyChange: OffsiteKeyChange | null }
+    OffsitePublicConfig & {
+      status: OffsiteStatusSummary;
+      keyChange: OffsiteKeyChange | null;
+      signing: OffsiteSigningInfo;
+    }
   > {
     const row = await this.ensureInstallId();
     const s = this.resolve(row);
+    // The first time off-site copies are set up (here or in the
+    // environment), the server makes its signing key, so the page can
+    // show the verify key before the first copy.
+    if (s.enabled || s.bucket || s.publicKey) await this.ensureSigningKeyQuietly();
     return {
       ...toPublicConfig(s, this.policy()),
       status: await this.statusSummary(s),
       keyChange: await this.keyChange(row),
+      signing: await this.signingInfo(),
+    };
+  }
+
+  /** Make the signing key when it is missing; a failure only leaves it missing. */
+  private async ensureSigningKeyQuietly(): Promise<void> {
+    if (!credentialKeySet()) return;
+    try {
+      await this.signingKey();
+    } catch (e) {
+      this.log.warn(
+        `The off-site signing key could not be made: ${e instanceof Error ? e.message : 'unknown error'}`,
+      );
+    }
+  }
+
+  private async userName(id: string | null | undefined): Promise<string | null> {
+    if (!id) return null;
+    try {
+      const u = await this.prisma.user.findUnique({
+        where: { id },
+        select: { fullName: true, username: true },
+      });
+      return u ? u.fullName || u.username : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The verify key and its history, for the page. Nothing secret. */
+  async signingInfo(): Promise<OffsiteSigningInfo> {
+    const row = await this.backup.configRow();
+    let verify: OffsiteVerifyKey | null = null;
+    try {
+      verify = row.offsiteVerifyKey ? parseVerifyKey(row.offsiteVerifyKey) : null;
+    } catch {
+      verify = null;
+    }
+    const previous: string[] = [];
+    for (const t of [...(row.offsitePreviousVerifyKeys ?? [])].reverse()) {
+      try {
+        previous.push(parseVerifyKey(t).fingerprintText);
+      } catch {
+        // A damaged entry is left out.
+      }
+    }
+    return {
+      verifyKey: verify?.text ?? null,
+      fingerprint: verify?.fingerprintText ?? null,
+      changedAt: row.offsiteSigningKeyChangedAt?.toISOString() ?? null,
+      changedBy: await this.userName(row.offsiteSigningKeyChangedBy),
+      previousFingerprints: previous,
+      available: credentialKeySet(),
+    };
+  }
+
+  /**
+   * The key this server signs off-site copies with, made the first
+   * time it is needed and stored with the credential cipher under its
+   * own associated data. Its private half is never returned, logged,
+   * put in a notice or written to the bucket.
+   *
+   * A stored key that no longer opens (the server key changed) or no
+   * longer matches its verify key is replaced, and the operator admins
+   * are told: the admin must add the new verify key to their key file.
+   */
+  async signingKey(): Promise<OffsiteSigningKey> {
+    if (!credentialKeySet()) {
+      throw new Error(
+        'Signing off-site copies needs CREDENTIAL_ENCRYPTION_KEY on this server. Set it, then try again.',
+      );
+    }
+    const row = await this.backup.configRow();
+    if (row.offsiteSigningKeyEncrypted && row.offsiteSigningKeyIv) {
+      const key = this.openSigningKey(
+        row.offsiteSigningKeyEncrypted,
+        row.offsiteSigningKeyIv,
+        row.offsiteVerifyKey,
+      );
+      if (key) return key;
+      this.log.warn(
+        'The stored off-site signing key could not be opened, or does not match its verify key; making a new one. Add the new verify key to your key file.',
+      );
+      return (await this.replaceSigningKey(null, 'unreadable')).key;
+    }
+    const made = generateSigningKey();
+    const enc = encryptCredential(made.seed.toString('base64'), AAD_SIGNING_KEY);
+    const res = await this.prisma.backupConfig.updateMany({
+      where: { id: row.id, offsiteSigningKeyEncrypted: null },
+      data: {
+        offsiteSigningKeyEncrypted: enc.ciphertext,
+        offsiteSigningKeyIv: enc.iv,
+        offsiteVerifyKey: made.verifyKey.text,
+        offsiteSigningKeyChangedAt: new Date(),
+        offsiteSigningKeyChangedBy: null,
+      },
+    });
+    if (res.count === 1) {
+      this.log.log(
+        `Made the off-site signing key (verify key fingerprint ${made.verifyKey.fingerprintText}). Add the verify key to your key file.`,
+      );
+      return made;
+    }
+    // Another process made one first: use that one.
+    const again = await this.backup.configRow();
+    const key =
+      again.offsiteSigningKeyEncrypted && again.offsiteSigningKeyIv
+        ? this.openSigningKey(
+            again.offsiteSigningKeyEncrypted,
+            again.offsiteSigningKeyIv,
+            again.offsiteVerifyKey,
+          )
+        : null;
+    if (!key) throw new Error('The off-site signing key could not be stored.');
+    return key;
+  }
+
+  private openSigningKey(
+    ct: string,
+    iv: string,
+    storedVerify: string | null,
+  ): OffsiteSigningKey | null {
+    try {
+      const key = signingKeyFromSeed(
+        Buffer.from(decryptCredential(ct, iv, AAD_SIGNING_KEY), 'base64'),
+      );
+      return storedVerify === key.verifyKey.text ? key : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Make a new signing key. The old verify key is kept in the list of
+   * this portal's earlier keys, so copies it signed still count as
+   * good. The operator admins get a notice with both fingerprints.
+   */
+  async replaceSigningKey(
+    by: string | null,
+    why: 'admin' | 'unreadable' = 'admin',
+  ): Promise<{ key: OffsiteSigningKey; from: string | null; to: string }> {
+    if (!credentialKeySet()) {
+      throw new BadRequestException(
+        'This server has no CREDENTIAL_ENCRYPTION_KEY, so it cannot store a signing key.',
+      );
+    }
+    if (why === 'admin' && (await this.otherUploadRunning(null))) {
+      throw new ConflictException('An off-site upload is running. Try again when it finishes.');
+    }
+    const row = await this.backup.configRow();
+    const made = generateSigningKey();
+    const enc = encryptCredential(made.seed.toString('base64'), AAD_SIGNING_KEY);
+    let from: OffsiteVerifyKey | null = null;
+    try {
+      from = row.offsiteVerifyKey ? parseVerifyKey(row.offsiteVerifyKey) : null;
+    } catch {
+      from = null;
+    }
+    const previous = (row.offsitePreviousVerifyKeys ?? []).filter((t) => t !== from?.text);
+    if (from) previous.push(from.text);
+    const changedAt = new Date();
+    await this.prisma.backupConfig.update({
+      where: { id: row.id },
+      data: {
+        offsiteSigningKeyEncrypted: enc.ciphertext,
+        offsiteSigningKeyIv: enc.iv,
+        offsiteVerifyKey: made.verifyKey.text,
+        offsitePreviousVerifyKeys: previous.slice(-MAX_PREVIOUS_VERIFY_KEYS),
+        offsiteSigningKeyChangedAt: changedAt,
+        offsiteSigningKeyChangedBy: by,
+      },
+    });
+    const to = made.verifyKey.fingerprintText;
+    this.log.warn(
+      `The off-site signing key was replaced (verify key ${from?.fingerprintText ?? 'none'} is now ${to}). Add the new verify key to your key file; copies signed before stay valid with the old one.`,
+    );
+    try {
+      await this.notice?.announceOffsite(`signing:${to}:${changedAt.toISOString()}`, {
+        kind: 'offsite_signing_key_changed',
+        from: from?.fingerprintText ?? null,
+        to,
+      });
+    } catch (e) {
+      this.log.warn(
+        `The signing key change notice could not be sent: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+    return { key: made, from: from?.fingerprintText ?? null, to };
+  }
+
+  /** This portal's verify keys, current and earlier: the ones its retention trusts. */
+  private async ownVerifyKeys(): Promise<OffsiteVerifyKey[]> {
+    const row = await this.backup.configRow();
+    const out: OffsiteVerifyKey[] = [];
+    for (const t of [row.offsiteVerifyKey, ...(row.offsitePreviousVerifyKeys ?? [])]) {
+      if (!t) continue;
+      try {
+        out.push(parseVerifyKey(t));
+      } catch {
+        // A damaged entry is not trusted.
+      }
+    }
+    return out;
+  }
+
+  /**
+   * "Check my verify key": does what the admin pastes (a verify key or
+   * its fingerprint) match the key this server signs with now, or one
+   * it signed with before?
+   */
+  async checkVerifyKey(value: string): Promise<{
+    matches: boolean;
+    previous: boolean;
+    serverFingerprint: string | null;
+    checkedFingerprint: string;
+  }> {
+    if (looksLikePrivateKey(value)) {
+      throw new BadRequestException(
+        'That is a private key. Never paste it into the portal. Paste the verify key or its fingerprint.',
+      );
+    }
+    let fp: Buffer | null = parseFingerprint(value);
+    if (!fp) {
+      try {
+        fp = parseVerifyKey(value).fingerprint;
+      } catch {
+        throw new BadRequestException(
+          'Paste a verify key (ggver1:...) or its fingerprint (32 hex digits).',
+        );
+      }
+    }
+    const info = await this.signingInfo();
+    const text = (fp.toString('hex').match(/.{4}/g) ?? []).join('-');
+    return {
+      matches: info.fingerprint !== null && info.fingerprint === text,
+      previous: info.previousFingerprints.includes(text),
+      serverFingerprint: info.fingerprint,
+      checkedFingerprint: text,
     };
   }
 
@@ -491,6 +764,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
 
     await this.prisma.backupConfig.update({ where: { id: row.id }, data });
+    await this.ensureSigningKeyQuietly();
     const saved = await this.settings();
     if (keyChanged) {
       this.log.warn(
@@ -673,11 +947,32 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     await this.writeInstallMarker(s3, s, null, signal);
   }
 
+  /**
+   * Install ids the folder belonged to before, from its marker: the
+   * restore expects signed copies from these too.
+   */
+  private async previousInstallIds(s3: S3Like, s: OffsiteSettings): Promise<string[]> {
+    try {
+      const j = JSON.parse((await getSmall(s3, s.bucket!, this.markerKey(s))).toString('utf8')) as {
+        takenOverFrom?: unknown;
+        previousInstallIds?: unknown;
+      };
+      const ids = [
+        ...(Array.isArray(j.previousInstallIds) ? j.previousInstallIds : []),
+        j.takenOverFrom,
+      ];
+      return ids.filter((x): x is string => typeof x === 'string' && x.length === 36);
+    } catch {
+      return [];
+    }
+  }
+
   private async writeInstallMarker(
     s3: S3Like,
     s: OffsiteSettings,
     takenOverFrom: string | null,
     signal?: AbortSignal,
+    previousInstallIds: string[] = [],
   ): Promise<void> {
     await putSmall(
       s3,
@@ -690,6 +985,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             installId: s.installId,
             createdAt: new Date().toISOString(),
             ...(takenOverFrom ? { takenOverFrom } : {}),
+            ...(previousInstallIds.length > 0 ? { previousInstallIds } : {}),
           },
           null,
           2,
@@ -741,7 +1037,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       );
     }
     try {
-      await this.writeInstallMarker(s3, s, owner);
+      const previous = [...new Set([...(await this.previousInstallIds(s3, s)), owner])].slice(-20);
+      await this.writeInstallMarker(s3, s, owner, undefined, previous);
     } catch (e) {
       throw new ConflictException(this.safeMessage(e, s));
     }
@@ -935,9 +1232,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       const size = (await fs.stat(archivePath)).size;
       mode = await this.chooseMode(s, run, objectBytes);
       armDeadline(size + (mode === 'mirror' ? (objectBytes ?? 0) : 0));
+      // Every copy is signed; without a signing key nothing is sent.
+      const signingKey = await this.signingKey();
       await this.prisma.backupRun.update({
         where: { id: runId },
-        data: { offsiteMode: mode, offsiteKeyFingerprint: s.publicKey!.fingerprintText },
+        data: {
+          offsiteMode: mode,
+          offsiteKeyFingerprint: s.publicKey!.fingerprintText,
+          offsiteVerifyFingerprint: signingKey.verifyKey.fingerprintText,
+        },
       });
 
       const s3 = this.clientFactory(s);
@@ -953,6 +1256,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
                   s3,
                   s,
                   publicKey: s.publicKey!,
+                  signingKey,
                   nameKey: await this.nameKey(),
                   index: this.index,
                   run,
@@ -963,6 +1267,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
                   s3,
                   s,
                   publicKey: s.publicKey!,
+                  signingKey,
                   run,
                   archivePath,
                   size,
@@ -1072,11 +1377,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     s3: S3Like;
     s: OffsiteSettings;
     publicKey: OffsitePublicKey;
+    signingKey: OffsiteSigningKey;
     run: { id: string; filename: string | null; startedAt: Date };
     archivePath: string;
     size: number;
     signal: AbortSignal;
   }): Promise<{ key: string; bytes: number; sha256: string }> {
+    if (!a.s.installId) throw new Error('This portal has no install id yet.');
     const name = `${a.run.filename}${OFFSITE_LAYOUT.sealed}`;
     const objectKey = `${a.s.prefix}${OFFSITE_LAYOUT.archives}${name}`;
     const up = await uploadStream(a.s3, {
@@ -1098,6 +1405,22 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       plainBytes: a.size,
       sealedBytes: up.bytes,
       sealedSha256: up.sha256,
+      // Binds the copy's name, folder, portal, size, checksum, key and
+      // time; the restore checks it before it decrypts anything.
+      signature: signManifest(
+        {
+          kind: 'archive',
+          format: OFFSITE_FORMAT,
+          install: a.s.installId,
+          prefix: a.s.prefix,
+          name: `${OFFSITE_LAYOUT.archives}${name}`,
+          bytes: String(up.bytes),
+          sha256: up.sha256,
+          key: a.publicKey.fingerprintText,
+          created: a.run.startedAt.toISOString(),
+        },
+        a.signingKey,
+      ),
     };
     await putSmall(
       a.s3,
@@ -1170,6 +1493,33 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const listing = [];
     for await (const o of listObjects(s3, s.bucket!, archivesPrefix, signal)) listing.push(o);
     const artifacts = archiveArtifacts(listing, archivesPrefix);
+    // Only signed copies this portal can verify count as good; a copy
+    // with a bad signature is set aside like a future-dated one.
+    const trusted = await this.ownVerifyKeys();
+    for (const a of artifacts) {
+      if (!a.complete) continue;
+      stop();
+      let sidecar: unknown = null;
+      try {
+        sidecar = JSON.parse(
+          (await getSmall(s3, s.bucket!, `${archivesPrefix}${a.id}.json`, signal)).toString('utf8'),
+        );
+      } catch (e) {
+        if (signal?.aborted) throw e;
+        a.trust = 'unsigned';
+        continue;
+      }
+      a.trust = artifactTrust(
+        checkSignature(sidecar, trusted, {
+          kind: 'archive',
+          prefix: s.prefix,
+          name: `${OFFSITE_LAYOUT.archives}${a.id}`,
+          bytes: a.sealedBytes,
+        }),
+        sidecar,
+        s.installId,
+      );
+    }
     let removed = 0;
     for (const id of selectExpired(artifacts, now, s.retentionDays)) {
       const a = artifacts.find((x) => x.id === id)!;
@@ -1188,7 +1538,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const collect = !(await this.otherUploadRunning(self));
     if (!collect)
       this.log.log('Another off-site upload is running; mirror files are not collected this time.');
-    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect, signal);
+    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect, signal, trusted);
     removed += m.removed;
     if (m.unknownKept > 0) {
       this.log.log(
@@ -1198,7 +1548,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const suspect = [
       ...partitionByDate(artifacts, now).suspect.map((a) => ({
         id: a.id,
-        why: suspectDate(a, now),
+        why: setAsideReason(a, now),
       })),
       ...m.suspect.map((r) => ({ id: `mirror:${r.id}`, why: r.why })),
     ];
@@ -1213,14 +1563,23 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
    * It is kept, never counted as the newest copy, and reported once.
    */
   private async reportSuspect(id: string, why: string | null): Promise<void> {
-    this.log.warn(
-      `Off-site copy ${id} is dated ${why === 'future' ? 'in the future' : 'after the provider recorded its upload'}. It was not used or deleted. Check who can write to the bucket.`,
-    );
+    if (why === 'bad-signature') {
+      this.log.warn(
+        `Off-site copy ${id} is not signed by this portal, or its signature does not match the copy. It was not used or deleted. Check who can write to the bucket.`,
+      );
+    } else {
+      this.log.warn(
+        `Off-site copy ${id} is dated ${why === 'future' ? 'in the future' : 'after the provider recorded its upload'}. It was not used or deleted. Check who can write to the bucket.`,
+      );
+    }
     try {
-      await this.notice?.announceOffsite(`suspect:${id}`, {
-        kind: 'offsite_suspect_copy',
-        name: id,
-      });
+      await this.notice?.announceOffsite(
+        `${why === 'bad-signature' ? 'unverified' : 'suspect'}:${id}`,
+        {
+          kind: why === 'bad-signature' ? 'offsite_unverified_copy' : 'offsite_suspect_copy',
+          name: id,
+        },
+      );
     } catch {
       // The log line above stands.
     }
@@ -1332,6 +1691,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   /** An error message with every secret removed, for logs and rows. */
   private safeMessage(e: unknown, s: OffsiteSettings): string {
     return redactSecrets(describeS3Error(e), [s.secretAccessKey]);
+  }
+}
+
+function credentialKeySet(): boolean {
+  try {
+    assertCredentialKeyConfigured();
+    return true;
+  } catch {
+    return false;
   }
 }
 

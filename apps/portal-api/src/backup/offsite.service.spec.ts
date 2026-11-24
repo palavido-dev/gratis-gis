@@ -18,6 +18,7 @@ import {
   unsealStream,
   type OffsitePrivateKey,
 } from './offsite-crypto.js';
+import { generateSigningKey, signManifest, type OffsiteSigningKey } from './offsite-sign.js';
 import { OffsiteService } from './offsite.service.js';
 
 const SECRET = 'S3CR3T-access-key-value-0001';
@@ -564,11 +565,15 @@ describe('OffsiteService', () => {
     );
   });
 
+  /** A sidecar as copies made before signing have: no signature. */
+  const legacySidecar = (installId = configRow.offsiteInstallId) =>
+    Buffer.from(JSON.stringify({ format: 'GROF1', kind: 'archive', installId }));
+
   it('retention removes old copies and keeps the newest good one', async () => {
     const now = Date.now();
     const put = (name: string, ageDays: number) => {
       s3.objects.set(`${PREFIX}archives/${name}`, {
-        body: Buffer.from('x'),
+        body: name.endsWith('.json') ? legacySidecar() : Buffer.from('x'),
         lastModified: new Date(now - ageDays * DAY),
         etag: '"x"',
       });
@@ -622,7 +627,11 @@ describe('OffsiteService', () => {
       });
     beforeEach(() => {
       for (const k of [OLD_COPY, `${OLD_COPY}.json`]) {
-        s3.objects.set(k, { body: Buffer.from('x'), lastModified: new Date(0), etag: '"x"' });
+        s3.objects.set(k, {
+          body: k.endsWith('.json') ? legacySidecar() : Buffer.from('x'),
+          lastModified: new Date(0),
+          etag: '"x"',
+        });
       }
     });
 
@@ -639,8 +648,14 @@ describe('OffsiteService', () => {
       const send = s3.send.bind(s3);
       let markerReads = 0;
       jest.spyOn(s3, 'send').mockImplementation(async (cmd) => {
-        const name = (cmd as { constructor: { name: string } }).constructor.name;
-        if (name === 'GetObjectCommand' && ++markerReads === 2) setOwner('ffffffff-other-install');
+        const c = cmd as { constructor: { name: string }; input: { Key?: string } };
+        if (
+          c.constructor.name === 'GetObjectCommand' &&
+          String(c.input.Key).endsWith('gratisgis-install.json') &&
+          ++markerReads === 2
+        ) {
+          setOwner('ffffffff-other-install');
+        }
         return send(cmd as never);
       });
       const mirrorClean = jest.spyOn(
@@ -658,7 +673,7 @@ describe('OffsiteService', () => {
   it('a copy dated in the future is kept, reported, and does not stop retention', async () => {
     const put = (name: string, lastModified: Date) =>
       s3.objects.set(`${PREFIX}archives/${name}`, {
-        body: Buffer.from('x'),
+        body: name.endsWith('.json') ? legacySidecar() : Buffer.from('x'),
         lastModified,
         etag: '"x"',
       });
@@ -685,6 +700,206 @@ describe('OffsiteService', () => {
       name: planted,
     });
     expect(logged.join('\n')).toMatch(/dated in the future/);
+  });
+
+  describe('retention and signatures', () => {
+    const stamp = (d: number) =>
+      new Date(Date.now() - d * DAY).toISOString().replace(/[:.]/g, '-').replace('Z', '');
+    const marker = () =>
+      s3.objects.set(`${PREFIX}gratisgis-install.json`, {
+        body: Buffer.from(JSON.stringify({ installId: configRow.offsiteInstallId })),
+        lastModified: new Date(),
+        etag: '"m"',
+      });
+    const putCopy = (name: string, ageDays: number, sidecar: Buffer) => {
+      const at = new Date(Date.now() - ageDays * DAY);
+      s3.objects.set(`${PREFIX}archives/${name}`, {
+        body: Buffer.from('x'),
+        lastModified: at,
+        etag: '"x"',
+      });
+      s3.objects.set(`${PREFIX}archives/${name}.json`, {
+        body: sidecar,
+        lastModified: at,
+        etag: '"x"',
+      });
+    };
+    const signedSidecar = (name: string, by: OffsiteSigningKey, change = {}) =>
+      Buffer.from(
+        JSON.stringify({
+          installId: configRow.offsiteInstallId,
+          signature: signManifest(
+            {
+              kind: 'archive',
+              format: 'GROF1',
+              install: String(configRow.offsiteInstallId),
+              prefix: PREFIX,
+              name: `archives/${name}`,
+              bytes: '1',
+              sha256: 'c'.repeat(64),
+              key: key.publicKey.fingerprintText,
+              created: new Date().toISOString(),
+              ...change,
+            },
+            by,
+          ),
+        }),
+      );
+    const has = (name: string) => s3.objects.has(`${PREFIX}archives/${name}`);
+
+    it('a signed copy replaces older unsigned ones as the newest good copy', async () => {
+      marker();
+      const own = await svc.signingKey();
+      const legacy = `backup-${stamp(40)}-11111111.tar.gz.enc`;
+      const signed = `backup-${stamp(45)}-22222222.tar.gz.enc`;
+      const old = `backup-${stamp(50)}-33333333.tar.gz.enc`;
+      putCopy(legacy, 40, legacySidecar());
+      putCopy(signed, 45, signedSidecar(signed, own));
+      putCopy(old, 50, legacySidecar());
+      await svc.enforceRetention(await svc.settings(), s3);
+      expect(has(signed)).toBe(true);
+      expect(has(legacy)).toBe(false);
+      expect(has(old)).toBe(false);
+    });
+
+    it('copies signed by an earlier signing key of this portal still count', async () => {
+      marker();
+      const before = await svc.signingKey();
+      await svc.replaceSigningKey('admin-user');
+      const signed = `backup-${stamp(45)}-22222222.tar.gz.enc`;
+      const legacy = `backup-${stamp(40)}-11111111.tar.gz.enc`;
+      putCopy(signed, 45, signedSidecar(signed, before));
+      putCopy(legacy, 40, legacySidecar());
+      await svc.enforceRetention(await svc.settings(), s3);
+      expect(has(signed)).toBe(true);
+      expect(has(legacy)).toBe(false);
+    });
+
+    it('a badly signed copy is set aside: never the newest, never deleted, reported', async () => {
+      marker();
+      const own = await svc.signingKey();
+      const good = `backup-${stamp(40)}-11111111.tar.gz.enc`;
+      const forged = `backup-${stamp(2)}-44444444.tar.gz.enc`;
+      const changed = `backup-${stamp(3)}-55555555.tar.gz.enc`;
+      const older = `backup-${stamp(50)}-66666666.tar.gz.enc`;
+      putCopy(good, 40, signedSidecar(good, own));
+      putCopy(forged, 2, signedSidecar(forged, generateSigningKey()));
+      putCopy(changed, 3, signedSidecar(changed, own, { bytes: '99' }));
+      putCopy(older, 50, signedSidecar(older, own));
+      await svc.enforceRetention(await svc.settings(), s3);
+      expect(has(good)).toBe(true);
+      expect(has(forged)).toBe(true);
+      expect(has(changed)).toBe(true);
+      expect(has(older)).toBe(false);
+      for (const n of [forged, changed]) {
+        expect(notice.announceOffsite).toHaveBeenCalledWith(`unverified:${n}`, {
+          kind: 'offsite_unverified_copy',
+          name: n,
+        });
+      }
+      expect(logged.join('\n')).toMatch(
+        /not signed by this portal, or its signature does not match/,
+      );
+    });
+
+    it('an unsigned copy from another install id never counts as the newest', async () => {
+      marker();
+      const own = await svc.signingKey();
+      const stranger = `backup-${stamp(35)}-77777777.tar.gz.enc`;
+      const signed = `backup-${stamp(45)}-22222222.tar.gz.enc`;
+      putCopy(stranger, 35, legacySidecar('99999999-aaaa-4bbb-8ccc-000000000009'));
+      putCopy(signed, 45, signedSidecar(signed, own));
+      await svc.enforceRetention(await svc.settings(), s3);
+      expect(has(signed)).toBe(true);
+      expect(has(stranger)).toBe(false);
+    });
+  });
+
+  describe('the signing key', () => {
+    it('is made once, stored encrypted, and its private half never leaves the server', async () => {
+      const cfg = await svc.getPublicConfig();
+      const k = await svc.signingKey();
+      expect(cfg.signing.verifyKey).toBe(k.verifyKey.text);
+      expect(cfg.signing.fingerprint).toBe(k.verifyKey.fingerprintText);
+      expect((await svc.signingKey()).verifyKey.text).toBe(k.verifyKey.text);
+      expect(configRow.offsiteSigningKeyEncrypted).toBeTruthy();
+      const seedForms = [
+        k.seed.toString('base64'),
+        k.seed.toString('hex'),
+        k.seed.toString('base64url'),
+      ];
+      expect(String(configRow.offsiteSigningKeyEncrypted)).not.toContain(seedForms[0]);
+      // A copy, a key change and the answers to the page.
+      await runUpload();
+      const replaced = await svc.replaceSigningKey('admin-user');
+      const answers = JSON.stringify([
+        cfg,
+        await svc.getPublicConfig(),
+        await svc.checkVerifyKey(k.verifyKey.text),
+        { from: replaced.from, to: replaced.to },
+      ]);
+      const notices = JSON.stringify(notice.announceOffsite.mock.calls);
+      const bucket = [...s3.objects.values()].map((o) => o.body.toString('latin1')).join('\n');
+      const secrets = [k.seed, replaced.key.seed].flatMap((b) => [
+        b.toString('base64'),
+        b.toString('hex'),
+        b.toString('base64url'),
+      ]);
+      for (const secret of secrets) {
+        expect(answers).not.toContain(secret);
+        expect(notices).not.toContain(secret);
+        expect(logged.join('\n')).not.toContain(secret);
+        expect(bucket).not.toContain(secret);
+      }
+      expect(bucket).not.toContain(String(configRow.offsiteSigningKeyEncrypted));
+    });
+
+    it('a new key keeps the old verify key trusted, records who, and tells the operator admins', async () => {
+      const first = await svc.signingKey();
+      const res = await svc.replaceSigningKey('admin-user');
+      expect(res.from).toBe(first.verifyKey.fingerprintText);
+      expect(res.to).not.toBe(res.from);
+      expect(configRow.offsitePreviousVerifyKeys).toEqual([first.verifyKey.text]);
+      expect(configRow.offsiteSigningKeyChangedBy).toBe('admin-user');
+      expect(notice.announceOffsite).toHaveBeenCalledWith(expect.stringMatching(/^signing:/), {
+        kind: 'offsite_signing_key_changed',
+        from: res.from,
+        to: res.to,
+      });
+      const info = await svc.signingInfo();
+      expect(info.previousFingerprints).toEqual([first.verifyKey.fingerprintText]);
+      expect(await svc.checkVerifyKey(first.verifyKey.text)).toMatchObject({
+        matches: false,
+        previous: true,
+      });
+      expect(await svc.checkVerifyKey(res.key.verifyKey.fingerprintText)).toMatchObject({
+        matches: true,
+      });
+    });
+
+    it('a stored key that no longer opens is replaced, and the admins are told', async () => {
+      const first = await svc.signingKey();
+      configRow.offsiteVerifyKey = generateSigningKey().verifyKey.text;
+      const next = await svc.signingKey();
+      expect(next.verifyKey.text).not.toBe(first.verifyKey.text);
+      expect(notice.announceOffsite).toHaveBeenCalledWith(
+        expect.stringMatching(/^signing:/),
+        expect.objectContaining({ kind: 'offsite_signing_key_changed' }),
+      );
+    });
+
+    it('refuses a private key pasted as a verify key', async () => {
+      await expect(svc.checkVerifyKey('ggsec1:abc')).rejects.toThrow(/private key/);
+    });
+
+    it('an upload is refused without CREDENTIAL_ENCRYPTION_KEY, rather than sent unsigned', async () => {
+      delete process.env.CREDENTIAL_ENCRYPTION_KEY;
+      _resetKeyCacheForTests();
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('failed');
+      expect(String(runs[0]!.offsiteError)).toMatch(/needs CREDENTIAL_ENCRYPTION_KEY/);
+      expect([...s3.objects.keys()].some((k) => k.endsWith('.enc'))).toBe(false);
+    });
   });
 
   describe('an upload that stops getting answers', () => {

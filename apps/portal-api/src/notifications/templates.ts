@@ -679,6 +679,30 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
         `<p>Old fingerprint: ${escapeHtml(from)}<br>New fingerprint: ${escapeHtml(to)}</p>`;
       return { subject, text, html };
     }
+    if (payload.kind === 'offsite_signing_key_changed') {
+      const from = typeof payload.from === 'string' ? payload.from : 'none';
+      const to = typeof payload.to === 'string' ? payload.to : 'none';
+      const subject = `The off-site backup signing key was changed on ${ctx.orgLabel}`;
+      const line =
+        `The key this portal signs off-site backup copies with was replaced. ` +
+        `Add the new verify key to your key file (Admin, Backup shows it). ` +
+        `If you did not expect this, check Admin, Backup now.`;
+      const text = `${line}\nOld verify key fingerprint: ${from}\nNew verify key fingerprint: ${to}\n`;
+      const html =
+        `<p>${escapeHtml(line)}</p>` +
+        `<p>Old verify key fingerprint: ${escapeHtml(from)}<br>New verify key fingerprint: ${escapeHtml(to)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_unverified_copy') {
+      const name = typeof payload.name === 'string' ? payload.name : '';
+      const subject = `An off-site backup copy was set aside on ${ctx.orgLabel}`;
+      const line =
+        `An off-site copy in the bucket is not signed by this portal, or its signature does not match the copy. ` +
+        `It is not used for restores or deleted by retention. Check who can write to the bucket.`;
+      const text = `${line}\nCopy: ${name}\n`;
+      const html = `<p>${escapeHtml(line)}</p><p>Copy: ${escapeHtml(name)}</p>`;
+      return { subject, text, html };
+    }
     if (payload.kind === 'offsite_suspect_copy') {
       const name = typeof payload.name === 'string' ? payload.name : '';
       const subject = `An off-site backup copy was set aside on ${ctx.orgLabel}`;

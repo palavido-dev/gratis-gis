@@ -5,12 +5,12 @@
  * inside the portal-api image:
  *
  *   node dist/backup/offsite-cli.js list
- *   node dist/backup/offsite-cli.js describe [--name ARCHIVE | --run RUN]
+ *   node dist/backup/offsite-cli.js describe KEY [--name ARCHIVE | --run RUN] [UNVERIFIED]
  *   node dist/backup/offsite-cli.js check-key KEY
- *   node dist/backup/offsite-cli.js fetch KEY --out DIR --confirm-copy NAME [--name ARCHIVE]
- *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR --confirm-copy NAME [--run RUN]
+ *   node dist/backup/offsite-cli.js fetch KEY --out DIR --confirm-copy NAME [--name ARCHIVE] [UNVERIFIED]
+ *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR --confirm-copy NAME [--run RUN] [UNVERIFIED]
  *   node dist/backup/offsite-cli.js put-objects --archive FILE
- *   node dist/backup/offsite-cli.js put-mirror-objects KEY [--run RUN]
+ *   node dist/backup/offsite-cli.js put-mirror-objects KEY --run RUN [--work DIR] [UNVERIFIED]
  *   node dist/backup/offsite-cli.js count-objects
  *
  * where KEY is either `--key-file F --passphrase-stdin` (the passphrase
@@ -26,18 +26,27 @@
  * Results are printed as key=value lines on stdout for the script;
  * progress goes to stderr.
  *
+ * Signatures: every copy carries a signature by the portal's signing
+ * key (offsite-sign.ts). The key file holds the verify keys the admin
+ * added to it. Every command that uses a copy checks its signature
+ * against those keys first, before anything is downloaded, decrypted
+ * or changed, and then checks each downloaded object's size and
+ * SHA-256 against the signed record before decrypting it. A copy that
+ * is not signed (made before signing existed), or is signed by a key
+ * the key file does not hold, or by another portal install, is used
+ * only with UNVERIFIED, which is --allow-unverified-copy; without it
+ * the command exits with status 3. A copy whose signature does not
+ * verify, or is for another copy, is never used.
+ *
  * `describe` names the copy a restore would use (the one named, or the
- * newest complete one) with its date, size and key fingerprint, and
- * changes nothing. `fetch` and `fetch-mirror` download only when
- * --confirm-copy repeats that copy's name. A copy dated in the future
- * is never picked as the newest; it is used only when named.
+ * newest verified one) with its date, size, key fingerprint and who
+ * signed it, and changes nothing. `fetch` and `fetch-mirror` download
+ * only when --confirm-copy repeats that copy's name. A copy dated in the
+ * future is never picked as the newest; it is used only when named.
  */
-import { createHash } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 
 import { ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
@@ -49,7 +58,7 @@ import {
   type OffsiteRow,
   type OffsiteSettings,
 } from './offsite-config.js';
-import { openKeyFile, unsealStream, type OffsitePrivateKey } from './offsite-crypto.js';
+import { openKeyFile, type OffsiteKeyFile } from './offsite-crypto.js';
 import { endpointPolicy } from './offsite-endpoint.js';
 import {
   ARCHIVE_NAME_RE,
@@ -58,18 +67,25 @@ import {
   newestGood,
   OFFSITE_LAYOUT,
   suspectDate,
+  type OffsiteArtifact,
 } from './offsite-rules.js';
+import {
+  checkSignature,
+  type ArchiveManifest,
+  type CopyCheck,
+  type CopyTrust,
+  type MirrorManifest,
+} from './offsite-sign.js';
 import {
   createOffsiteClient,
   describeS3Error,
-  getObjectStream,
   getSmall,
   listLevel,
   listObjects,
   type S3Like,
 } from './offsite-store.js';
 import { extractTarGz, readTarEntry } from './tar-cli.js';
-import { OffsiteMirror } from './offsite-mirror.js';
+import { fetchChecked, OffsiteMirror } from './offsite-mirror.js';
 
 /** Same name as backup.service.ts; not imported, to keep Nest out of the CLI. */
 const MINIO_META_MEMBER = 'minio-meta.json';
@@ -78,6 +94,13 @@ const FINGERPRINT_RE = /^[0-9a-f]{4}(?:-[0-9a-f]{4}){7}$/;
 /** How deep, and through how many folders, the restore looks for a portal folder. */
 const FIND_DEPTH = 4;
 const FIND_FOLDERS = 200;
+/** The flag that lets a restore use a copy whose origin cannot be checked. */
+export const ALLOW_UNVERIFIED = '--allow-unverified-copy';
+/** Exit status when a copy is not verified and ALLOW_UNVERIFIED was not given. */
+export const EXIT_UNVERIFIED = 3;
+
+/** The copy is not verified, and the flag to use it anyway was not given. */
+class UnverifiedCopyError extends Error {}
 
 const EMPTY_ROW: OffsiteRow = {
   offsiteEnabled: null,
@@ -214,7 +237,7 @@ async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
  * --key-file plus --passphrase-stdin, or both on standard input with
  * --key-stdin.
  */
-async function privateKeyFrom(io: CliIo, args: string[]): Promise<OffsitePrivateKey> {
+async function privateKeyFrom(io: CliIo, args: string[]): Promise<OffsiteKeyFile> {
   let bytes: Buffer;
   let pass: string;
   if (args.includes('--key-stdin')) {
@@ -253,25 +276,66 @@ async function completeArchives(s3: S3Like, s: OffsiteSettings) {
   );
 }
 
+async function readJson(
+  s3: S3Like,
+  bucket: string,
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const j: unknown = JSON.parse((await getSmall(s3, bucket, key)).toString('utf8'));
+    return j && typeof j === 'object' ? (j as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function sidecarKey(s: OffsiteSettings, archiveId: string): string {
+  return `${s.prefix}${OFFSITE_LAYOUT.archives}${archiveId}.json`;
+}
+
 async function cmdList(io: CliIo, now: Date) {
   const s = await settingsFrom(io);
   const s3 = io.offsite(s);
   result(io, 'prefix', s.prefix);
   const archives = await completeArchives(s3, s);
+  const runs = await new OffsiteMirror(null, null).listRuns(s3, s);
+  // Without the key file the signatures cannot be checked here; list
+  // says which copies carry one. The restore checks them.
+  const signedBy = async (marker: string): Promise<string | null> => {
+    const j = await readJson(s3, s.bucket!, marker);
+    const sig = j?.signature as { verifyKey?: unknown } | undefined;
+    if (!sig) return null;
+    return typeof sig.verifyKey === 'string' && FINGERPRINT_RE.test(sig.verifyKey)
+      ? sig.verifyKey
+      : 'damaged';
+  };
   const state = (a: { complete: boolean; createdAt: Date; lastModified?: Date | null }) =>
     suspectDate({ id: '', ...a }, now) ? 'set aside' : a.complete ? 'ok        ' : 'unfinished';
-  for (const a of archives) {
-    io.err(`${state(a)}  ${a.createdAt.toISOString()}  ${a.id.replace(/\.enc$/, '')}`);
-  }
-  const runs = await new OffsiteMirror(null, null).listRuns(s3, s);
+  const line = async (a: OffsiteArtifact, label: string, marker: string) => {
+    let sig = '';
+    if (a.complete) {
+      const by = await signedBy(marker);
+      a.trust = by && by !== 'damaged' ? 'verified' : 'unsigned';
+      sig = by ? `  signed ${by}` : '  NOT SIGNED';
+    }
+    io.err(`${state(a)}  ${a.createdAt.toISOString()}  ${label}${sig}`);
+  };
+  for (const a of archives) await line(a, a.id.replace(/\.enc$/, ''), sidecarKey(s, a.id));
   for (const r of runs) {
-    io.err(`${state(r)}  ${r.createdAt.toISOString()}  mirror:${r.id}`);
+    await line(
+      r,
+      `mirror:${r.id}`,
+      `${s.prefix}${OFFSITE_LAYOUT.mirrorRuns}${r.id}/${OFFSITE_LAYOUT.doneMarker}`,
+    );
   }
   if ([...archives, ...runs].some((a) => suspectDate(a, now))) {
     io.err(
       '"set aside": dated in the future or after the provider recorded the upload. Never picked as the newest; name it to use it.',
     );
   }
+  io.err(
+    'Signatures are checked against the verify keys in your key file when you restore; list does not check them.',
+  );
   const newest = newestGood(archives, now);
   if (newest) result(io, 'latest', newest.id.replace(/\.enc$/, ''));
   const newestMirror = newestGood(runs, now);
@@ -288,75 +352,177 @@ interface ChosenCopy {
   bytes: number;
   fingerprint: string;
   suspect: string | null;
+  check: CopyCheck;
+  /** The sidecar or done marker, as read. Only its signed manifest is trusted. */
+  marker: Record<string, unknown> | null;
 }
+
+/**
+ * Install ids the folder is expected to hold copies from: the one in
+ * its marker, and those it was taken over from.
+ */
+async function folderInstallIds(s3: S3Like, s: OffsiteSettings): Promise<string[]> {
+  const j = await readJson(s3, s.bucket!, `${s.prefix}${OFFSITE_LAYOUT.installMarker}`);
+  if (!j) return [];
+  const ids: unknown[] = [
+    j.installId,
+    j.takenOverFrom,
+    ...(Array.isArray(j.previousInstallIds) ? j.previousInstallIds.slice(0, 50) : []),
+  ];
+  return ids.filter((x): x is string => typeof x === 'string' && x.length === 36);
+}
+
+async function checkCopy(
+  s3: S3Like,
+  s: OffsiteSettings,
+  kind: 'archive' | 'mirror',
+  a: OffsiteArtifact & { sealedBytes: number | null },
+  key: OffsiteKeyFile,
+  installIds: string[],
+): Promise<{ check: CopyCheck; marker: Record<string, unknown> | null }> {
+  if (kind === 'mirror') {
+    const r = await new OffsiteMirror(null, null).checkRun(s3, s, a.id, key.verifyKeys, installIds);
+    return { check: r.check, marker: r.done };
+  }
+  const marker = await readJson(s3, s.bucket!, sidecarKey(s, a.id));
+  if (!marker) {
+    return {
+      check: {
+        trust: 'bad',
+        manifest: null,
+        signer: null,
+        reason: 'The sidecar could not be read.',
+      },
+      marker: null,
+    };
+  }
+  return {
+    check: checkSignature(marker, key.verifyKeys, {
+      kind: 'archive',
+      prefix: s.prefix,
+      name: `${OFFSITE_LAYOUT.archives}${a.id}`,
+      bytes: a.sealedBytes,
+      installIds,
+    }),
+    marker,
+  };
+}
+
+const TRUST_WORDS: Record<CopyTrust, string> = {
+  verified: 'verified',
+  unsigned: 'NOT SIGNED',
+  untrusted: 'signed by a key that is not in the key file',
+  foreign: 'signed for another portal install',
+  bad: 'BAD SIGNATURE',
+};
 
 async function chooseCopy(
   s: OffsiteSettings,
   s3: S3Like,
   args: string[],
   now: Date,
+  key: OffsiteKeyFile,
+  err: (line: string) => void,
 ): Promise<ChosenCopy> {
   const wantedArchive = arg(args, '--name');
   const wantedRun = arg(args, '--run');
+  const allow = args.includes(ALLOW_UNVERIFIED);
   if (wantedArchive !== null && wantedRun !== null)
     throw new Error('Give --name or --run, not both.');
   if (wantedArchive !== null && !ARCHIVE_NAME_RE.test(wantedArchive))
     throw new Error('--name must be an archive name such as backup-...tar.gz');
   if (wantedRun !== null && !MIRROR_RUN_RE.test(wantedRun))
     throw new Error('--run must be a mirror run name as list prints it (without mirror:).');
+  if (key.verifyKeys.length === 0) {
+    err(
+      'The key file holds no verify key yet, so no signature can be checked. Add the verify key shown on Admin, Backup with: node offsite-key.mjs trust',
+    );
+  }
+  const installIds = await folderInstallIds(s3, s);
   const archives = (await completeArchives(s3, s)).filter((a) => a.complete);
   const runs =
     wantedArchive === null
       ? (await new OffsiteMirror(null, null).listRuns(s3, s)).filter((r) => r.complete)
       : [];
-  let kind: 'archive' | 'mirror';
-  let pick: (typeof archives)[number] | (typeof runs)[number] | null;
+  type Candidate = {
+    kind: 'archive' | 'mirror';
+    a: OffsiteArtifact & { sealedBytes: number | null };
+  };
+  let pick: Candidate | null = null;
+  type Checked = { check: CopyCheck; marker: Record<string, unknown> | null };
+  let checked: Checked | null = null;
   if (wantedArchive !== null) {
-    kind = 'archive';
-    pick = archives.find((a) => a.id === `${wantedArchive}${OFFSITE_LAYOUT.sealed}`) ?? null;
-    if (!pick) throw new Error(`No complete off-site copy named ${wantedArchive}.`);
+    const a = archives.find((x) => x.id === `${wantedArchive}${OFFSITE_LAYOUT.sealed}`);
+    if (!a) throw new Error(`No complete off-site copy named ${wantedArchive}.`);
+    pick = { kind: 'archive', a };
   } else if (wantedRun !== null) {
-    kind = 'mirror';
-    pick = runs.find((r) => r.id === wantedRun) ?? null;
-    if (!pick) throw new Error(`No complete mirror run named ${wantedRun}.`);
+    const r = runs.find((x) => x.id === wantedRun);
+    if (!r) throw new Error(`No complete mirror run named ${wantedRun}.`);
+    pick = { kind: 'mirror', a: r };
   } else {
-    const a = newestGood(archives, now);
-    const r = newestGood(runs, now);
-    if (!a && !r) throw new Error('No complete off-site copy was found.');
-    if (r && (!a || r.createdAt > a.createdAt)) {
-      kind = 'mirror';
-      pick = r;
-    } else {
-      kind = 'archive';
-      pick = a;
+    // Newest first, either kind; dates that cannot be trusted never
+    // make a copy the newest. The first verified copy wins; copies that
+    // cannot be verified are listed and used only with the flag.
+    const all: Candidate[] = [
+      ...archives.map((a) => ({ kind: 'archive' as const, a })),
+      ...runs.map((a) => ({ kind: 'mirror' as const, a })),
+    ]
+      .filter((c) => !suspectDate(c.a, now))
+      .sort((x, y) => y.a.createdAt.getTime() - x.a.createdAt.getTime());
+    if (all.length === 0) throw new Error('No complete off-site copy was found.');
+    let fallback: { c: Candidate; checked: Checked } | null = null;
+    for (const c of all) {
+      const r = await checkCopy(s3, s, c.kind, c.a, key, installIds);
+      const label = c.kind === 'archive' ? c.a.id.replace(/\.enc$/, '') : `mirror:${c.a.id}`;
+      if (r.check.trust === 'verified') {
+        pick = c;
+        checked = r;
+        break;
+      }
+      err(`Skipped ${label}: ${TRUST_WORDS[r.check.trust]}. ${r.check.reason ?? ''}`.trim());
+      if (!fallback && r.check.trust !== 'bad') fallback = { c, checked: r };
+    }
+    if (!pick) {
+      if (!fallback) throw new Error('No off-site copy with a good signature was found.');
+      if (!allow) {
+        throw new UnverifiedCopyError(
+          `No verified copy was found. The newest usable one cannot be verified (${TRUST_WORDS[fallback.checked.check.trust]}). To restore it anyway, pass ${ALLOW_UNVERIFIED}.`,
+        );
+      }
+      pick = fallback.c;
+      checked = fallback.checked;
     }
   }
-  const marker =
-    kind === 'archive'
-      ? `${s.prefix}${OFFSITE_LAYOUT.archives}${pick!.id}.json`
-      : `${s.prefix}${OFFSITE_LAYOUT.mirrorRuns}${pick!.id}/${OFFSITE_LAYOUT.doneMarker}`;
+  if (!checked) checked = await checkCopy(s3, s, pick.kind, pick.a, key, installIds);
+  const check = checked.check;
+  if (check.trust === 'bad') {
+    throw new Error(
+      `Refusing this copy: ${check.reason ?? 'its signature does not verify.'} It was not made by your portal as it is, so it is never restored.`,
+    );
+  }
+  if (check.trust !== 'verified' && !allow) {
+    throw new UnverifiedCopyError(
+      `This copy cannot be verified (${TRUST_WORDS[check.trust]}). ${check.reason ?? ''} To restore it anyway, pass ${ALLOW_UNVERIFIED}.`,
+    );
+  }
+  const m = check.trust === 'verified' ? check.manifest : null;
   let fingerprint = 'unknown';
-  try {
-    const j = JSON.parse((await getSmall(s3, s.bucket!, marker)).toString('utf8')) as {
-      keyFingerprint?: unknown;
-    };
-    if (typeof j.keyFingerprint === 'string' && FINGERPRINT_RE.test(j.keyFingerprint)) {
-      fingerprint = j.keyFingerprint;
-    }
-  } catch {
-    // Shown as unknown; decrypting still checks the key.
+  if (m) fingerprint = m.key;
+  else {
+    const fp = checked.marker?.keyFingerprint;
+    if (typeof fp === 'string' && FINGERPRINT_RE.test(fp)) fingerprint = fp;
   }
+  const signedCreated = m ? new Date(m.created) : null;
   return {
-    kind,
-    name: kind === 'archive' ? pick!.id.replace(/\.enc$/, '') : pick!.id,
-    createdAt: pick!.createdAt,
-    uploadedAt: pick!.lastModified ?? null,
-    bytes:
-      kind === 'archive'
-        ? ((pick as (typeof archives)[number]).sealedBytes ?? 0)
-        : (pick as (typeof runs)[number]).sealedBytes,
+    kind: pick.kind,
+    name: pick.kind === 'archive' ? pick.a.id.replace(/\.enc$/, '') : pick.a.id,
+    createdAt: signedCreated ?? pick.a.createdAt,
+    uploadedAt: pick.a.lastModified ?? null,
+    bytes: pick.a.sealedBytes ?? 0,
     fingerprint,
-    suspect: suspectDate(pick!, now),
+    suspect: suspectDate(pick.a, now),
+    check,
+    marker: checked.marker,
   };
 }
 
@@ -367,12 +533,22 @@ function printCopy(io: CliIo, c: ChosenCopy) {
   result(io, 'uploaded', c.uploadedAt ? c.uploadedAt.toISOString() : 'unknown');
   result(io, 'bytes', c.bytes);
   result(io, 'fingerprint', c.fingerprint);
+  result(io, 'signature', c.check.trust);
+  if (c.check.signer) result(io, 'signedBy', c.check.signer);
+  if (c.check.trust === 'verified' && c.check.manifest)
+    result(io, 'install', c.check.manifest.install);
   if (c.suspect) result(io, 'suspect', c.suspect);
+  if (c.check.trust !== 'verified') {
+    io.err(
+      `WARNING: this copy is ${TRUST_WORDS[c.check.trust]}. Nothing proves your portal made it. ${c.check.reason ?? ''}`.trim(),
+    );
+  }
 }
 
 async function cmdDescribe(io: CliIo, args: string[], now: Date) {
+  const key = await privateKeyFrom(io, args);
   const s = await settingsFrom(io);
-  const c = await chooseCopy(s, io.offsite(s), args, now);
+  const c = await chooseCopy(s, io.offsite(s), args, now, key, io.err);
   result(io, 'prefix', s.prefix);
   printCopy(io, c);
 }
@@ -390,6 +566,17 @@ function assertConfirmed(args: string[], c: ChosenCopy) {
 async function cmdCheckKey(io: CliIo, args: string[]) {
   const key = await privateKeyFrom(io, args);
   result(io, 'fingerprint', key.publicKey.fingerprintText);
+  result(io, 'verifyKeys', key.verifyKeys.length);
+  for (const v of key.verifyKeys) result(io, 'verifyKey', v.fingerprintText);
+}
+
+/** The encryption key a copy names must be the key file's. */
+function assertKeyMatches(c: ChosenCopy, key: OffsiteKeyFile) {
+  if (c.fingerprint !== 'unknown' && c.fingerprint !== key.publicKey.fingerprintText) {
+    throw new Error(
+      `This copy was encrypted for the key with fingerprint ${c.fingerprint}; the key file given is ${key.publicKey.fingerprintText}. Use the key that was in effect when the copy was made.`,
+    );
+  }
 }
 
 async function cmdFetch(io: CliIo, args: string[], now: Date) {
@@ -400,70 +587,83 @@ async function cmdFetch(io: CliIo, args: string[], now: Date) {
   const key = await privateKeyFrom(io, args);
   const s = await settingsFrom(io);
   const s3 = io.offsite(s);
-  const chosen = await chooseCopy(s, s3, args, now);
+  // Checked again here, not taken from an earlier describe: the bucket
+  // may have changed since.
+  const chosen = await chooseCopy(s, s3, args, now, key, io.err);
   if (chosen.kind !== 'archive') {
     throw new Error(`The newest copy is the mirror run ${chosen.name}; use fetch-mirror.`);
   }
   printCopy(io, chosen);
   assertConfirmed(args, chosen);
+  assertKeyMatches(chosen, key);
   const name = chosen.name;
   const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${name}${OFFSITE_LAYOUT.sealed}`;
-  const sidecar = JSON.parse(
-    (await getSmall(s3, s.bucket!, `${objectKey}.json`)).toString('utf8'),
-  ) as {
-    plainBytes?: number;
-    sealedBytes?: number;
-    sealedSha256?: string;
-    keyFingerprint?: string;
-  };
-  if (sidecar.keyFingerprint && sidecar.keyFingerprint !== key.publicKey.fingerprintText) {
-    throw new Error(
-      `This copy was encrypted for the key with fingerprint ${sidecar.keyFingerprint}; the key file given is ${key.publicKey.fingerprintText}. Use the key that was in effect when the copy was made.`,
-    );
-  }
-
+  const m = chosen.check.trust === 'verified' ? (chosen.check.manifest as ArchiveManifest) : null;
+  // Without a verified signature the sidecar's own checksum still
+  // catches damage, though not a deliberate change.
+  const side = chosen.marker ?? {};
+  const sideSha =
+    typeof side.sealedSha256 === 'string' && /^[0-9a-f]{64}$/.test(side.sealedSha256)
+      ? side.sealedSha256
+      : null;
+  const sideBytes = typeof side.sealedBytes === 'number' ? side.sealedBytes : null;
+  const expect = m
+    ? { bytes: Number(m.bytes), sha256: m.sha256 }
+    : sideSha
+      ? { bytes: sideBytes, sha256: sideSha }
+      : null;
+  const sealedBytes = m ? Number(m.bytes) : (sideBytes ?? chosen.bytes);
   await fs.mkdir(outDir, { recursive: true, mode: 0o700 });
-  await assertFree(outDir, Number(sidecar.plainBytes ?? 0));
+  // The encrypted copy is kept until it verified and decrypted.
+  await assertFree(outDir, 2 * sealedBytes);
+  io.err(`Downloading ${name}, checking it against its signed record, then decrypting...`);
+  await fetchChecked(s3, s.bucket!, objectKey, path.join(outDir, name), expect, key);
   const finalPath = path.join(outDir, name);
-  const partial = path.join(outDir, `.partial-${name}`);
-  // A run stopped half way leaves this behind; never fail on it.
-  await fs.rm(partial, { force: true });
-  io.err(`Downloading and decrypting ${name}...`);
-  const hash = createHash('sha256');
-  let sealed = 0;
-  const body = await getObjectStream(s3, s.bucket!, objectKey);
-  async function* tap(): AsyncGenerator<Buffer> {
-    for await (const c of body) {
-      const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
-      hash.update(b);
-      sealed += b.length;
-      yield b;
-    }
-  }
-  try {
-    await pipeline(
-      Readable.from(unsealStream(tap(), key)),
-      createWriteStream(partial, { flags: 'wx', mode: 0o600 }),
-    );
-    const digest = hash.digest('hex');
-    if (sidecar.sealedBytes !== undefined && sidecar.sealedBytes !== sealed) {
-      throw new Error(`Downloaded ${sealed} bytes; the copy should be ${sidecar.sealedBytes}.`);
-    }
-    if (sidecar.sealedSha256 && sidecar.sealedSha256 !== digest) {
-      throw new Error(
-        'The downloaded copy does not match the checksum recorded when it was uploaded.',
-      );
-    }
-    await fs.rename(partial, finalPath);
-  } catch (e) {
-    await fs.rm(partial, { force: true });
-    throw e;
-  }
   const manifest = await readManifest(finalPath);
   result(io, 'archive', finalPath);
   result(io, 'database', manifest.database);
   result(io, 'objects', manifest.objects);
   if (manifest.portalVersion) result(io, 'portalVersion', manifest.portalVersion);
+}
+
+async function cmdFetchMirror(io: CliIo, args: string[], now: Date) {
+  if (arg(args, '--name') !== null) {
+    throw new Error('fetch-mirror takes --run; use fetch for --name.');
+  }
+  const key = await privateKeyFrom(io, args);
+  const s = await settingsFrom(io);
+  const chosen = await chooseCopy(s, io.offsite(s), args, now, key, io.err);
+  if (chosen.kind !== 'mirror') {
+    throw new Error(`The newest copy is the archive ${chosen.name}; use fetch.`);
+  }
+  printCopy(io, chosen);
+  assertConfirmed(args, chosen);
+  assertKeyMatches(chosen, key);
+  await new OffsiteMirror(null, null).cliFetch(
+    io,
+    args,
+    s,
+    key,
+    chosen.name,
+    chosen.check.trust === 'verified' ? (chosen.check.manifest as MirrorManifest) : null,
+    chosen.marker,
+  );
+}
+
+async function cmdPutMirrorObjects(io: CliIo, args: string[], now: Date) {
+  if (arg(args, '--run') === null) throw new Error('--run is required.');
+  const key = await privateKeyFrom(io, args);
+  const s = await settingsFrom(io);
+  const chosen = await chooseCopy(s, io.offsite(s), args, now, key, io.err);
+  assertKeyMatches(chosen, key);
+  await new OffsiteMirror(null, null).cliPutObjects(
+    io,
+    s,
+    key,
+    chosen.name,
+    chosen.check.trust === 'verified' ? (chosen.check.manifest as MirrorManifest) : null,
+    arg(args, '--work') ?? os.tmpdir(),
+  );
 }
 
 async function readManifest(archive: string) {
@@ -594,31 +794,15 @@ export async function runCli(argv: string[], io: CliIo, now = new Date()): Promi
       case 'fetch':
         await cmdFetch(io, args, now);
         return 0;
-      case 'fetch-mirror': {
-        if (arg(args, '--name') !== null) {
-          throw new Error('fetch-mirror takes --run; use fetch for --name.');
-        }
-        const key = await privateKeyFrom(io, args);
-        const s = await settingsFrom(io);
-        const chosen = await chooseCopy(s, io.offsite(s), args, now);
-        if (chosen.kind !== 'mirror') {
-          throw new Error(`The newest copy is the archive ${chosen.name}; use fetch.`);
-        }
-        printCopy(io, chosen);
-        assertConfirmed(args, chosen);
-        const rest = args.filter((a, i) => a !== '--run' && args[i - 1] !== '--run');
-        await new OffsiteMirror(null, null).cliFetch(io, [...rest, '--run', chosen.name], s, key);
+      case 'fetch-mirror':
+        await cmdFetchMirror(io, args, now);
         return 0;
-      }
       case 'put-objects':
         await cmdPutObjects(io, args);
         return 0;
-      case 'put-mirror-objects': {
-        if (arg(args, '--run') === null) throw new Error('--run is required.');
-        const key = await privateKeyFrom(io, args);
-        await new OffsiteMirror(null, null).cliPutObjects(io, args, await settingsFrom(io), key);
+      case 'put-mirror-objects':
+        await cmdPutMirrorObjects(io, args, now);
         return 0;
-      }
       case 'count-objects':
         await cmdCountObjects(io);
         return 0;
@@ -631,7 +815,7 @@ export async function runCli(argv: string[], io: CliIo, now = new Date()): Promi
   } catch (e) {
     const msg = describeS3Error(e);
     io.err(`offsite: ${msg}`);
-    return 1;
+    return e instanceof UnverifiedCopyError ? EXIT_UNVERIFIED : 1;
   }
 }
 

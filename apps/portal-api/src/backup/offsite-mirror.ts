@@ -21,14 +21,23 @@ import {
 } from './offsite-crypto.js';
 import {
   MIRROR_RUN_RE,
-  newestGood,
   OFFSITE_LAYOUT,
   partitionByDate,
   selectExpired,
+  setAsideReason,
   stampFromName,
-  suspectDate,
+  type ArtifactTrust,
   type OffsiteArtifact,
 } from './offsite-rules.js';
+import {
+  artifactTrust,
+  checkSignature,
+  signManifest,
+  type CopyCheck,
+  type MirrorManifest,
+  type OffsiteSigningKey,
+  type OffsiteVerifyKey,
+} from './offsite-sign.js';
 import {
   deleteObject,
   getObjectStream,
@@ -50,6 +59,10 @@ export interface MirrorIndexLine {
   s: number;
   /** Content type. */
   t?: string;
+  /** Size of the encrypted file in the bucket. */
+  z: number;
+  /** SHA-256 of the encrypted file in the bucket, hex. */
+  h: string;
 }
 
 /** A row of the server's own record of mirrored files. */
@@ -58,6 +71,8 @@ export interface MirrorIndexRow {
   keyFingerprint: string;
   plainBytes: number;
   sealedBytes: number;
+  /** SHA-256 of the encrypted file, hex; null for rows made before it was recorded. */
+  sealedSha256: string | null;
   contentType: string | null;
   lastRunAt: Date;
 }
@@ -87,6 +102,7 @@ export interface MirrorIndexPrisma {
         keyFingerprint: string;
         plainBytes: bigint;
         sealedBytes: bigint;
+        sealedSha256: string | null;
         contentType: string | null;
         lastRunAt: Date;
       }>
@@ -112,6 +128,7 @@ export class PrismaMirrorIndex implements MirrorIndexStore {
         keyFingerprint: r.keyFingerprint,
         plainBytes: Number(r.plainBytes),
         sealedBytes: Number(r.sealedBytes),
+        sealedSha256: r.sealedSha256 ?? null,
         contentType: r.contentType,
         lastRunAt: r.lastRunAt,
       });
@@ -124,6 +141,7 @@ export class PrismaMirrorIndex implements MirrorIndexStore {
       keyFingerprint: row.keyFingerprint,
       plainBytes: BigInt(row.plainBytes),
       sealedBytes: BigInt(row.sealedBytes),
+      sealedSha256: row.sealedSha256,
       contentType: row.contentType,
       uploadedAt: new Date(),
       lastRunAt: row.lastRunAt,
@@ -465,27 +483,62 @@ export class OffsiteMirror {
     return [...byId.values()].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
-  /** Read one run's file list. Needs the private key: restore only. */
-  private async *readIndex(
+  /**
+   * Read a run's done marker and check its signature against `trusted`
+   * (and, when given, the install ids expected for this folder).
+   * `trust` is how the server's retention counts it.
+   */
+  async checkRun(
     s3: S3Like,
     s: OffsiteSettings,
     runId: string,
-    key: OffsitePrivateKey,
-  ): AsyncGenerator<MirrorIndexLine> {
-    const body = await getObjectStream(
-      s3,
-      s.bucket!,
-      `${this.runsPrefix(s)}${runId}/objects.jsonl${OFFSITE_LAYOUT.sealed}`,
-    );
-    for await (const line of lines(unsealStream(body, key))) {
-      yield JSON.parse(line) as MirrorIndexLine;
+    trusted: readonly OffsiteVerifyKey[],
+    installIds: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<{ check: CopyCheck; trust: ArtifactTrust; done: Record<string, unknown> | null }> {
+    let done: Record<string, unknown> | null = null;
+    try {
+      const raw: unknown = JSON.parse(
+        (
+          await getSmall(
+            s3,
+            s.bucket!,
+            `${this.runsPrefix(s)}${runId}/${OFFSITE_LAYOUT.doneMarker}`,
+            signal,
+          )
+        ).toString('utf8'),
+      );
+      done = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+    } catch (e) {
+      if (signal?.aborted) throw e;
+      done = null;
     }
+    if (!done) {
+      return {
+        check: {
+          trust: 'bad',
+          manifest: null,
+          signer: null,
+          reason: 'The done marker could not be read.',
+        },
+        trust: 'unsigned',
+        done: null,
+      };
+    }
+    const check = checkSignature(done, trusted, {
+      kind: 'mirror',
+      prefix: s.prefix,
+      name: runId,
+      installIds,
+    });
+    return { check, trust: artifactTrust(check, done, s.installId), done };
   }
 
   async upload(a: {
     s3: S3Like;
     s: OffsiteSettings;
     publicKey: OffsitePublicKey;
+    signingKey: OffsiteSigningKey;
     nameKey: Buffer;
     index: MirrorIndexStore;
     run: { id: string; filename: string | null; startedAt: Date };
@@ -552,10 +605,13 @@ export class OffsiteMirror {
       for (const { o, name } of named) {
         if (a.signal.aborted) throw new Error('Stopped.');
         const row = known.get(name);
+        // Reused only with a recorded checksum: the signed index names
+        // the checksum of every file it refers to.
         if (
           row &&
           row.keyFingerprint === fp &&
           row.plainBytes === o.size &&
+          row.sealedSha256 !== null &&
           inBucket.get(name) === row.sealedBytes
         ) {
           await index.write(
@@ -564,6 +620,8 @@ export class OffsiteMirror {
               o: name,
               s: o.size,
               ...(row.contentType ? { t: row.contentType } : {}),
+              z: row.sealedBytes,
+              h: row.sealedSha256,
             }),
           );
           touched.push(name);
@@ -595,6 +653,7 @@ export class OffsiteMirror {
           keyFingerprint: fp,
           plainBytes: size,
           sealedBytes: up.bytes,
+          sealedSha256: up.sha256,
           contentType: got.ContentType ?? null,
           lastRunAt: runAt,
         });
@@ -606,6 +665,8 @@ export class OffsiteMirror {
             o: name,
             s: size,
             ...(got.ContentType ? { t: got.ContentType } : {}),
+            z: up.bytes,
+            h: up.sha256,
           }),
         );
       }
@@ -664,7 +725,12 @@ export class OffsiteMirror {
     });
     sent += idx.bytes;
 
-    // Written last: its presence marks the run complete.
+    // Written last: its presence marks the run complete. The signature
+    // binds the run, its time, the portal, the folder and the name, size
+    // and checksum of the dump, the manifest and the file index; the
+    // index holds the checksum of every mirrored file.
+    if (!s.installId) throw new Error('This portal has no install id yet.');
+    const rel = (k: string) => k.slice(s.prefix.length);
     const done = {
       format: OFFSITE_FORMAT,
       kind: 'mirror',
@@ -676,6 +742,28 @@ export class OffsiteMirror {
       index: { files: index.lines, sealedSha256: idx.sha256 },
       uploaded,
       reused,
+      signature: signManifest(
+        {
+          kind: 'mirror',
+          format: OFFSITE_FORMAT,
+          install: s.installId,
+          prefix: s.prefix,
+          run: runId,
+          created: a.run.startedAt.toISOString(),
+          key: fp,
+          'dump.name': rel(`${folder}database.dump${OFFSITE_LAYOUT.sealed}`),
+          'dump.bytes': String(dump.bytes),
+          'dump.sha256': dump.sha256,
+          'manifest.name': rel(`${folder}manifest.json${OFFSITE_LAYOUT.sealed}`),
+          'manifest.bytes': String(man.bytes),
+          'manifest.sha256': man.sha256,
+          'index.name': rel(`${folder}objects.jsonl${OFFSITE_LAYOUT.sealed}`),
+          'index.bytes': String(idx.bytes),
+          'index.sha256': idx.sha256,
+          'index.files': String(index.lines),
+        },
+        a.signingKey,
+      ),
     };
     await putSmall(
       s3,
@@ -709,10 +797,11 @@ export class OffsiteMirror {
     index: MirrorIndexStore | null,
     collectFiles: boolean,
     signal?: AbortSignal,
+    trusted?: readonly OffsiteVerifyKey[],
   ): Promise<{
     removed: number;
     unknownKept: number;
-    suspect: Array<{ id: string; why: 'future' | 'after-upload' | null }>;
+    suspect: Array<{ id: string; why: 'future' | 'after-upload' | 'bad-signature' | null }>;
   }> {
     // A stopped upload's clean-up stops too: its claim is already gone.
     const stop = () => {
@@ -720,6 +809,13 @@ export class OffsiteMirror {
     };
     const runs = await this.listRuns(s3, s);
     if (runs.length === 0) return { removed: 0, unknownKept: 0, suspect: [] };
+    if (trusted) {
+      for (const r of runs) {
+        if (!r.complete) continue;
+        stop();
+        r.trust = (await this.checkRun(s3, s, r.id, trusted, [], signal)).trust;
+      }
+    }
     const { usable, suspect } = partitionByDate(runs, now);
     let removed = 0;
     const expired = new Set(selectExpired(runs, now, s.retentionDays));
@@ -737,7 +833,7 @@ export class OffsiteMirror {
     }
     // Runs with a suspect date never decide which files are old.
     const kept = usable.filter((r) => !expired.has(r.id) && r.complete);
-    const suspectIds = suspect.map((r) => ({ id: r.id, why: suspectDate(r, now) }));
+    const suspectIds = suspect.map((r) => ({ id: r.id, why: setAsideReason(r, now) }));
     if (kept.length === 0 || !index || !collectFiles) {
       return { removed, unknownKept: 0, suspect: suspectIds };
     }
@@ -777,27 +873,18 @@ export class OffsiteMirror {
   // ---------------------------------------------------------------
 
   /**
-   * The run named, or the newest complete run with a usable date. A
-   * run dated in the future is used only when named.
+   * Download and decrypt a chosen mirror run's dump and manifest into
+   * --out. With a verified manifest every object is checked against it
+   * (size and SHA-256 of the encrypted bytes) before it is decrypted.
    */
-  async pickRun(s3: S3Like, s: OffsiteSettings, wanted: string | null, now = new Date()) {
-    if (wanted !== null && !MIRROR_RUN_RE.test(wanted))
-      throw new Error('--run must be a mirror run name.');
-    const runs = (await this.listRuns(s3, s)).filter((r) => r.complete);
-    const run = wanted ? runs.find((r) => r.id === wanted) : newestGood(runs, now);
-    if (!run)
-      throw new Error(
-        wanted ? `No complete mirror run named ${wanted}.` : 'No complete mirror run was found.',
-      );
-    return run;
-  }
-
-  /** Download and decrypt a mirror run's dump and manifest into --out. */
   async cliFetch(
     io: CliIo & { offsite: (s: OffsiteSettings) => S3Like },
     args: string[],
     s: OffsiteSettings,
     key: OffsitePrivateKey,
+    runId: string,
+    verified: MirrorManifest | null,
+    done: Record<string, unknown> | null,
   ) {
     const val = (n: string) => {
       const i = args.indexOf(n);
@@ -805,92 +892,253 @@ export class OffsiteMirror {
     };
     const outDir = val('--out');
     if (!outDir) throw new Error('--out is required.');
+    if (!MIRROR_RUN_RE.test(runId)) throw new Error('Unexpected mirror run name.');
     const s3 = io.offsite(s);
-    const run = await this.pickRun(s3, s, val('--run'));
-    const folder = `${this.runsPrefix(s)}${run.id}/`;
-    const done = JSON.parse(
-      (await getSmall(s3, s.bucket!, `${folder}${OFFSITE_LAYOUT.doneMarker}`)).toString('utf8'),
-    ) as {
-      database?: { name?: string; sealedSha256?: string };
-      index?: { files?: number };
+    const folder = `${this.runsPrefix(s)}${runId}/`;
+    const d = (done ?? {}) as {
+      database?: { name?: unknown; sealedSha256?: unknown };
+      index?: { files?: unknown };
     };
-    const dir = path.join(outDir, run.id);
+    const dir = path.join(outDir, runId);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-
-    const fetchTo = async (objectKey: string, file: string, sha?: string) => {
-      const hash = createHash('sha256');
-      const body = await getObjectStream(s3, s.bucket!, objectKey);
-      async function* tap(): AsyncGenerator<Buffer> {
-        for await (const c of body) {
-          const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
-          hash.update(b);
-          yield b;
-        }
-      }
-      const partial = `${file}.partial`;
-      // A run stopped half way leaves this behind.
-      await fs.rm(partial, { force: true });
-      try {
-        await pipeline(
-          Readable.from(unsealStream(tap(), key)),
-          createWriteStream(partial, { flags: 'wx', mode: 0o600 }),
-        );
-        if (sha && hash.digest('hex') !== sha) {
-          throw new Error(
-            'The downloaded dump does not match the checksum recorded when it was uploaded.',
-          );
-        }
-        await fs.rename(partial, file);
-      } catch (e) {
-        await fs.rm(partial, { force: true });
-        throw e;
-      }
-    };
-    io.err(`Downloading and decrypting mirror run ${run.id}...`);
-    await fetchTo(
+    const unchecked = (sha: unknown): ObjectCheck | null =>
+      typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha) ? { bytes: null, sha256: sha } : null;
+    io.err(`Downloading, checking and decrypting mirror run ${runId}...`);
+    await fetchChecked(
+      s3,
+      s.bucket!,
       `${folder}database.dump${OFFSITE_LAYOUT.sealed}`,
       path.join(dir, 'database.dump'),
-      done.database?.sealedSha256,
+      verified
+        ? { bytes: Number(verified['dump.bytes']), sha256: verified['dump.sha256'] }
+        : unchecked(d.database?.sealedSha256),
+      key,
     );
-    await fetchTo(
+    await fetchChecked(
+      s3,
+      s.bucket!,
       `${folder}manifest.json${OFFSITE_LAYOUT.sealed}`,
       path.join(dir, 'manifest.json'),
+      verified
+        ? { bytes: Number(verified['manifest.bytes']), sha256: verified['manifest.sha256'] }
+        : null,
+      key,
     );
-    const db = done.database?.name ?? 'gratisgis';
+    const db = typeof d.database?.name === 'string' ? d.database.name : 'gratisgis';
     if (!/^[A-Za-z0-9_.-]{1,63}$/.test(db))
       throw new Error('The run names an unexpected database.');
-    io.out(`run=${run.id}`);
+    io.out(`run=${runId}`);
     io.out(`dump=${path.join(dir, 'database.dump')}`);
     io.out(`database=${db}`);
-    io.out(`objects=${Number(done.index?.files ?? 0)}`);
+    io.out(`objects=${Number(verified ? verified['index.files'] : (d.index?.files ?? 0))}`);
   }
 
-  /** Put every file a mirror run names back into the local store. */
+  /**
+   * Put every file a chosen mirror run names back into the local store.
+   * With a verified manifest the file index is checked against it, and
+   * each file against the index, before it is decrypted.
+   */
   async cliPutObjects(
     io: CliIo & { offsite: (s: OffsiteSettings) => S3Like },
-    args: string[],
     s: OffsiteSettings,
     key: OffsitePrivateKey,
+    runId: string,
+    verified: MirrorManifest | null,
+    workDir: string,
   ) {
-    const i = args.indexOf('--run');
+    if (!MIRROR_RUN_RE.test(runId)) throw new Error('Unexpected mirror run name.');
     const s3 = io.offsite(s);
-    const run = await this.pickRun(s3, s, i >= 0 ? (args[i + 1] ?? null) : null);
     const local = io.local();
+    await fs.mkdir(workDir, { recursive: true, mode: 0o700 });
+    const work = await fs.mkdtemp(path.join(workDir, '.offsite-put-'));
     let count = 0;
-    for await (const l of this.readIndex(s3, s, run.id, key)) {
-      const body = await getObjectStream(s3, s.bucket!, `${this.objectsPrefix(s)}${l.o}`);
-      await local.s3.send(
-        new PutObjectCommand({
-          Bucket: local.bucket,
-          Key: l.k,
-          Body: Readable.from(unsealStream(body, key)),
-          ContentLength: l.s,
-          ContentType: l.t ?? 'application/octet-stream',
-        }),
+    try {
+      const indexFile = path.join(work, 'objects.jsonl');
+      await fetchChecked(
+        s3,
+        s.bucket!,
+        `${this.runsPrefix(s)}${runId}/objects.jsonl${OFFSITE_LAYOUT.sealed}`,
+        indexFile,
+        verified
+          ? { bytes: Number(verified['index.bytes']), sha256: verified['index.sha256'] }
+          : null,
+        key,
       );
-      count += 1;
-      if (count % 500 === 0) io.err(`  ${count} files put back...`);
+      for await (const text of lines(readFileLazily(indexFile))) {
+        const l = parseIndexLine(text, verified !== null);
+        await withCheckedDownload(
+          s3,
+          s.bucket!,
+          `${this.objectsPrefix(s)}${l.o}`,
+          path.join(work, 'object.enc'),
+          l.h !== undefined ? { bytes: l.z ?? null, sha256: l.h } : null,
+          (sealed) =>
+            local.s3.send(
+              new PutObjectCommand({
+                Bucket: local.bucket,
+                Key: l.k,
+                Body: Readable.from(unsealStream(sealed, key)),
+                ContentLength: l.s,
+                ContentType: l.t ?? 'application/octet-stream',
+              }),
+            ),
+        );
+        count += 1;
+        if (count % 500 === 0) io.err(`  ${count} files put back...`);
+      }
+      if (verified && count !== Number(verified['index.files'])) {
+        throw new Error(
+          `The file index lists ${count} files; the signed run says ${verified['index.files']}.`,
+        );
+      }
+    } finally {
+      await fs.rm(work, { recursive: true, force: true });
     }
     io.out(`objects=${count}`);
+  }
+}
+
+/** Expected size and SHA-256 of an encrypted object. */
+export interface ObjectCheck {
+  bytes: number | null;
+  sha256: string;
+}
+
+const MAX_INDEX_LINE = 64 * 1024;
+
+/**
+ * One line of a downloaded file index. In a verified run every line
+ * must carry the checksum of its file.
+ */
+export function parseIndexLine(
+  text: string,
+  needChecksum: boolean,
+): Partial<MirrorIndexLine> & Pick<MirrorIndexLine, 'k' | 'o' | 's'> {
+  if (text.length > MAX_INDEX_LINE) throw new Error('A line of the file index is too long.');
+  let j: Record<string, unknown>;
+  try {
+    j = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error('The file index is damaged.');
+  }
+  const ok =
+    typeof j.k === 'string' &&
+    j.k.length > 0 &&
+    j.k.length <= 1024 &&
+    typeof j.o === 'string' &&
+    OBJECT_NAME_RE.test(j.o) &&
+    typeof j.s === 'number' &&
+    Number.isSafeInteger(j.s) &&
+    j.s >= 0 &&
+    (j.t === undefined || typeof j.t === 'string') &&
+    (j.z === undefined || (typeof j.z === 'number' && Number.isSafeInteger(j.z) && j.z >= 0)) &&
+    (j.h === undefined || (typeof j.h === 'string' && /^[0-9a-f]{64}$/.test(j.h)));
+  if (!ok) throw new Error('The file index is damaged.');
+  if (needChecksum && (j.h === undefined || j.z === undefined)) {
+    throw new Error('The signed file index lists a file without its checksum.');
+  }
+  return j as unknown as Partial<MirrorIndexLine> & Pick<MirrorIndexLine, 'k' | 'o' | 's'>;
+}
+
+/**
+ * Download an object into an open, new file, counting and hashing its
+ * bytes, and fail when it does not match `expect`. Nothing is
+ * decrypted here. The caller reads the checked bytes back through the
+ * same handle, so what was checked is what gets decrypted.
+ */
+export async function downloadChecked(
+  s3: S3Like,
+  bucket: string,
+  objectKey: string,
+  fh: fs.FileHandle,
+  expect: ObjectCheck | null,
+): Promise<{ bytes: number; sha256: string }> {
+  const hash = createHash('sha256');
+  let bytes = 0;
+  const body = await getObjectStream(s3, bucket, objectKey);
+  for await (const c of body) {
+    const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
+    hash.update(b);
+    let off = 0;
+    while (off < b.length) {
+      const { bytesWritten } = await fh.write(b, off, b.length - off, bytes + off);
+      off += bytesWritten;
+    }
+    bytes += b.length;
+  }
+  const sha256 = hash.digest('hex');
+  if (expect && expect.bytes !== null && expect.bytes !== bytes) {
+    throw new Error(
+      `The downloaded object has ${bytes} bytes; the signed record says ${expect.bytes}. Nothing was decrypted.`,
+    );
+  }
+  if (expect && expect.sha256 !== sha256) {
+    throw new Error(
+      'The downloaded object does not match the checksum in its signed record. Nothing was decrypted.',
+    );
+  }
+  return { bytes, sha256 };
+}
+
+/** The bytes of an open file from the start, through its handle. */
+export async function* readHandle(fh: fs.FileHandle): AsyncGenerator<Buffer> {
+  for await (const c of fh.createReadStream({ start: 0, autoClose: false })) yield c as Buffer;
+}
+
+/**
+ * Download into a new scratch file, check, and only then hand the
+ * checked bytes to `use`. The scratch file is removed afterwards.
+ */
+export async function withCheckedDownload<T>(
+  s3: S3Like,
+  bucket: string,
+  objectKey: string,
+  scratch: string,
+  expect: ObjectCheck | null,
+  use: (sealed: AsyncIterable<Buffer>) => Promise<T>,
+): Promise<T> {
+  // A run stopped half way leaves this behind.
+  await fs.rm(scratch, { force: true });
+  const fh = await fs.open(scratch, 'wx+', 0o600);
+  try {
+    await downloadChecked(s3, bucket, objectKey, fh, expect);
+    return await use(readHandle(fh));
+  } finally {
+    await fh.close();
+    await fs.rm(scratch, { force: true });
+  }
+}
+
+/**
+ * Download, check, then decrypt one object to `file`. The decrypted
+ * file appears only when the check passed and every record verified.
+ */
+export async function fetchChecked(
+  s3: S3Like,
+  bucket: string,
+  objectKey: string,
+  file: string,
+  expect: ObjectCheck | null,
+  key: OffsitePrivateKey,
+): Promise<void> {
+  const partial = `${file}.partial`;
+  await fs.rm(partial, { force: true });
+  try {
+    await withCheckedDownload(
+      s3,
+      bucket,
+      objectKey,
+      `${file}.enc.partial`,
+      expect,
+      async (sealed) => {
+        await pipeline(
+          Readable.from(unsealStream(sealed, key)),
+          createWriteStream(partial, { flags: 'wx', mode: 0o600 }),
+        );
+      },
+    );
+    await fs.rename(partial, file);
+  } finally {
+    await fs.rm(partial, { force: true });
   }
 }

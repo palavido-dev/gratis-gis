@@ -181,5 +181,11 @@ export function emptyConfigRow(): Row {
     offsiteRetentionDays: null,
     offsiteAlertDays: null,
     offsiteMirrorThresholdBytes: null,
+    offsiteSigningKeyEncrypted: null,
+    offsiteSigningKeyIv: null,
+    offsiteVerifyKey: null,
+    offsitePreviousVerifyKeys: [],
+    offsiteSigningKeyChangedAt: null,
+    offsiteSigningKeyChangedBy: null,
   };
 }

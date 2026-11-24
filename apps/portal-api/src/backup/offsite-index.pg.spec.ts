@@ -24,6 +24,7 @@ import { applyTestMigrations } from '../testing/apply-test-migrations.js';
 import { FakeS3 } from '../testing/fake-s3.js';
 import type { BackupService } from './backup.service.js';
 import { generateOffsiteKeyPair } from './offsite-crypto.js';
+import { checkSignature, parseVerifyKey } from './offsite-sign.js';
 import { BackupRestoreService } from './backup-restore.service.js';
 import { PrismaMirrorIndex } from './offsite-mirror.js';
 import { OffsiteService } from './offsite.service.js';
@@ -167,6 +168,48 @@ d('off-site backups against Postgres', () => {
     await pool.query('DELETE FROM backup_config');
   });
 
+  it('a restore inside the portal never brings back the signing key from the archive', async () => {
+    await pool.query('DELETE FROM backup_config');
+    const svc = new BackupRestoreService(
+      prisma as unknown as PrismaService,
+      { get: (_k: string, d?: string) => d } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    // Live server with a signing key; the archive holds another one.
+    await pool.query(
+      `INSERT INTO backup_config (id, offsite_signing_key_encrypted, offsite_signing_key_iv, offsite_verify_key, offsite_previous_verify_keys)
+       VALUES ($1, 'live-ct', 'live-iv', 'ggver1:live', ARRAY['ggver1:older'])`,
+      [randomUUID()],
+    );
+    let history = await svc.snapshotBackupHistory();
+    await pool.query(
+      `UPDATE backup_config SET offsite_signing_key_encrypted = 'dump-ct', offsite_signing_key_iv = 'dump-iv', offsite_verify_key = 'ggver1:dump', offsite_previous_verify_keys = ARRAY[]::text[]`,
+    );
+    await svc.restoreBackupHistory(history);
+    const read = async () =>
+      (
+        await pool.query<{ c: string | null; v: string | null; p: string[] | null }>(
+          'SELECT offsite_signing_key_encrypted AS c, offsite_verify_key AS v, offsite_previous_verify_keys AS p FROM backup_config',
+        )
+      ).rows[0]!;
+    expect(await read()).toEqual({ c: 'live-ct', v: 'ggver1:live', p: ['ggver1:older'] });
+
+    // Live server with no signing key yet: the archive's is not kept
+    // either, so the server makes a new one.
+    await pool.query(
+      `UPDATE backup_config SET offsite_signing_key_encrypted = NULL, offsite_signing_key_iv = NULL, offsite_verify_key = NULL`,
+    );
+    history = await svc.snapshotBackupHistory();
+    await pool.query(
+      `UPDATE backup_config SET offsite_signing_key_encrypted = 'dump-ct', offsite_signing_key_iv = 'dump-iv', offsite_verify_key = 'ggver1:dump'`,
+    );
+    await svc.restoreBackupHistory(history);
+    expect(await read()).toMatchObject({ c: null, v: null });
+    await pool.query('DELETE FROM backup_config');
+  });
+
   it('the local index records, finds, moves forward and removes rows', async () => {
     const index = new PrismaMirrorIndex(prisma as never);
     const t1 = new Date('2026-11-01T00:00:00Z');
@@ -176,6 +219,7 @@ d('off-site backups against Postgres', () => {
       keyFingerprint: 'fp',
       plainBytes: 3,
       sealedBytes: 134,
+      sealedSha256: 'a'.repeat(64),
       contentType: 'text/plain',
       lastRunAt: t1,
     });
@@ -184,6 +228,7 @@ d('off-site backups against Postgres', () => {
       keyFingerprint: 'fp',
       plainBytes: 5 * GB,
       sealedBytes: 5 * GB + 200_000,
+      sealedSha256: null,
       contentType: null,
       lastRunAt: t1,
     });
@@ -192,6 +237,7 @@ d('off-site backups against Postgres', () => {
       keyFingerprint: 'fp',
       plainBytes: 1,
       sealedBytes: 132,
+      sealedSha256: 'b'.repeat(64),
       contentType: null,
       lastRunAt: t1,
     });
@@ -199,6 +245,8 @@ d('off-site backups against Postgres', () => {
     expect([...found.keys()].sort()).toEqual(['n1.enc', 'n2.enc']);
     expect(found.get('n2.enc')!.plainBytes).toBe(5 * GB);
     expect(found.get('n1.enc')!.contentType).toBe('text/plain');
+    expect(found.get('n1.enc')!.sealedSha256).toBe('a'.repeat(64));
+    expect(found.get('n2.enc')!.sealedSha256).toBeNull();
 
     await index.touch('target-a', ['n1.enc'], t2);
     // Never moves backwards.
@@ -298,6 +346,32 @@ d('off-site backups against Postgres', () => {
       const cfg = await configRow();
       expect(cfg.offsiteInstallId).toMatch(/^[0-9a-f-]{36}$/);
       expect(cfg.offsiteNameKeyEncrypted).toBeTruthy();
+      // Both runs are signed by the server's own key, stored encrypted.
+      expect(cfg.offsiteSigningKeyEncrypted).toBeTruthy();
+      const verify = parseVerifyKey(cfg.offsiteVerifyKey!);
+      for (const k of done) {
+        const run = k.slice('pg/mirror/runs/'.length, -'/done.json'.length);
+        const check = checkSignature(JSON.parse(remote.objects.get(k)!.body.toString()), [verify], {
+          kind: 'mirror',
+          prefix: 'pg/',
+          name: run,
+          installIds: [cfg.offsiteInstallId!],
+        });
+        expect(check.trust).toBe('verified');
+      }
+      const { rows: verifyRows } = await pool.query<{ v: string | null }>(
+        'SELECT offsite_verify_fingerprint AS v FROM backup_run',
+      );
+      expect(verifyRows.every((r) => r.v === verify.fingerprintText)).toBe(true);
+      // Reused files keep their recorded checksum.
+      const sums = await pool.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM backup_offsite_object WHERE sealed_sha256 IS NOT NULL',
+      );
+      expect(sums.rows[0]!.n).toBe(2);
+      // The signing key is never in the bucket, in any form.
+      for (const o of remote.objects.values()) {
+        expect(o.body.includes(Buffer.from(cfg.offsiteSigningKeyEncrypted!))).toBe(false);
+      }
     } finally {
       for (const k of ENV_KEYS) {
         if (saved[k] === undefined) delete process.env[k];

@@ -175,6 +175,12 @@ export class CheckOffsiteKeyDto {
   value!: string;
 }
 
+/** "Check my verify key": a verify key or its fingerprint, pasted again. */
+export class CheckOffsiteVerifyKeyDto {
+  @IsString() @MaxLength(400)
+  value!: string;
+}
+
 /** Start a backup test; confirmBytes when free space cannot be measured. */
 export class StartRestoreTestDto {
   @IsOptional() @IsInt() @Min(0)
@@ -356,6 +362,34 @@ export class BackupController {
   @HttpCode(200)
   checkOffsiteKey(@Body() dto: CheckOffsiteKeyDto) {
     return this.offsite().checkKey(dto.value);
+  }
+
+  /**
+   * Make a new signing key for off-site copies. The old verify key stays
+   * trusted for the copies it signed. Audited with both fingerprints
+   * (they are not secret); the operator admins get a notice. The
+   * private half is never in the answer.
+   */
+  @Post('offsite/signing-key')
+  @HttpCode(200)
+  async replaceOffsiteSigningKey(@CurrentUser() user: AuthUser) {
+    const res = await this.offsite().replaceSigningKey(user.id, 'admin');
+    this.note(user, 'backup.offsite', user.orgId, 'succeeded', {
+      signingKeyChanged: true,
+      oldVerifyKeyFingerprint: res.from ?? 'none',
+      newVerifyKeyFingerprint: res.to,
+    });
+    return { signing: await this.offsite().signingInfo() };
+  }
+
+  /**
+   * Compare a pasted verify key or fingerprint with the key off-site
+   * copies are signed with. The pasted text is not stored or logged.
+   */
+  @Post('offsite/check-verify-key')
+  @HttpCode(200)
+  checkOffsiteVerifyKey(@Body() dto: CheckOffsiteVerifyKeyDto) {
+    return this.offsite().checkVerifyKey(dto.value);
   }
 
   /** Upload one finished backup again. Answers once it has started. */

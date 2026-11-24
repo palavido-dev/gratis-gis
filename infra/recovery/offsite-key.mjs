@@ -4,8 +4,10 @@
 //
 //   node offsite-key.mjs generate my-portal.ggkey
 //   node offsite-key.mjs public my-portal.ggkey
-//   node offsite-key.mjs fingerprint ggpub1:...
-//   node offsite-key.mjs decrypt my-portal.ggkey in.enc out
+//   node offsite-key.mjs fingerprint ggpub1:... | ggver1:...
+//   node offsite-key.mjs trust my-portal.ggkey new.ggkey ggver1:... [ggver1:...]
+//   node offsite-key.mjs verify my-portal.ggkey copy.enc.json [copy.enc]
+//   node offsite-key.mjs decrypt my-portal.ggkey in.enc out [--sidecar in.enc.json]
 //   node offsite-key.mjs encrypt ggpub1:... in out
 //
 // generate makes an X25519 key pair, writes the private key to a new
@@ -21,6 +23,18 @@
 // terminal and not the data. One trailing line break (\n or \r\n) is
 // dropped and the text is normalised to Unicode NFC, so the same words
 // typed on any system open the file.
+//
+// trust adds the portal's verify key (shown on Admin, Backup) to the
+// key file, so a restore can check that a copy was made by your
+// portal. It writes a new file sealed with the same passphrase and
+// never replaces one; keep the new file and retire the old one. Earlier
+// verify keys stay, so older copies still check. Do it after setting
+// off-site copies up and after every signing key change.
+//
+// verify checks a copy's signature (in its sidecar, or a mirror run's
+// done.json) against the verify keys in the key file, and with the
+// copy itself also its exact size and SHA-256. decrypt with --sidecar
+// does the same first and decrypts only a verified copy.
 //
 // decrypt takes - for standard input or output. To a file, the output
 // appears only after every record verified, and an existing file is
@@ -50,6 +64,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { open } from 'node:fs/promises';
+import { verify as edVerify } from 'node:crypto';
 import { basename, dirname, join } from 'node:path';
 
 // ---- GROF1 (backup files) ----------------------------------------
@@ -67,6 +82,43 @@ const PUB_PREFIX = 'ggpub1:';
 const SEC_PREFIX = 'ggsec1:';
 const KIND = 'gratisgis-offsite-private-key';
 const PKCS8 = Buffer.from('302e020100300506032b656e04220420', 'hex');
+
+// ---- signatures (offsite-sign.ts) ----------------------------------
+const VER_PREFIX = 'ggver1:';
+const VER_CHECK_LABEL = Buffer.from('gratisgis-offsite-verify-key-v1\0');
+const VER_FP_LABEL = Buffer.from('gratisgis-offsite-verify-key-fingerprint-v1\0');
+const SIGNED_HEADER = 'gratisgis-offsite-signed-v1';
+const MAX_VERIFY_KEYS = 64;
+const ARCHIVE_FIELDS = [
+  'kind',
+  'format',
+  'install',
+  'prefix',
+  'name',
+  'bytes',
+  'sha256',
+  'key',
+  'created',
+];
+const MIRROR_FIELDS = [
+  'kind',
+  'format',
+  'install',
+  'prefix',
+  'run',
+  'created',
+  'key',
+  'dump.name',
+  'dump.bytes',
+  'dump.sha256',
+  'manifest.name',
+  'manifest.bytes',
+  'manifest.sha256',
+  'index.name',
+  'index.bytes',
+  'index.sha256',
+  'index.files',
+];
 
 // ---- GRCV2 (the sealed key file) -----------------------------------
 const G_MAGIC = Buffer.from('GRCV2\n');
@@ -117,6 +169,175 @@ function privateFromRaw(d) {
   const obj = createPrivateKey({ key: Buffer.concat([PKCS8, d]), format: 'der', type: 'pkcs8' });
   const x = Buffer.from(createPublicKey(obj).export({ format: 'jwk' }).x, 'base64url');
   return { obj, d, pub: publicFromRaw(x) };
+}
+
+const verCheck = (raw) =>
+  createHash('sha256').update(VER_CHECK_LABEL).update(raw).digest().subarray(0, 4);
+const verFingerprintOf = (raw) =>
+  createHash('sha256').update(VER_FP_LABEL).update(raw).digest().subarray(0, 16);
+
+function verifyFromRaw(raw) {
+  let obj;
+  try {
+    obj = createPublicKey({
+      key: { kty: 'OKP', crv: 'Ed25519', x: raw.toString('base64url') },
+      format: 'jwk',
+    });
+  } catch {
+    throw new Fail('the verify key is not usable');
+  }
+  const fp = verFingerprintOf(raw);
+  return {
+    raw,
+    obj,
+    fp,
+    fpText: fpText(fp),
+    text: VER_PREFIX + Buffer.concat([raw, verCheck(raw)]).toString('base64url'),
+  };
+}
+
+function parseVerify(input) {
+  const text = String(input).replace(/\s/g, '');
+  if (text.length > 400 || !text.startsWith(VER_PREFIX))
+    throw new Fail(
+      'not a GratisGIS verify key (it starts with ggver1: and is shown on Admin, Backup)',
+    );
+  const body = text.slice(VER_PREFIX.length);
+  if (!/^[A-Za-z0-9_-]{48}$/.test(body)) throw new Fail('the verify key is the wrong length');
+  const bytes = Buffer.from(body, 'base64url');
+  const raw = bytes.subarray(0, 32);
+  if (!timingSafeEqual(bytes.subarray(32), verCheck(raw)))
+    throw new Fail('the verify key checksum does not match (a typo?)');
+  return verifyFromRaw(Buffer.from(raw));
+}
+
+// ---- signed manifests: the exact rules of offsite-sign.ts ----------
+const isHex = (s, n) =>
+  s.length === n && [...s].every((c) => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+const isDecimal = (s) =>
+  s.length > 0 &&
+  s.length <= 16 &&
+  !(s.length > 1 && s[0] === '0') &&
+  [...s].every((c) => c >= '0' && c <= '9') &&
+  Number.isSafeInteger(Number(s));
+const isPathPart = (s) =>
+  s.length > 0 &&
+  s !== '.' &&
+  s !== '..' &&
+  [...s].every(
+    (c) =>
+      (c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c === '.' ||
+      c === '_' ||
+      c === '-',
+  );
+const isPrefix = (s) =>
+  s.length >= 2 &&
+  s.length <= 200 &&
+  s.endsWith('/') &&
+  s.slice(0, -1).split('/').every(isPathPart);
+const isObjectName = (s) => s.length > 0 && s.length <= 300 && s.split('/').every(isPathPart);
+const isUuid = (s) => {
+  const p = s.split('-');
+  return s.length === 36 && p.length === 5 && [8, 4, 4, 4, 12].every((n, i) => isHex(p[i], n));
+};
+const isFp = (s) => {
+  const p = s.split('-');
+  return p.length === 8 && p.every((x) => isHex(x, 4));
+};
+const isTime = (s) => {
+  if (s.length !== 24 || !s.endsWith('Z')) return false;
+  const d = new Date(s);
+  return !Number.isNaN(d.getTime()) && d.toISOString() === s;
+};
+const isRun = (s) =>
+  s.length === 32 &&
+  s[10] === 'T' &&
+  [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 22].every(
+    (i) => s[i] >= '0' && s[i] <= '9',
+  ) &&
+  [4, 7, 13, 16, 19, 23].every((i) => s[i] === '-') &&
+  isHex(s.slice(24), 8);
+
+function checkField(kind, f, v) {
+  if (f === 'kind') return v === kind;
+  if (f === 'format') return v === 'GROF1';
+  if (f === 'install') return isUuid(v);
+  if (f === 'prefix') return isPrefix(v);
+  if (f === 'run') return isRun(v);
+  if (f === 'key') return isFp(v);
+  if (f === 'created') return isTime(v);
+  if (f === 'name' || f.endsWith('.name')) return isObjectName(v);
+  if (f === 'bytes' || f.endsWith('.bytes') || f === 'index.files') return isDecimal(v);
+  if (f === 'sha256' || f.endsWith('.sha256')) return isHex(v, 64);
+  return false;
+}
+
+/** The manifest, or null when the text is not exactly canonical. */
+function parseManifest(text) {
+  if (typeof text !== 'string' || text.length > 4096 || !text.endsWith('\n')) return null;
+  const lines = text.slice(0, -1).split('\n');
+  if (lines[0] !== SIGNED_HEADER || lines.length < 2) return null;
+  const kind = lines[1].startsWith('kind=') ? lines[1].slice(5) : '';
+  const fields = kind === 'archive' ? ARCHIVE_FIELDS : kind === 'mirror' ? MIRROR_FIELDS : null;
+  if (!fields || lines.length !== fields.length + 1) return null;
+  const out = {};
+  for (let i = 0; i < fields.length; i += 1) {
+    const f = fields[i];
+    const line = lines[i + 1];
+    if (!line.startsWith(`${f}=`)) return null;
+    const v = line.slice(f.length + 1);
+    if (!checkField(kind, f, v)) return null;
+    out[f] = v;
+  }
+  let again = `${SIGNED_HEADER}\n`;
+  for (const f of fields) again += `${f}=${out[f]}\n`;
+  return again === text ? out : null;
+}
+
+/**
+ * Check a sidecar's (or done.json's) signature against the trusted
+ * verify keys. Returns { ok, manifest, signer, reason }.
+ */
+function checkSidecar(j, trusted) {
+  const b = j && typeof j === 'object' ? j.signature : undefined;
+  if (b === undefined || b === null)
+    return { ok: false, signer: null, reason: 'this copy is not signed' };
+  if (
+    typeof b !== 'object' ||
+    b.version !== 1 ||
+    typeof b.manifest !== 'string' ||
+    typeof b.value !== 'string' ||
+    typeof b.verifyKey !== 'string'
+  )
+    return {
+      ok: false,
+      signer: null,
+      reason: 'the signature block is damaged or from an unknown version',
+    };
+  const signer = isFp(b.verifyKey) ? b.verifyKey : null;
+  const m = parseManifest(b.manifest);
+  if (!m || !signer) return { ok: false, signer, reason: 'the signed manifest is not valid' };
+  const key = trusted.find((k) => k.fpText === signer);
+  if (!key)
+    return {
+      ok: false,
+      signer,
+      reason: `signed by the verify key ${signer}, which is not in the key file (add it with: trust)`,
+    };
+  const sig = Buffer.from(b.value, 'base64url');
+  let good = false;
+  if (sig.length === 64) {
+    try {
+      good = edVerify(null, Buffer.from(b.manifest, 'utf8'), key.obj, sig);
+    } catch {
+      good = false;
+    }
+  }
+  if (!good) return { ok: false, signer, reason: 'the signature does not verify' };
+  return { ok: true, manifest: m, signer, reason: null };
 }
 
 function nonceFor(iv, index) {
@@ -293,7 +514,22 @@ function openKeyFile(path, pass) {
   const key = privateFromRaw(Buffer.from(d));
   if (j.publicKey && j.publicKey !== key.pub.text)
     throw new Fail('the key file is damaged: its two halves do not match');
-  return key;
+  if (
+    j.verifyKeys !== undefined &&
+    (!Array.isArray(j.verifyKeys) || j.verifyKeys.length > MAX_VERIFY_KEYS)
+  )
+    throw new Fail('the key file is damaged: its list of verify keys is not valid');
+  const verifyKeys = [];
+  for (const t of j.verifyKeys ?? []) {
+    let v;
+    try {
+      v = parseVerify(t);
+    } catch {
+      throw new Fail('the key file is damaged: one of its verify keys is not valid');
+    }
+    if (!verifyKeys.some((x) => x.fp.equals(v.fp))) verifyKeys.push(v);
+  }
+  return { ...key, body: j, verifyKeys };
 }
 
 // ---- streams -------------------------------------------------------
@@ -479,6 +715,10 @@ function parseArgs(argv) {
       opts.passphraseFile = argv[i + 1];
       if (!opts.passphraseFile) throw new Fail('--passphrase-file needs a file');
       i += 1;
+    } else if (a === '--sidecar') {
+      opts.sidecar = argv[i + 1];
+      if (!opts.sidecar) throw new Fail('--sidecar needs a file');
+      i += 1;
     } else if (a.startsWith('--')) {
       throw new Fail(`unknown option ${a}`);
     } else {
@@ -490,6 +730,123 @@ function parseArgs(argv) {
 
 function printKey(pub) {
   process.stdout.write(`Public key:  ${pub.text}\nFingerprint: ${fpText(pub.fp)}\n`);
+}
+
+function printTrusted(keys) {
+  if (keys.length === 0) {
+    process.stdout.write(
+      'Verify keys: none yet. Add the one shown on Admin, Backup with: offsite-key.mjs trust\n',
+    );
+    return;
+  }
+  for (const v of keys) process.stdout.write(`Verify key:  ${v.text}  (fingerprint ${v.fpText})\n`);
+}
+
+function readSidecar(file) {
+  let buf;
+  try {
+    buf = readFileSync(file);
+  } catch {
+    throw new Fail(`${file} could not be read`);
+  }
+  if (buf.length > 64 * 1024) throw new Fail(`${file} is too large to be a sidecar`);
+  try {
+    return JSON.parse(buf.toString('utf8'));
+  } catch {
+    throw new Fail(`${file} is not a sidecar (not JSON)`);
+  }
+}
+
+function checkMatch(got, want) {
+  if (String(got.bytes) !== want.bytes)
+    throw new Fail(
+      `NOT VERIFIED: the file has ${got.bytes} bytes; the signed record says ${want.bytes}`,
+    );
+  if (got.sha256 !== want.sha256)
+    throw new Fail('NOT VERIFIED: the file does not match the SHA-256 in its signed record');
+}
+
+/**
+ * The file's bytes, hashed as they are read once; fails at the end,
+ * before decryption can finish, when they do not match the record.
+ */
+async function* readMatching(file, want) {
+  const h = createHash('sha256');
+  let n = 0;
+  for await (const c of createReadStream(file)) {
+    h.update(c);
+    n += c.length;
+    yield c;
+  }
+  checkMatch({ bytes: n, sha256: h.digest('hex') }, want);
+}
+
+/** Size and SHA-256 of a file, read as a stream. */
+async function sizeAndHash(file) {
+  const h = createHash('sha256');
+  let n = 0;
+  for await (const c of createReadStream(file)) {
+    h.update(c);
+    n += c.length;
+  }
+  return { bytes: n, sha256: h.digest('hex') };
+}
+
+/**
+ * Verify a copy: the signature in its sidecar against the key file's
+ * verify keys, the sidecar's own file name against the signed name,
+ * and, when the copy is given, its file name, exact size and SHA-256.
+ * Throws a Fail with a plain reason when anything does not match.
+ */
+async function verifyCopy(key, sidecarPath, copyPath, { hash = true } = {}) {
+  const j = readSidecar(sidecarPath);
+  const r = checkSidecar(j, key.verifyKeys);
+  if (!r.ok) throw new Fail(`NOT VERIFIED: ${r.reason}`);
+  const m = r.manifest;
+  const sideName = basename(sidecarPath);
+  if (m.kind === 'archive' && sideName !== `${basename(m.name)}.json`) {
+    throw new Fail(
+      `NOT VERIFIED: the sidecar is named ${sideName}; its signature is for ${basename(m.name)}`,
+    );
+  }
+  let checked = null;
+  if (copyPath) {
+    const want =
+      m.kind === 'archive'
+        ? [{ name: m.name, bytes: m.bytes, sha256: m.sha256 }]
+        : ['dump', 'manifest', 'index'].map((p) => ({
+            name: m[`${p}.name`],
+            bytes: m[`${p}.bytes`],
+            sha256: m[`${p}.sha256`],
+          }));
+    const hit = want.find((w) => basename(w.name) === basename(copyPath));
+    if (!hit) {
+      throw new Fail(
+        `NOT VERIFIED: ${basename(copyPath)} is not the file this signature is for (${want.map((w) => basename(w.name)).join(', ')})`,
+      );
+    }
+    if (hash) checkMatch(await sizeAndHash(copyPath), hit);
+    checked = hit;
+  }
+  return { manifest: m, signer: r.signer, checked };
+}
+
+function printVerified(v) {
+  const m = v.manifest;
+  process.stdout.write(
+    [
+      `Verified: signed by the verify key ${v.signer}`,
+      `Kind:     ${m.kind}`,
+      `Copy:     ${m.kind === 'archive' ? m.name : `mirror run ${m.run}`}`,
+      `Folder:   ${m.prefix}`,
+      `Portal:   install ${m.install}`,
+      `Made:     ${m.created}`,
+      `Key:      ${m.key}`,
+      v.checked
+        ? `File:     ${basename(v.checked.name)} matches (${v.checked.bytes} bytes, SHA-256)`
+        : 'File:     not checked (give the copy too)',
+    ].join('\n') + '\n',
+  );
 }
 
 async function main(argv) {
@@ -520,17 +877,74 @@ async function main(argv) {
     }
     case 'public': {
       if (!a) throw new Fail('usage: offsite-key.mjs public KEYFILE');
-      printKey(openKeyFile(a, await getPassphrase(opts)).pub);
+      const key = openKeyFile(a, await getPassphrase(opts));
+      printKey(key.pub);
+      printTrusted(key.verifyKeys);
       return;
     }
     case 'fingerprint': {
-      if (!a) throw new Fail('usage: offsite-key.mjs fingerprint PUBLICKEY');
-      process.stdout.write(`${fpText(parsePublic(a).fp)}\n`);
+      if (!a) throw new Fail('usage: offsite-key.mjs fingerprint PUBLICKEY | VERIFYKEY');
+      const fp = String(a).trim().startsWith(VER_PREFIX) ? parseVerify(a).fp : parsePublic(a).fp;
+      process.stdout.write(`${fpText(fp)}\n`);
+      return;
+    }
+    case 'trust': {
+      const add = opts.positional.slice(2);
+      if (!a || !b || add.length === 0)
+        throw new Fail('usage: offsite-key.mjs trust KEYFILE NEWKEYFILE VERIFYKEY [VERIFYKEY...]');
+      const parsed = add.map(parseVerify);
+      const pass = await getPassphrase(opts);
+      const key = openKeyFile(a, pass);
+      const list = [...key.verifyKeys];
+      const added = [];
+      for (const v of parsed) {
+        if (!list.some((x) => x.fp.equals(v.fp))) {
+          list.push(v);
+          added.push(v);
+        }
+      }
+      if (list.length > MAX_VERIFY_KEYS)
+        throw new Fail(`a key file holds at most ${MAX_VERIFY_KEYS} verify keys`);
+      const body = JSON.stringify({ ...key.body, verifyKeys: list.map((v) => v.text) });
+      // 'wx': never replace an existing file, the old key file included.
+      try {
+        writeFileSync(b, grcv2Seal(Buffer.from(body, 'utf8'), pass), { flag: 'wx', mode: 0o600 });
+      } catch (e) {
+        if (e && e.code === 'EEXIST') throw new Fail(`${b} already exists; give a new file name`);
+        throw e;
+      }
+      for (const v of added) process.stdout.write(`Added verify key ${v.fpText}\n`);
+      if (added.length === 0) process.stdout.write('These verify keys were already trusted.\n');
+      printTrusted(list);
+      process.stderr.write(
+        `Wrote ${b}, sealed with the same passphrase. Check it opens (public ${b}), then keep it in place of ${a}.\n`,
+      );
+      return;
+    }
+    case 'verify': {
+      if (!a || !b) throw new Fail('usage: offsite-key.mjs verify KEYFILE SIDECAR [COPY]');
+      const key = openKeyFile(a, await getPassphrase(opts));
+      printVerified(await verifyCopy(key, b, c));
       return;
     }
     case 'decrypt': {
-      if (!a || !b || !c) throw new Fail('usage: offsite-key.mjs decrypt KEYFILE IN OUT');
+      if (!a || !b || !c)
+        throw new Fail('usage: offsite-key.mjs decrypt KEYFILE IN OUT [--sidecar FILE]');
       const key = openKeyFile(a, await getPassphrase(opts, { stdinIsData: b === '-' }));
+      if (opts.sidecar) {
+        if (b === '-' || c === '-')
+          throw new Fail('with --sidecar, give the copy and the output as files, not -');
+        // The signature first, before anything is decrypted; then the
+        // size and SHA-256 as the copy is read, once. The output file
+        // appears only when both matched and every record verified.
+        const v = await verifyCopy(key, opts.sidecar, b, { hash: false });
+        process.stderr.write(`Signature verified: signed by the verify key ${v.signer}.\n`);
+        await writeVerified(decryptStream(readMatching(b, v.checked), key), c);
+        return;
+      }
+      process.stderr.write(
+        'Note: the signature of this copy was not checked. Give --sidecar with its .json file to check who made it.\n',
+      );
       await writeVerified(decryptStream(source(b), key), c);
       return;
     }
@@ -541,7 +955,7 @@ async function main(argv) {
     }
     default:
       throw new Fail(
-        'usage: offsite-key.mjs generate | public | fingerprint | decrypt | encrypt (see the top of this file)',
+        'usage: offsite-key.mjs generate | public | fingerprint | trust | verify | decrypt | encrypt (see the top of this file)',
       );
   }
 }

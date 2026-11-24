@@ -16,6 +16,7 @@ import { runCli, type CliIo } from './offsite-cli.js';
 import {
   generateOffsiteKeyPair,
   sealKeyFile,
+  sealStream,
   unsealStream,
   type OffsitePrivateKey,
 } from './offsite-crypto.js';
@@ -24,6 +25,7 @@ import {
   mirrorObjectName,
   mirrorRunId,
   PackedListing,
+  parseIndexLine,
   sweepIndexLeftovers,
 } from './offsite-mirror.js';
 import { OffsiteService } from './offsite.service.js';
@@ -146,6 +148,27 @@ describe('PackedListing', () => {
     p.finish();
     const held = (p as unknown as { buf: Buffer }).buf.length;
     expect(held).toBeLessThanOrEqual(10_000 * 40 * 2);
+  });
+});
+
+describe('file index lines', () => {
+  const good = { k: 'a/b.txt', o: `${'a'.repeat(64)}.enc`, s: 3, z: 134, h: 'b'.repeat(64) };
+  it('reads a line with its checksum', () => {
+    expect(parseIndexLine(JSON.stringify(good), true)).toEqual(good);
+  });
+  it('a signed index must carry the checksum of every file', () => {
+    const noHash: Partial<typeof good> = { ...good };
+    delete noHash.h;
+    expect(() => parseIndexLine(JSON.stringify(noHash), true)).toThrow(/without its checksum/);
+    expect(parseIndexLine(JSON.stringify(noHash), false)).toEqual(noHash);
+  });
+  it.each([
+    { ...good, o: '../x.enc' },
+    { ...good, h: 'XYZ' },
+    { ...good, s: -1 },
+    { ...good, k: '' },
+  ])('refuses a damaged line %#', (line) => {
+    expect(() => parseIndexLine(JSON.stringify(line), true)).toThrow(/damaged/);
   });
 });
 
@@ -315,8 +338,10 @@ describe('off-site mirror mode', () => {
     );
     expect(doneOf(r2)).toMatchObject({ uploaded: 2, reused: 1 });
     expect(files()).toHaveLength(4);
-    // The folder marker: once at the start, and again before each clean-up step.
-    expect(remote.calls.filter((c) => c === 'GetObjectCommand')).toHaveLength(3);
+    // The folder marker: once at the start, and again before each
+    // clean-up step; then the two runs' plain done markers, to check
+    // their signatures. No encrypted file is read back.
+    expect(remote.calls.filter((c) => c === 'GetObjectCommand')).toHaveLength(5);
   });
 
   it('a lost local index means upload everything, never a failure or a delete', async () => {
@@ -509,7 +534,13 @@ describe('off-site mirror mode', () => {
     );
 
     const keyFile = path.join(dir, 'k.ggkey');
-    fs.writeFileSync(keyFile, await sealKeyFile(key, KEY_PASS, { logN: 14 }));
+    fs.writeFileSync(
+      keyFile,
+      await sealKeyFile(key, KEY_PASS, {
+        logN: 14,
+        verifyKeys: [String(configRow.offsiteVerifyKey)],
+      }),
+    );
     const local = new FakeS3();
     const out: string[] = [];
     const io: CliIo = {
@@ -563,5 +594,154 @@ describe('off-site mirror mode', () => {
     expect(out).toContain('objects=2');
     expect(local.objects.get('items/x/a.tif')!.body.toString()).toBe('TIFFDATA');
     expect(local.objects.get('items/x/a.tif')!.contentType).toBe('image/tiff');
+  });
+
+  describe('signed mirror runs at restore', () => {
+    let keyFile: string;
+    let local: FakeS3;
+    let out: string[];
+    let errs: string[];
+    let newest: string;
+    const io = (): CliIo => ({
+      out: (l) => out.push(l),
+      err: (l) => errs.push(l),
+      stdin: async () => `${KEY_PASS}\n`,
+      env: (n) => process.env[n],
+      readFile: async (p) => fs.readFileSync(p),
+      offsite: () => remote,
+      local: () => ({ s3: local, bucket: 'gratisgis' }),
+    });
+    const withKey = (...a: string[]) => [...a, '--key-file', keyFile, '--passphrase-stdin'];
+    const put = () =>
+      runCli(
+        ['put-mirror-objects', ...withKey('--run', newest, '--work', path.join(dir, 'w'))],
+        io(),
+      );
+
+    beforeEach(async () => {
+      await sourcePut('items/x/a.tif', 'TIFFDATA', 'image/tiff');
+      await sourcePut('items/y/b.json', '{}', 'application/json');
+      await upload(
+        addRun('ffffffff-0000-4000-8000-00000000000f', new Date(Date.now() - 2 * DAY)).id as string,
+      );
+      const r2 = await upload(
+        addRun('f0f0f0f0-0000-4000-8000-000000000010', new Date(Date.now() - DAY)).id as string,
+      );
+      newest = mirrorRunId(String(r2.filename), String(r2.id), r2.startedAt as Date);
+      keyFile = path.join(dir, 'k.ggkey');
+      fs.writeFileSync(
+        keyFile,
+        await sealKeyFile(key, KEY_PASS, {
+          logN: 14,
+          verifyKeys: [String(configRow.offsiteVerifyKey)],
+        }),
+      );
+      local = new FakeS3();
+      out = [];
+      errs = [];
+    });
+
+    it('the done marker is signed and names the checksum of every object', async () => {
+      expect(await runCli(['describe', ...withKey()], io())).toBe(0);
+      expect(out).toContain(`name=${newest}`);
+      expect(out).toContain('signature=verified');
+      expect(await put()).toBe(0);
+      expect(fs.readdirSync(path.join(dir, 'w'))).toEqual([]);
+    });
+
+    it('refuses a changed file index before decrypting it, and puts nothing back', async () => {
+      const k = `${PREFIX}mirror/runs/${newest}/objects.jsonl.enc`;
+      const body = Buffer.from(remote.objects.get(k)!.body);
+      body[150]! ^= 1;
+      remote.objects.get(k)!.body = body;
+      expect(await put()).toBe(1);
+      expect(errs.join(' ')).toMatch(/does not match the checksum in its signed record/);
+      expect(local.objects.size).toBe(0);
+    });
+
+    it('refuses a changed mirrored file before decrypting it', async () => {
+      for (const f of files()) {
+        const body = Buffer.from(remote.objects.get(f)!.body);
+        body[body.length - 1]! ^= 1;
+        remote.objects.get(f)!.body = body;
+      }
+      expect(await put()).toBe(1);
+      expect(errs.join(' ')).toMatch(/does not match the checksum in its signed record/);
+      expect(local.objects.size).toBe(0);
+    });
+
+    it('refuses a mirrored file replaced by one that decrypts with the same key', async () => {
+      // Anyone with the public key can make a file that decrypts; the
+      // signed index still names the original.
+      const f = files()[0]!;
+      const forged = await collect(
+        sealStream(Readable.from([Buffer.from('FORGED')]), key.publicKey),
+      );
+      remote.objects.get(f)!.body = forged;
+      expect(await put()).toBe(1);
+      expect(errs.join(' ')).toMatch(/signed record/);
+    });
+
+    it('refuses a done marker taken from another run, even with the flag', async () => {
+      const runsPrefix = `${PREFIX}mirror/runs/`;
+      const other = [...remote.objects.keys()]
+        .filter((k) => k.startsWith(runsPrefix) && k.endsWith('/done.json'))
+        .find((k) => !k.includes(newest))!;
+      remote.objects.get(`${runsPrefix}${newest}/done.json`)!.body =
+        remote.objects.get(other)!.body;
+      expect(
+        await runCli(['describe', ...withKey('--run', newest, '--allow-unverified-copy')], io()),
+      ).toBe(1);
+      expect(errs.join(' ')).toMatch(/the run does not match/);
+      expect(await put()).toBe(1);
+      expect(local.objects.size).toBe(0);
+    });
+
+    it('a changed dump is refused before it is decrypted', async () => {
+      const k = `${PREFIX}mirror/runs/${newest}/database.dump.enc`;
+      const body = Buffer.from(remote.objects.get(k)!.body);
+      body[500]! ^= 1;
+      remote.objects.get(k)!.body = body;
+      const outDir = path.join(dir, 'restore');
+      expect(
+        await runCli(['fetch-mirror', ...withKey('--out', outDir, '--confirm-copy', newest)], io()),
+      ).toBe(1);
+      expect(errs.join(' ')).toMatch(/signed record/);
+      expect(fs.readdirSync(path.join(outDir, newest))).toEqual([]);
+    });
+  });
+
+  describe('retention and signatures', () => {
+    it('sets a badly signed run aside, never deletes it, and reports it', async () => {
+      await sourcePut('keep.txt', 'keep', 'text/plain');
+      const r = await upload(
+        addRun('15151515-0000-4000-8000-000000000015', new Date(Date.now() - 40 * DAY))
+          .id as string,
+      );
+      const runId = mirrorRunId(String(r.filename), String(r.id), r.startedAt as Date);
+      const doneKey = `${PREFIX}mirror/runs/${runId}/done.json`;
+      // A newer run planted with a signature by another key.
+      const planted = '2026-11-23T02-00-00-000-16161616';
+      const j = JSON.parse(remote.objects.get(doneKey)!.body.toString()) as {
+        signature: { manifest: string };
+      };
+      const forged = { ...j, signature: { ...j.signature, value: 'A'.repeat(86) } };
+      remote.objects.set(`${PREFIX}mirror/runs/${planted}/done.json`, {
+        body: Buffer.from(JSON.stringify(forged)),
+        lastModified: new Date(),
+        etag: '"d"',
+      });
+      const notice = (svc as unknown as { notice: { announceOffsite: jest.Mock } }).notice;
+      const before = files();
+      await svc.enforceRetention(await svc.settings(), remote);
+      // The 40-day-old signed run is still the newest good one.
+      expect(remote.objects.has(doneKey)).toBe(true);
+      expect(files()).toEqual(before);
+      expect(remote.objects.has(`${PREFIX}mirror/runs/${planted}/done.json`)).toBe(true);
+      expect(notice.announceOffsite).toHaveBeenCalledWith(`unverified:mirror:${planted}`, {
+        kind: 'offsite_unverified_copy',
+        name: `mirror:${planted}`,
+      });
+    });
   });
 });
