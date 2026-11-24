@@ -1285,6 +1285,71 @@ function ownOrgListTopics(): Topic[] {
       },
     },
     {
+      name: "org B's group lists never hold org A's public group, which stays readable by its link",
+      modes: BOTH,
+      async run({ app, fx, mode }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const made = await api(app.baseUrl, A.users.admin, 'POST', '/api/groups', {
+          title: "A's public group",
+          access: 'public',
+        });
+        const groupId = (made.body as { id?: string } | undefined)?.id;
+        if (!groupId) return verdict([`A could not make a public group: ${short(made)}`]);
+        try {
+          // The group list is also the "share with a group" picker; the
+          // web searches it in the page.
+          const list = await api(app.baseUrl, B.users.admin, 'GET', '/api/groups');
+          if (list.status !== 200) p.push(`B GET /api/groups: expected 200, got ${short(list)}`);
+          const listed = list.text.includes(groupId);
+          if (mode === 'multi' && listed) p.push("B's group list holds A's public group");
+          if (mode === 'single' && !listed)
+            p.push("single mode: B's group list no longer shows A's public group");
+          if (!list.text.includes(B.groupId)) p.push("control: B's group list misses B's own group");
+          const direct = await api(app.baseUrl, B.users.admin, 'GET', `/api/groups/${groupId}`);
+          if (direct.status !== 200)
+            p.push(`B reading A's public group by id: expected 200, got ${short(direct)}`);
+          const priv = await api(app.baseUrl, B.users.admin, 'GET', `/api/groups/${A.groupId}`);
+          if (priv.status !== 404)
+            p.push(`B reading A's non-public group by id: expected 404, got ${short(priv)}`);
+        } finally {
+          await api(app.baseUrl, A.users.admin, 'DELETE', `/api/groups/${groupId}`);
+        }
+        return verdict(p);
+      },
+    },
+    {
+      name: "the user access summary counts public items of the user's own org only",
+      modes: BOTH,
+      async run({ app, fx, mode, pool }) {
+        const p: string[] = [];
+        const { A } = fx;
+        const r = await api(
+          app.baseUrl,
+          A.users.admin,
+          'GET',
+          `/api/admin/users/${A.users.viewer.id}/access`,
+        );
+        if (r.status !== 200) return verdict([`access summary: expected 200, got ${short(r)}`]);
+        const got = (r.body as { publicAccessibleCount?: number }).publicAccessibleCount;
+        const count = async (sql: string, args: unknown[]): Promise<number> =>
+          Number((await pool.query<{ n: string }>(sql, args)).rows[0]?.n ?? NaN);
+        const own = await count(
+          "SELECT count(*) AS n FROM item WHERE org_id = $1 AND access = 'public' AND deleted_at IS NULL",
+          [A.orgId],
+        );
+        const all = await count(
+          "SELECT count(*) AS n FROM item WHERE access = 'public' AND deleted_at IS NULL",
+          [],
+        );
+        if (!(all > own)) p.push(`fixture: expected public items in more than one org (${own}/${all})`);
+        const expected = mode === 'multi' ? own : all;
+        if (got !== expected)
+          p.push(`publicAccessibleCount ${String(got)}, expected ${expected} (own ${own}, all ${all})`);
+        return verdict(p);
+      },
+    },
+    {
       name: 'single mode lists and feeds keep showing every public item',
       modes: ['single'],
       async run({ app, fx }) {
