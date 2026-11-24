@@ -349,7 +349,8 @@ async function cmdList(io: CliIo, now: Date) {
     if (a.complete) {
       const by = await signedBy(marker);
       a.trust = by && by !== 'damaged' ? 'verified' : 'unsigned';
-      sig = by ? `  signed ${by}` : '  NOT SIGNED';
+      // Without the key file nothing is checked: a named verify key is a claim.
+      sig = by ? `  claims verify key ${by} (not checked by list)` : '  NOT SIGNED';
     }
     io.err(`${state(a)}  ${a.createdAt.toISOString()}  ${label}${sig}`);
   };

@@ -191,6 +191,10 @@ describe('offsite-cli', () => {
     expect(await runCli(['list'], io())).toBe(0);
     expect(out).toContain(`prefix=${PREFIX}`);
     expect(out).toContain(`latest=${NAME}`);
+    // list has no key file: a named verify key is shown as a claim only.
+    expect(errs.join('\n')).toContain(
+      `claims verify key ${signer.verifyKey.fingerprintText} (not checked by list)`,
+    );
   });
 
   it('asks for a prefix when the bucket holds several portal folders', async () => {
