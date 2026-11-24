@@ -57,11 +57,29 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   feature size; edit history and indexes are not counted). An org
   admin reads it at `GET /api/admin/storage-usage`. A daily job checks
   the totals against the bucket and repairs them; it never deletes
-  anything. `node dist/storage/storage-usage-backfill.main.js` fills
-  the totals for files stored before this release (dry run unless
-  `--apply`); the daily job does the same on its own.
+  anything. Image data cached for the outline tool counts
+  against the organization that owns the imagery and is kept to 128
+  map areas per imagery layer, least recently used removed first.
+- Upgrade note for storage usage: on the first start after upgrading,
+  the server fills the totals for files stored before this release.
+  It starts at once on the replica that runs scheduled jobs, logs when
+  it starts and when it ends, and runs while the portal serves; on a
+  large bucket it can take a while. `node
+  dist/storage/storage-usage-backfill.main.js --apply` does the same
+  work by hand (dry run without `--apply`) and can be run before the
+  upgrade window. On an install with one organization, access to
+  existing files does not change. On an install with more than one
+  organization, files stored before this release are served under the
+  item permission checks alone until the first fill has finished;
+  after it, such a file that no row ties to an organization is not
+  served, and each refusal is logged (at most once a minute) and
+  counted in `gratisgis_storage_legacy_key_refusals_total`.
+  `gratisgis_storage_usage_first_fill_pending` is 1 until the first
+  fill has finished.
 - Migration `storage_usage_ledger`: three new, empty tables. Nothing to
   do on upgrade.
+- Migration `storage_usage_read_and_errors`: two nullable columns and
+  one index on the new storage tables. Nothing to do on upgrade.
 
 ### Changed
 
@@ -75,6 +93,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   that the object belongs to the organization of the item that
   authorised it. A key, id or crafted path that names an object of
   another organization answers 404.
+- Analysis jobs (hillshade, contours, mosaics, point cloud merges, the
+  outline tool and the others) refuse a source file whose key names an
+  organization other than that of the item the job runs on.
 
 - Installs with more than one organization: a layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature

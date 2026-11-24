@@ -454,6 +454,13 @@ async function seedOrg(pool: Pool, baseUrl: string, key: OrgKey): Promise<OrgFix
      VALUES ($1, $2, 'feature-attachment', 5, $3) RETURNING key AS id`,
     [`feature-attachment/${fx.attachmentKey}`, id, layer],
   );
+  // The ledger has been filled once, as after the first fill on a
+  // real install, so the strict rule for older keys applies.
+  await ins(
+    `INSERT INTO system_setting (key, value) VALUES ('storage_usage.ledger_filled', '{"at":"seed"}'::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value RETURNING key AS id`,
+    [],
+  );
   fx.notificationId = await ins(
     `INSERT INTO notification (user_id, type, payload, channel, address, status)
      VALUES ($1, 'share-created', $2::jsonb, 'email', $3, 'sent') RETURNING id`,

@@ -242,7 +242,7 @@
       "raw": 0
     },
     "apps/portal-api/src/storage/feature-usage.ts": {
-      "prisma": 10,
+      "prisma": 11,
       "pg": 0,
       "raw": 0
     },
@@ -252,7 +252,7 @@
       "raw": 0
     },
     "apps/portal-api/src/storage/storage-ledger.service.ts": {
-      "prisma": 14,
+      "prisma": 15,
       "pg": 0,
       "raw": 0
     },
