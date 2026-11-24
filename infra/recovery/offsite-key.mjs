@@ -34,7 +34,11 @@
 // verify checks a copy's signature (in its sidecar, or a mirror run's
 // done.json) against the verify keys in the key file, and with the
 // copy itself also its exact size and SHA-256. decrypt with --sidecar
-// does the same first and decrypts only a verified copy.
+// checks the signature first, then reads the copy once: its size and
+// SHA-256 are checked while it is decrypted into a temporary file next
+// to the output, and the output file appears only when they matched
+// the signed record and every record decrypted. Otherwise the
+// temporary file is removed and no output is left.
 //
 // decrypt takes - for standard input or output. To a file, the output
 // appears only after every record verified, and an existing file is
@@ -325,7 +329,7 @@ function checkSidecar(j, trusted) {
     return {
       ok: false,
       signer,
-      reason: `signed by the verify key ${signer}, which is not in the key file (add it with: trust)`,
+      reason: `it claims the verify key ${signer}, which is not in the key file, so that claim is not checked`,
     };
   const sig = Buffer.from(b.value, 'base64url');
   let good = false;
@@ -934,9 +938,12 @@ async function main(argv) {
       if (opts.sidecar) {
         if (b === '-' || c === '-')
           throw new Fail('with --sidecar, give the copy and the output as files, not -');
-        // The signature first, before anything is decrypted; then the
-        // size and SHA-256 as the copy is read, once. The output file
-        // appears only when both matched and every record verified.
+        // The signature first, before anything is decrypted. Then the
+        // copy is read once: its size and SHA-256 are checked while it
+        // is decrypted into a temporary file next to the output
+        // (writeVerified). The output file appears only when they
+        // matched the signed record and every record decrypted; the
+        // temporary file is removed either way.
         const v = await verifyCopy(key, opts.sidecar, b, { hash: false });
         process.stderr.write(`Signature verified: signed by the verify key ${v.signer}.\n`);
         await writeVerified(decryptStream(readMatching(b, v.checked), key), c);

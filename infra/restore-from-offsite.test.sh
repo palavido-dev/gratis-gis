@@ -88,10 +88,18 @@ case "$args" in
     stdin_if_any
     sig="${FAKE_SIG:-verified}"
     if [ "$sig" = bad ]; then echo "offsite: Refusing this copy: The signature does not verify." >&2; exit 1; fi
-    case "$args" in
-      *" --allow-unverified-copy "*) ;;
-      *) if [ "$sig" != verified ]; then echo "offsite: This copy cannot be verified." >&2; exit 3; fi ;;
+    case "$sig" in
+      foreign) flag=--allow-foreign-install ;;
+      untrusted) flag=--allow-untrusted-signer ;;
+      unsigned) flag=--allow-unsigned-copy ;;
+      *) flag="" ;;
     esac
+    if [ -n "$flag" ]; then
+      case "$args" in
+        *" $flag "*) ;;
+        *) echo "offsite: No verified copy was found. To restore it anyway, pass $flag." >&2; printf 'needs=%s\n' "$sig"; exit 3 ;;
+      esac
+    fi
     kind=archive; name="$FAKE_LATEST"
     case "$args" in
       *" --name "*) name="${args#* --name }"; name="${name%% *}" ;;
@@ -101,11 +109,12 @@ case "$args" in
     printf 'prefix=gratisgis-0f1e2d3c/\nkind=%s\nname=%s\ncreated=2026-11-24T02:00:00.000Z\nuploaded=2026-11-24T02:05:00.000Z\nbytes=3221225472\nfingerprint=%s\n' \
       "$kind" "$name" "${FAKE_COPY_FP:-8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184}"
     printf 'signature=%s\n' "$sig"
-    [ -n "${FAKE_SIGNER:-}" ] && printf 'signedBy=%s\n' "$FAKE_SIGNER"
+    [ "$sig" = untrusted ] && [ -n "${FAKE_SIGNER:-}" ] && printf 'claimedSigner=%s\n' "$FAKE_SIGNER"
     [ "$sig" = verified ] && printf 'signedBy=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\ninstall=0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0\n'
+    [ "$sig" = foreign ] && printf 'signedBy=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\ninstall=99998888-4b5a-4978-8695-a4b3c2d1e0f0\n'
     [ -n "${FAKE_SUSPECT:-}" ] && printf 'suspect=%s\n' "$FAKE_SUSPECT"
     true ;;
-  *"offsite-cli.js fetch-mirror "*) stdin_if_any; printf 'run=%s\ndump=/app/backups/offsite-restore/%s/database.dump\ndatabase=gratisgis\nobjects=7\n' "$FAKE_LATEST_MIRROR" "$FAKE_LATEST_MIRROR" ;;
+  *"offsite-cli.js fetch-mirror "*) stdin_if_any; [ -n "${FAKE_FETCH_FAILS:-}" ] && { echo "offsite: The run's file x.enc is not in the bucket. Nothing was restored; choose another copy." >&2; exit 1; }; printf 'run=%s\ndump=/app/backups/offsite-restore/%s/database.dump\ndatabase=gratisgis\nobjects=7\n' "$FAKE_LATEST_MIRROR" "$FAKE_LATEST_MIRROR" ;;
   *"offsite-cli.js fetch "*) stdin_if_any; printf 'archive=/app/backups/offsite-restore/%s\ndatabase=gratisgis\nobjects=5\n' "$FAKE_LATEST" ;;
   *"offsite-cli.js put-mirror-objects "*) stdin_if_any; printf 'objects=7\n' ;;
   *"offsite-cli.js put-objects "*) printf 'objects=5\n' ;;
@@ -189,7 +198,7 @@ expect_in "prints the key fingerprint" "$out" "Key fingerprint: 8ecb-27c4-5ca4-d
 expect_in "describes the copy with the key, which holds the verify keys" "$log" "offsite-cli.js describe --key-stdin --name $A"
 expect_in "lists the trusted verify keys" "$out" "Verify key:      058d-7940-89ab-a15b-eb25-76ac-2168-1b43"
 expect_in "says which verify key signed the copy" "$out" "Signed by: 058d-7940-89ab-a15b-eb25-76ac-2168-1b43 (verified with your key file; portal install 0f1e2d3c)"
-expect_not_in "a verified copy needs no flag" "$log" "--allow-unverified-copy"
+expect_not_in "a verified copy needs no flag" "$log" "--allow-"
 expect_in "archive: fetches the confirmed copy by name" "$log" "offsite-cli.js fetch --key-stdin --out /app/backups/offsite-restore --name $A --confirm-copy $A"
 expect_in "archive: passphrase arrived on stdin" "$(cat "$tmp/stdin")" "my key file passphrase value 42"
 expect_not_in "passphrase never an argument" "$log" "my key file passphrase"
@@ -204,7 +213,7 @@ expect_in "creates it owned by the env user" "$log" 'CREATE DATABASE "portal_db"
 expect_in "streams the dump out of the archive" "$log" "--entrypoint tar portal-api -xzOf /app/backups/offsite-restore/$A postgres/gratisgis.dump"
 expect_in "restores in one transaction" "$log" "pg_restore --no-owner --no-privileges --exit-on-error --single-transaction -U gis_user -d portal_db"
 expect_in "runs migrations" "$log" "run --rm portal-migrate"
-expect_in "empties the local index of mirrored files" "$log" "TRUNCATE backup_offsite_object"
+expect_in "empties the local index of mirrored files and runs" "$log" "TRUNCATE backup_offsite_object, backup_offsite_mirror_run"
 expect_in "turns off-site copies off on the new server" "$log" "UPDATE backup_config SET offsite_enabled = false"
 expect_in "gives the new server a new install id" "$log" "offsite_install_id = NULL"
 expect_in "never keeps the signing key from the backup" "$log" "offsite_signing_key_encrypted = NULL, offsite_signing_key_iv = NULL, offsite_verify_key = NULL"
@@ -240,41 +249,97 @@ expect_in "mirror: the named run is described" "$log" "offsite-cli.js describe -
 expect_in "mirror run is fetched once confirmed" "$log" "offsite-cli.js fetch-mirror --key-stdin --out /app/backups/offsite-restore --run 2026-11-21T02-00-00-000-bbbbbbbb --confirm-copy 2026-11-21T02-00-00-000-bbbbbbbb"
 expect_in "mirror: dump read from the fetched file" "$log" "--entrypoint cat portal-api /app/backups/offsite-restore/2026-11-21T02-00-00-000-bbbbbbbb/database.dump"
 expect_in "mirror: files streamed from the bucket" "$log" "offsite-cli.js put-mirror-objects --key-stdin --run 2026-11-21T02-00-00-000-bbbbbbbb --work /app/backups/offsite-restore"
+out="$(run_flow FAKE_LATEST=backup-2026-11-20T02-00-00-000-aaaaaaaa.tar.gz FAKE_LATEST_MIRROR=2026-11-21T02-00-00-000-bbbbbbbb FAKE_FETCH_FAILS=1)"
+log="$(cat "$tmp/log")"
+expect_in "mirror: a run with a missing file stops at the fetch" "$out" "is not in the bucket. Nothing was restored"
+expect_not_in "mirror: nothing stopped when a file is missing" "$log" " stop "
+expect_not_in "mirror: nothing dropped when a file is missing" "$log" "DROP DATABASE"
 
 # --- signatures ---------------------------------------------------
 FLOW_ARGS=(--confirm-database portal_db --archive "$A")
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=unsigned)"
 log="$(cat "$tmp/log")"
-expect_in "an unsigned copy is refused without the flag" "$out" "To restore it anyway, pass --allow-unverified-copy"
+expect_in "an unsigned copy is refused without its flag" "$out" "To restore this one anyway, pass --allow-unsigned-copy"
 expect_not_in "nothing fetched for a refused unsigned copy" "$log" "offsite-cli.js fetch"
 expect_not_in "nothing stopped for a refused unsigned copy" "$log" " stop "
 
-FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-unverified-copy)
+for other in --allow-foreign-install --allow-untrusted-signer; do
+  FLOW_ARGS=(--confirm-database portal_db --archive "$A" "$other")
+  out="$(run_flow FAKE_LATEST=$A FAKE_SIG=unsigned)"
+  expect_in "$other does not admit an unsigned copy" "$out" "pass --allow-unsigned-copy"
+  expect_not_in "nothing stopped with $other for an unsigned copy" "$(cat "$tmp/log")" " stop "
+done
+
+FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-unsigned-copy)
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=unsigned)"
 log="$(cat "$tmp/log")"
-expect_in "with the flag, the helper is told" "$log" "offsite-cli.js describe --key-stdin --name $A --allow-unverified-copy"
-expect_in "with the flag, the copy is said to be unverified" "$out" "Signature: NOT VERIFIED (unsigned)"
-expect_in "with the flag, a loud warning" "$out" "WARNING: nothing proves your portal made this copy"
-expect_in "with the flag, fetch checks again with the flag" "$log" "offsite-cli.js fetch --key-stdin --out /app/backups/offsite-restore --name $A --confirm-copy $A --allow-unverified-copy"
+expect_in "with the flag, the helper is told" "$log" "offsite-cli.js describe --key-stdin --name $A --allow-unsigned-copy"
+expect_in "with the flag, the state is named" "$out" "State:     NOT SIGNED"
+expect_in "with the flag, says what was not checked" "$out" "Not checked: who made it. Nothing proves your portal made this copy."
+expect_in "with the flag, fetch checks again with the flag" "$log" "offsite-cli.js fetch --key-stdin --out /app/backups/offsite-restore --name $A --confirm-copy $A --allow-unsigned-copy"
 expect_in "with the flag, the restore goes on" "$log" "pg_restore --no-owner"
 
 FLOW_ARGS=(--confirm-database portal_db --archive "$A")
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=untrusted FAKE_SIGNER=aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111)"
-expect_in "a copy signed by an untrusted key is refused without the flag" "$out" "pass --allow-unverified-copy"
+expect_in "an untrusted signer is refused without its flag" "$out" "pass --allow-untrusted-signer"
 expect_not_in "nothing stopped for an untrusted signer" "$(cat "$tmp/log")" " stop "
-FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-unverified-copy)
+FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-untrusted-signer)
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=untrusted FAKE_SIGNER=aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111)"
-expect_in "an untrusted signer is named" "$out" "Signature: NOT VERIFIED (untrusted, signed by aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111)"
+expect_in "an untrusted signer is a claim, not checked" "$out" "Signature: claims the verify key aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111 (not checked: your key file does not hold it)"
+expect_in "an untrusted signer state is named" "$out" "State:     SIGNER NOT CHECKED"
+expect_not_in "an untrusted signer is never shown as the signer" "$out" "Signed by: aaaa"
+expect_not_in "no hint to trust an unchecked key" "$out" "trust aaaa"
 
-FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-unverified-copy)
+FLOW_ARGS=(--confirm-database portal_db --archive "$A")
+out="$(run_flow FAKE_LATEST=$A FAKE_SIG=foreign)"
+expect_in "a copy for another install is refused without its flag" "$out" "pass --allow-foreign-install"
+FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-foreign-install)
+out="$(run_flow FAKE_LATEST=$A FAKE_SIG=foreign)"
+expect_in "a foreign copy names its state" "$out" "State:     SIGNED FOR ANOTHER PORTAL INSTALL"
+expect_in "a foreign copy is checked against the signed record" "$out" "Checked:   size and SHA-256 of every file, against the signed record"
+expect_in "a foreign copy says what was not checked" "$out" "Not checked: that the portal this folder belongs to made it"
+expect_in "a foreign copy restores with its flag" "$(cat "$tmp/log")" "pg_restore --no-owner"
+
+FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-foreign-install --allow-untrusted-signer --allow-unsigned-copy)
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=bad)"
-expect_in "a bad signature is never restored, even with the flag" "$out" "could not find a copy to restore"
+expect_in "a bad signature is never restored, even with every flag" "$out" "could not find a copy to restore"
 expect_not_in "nothing stopped for a bad signature" "$(cat "$tmp/log")" " stop "
 
 FLOW_ARGS=(--confirm-database portal_db --archive "$A")
 out="$(run_flow FAKE_LATEST=$A FAKE_VERIFY_COUNT=0 FAKE_SIG=untrusted)"
 expect_in "a key file without verify keys says how to add one" "$out" "Verify keys:     none."
-expect_in "and its copies cannot be verified" "$out" "pass --allow-unverified-copy"
+expect_in "and its copies need the untrusted-signer flag" "$out" "pass --allow-untrusted-signer"
+
+# In a terminal, each state asks for its own word. `script` gives the
+# restore a terminal; the typed word comes on its input.
+prompt_flow() {
+  : >"$tmp/log"
+  : >"$tmp/stdin"
+  local cmd
+  printf -v cmd '%q ' env PATH="$tmp/bin:$PATH" FAKE_DOCKER_LOG="$tmp/log" \
+    FAKE_DOCKER_STDIN="$tmp/stdin" FAKE_LATEST="$A" FAKE_SIG="$1" FAKE_SIGNER=aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111 \
+    bash "$script" --env-file "$tmp/env" --key-file "$tmp/portal.ggkey" --passphrase-file "$tmp/pass" \
+    --compose-file "$tmp/compose.yml" --project gg-test --confirm-database portal_db --archive "$A"
+  printf '%s\n' "$2" | timeout 60 script -qec "$cmd" /dev/null 2>&1 || true
+}
+if command -v script >/dev/null 2>&1; then
+  for pair in foreign:FOREIGN untrusted:UNTRUSTED unsigned:UNSIGNED; do
+    state="${pair%%:*}"
+    word="${pair#*:}"
+    out="$(prompt_flow "$state" "$word")"
+    expect_in "$state: the prompt asks for $word" "$out" "Type $word to use it anyway"
+    expect_in "$state: typing $word goes on" "$(cat "$tmp/log")" "pg_restore --no-owner"
+    expect_in "$state: the helper is told its flag" "$(cat "$tmp/log")" "describe --key-stdin --name $A $(ggo_allow_flag "$state")"
+    for wrong in UNVERIFIED FOREIGN UNTRUSTED UNSIGNED; do
+      [[ "$wrong" == "$word" ]] && continue
+      out="$(prompt_flow "$state" "$wrong")"
+      expect_in "$state: typing $wrong is not enough" "$out" "not confirmed; nothing was changed"
+      expect_not_in "$state: nothing stopped after $wrong" "$(cat "$tmp/log")" " stop "
+    done
+  done
+else
+  echo "skip the terminal prompt checks: no script command"
+fi
 
 out="$(env PATH="$tmp/bin:$PATH" FAKE_DOCKER_LOG="$tmp/log" bash "$script" --env-file "$tmp/env" \
   --compose-file "$tmp/compose.yml" --archive '../../etc/passwd' --list 2>&1 || true)"
