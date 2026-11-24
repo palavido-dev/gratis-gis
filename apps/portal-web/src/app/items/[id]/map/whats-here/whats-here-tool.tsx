@@ -116,6 +116,8 @@ const PICKED_FILL = 'whats-here:picked-fill';
 const PICKED_LINE = 'whats-here:picked-line';
 const AREA_COLOR = '#0284c7';
 const PICK_COLOR = '#f59e0b';
+/** Maps shorter than this get the full-height panel placement. */
+const COMPACT_BELOW_PX = 600;
 /** Wait this long after the last edit before asking the server. */
 const RERUN_DELAY_MS = 350;
 
@@ -665,6 +667,19 @@ export function WhatsHereTool({
     // startOver is stable enough; this is the close transition only.
   }, [open]);
 
+  // ---- Panel placement ------------------------------------------------
+
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    if (!map || !open) return;
+    const el = map.getContainer();
+    const measure = () => setCompact(el.clientHeight < COMPACT_BELOW_PX);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [map, open]);
+
   // ---- Derived ----------------------------------------------------------
 
   const areaPerUnit = squareMetersPerAreaUnit(areaUnit);
@@ -736,6 +751,13 @@ export function WhatsHereTool({
   const container = map?.getContainer() ?? null;
   if (!open || !container) return null;
 
+  // A map in an app can be a short strip. There the panel takes the
+  // map's full height from the top; on a tall map it sits low, clear
+  // of the search bar and select toolbar.
+  const placement = compact
+    ? 'left-2 top-2 bottom-2'
+    : 'bottom-28 left-3 max-h-[calc(100%-14rem)]';
+
   const modeButton = (m: AreaMode, Icon: typeof PenLine, label: string) => (
     <button
       type="button"
@@ -769,7 +791,7 @@ export function WhatsHereTool({
 
   return createPortal(
     <div
-      className="absolute bottom-28 left-3 z-30 flex max-h-[calc(100%-14rem)] w-[min(24rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
+      className={`absolute ${placement} z-30 flex w-[min(24rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs`}
       role="dialog"
       aria-label={t('whatsHere.title')}
     >
