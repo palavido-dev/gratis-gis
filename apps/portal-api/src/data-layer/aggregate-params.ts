@@ -8,6 +8,7 @@ import {
   type ScopedLayerFilter,
   type MapLayerFilterClause,
 } from '@gratis-gis/shared-types';
+import { parseAreaId } from '../area-of-interest/area-input.js';
 
 /**
  * Query-string parsing for the aggregate endpoint, shared by the
@@ -42,7 +43,14 @@ export type AggOp =
   | 'sum'
   | 'avg'
   | 'min'
-  | 'max';
+  | 'max'
+  // Ground area (m²) and length (m) of the features, or with `area`,
+  // of the part inside it (#796). No field: they measure the shape.
+  | 'area'
+  | 'length';
+
+/** Ops that measure the row or its shape rather than a field. */
+const FIELDLESS_OPS = new Set<AggOp>(['count', 'area', 'length']);
 
 export interface AggSpec {
   op: AggOp;
@@ -55,6 +63,9 @@ export interface ParsedAggregateQuery {
   aggs: AggSpec[];
   bbox?: [number, number, number, number];
   limit?: number;
+  /** What's Here area id, from `?area=`. Shape checked only; the
+   *  caller confirms the row exists (AreaOfInterestService.touch). */
+  areaId?: string;
   /** Bitemporal read instant, from `?at=`. */
   asOf?: Date;
   /** Attribute predicate, from `?where=`. */
@@ -273,6 +284,8 @@ const OPS = new Set<AggOp>([
   'avg',
   'min',
   'max',
+  'area',
+  'length',
 ]);
 
 const FILTER_OPS = new Set<MapFilterOp>([
@@ -496,6 +509,7 @@ export function parseAggregateQuery(query: {
   where?: unknown;
   via?: unknown;
   bin?: unknown;
+  area?: unknown;
 }): ParsedAggregateQuery {
   const rawAggs = toList(query.agg);
   if (rawAggs.length === 0) {
@@ -524,6 +538,17 @@ export function parseAggregateQuery(query: {
       }
       return { op, as: 'count' };
     }
+    if (FIELDLESS_OPS.has(op)) {
+      if (field) {
+        // area:acres would read as "sum the acres field", which is
+        // sum:acres. Measuring the shape takes no field.
+        throw new BadRequestException(
+          `${op} measures each feature's shape and takes no field; ` +
+            `use ?agg=${op}, or ?agg=sum:${field} to add up a field.`,
+        );
+      }
+      return { op, as: op };
+    }
     if (!field) {
       throw new BadRequestException(
         `${op} needs a field, e.g. ?agg=${op}:acres.`,
@@ -535,6 +560,9 @@ export function parseAggregateQuery(query: {
   const groupBy = toList(query.groupBy);
 
   const out: ParsedAggregateQuery = { groupBy, aggs };
+
+  const areaId = parseAreaId(query.area);
+  if (areaId) out.areaId = areaId;
 
   if (query.bbox !== undefined) {
     const parts = String(query.bbox).split(',').map(strictNumber);
@@ -614,6 +642,7 @@ export function rejectUnknownAggregateParams(keys: Iterable<string>): void {
     'where',
     'via',
     'bin',
+    'area',
   ]);
   const unknown = [...keys].filter((k) => !allowed.has(k));
   if (unknown.length > 0) {

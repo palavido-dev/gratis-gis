@@ -60,6 +60,7 @@ function twoOrgs() {
     prisma as unknown as PrismaService,
     {} as never,
     {} as never,
+    {} as never,
   );
   const adminCtl = new AdminSecurityController({} as never, prisma as unknown as PrismaService);
   return { prisma, publicCtl, adminCtl };
@@ -161,6 +162,7 @@ describe.each(['single', 'multi'] as const)('public org resolution (%s mode)', (
       const prisma = { organization: { findFirst: jest.fn(async () => null) } };
       const ctl = new PublicController(
         prisma as unknown as PrismaService,
+        {} as never,
         {} as never,
         {} as never,
       );
