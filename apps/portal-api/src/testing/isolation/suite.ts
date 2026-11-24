@@ -132,8 +132,7 @@ export function leakedSecrets(res: ApiResult, req: BuiltRequest, victim: OrgFixt
   return victim.secrets.filter((s) => res.text.includes(s) && !sent.includes(s));
 }
 
-const short = (r: ApiResult): string =>
-  `${r.status} ${r.text.slice(0, 160).replace(/\s+/g, ' ')}`;
+const short = (r: ApiResult): string => `${r.status} ${r.text.slice(0, 160).replace(/\s+/g, ' ')}`;
 
 // ---------------------------------------------------------------- checks
 
