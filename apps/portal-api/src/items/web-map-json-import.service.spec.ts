@@ -52,7 +52,7 @@ function makePrismaMock(opts: {
   } as unknown as ConstructorParameters<typeof WebMapJsonImportService>[0];
 }
 
-function makeItemsMock(): {
+function makeItemsMock(unreadable: string[] = []): {
   service: ConstructorParameters<typeof WebMapJsonImportService>[1];
   lastCreate: { args: unknown };
 } {
@@ -62,6 +62,8 @@ function makeItemsMock(): {
       lastCreate.args = args;
       return { id: 'item-new', orgId: 'org-1' } as unknown as Item;
     },
+    unreadableItemIds: async (_user: AuthUser, ids: Iterable<string>) =>
+      new Set([...ids].filter((id) => unreadable.includes(id))),
   } as unknown as ConstructorParameters<typeof WebMapJsonImportService>[1];
   return { service, lastCreate };
 }
@@ -221,6 +223,58 @@ describe('WebMapJsonImportService', () => {
       itemId: 'dl-1',
       layerKey: 'lyr_a',
     });
+  });
+
+  it('leaves out references to items the importer cannot read', async () => {
+    const items = makeItemsMock(['dl-hidden', 'arcgis-hidden']);
+    const svc = new WebMapJsonImportService(
+      makePrismaMock({
+        arcgisItems: [
+          {
+            id: 'arcgis-hidden',
+            data: { url: 'https://services.example.com/arcgis/rest/services/Roads/FeatureServer' },
+          },
+        ],
+      }),
+      items.service,
+    );
+    const wm: EsriWebMap = {
+      ...baseWebMap,
+      operationalLayers: [
+        {
+          id: 'portal-hidden',
+          title: 'Hidden parcels',
+          url: 'https://portal.example.org/api/items/dl-hidden/layers/lyr_a/geojson',
+          layerType: 'ArcGISFeatureLayer',
+        },
+        {
+          id: 'portal-seen',
+          title: 'Parcels',
+          url: 'https://portal.example.org/api/items/dl-1/layers/lyr_a/geojson',
+          layerType: 'ArcGISFeatureLayer',
+        },
+        {
+          id: 'roads',
+          title: 'Roads',
+          url: 'https://services.example.com/arcgis/rest/services/Roads/FeatureServer/0',
+          layerType: 'ArcGISFeatureLayer',
+        },
+      ],
+    };
+    const result = await svc.import({ user: makeUser(), webMap: wm });
+    expect(result.layerCount).toBe(2);
+    expect(result.skippedLayerCount).toBe(1);
+    expect(result.warnings).toContain(
+      'Layer "Hidden parcels" refers to an item that was not found; skipped.',
+    );
+    const args = items.lastCreate.args as {
+      data: { layers: Array<{ source: Record<string, unknown> }> };
+    };
+    const sources = args.data.layers.map((l) => l.source);
+    expect(sources).toContainEqual({ kind: 'data-layer', itemId: 'dl-1', layerKey: 'lyr_a' });
+    const roads = sources.find((src) => src.kind === 'arcgis-rest');
+    expect(roads).toBeDefined();
+    expect(roads).not.toHaveProperty('sourceItemId');
   });
 
   it('back-references the org\'s arcgis_service item when URL matches', async () => {

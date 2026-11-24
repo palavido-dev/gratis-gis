@@ -30,7 +30,7 @@ import type {
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { ItemsService } from './items.service.js';
+import { ItemsService, mapLayerBackingItemId, mapLayerBackingItemIds } from './items.service.js';
 
 /**
  * Import an Esri WebMap JSON document and create a portal `map`
@@ -229,6 +229,34 @@ export class WebMapJsonImportService {
         continue;
       }
       layers.push(buildMapLayer({ lens, source: mapped, warnings }));
+    }
+
+    // A map save refuses a layer whose item the caller cannot read.
+    // An ArcGIS layer keeps working from its URL without the item
+    // link; any other such layer is skipped, so the rest of the map
+    // still imports.
+    const unreadable = await this.items.unreadableItemIds(
+      user,
+      mapLayerBackingItemIds({ layers }),
+    );
+    if (unreadable.size > 0) {
+      const kept: MapLayer[] = [];
+      for (const layer of layers) {
+        const id = mapLayerBackingItemId(layer);
+        if (id === null || !unreadable.has(id)) {
+          kept.push(layer);
+        } else if (layer.source.kind === 'arcgis-rest') {
+          const { sourceItemId: _dropped, ...source } = layer.source;
+          void _dropped;
+          kept.push({ ...layer, source });
+        } else {
+          skipped += 1;
+          warnings.push(`Layer "${layer.title}" refers to an item that was not found; skipped.`);
+        }
+      }
+      layers.splice(0, layers.length, ...kept);
+      const fields = fieldLayers.filter((f) => !unreadable.has(f.dataLayerItemId));
+      fieldLayers.splice(0, fieldLayers.length, ...fields);
     }
 
     if (layers.length === 0) {
