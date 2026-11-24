@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   archiveArtifacts,
+  copyAttempt,
+  COPY_NAME_RE,
+  copyObjectName,
   FUTURE_MARGIN_MS,
   newestGood,
   selectExpired,
   stampFromName,
   staleNoticeKey,
   suspectDate,
-  unreferencedObjects,
 } from './offsite-rules.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -172,18 +174,38 @@ describe('staleNoticeKey', () => {
   });
 });
 
-describe('unreferencedObjects', () => {
-  it('lists old objects no run refers to, and keeps young ones', () => {
-    const out = unreferencedObjects(
+describe('copy names', () => {
+  const ARCHIVE = 'backup-2026-11-24T02-00-00-123-abcdef12.tar.gz';
+  it('uses the archive name first, then a numbered name for each new attempt', () => {
+    expect(copyObjectName(ARCHIVE, 1)).toBe(`${ARCHIVE}.enc`);
+    expect(copyObjectName(ARCHIVE, 2)).toBe('backup-2026-11-24T02-00-00-123-abcdef12-r2.tar.gz.enc');
+    expect(copyAttempt(copyObjectName(ARCHIVE, 1))).toBe(1);
+    expect(copyAttempt(copyObjectName(ARCHIVE, 17))).toBe(17);
+    expect(() => copyObjectName(ARCHIVE, 0)).toThrow();
+    expect(() => copyObjectName(ARCHIVE, 1000)).toThrow();
+  });
+  it('accepts only names the portal writes', () => {
+    expect(COPY_NAME_RE.test(ARCHIVE)).toBe(true);
+    expect(COPY_NAME_RE.test('backup-2026-11-24T02-00-00-123-abcdef12-r2.tar.gz')).toBe(true);
+    expect(COPY_NAME_RE.test('backup-2026-11-24T02-00-00-123-abcdef12-r1.tar.gz')).toBe(false);
+    expect(COPY_NAME_RE.test('backup-2026-11-24T02-00-00-123-abcdef12-r1000.tar.gz')).toBe(false);
+    expect(COPY_NAME_RE.test(`../${ARCHIVE}`)).toBe(false);
+  });
+  it('groups each attempt as its own copy with its own date', () => {
+    const P = 'site/archives/';
+    const second = copyObjectName(ARCHIVE, 2);
+    const arts = archiveArtifacts(
       [
-        { key: 'a', lastModified: ago(10) },
-        { key: 'b', lastModified: ago(10) },
-        { key: 'c', lastModified: ago(1) },
-        { key: 'd', lastModified: null },
+        { key: `${P}${ARCHIVE}.enc`, lastModified: NOW, size: 10 },
+        { key: `${P}${second}`, lastModified: NOW, size: 12 },
+        { key: `${P}${second}.json`, lastModified: NOW },
       ],
-      new Set(['a']),
-      NOW,
+      P,
     );
-    expect(out).toEqual(['b']);
+    expect(arts.map((a) => [a.id, a.complete])).toEqual([
+      [`${ARCHIVE}.enc`, false],
+      [second, true],
+    ]);
+    expect(arts[1]!.createdAt.toISOString()).toBe('2026-11-24T02:00:00.123Z');
   });
 });

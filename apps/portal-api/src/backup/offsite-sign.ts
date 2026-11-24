@@ -35,8 +35,7 @@ import type { ArtifactTrust } from './offsite-rules.js';
  *   <field>=<value>
  *   ...
  *
- * with the fields of its kind in exactly the order of ARCHIVE_FIELDS or
- * MIRROR_FIELDS. A reader refuses anything else: another order, a
+ * with the fields in exactly the order of ARCHIVE_FIELDS. A reader refuses anything else: another order, a
  * missing or extra field, a value outside its rule, a "\r", a missing
  * final "\n". So one manifest has exactly one byte form.
  */
@@ -179,33 +178,9 @@ export const ARCHIVE_FIELDS = [
   'created',
 ] as const;
 
-export const MIRROR_FIELDS = [
-  'kind',
-  'format',
-  'install',
-  'prefix',
-  'run',
-  'created',
-  'key',
-  'dump.name',
-  'dump.bytes',
-  'dump.sha256',
-  'manifest.name',
-  'manifest.bytes',
-  'manifest.sha256',
-  'index.name',
-  'index.bytes',
-  'index.sha256',
-  'index.files',
-] as const;
-
 export type ArchiveManifest = Record<Exclude<(typeof ARCHIVE_FIELDS)[number], 'kind'>, string> & {
   kind: 'archive';
 };
-export type MirrorManifest = Record<Exclude<(typeof MIRROR_FIELDS)[number], 'kind'>, string> & {
-  kind: 'mirror';
-};
-export type SignedManifest = ArchiveManifest | MirrorManifest;
 
 function isHex(s: string, n: number): boolean {
   if (s.length !== n) return false;
@@ -264,42 +239,25 @@ function isTime(s: string): boolean {
   return !Number.isNaN(d.getTime()) && d.toISOString() === s;
 }
 
-function isRunName(s: string): boolean {
-  // <YYYY-MM-DD>T<HH-MM-SS-mmm>-<8 hex>
-  if (s.length !== 32 || s[10] !== 'T') return false;
-  const digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 22];
-  const dashes = [4, 7, 13, 16, 19, 23];
-  return (
-    digits.every((i) => s[i]! >= '0' && s[i]! <= '9') &&
-    dashes.every((i) => s[i] === '-') &&
-    isHex(s.slice(24), 8)
-  );
-}
-
 function checkField(kind: string, field: string, value: string): boolean {
   if (field === 'kind') return value === kind;
   if (field === 'format') return value === 'GROF1';
   if (field === 'install') return isUuid(value);
   if (field === 'prefix') return isSignedPrefix(value);
-  if (field === 'run') return isRunName(value);
   if (field === 'key') return isFingerprintText(value);
   if (field === 'created') return isTime(value);
-  if (field === 'name' || field.endsWith('.name')) return isObjectName(value);
-  if (field === 'bytes' || field.endsWith('.bytes') || field === 'index.files') {
-    return isDecimal(value);
-  }
-  if (field === 'sha256' || field.endsWith('.sha256')) return isHex(value, 64);
+  if (field === 'name') return isObjectName(value);
+  if (field === 'bytes') return isDecimal(value);
+  if (field === 'sha256') return isHex(value, 64);
   return false;
 }
 
 function fieldsOf(kind: string): readonly string[] | null {
-  if (kind === 'archive') return ARCHIVE_FIELDS;
-  if (kind === 'mirror') return MIRROR_FIELDS;
-  return null;
+  return kind === 'archive' ? ARCHIVE_FIELDS : null;
 }
 
 /** The canonical bytes of a manifest. Throws on a value outside its rule. */
-export function manifestBytes(m: SignedManifest): Buffer {
+export function manifestBytes(m: ArchiveManifest): Buffer {
   const fields = fieldsOf(m.kind);
   if (!fields) throw new OffsiteSignError('Unknown manifest kind.');
   const keys = Object.keys(m);
@@ -318,7 +276,7 @@ export function manifestBytes(m: SignedManifest): Buffer {
 }
 
 /** Parse canonical manifest bytes. Null when they are not exactly canonical. */
-export function parseManifest(text: string): SignedManifest | null {
+export function parseManifest(text: string): ArchiveManifest | null {
   if (text.length > MAX_MANIFEST || !text.endsWith('\n')) return null;
   const lines = text.slice(0, -1).split('\n');
   if (lines[0] !== SIGNED_HEADER || lines.length < 2) return null;
@@ -336,11 +294,11 @@ export function parseManifest(text: string): SignedManifest | null {
     out[f] = v;
   }
   // Belt and braces: the bytes must be what manifestBytes writes.
-  if (manifestBytes(out as SignedManifest).toString('utf8') !== text) return null;
-  return out as SignedManifest;
+  if (manifestBytes(out as ArchiveManifest).toString('utf8') !== text) return null;
+  return out as ArchiveManifest;
 }
 
-/** What a sidecar or done marker carries. Plain JSON, nothing secret. */
+/** What a sidecar carries. Plain JSON, nothing secret. */
 export interface SignatureBlock {
   version: number;
   /** The canonical manifest text, exactly the signed bytes. */
@@ -351,7 +309,7 @@ export interface SignatureBlock {
   verifyKey: string;
 }
 
-export function signManifest(m: SignedManifest, key: OffsiteSigningKey): SignatureBlock {
+export function signManifest(m: ArchiveManifest, key: OffsiteSigningKey): SignatureBlock {
   const bytes = manifestBytes(m);
   return {
     version: SIGNATURE_VERSION,
@@ -376,7 +334,7 @@ export type CopyTrust = 'verified' | 'unsigned' | 'untrusted' | 'foreign' | 'bad
 
 export interface CopyCheck {
   trust: CopyTrust;
-  manifest: SignedManifest | null;
+  manifest: ArchiveManifest | null;
   /** Fingerprint of the verify key named by the signature, if any. */
   signer: string | null;
   /** A plain sentence for anything but verified. */
@@ -384,11 +342,10 @@ export interface CopyCheck {
 }
 
 export interface ExpectedCopy {
-  kind: 'archive' | 'mirror';
   prefix: string;
-  /** archive: the object name under the folder; mirror: the run folder name. */
+  /** The object name under the folder. */
   name: string;
-  /** Size in the bucket listing, when known (archive). */
+  /** Size in the bucket listing, when known. */
   bytes?: number | null;
   /** Install ids this folder is expected to hold copies from. Empty: any. */
   installIds?: readonly string[];
@@ -409,8 +366,7 @@ function asBlock(raw: unknown): SignatureBlock | null {
 }
 
 /**
- * Check the signature block of a sidecar or done marker (the parsed
- * JSON object) against the trusted verify keys and where the copy was
+ * Check the signature block of a sidecar (the parsed JSON object) against the trusted verify keys and where the copy was
  * found. Never throws on bad input.
  */
 export function checkSignature(
@@ -469,28 +425,10 @@ export function checkSignature(
     signer,
     reason: `The signature is for another copy: the ${what} does not match.`,
   });
-  if (m.kind !== expected.kind) return mismatch('kind');
   if (m.prefix !== expected.prefix) return mismatch('folder');
-  if (m.kind === 'archive') {
-    if (m.name !== expected.name) return mismatch('name');
-    if (
-      expected.bytes !== undefined &&
-      expected.bytes !== null &&
-      Number(m.bytes) !== expected.bytes
-    ) {
-      return mismatch('size');
-    }
-  } else {
-    const mm = m;
-    if (mm.run !== expected.name) return mismatch('run');
-    const folder = `mirror/runs/${mm.run}/`;
-    if (
-      mm['dump.name'] !== `${folder}database.dump.enc` ||
-      mm['manifest.name'] !== `${folder}manifest.json.enc` ||
-      mm['index.name'] !== `${folder}objects.jsonl.enc`
-    ) {
-      return mismatch('object names');
-    }
+  if (m.name !== expected.name) return mismatch('name');
+  if (expected.bytes !== undefined && expected.bytes !== null && Number(m.bytes) !== expected.bytes) {
+    return mismatch('size');
   }
   if (
     expected.installIds &&

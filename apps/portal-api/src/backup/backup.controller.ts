@@ -158,9 +158,6 @@ export class UpdateOffsiteDto {
 
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(90)
   alertDays?: number | null;
-
-  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1)
-  mirrorThresholdBytes?: number | null;
 }
 
 /** "Take over this folder": the start of the install id that owns it now. */

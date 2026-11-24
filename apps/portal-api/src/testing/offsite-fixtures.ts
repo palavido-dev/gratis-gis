@@ -35,12 +35,7 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
  * refuses a second backup_run row with offsite_status 'running' (the
  * partial unique index) with P2002.
  */
-export function makePrisma(
-  runs: Row[],
-  configRow: Row,
-  objects: Row[] = [],
-  mirrorRuns: Row[] = [],
-) {
+export function makePrisma(runs: Row[], configRow: Row) {
   const pickFrom = (
     rows: Row[],
     args: {
@@ -68,7 +63,6 @@ export function makePrisma(
       throw Object.assign(new Error('unique'), { code: 'P2002' });
     }
   };
-  const objectKey = (w: { target: string; name: string }) => `${w.target}\0${w.name}`;
   return {
     backupConfig: {
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -128,63 +122,6 @@ export function makePrisma(
         },
       ),
     },
-    backupOffsiteObject: {
-      rows: objects,
-      findMany: jest.fn(async (args: Parameters<typeof pickFrom>[1]) => pickFrom(objects, args)),
-      upsert: jest.fn(
-        async (args: {
-          where: { target_name: { target: string; name: string } };
-          create: Row;
-          update: Record<string, unknown>;
-        }) => {
-          const k = objectKey(args.where.target_name);
-          const hit = objects.find((o) => objectKey(o as never) === k);
-          if (hit) Object.assign(hit, args.update);
-          else objects.push({ ...args.create, id: k });
-          return hit ?? objects.at(-1);
-        },
-      ),
-      updateMany: jest.fn(
-        async ({
-          where,
-          data,
-        }: {
-          where: Record<string, unknown>;
-          data: Record<string, unknown>;
-        }) => {
-          const hit = objects.filter((o) => matches(o, where));
-          for (const o of hit) Object.assign(o, data);
-          return { count: hit.length };
-        },
-      ),
-      deleteMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
-        const keep = objects.filter((o) => !matches(o, where));
-        const n = objects.length - keep.length;
-        objects.splice(0, objects.length, ...keep);
-        return { count: n };
-      }),
-    },
-    backupOffsiteMirrorRun: {
-      rows: mirrorRuns,
-      findMany: jest.fn(async (args: Parameters<typeof pickFrom>[1]) => pickFrom(mirrorRuns, args)),
-      upsert: jest.fn(
-        async (args: {
-          where: { target_runId: { target: string; runId: string } };
-          create: Row;
-        }) => {
-          const w = args.where.target_runId;
-          const hit = mirrorRuns.find((r) => r.target === w.target && r.runId === w.runId);
-          if (!hit) mirrorRuns.push({ ...args.create, id: `${w.target}\0${w.runId}` });
-          return hit ?? mirrorRuns.at(-1);
-        },
-      ),
-      deleteMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) => {
-        const keep = mirrorRuns.filter((o) => !matches(o, where));
-        const n = mirrorRuns.length - keep.length;
-        mirrorRuns.splice(0, mirrorRuns.length, ...keep);
-        return { count: n };
-      }),
-    },
   };
 }
 
@@ -202,11 +139,8 @@ export function emptyConfigRow(): Row {
     offsiteSecretIv: null,
     offsitePublicKey: null,
     offsiteInstallId: null,
-    offsiteNameKeyEncrypted: null,
-    offsiteNameKeyIv: null,
     offsiteRetentionDays: null,
     offsiteAlertDays: null,
-    offsiteMirrorThresholdBytes: null,
     offsiteSigningKeyEncrypted: null,
     offsiteSigningKeyIv: null,
     offsiteVerifyKey: null,

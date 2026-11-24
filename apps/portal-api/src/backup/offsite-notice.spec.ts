@@ -81,7 +81,7 @@ describe('off-site notices', () => {
     expect(aside.text).toContain('Copies: a, b and 3 more');
     const stopped = renderNotification(
       'backup_failed',
-      { kind: 'offsite_retention_stopped', name: 'mirror:x' },
+      { kind: 'offsite_retention_stopped', name: 'backup-x.tar.gz.enc' },
       ctx,
     )!;
     expect(stopped.subject).toBe('Off-site backup clean-up stopped on Acme');
@@ -92,6 +92,13 @@ describe('off-site notices', () => {
       ctx,
     )!;
     expect(auto.text).toContain('The server replaced it by itself');
+    expect(auto.text).toContain('still count as good');
+    const autoDropped = renderNotification(
+      'backup_failed',
+      { kind: 'offsite_signing_key_changed', from: 'a', to: 'b', automatic: true, oldKeyKept: false },
+      ctx,
+    )!;
+    expect(autoDropped.text).toContain('set aside (kept, not deleted)');
     const byAdmin = renderNotification(
       'backup_failed',
       { kind: 'offsite_signing_key_changed', from: 'a', to: 'b', automatic: false },

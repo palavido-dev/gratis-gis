@@ -31,7 +31,6 @@ export const OFFSITE_ENV = {
   publicKey: 'BACKUP_OFFSITE_PUBLIC_KEY',
   retentionDays: 'BACKUP_OFFSITE_RETENTION_DAYS',
   alertDays: 'BACKUP_OFFSITE_ALERT_DAYS',
-  mirrorThresholdGb: 'BACKUP_OFFSITE_MIRROR_THRESHOLD_GB',
 } as const;
 
 export const OFFSITE_DEFAULTS = {
@@ -41,7 +40,6 @@ export const OFFSITE_DEFAULTS = {
   pathStyle: true,
   retentionDays: 30,
   alertDays: 3,
-  mirrorThresholdBytes: 50 * 1024 ** 3,
 } as const;
 
 export type SettingSource = 'database' | 'environment' | null;
@@ -62,7 +60,6 @@ export interface OffsiteSettings {
   publicKeySource: SettingSource;
   retentionDays: number;
   alertDays: number;
-  mirrorThresholdBytes: number;
   installId: string | null;
   /** Values that were set but refused, in plain words. */
   problems: string[];
@@ -84,7 +81,6 @@ export interface OffsitePublicConfig {
   publicKeySource: SettingSource;
   retentionDays: number;
   alertDays: number;
-  mirrorThresholdBytes: number;
   installId: string | null;
   /** Plain http endpoints are allowed by the server environment. */
   httpAllowed: boolean;
@@ -108,7 +104,6 @@ export interface OffsiteRow {
   offsiteInstallId: string | null;
   offsiteRetentionDays: number | null;
   offsiteAlertDays: number | null;
-  offsiteMirrorThresholdBytes: bigint | null;
 }
 
 export type EnvReader = (name: string) => string | undefined;
@@ -263,11 +258,6 @@ const checks = {
       throw new OffsiteValidationError(`${name} must be a whole number from ${lo} to ${hi}.`);
     }
   },
-  mirrorThreshold(v: number) {
-    if (!Number.isSafeInteger(v) || v < 1024 ** 3 || v > 1024 ** 5) {
-      throw new OffsiteValidationError('The mirror threshold must be between 1 GB and 1 PB.');
-    }
-  },
 };
 
 const LIMITS = {
@@ -416,16 +406,6 @@ export function resolveOffsiteSettings(
     envInt(OFFSITE_ENV.alertDays),
     intIn(LIMITS.alertDays),
   );
-  const gb = envInt(OFFSITE_ENV.mirrorThresholdGb);
-  const threshold = pick(
-    'mirror threshold',
-    row.offsiteMirrorThresholdBytes === null ? null : Number(row.offsiteMirrorThresholdBytes),
-    gb === null ? null : gb * 1024 ** 3,
-    (v: number) => {
-      checks.mirrorThreshold(v);
-      return v;
-    },
-  );
   const enabledEnv = envBool(OFFSITE_ENV.enabled);
   const pathStyleEnv = envBool(OFFSITE_ENV.pathStyle);
 
@@ -444,7 +424,6 @@ export function resolveOffsiteSettings(
     publicKeySource: publicKey.source,
     retentionDays: ret.value ?? OFFSITE_DEFAULTS.retentionDays,
     alertDays: alert.value ?? OFFSITE_DEFAULTS.alertDays,
-    mirrorThresholdBytes: threshold.value ?? OFFSITE_DEFAULTS.mirrorThresholdBytes,
     installId: row.offsiteInstallId,
     problems,
   };
@@ -485,7 +464,6 @@ export function toPublicConfig(s: OffsiteSettings, policy: EndpointPolicy): Offs
     publicKeySource: s.publicKeySource,
     retentionDays: s.retentionDays,
     alertDays: s.alertDays,
-    mirrorThresholdBytes: s.mirrorThresholdBytes,
     installId: s.installId,
     httpAllowed: policy.allowHttp,
     complete: missing.length === 0 && s.problems.length === 0,
@@ -509,7 +487,6 @@ export interface OffsitePatch {
   publicKey?: string | null;
   retentionDays?: number | null;
   alertDays?: number | null;
-  mirrorThresholdBytes?: number | null;
 }
 
 /** Names a patch may never carry: the server takes no private key material. */
@@ -553,9 +530,6 @@ export function validateOffsitePatch(patch: OffsitePatch, policy: EndpointPolicy
   }
   if (patch.alertDays !== undefined && patch.alertDays !== null) {
     checks.int(LIMITS.alertDays[0], patch.alertDays, LIMITS.alertDays[1], LIMITS.alertDays[2]);
-  }
-  if (patch.mirrorThresholdBytes !== undefined && patch.mirrorThresholdBytes !== null) {
-    checks.mirrorThreshold(patch.mirrorThresholdBytes);
   }
 }
 

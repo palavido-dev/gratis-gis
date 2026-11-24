@@ -33,7 +33,6 @@ const EMPTY_ROW: OffsiteRow = {
   offsiteInstallId: null,
   offsiteRetentionDays: null,
   offsiteAlertDays: null,
-  offsiteMirrorThresholdBytes: null,
 };
 
 const env = (vars: Record<string, string>) => (name: string) => vars[name];
@@ -47,7 +46,6 @@ describe('off-site settings', () => {
     expect(s.enabled).toBe(false);
     expect(s.region).toBe('us-east-1');
     expect(s.retentionDays).toBe(OFFSITE_DEFAULTS.retentionDays);
-    expect(s.mirrorThresholdBytes).toBe(50 * 1024 ** 3);
     expect(toPublicConfig(s, strict).missing).toEqual([
       'endpoint',
       'bucket',
@@ -91,7 +89,6 @@ describe('off-site settings', () => {
         BACKUP_OFFSITE_PUBLIC_KEY: PUB.text,
         BACKUP_OFFSITE_RETENTION_DAYS: '90',
         BACKUP_OFFSITE_ALERT_DAYS: '5',
-        BACKUP_OFFSITE_MIRROR_THRESHOLD_GB: '2',
       }),
       strict,
     );
@@ -108,7 +105,6 @@ describe('off-site settings', () => {
       publicKeySource: 'environment',
       retentionDays: 90,
       alertDays: 5,
-      mirrorThresholdBytes: 2 * 1024 ** 3,
       problems: [],
     });
     expect(s.publicKey?.fingerprintText).toBe(PUB.fingerprintText);
@@ -124,7 +120,7 @@ describe('off-site settings', () => {
         BACKUP_OFFSITE_PUBLIC_KEY: 'ggpub1:not-a-key',
         BACKUP_OFFSITE_RETENTION_DAYS: '0',
         BACKUP_OFFSITE_ENABLED: 'maybe',
-        BACKUP_OFFSITE_MIRROR_THRESHOLD_GB: 'lots',
+        BACKUP_OFFSITE_ALERT_DAYS: 'lots',
       }),
       strict,
     );
@@ -137,9 +133,7 @@ describe('off-site settings', () => {
     expect(s.problems.join(' ')).toMatch(/public key is the wrong length/);
     expect(s.problems.join(' ')).toMatch(/from 1 to 3650/);
     expect(s.problems.join(' ')).toMatch(/BACKUP_OFFSITE_ENABLED must be true or false/);
-    expect(s.problems.join(' ')).toMatch(
-      /BACKUP_OFFSITE_MIRROR_THRESHOLD_GB must be a whole number/,
-    );
+    expect(s.problems.join(' ')).toMatch(/BACKUP_OFFSITE_ALERT_DAYS must be a whole number/);
     expect(toPublicConfig(s, strict).complete).toBe(false);
   });
 
@@ -308,7 +302,6 @@ describe('validateOffsitePatch', () => {
     [{ publicKey: 'ggpub1:short' }, /wrong length/],
     [{ retentionDays: 0 }, /from 1 to 3650/],
     [{ alertDays: 91 }, /from 1 to 90/],
-    [{ mirrorThresholdBytes: 1000 }, /1 GB/],
   ])('refuses %j', (patch, msg) => {
     expect(() => validateOffsitePatch(patch, strict)).toThrow(msg);
   });
@@ -356,7 +349,6 @@ describe('validateOffsitePatch', () => {
           publicKey: PUB.text,
           retentionDays: 30,
           alertDays: 3,
-          mirrorThresholdBytes: 50 * 1024 ** 3,
         },
         strict,
       ),

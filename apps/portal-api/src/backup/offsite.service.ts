@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -69,15 +69,12 @@ import {
   type EndpointPolicy,
 } from './offsite-endpoint.js';
 import {
-  MAX_SET_ASIDE_CHECKED,
-  OffsiteMirror,
-  PrismaMirrorIndex,
-  sweepIndexLeftovers,
-  type MirrorIndexStore,
-} from './offsite-mirror.js';
-import {
   archiveArtifacts,
+  copyAttempt,
+  copyObjectName,
   daysSince,
+  MAX_COPY_ATTEMPT,
+  MAX_SET_ASIDE_CHECKED,
   OFFSITE_LAYOUT,
   partitionByDate,
   selectExpired,
@@ -90,16 +87,15 @@ import {
   deleteObject,
   describeS3Error,
   getSmall,
+  headSize,
   listObjects,
   putSmall,
   uploadStream,
   type S3Like,
 } from './offsite-store.js';
-import { readTarEntry } from './tar-cli.js';
 
 /** AAD prefixes for the stored secrets; a value cannot move between them. */
 const AAD_SECRET = 'backup-offsite:secret-access-key';
-const AAD_NAME_KEY = 'backup-offsite:mirror-name-key';
 const AAD_SIGNING_KEY = 'backup-offsite:signing-key';
 /** Earlier verify keys kept, newest last. */
 const MAX_PREVIOUS_VERIFY_KEYS = 20;
@@ -119,6 +115,25 @@ const HOUR_MS = 60 * 60 * 1000;
  */
 export function uploadTimeLimitMs(bytes: number): number {
   return 2 * HOUR_MS + Math.ceil((Math.max(0, bytes) / (256 * 1024)) * 1000);
+}
+
+/**
+ * The longest upload time limit an off-site copy may need: the time
+ * between two nightly backups. A backup whose limit is longer is not
+ * sent; its off-site copy fails with a message saying so.
+ */
+export const MAX_UPLOAD_MS = 24 * HOUR_MS;
+
+/** The largest backup whose upload time limit fits in MAX_UPLOAD_MS. */
+export const MAX_ARCHIVE_BYTES = Math.floor(((MAX_UPLOAD_MS - 2 * HOUR_MS) / 1000) * 256 * 1024);
+
+function gigabytes(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+
+/** Why a backup of `bytes` is not copied off-site. */
+export function tooLargeMessage(bytes: number, limitMs: number): string {
+  return `This backup is ${gigabytes(bytes)} GB. Its off-site upload would be allowed ${Math.ceil(limitMs / HOUR_MS)} hours, more than the ${MAX_UPLOAD_MS / HOUR_MS} hours between nightly backups, so no off-site copy was made. The local backup is complete. Off-site copies work for backups up to ${gigabytes(MAX_ARCHIVE_BYTES)} GB.`;
 }
 
 /** Why an upload was stopped from outside its own steps. */
@@ -147,8 +162,6 @@ function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
     );
   });
 }
-
-export type OffsiteMode = 'archive' | 'mirror';
 
 /** What the run-succeeded hook gets back: the upload, still running. */
 export interface UploadHandle {
@@ -182,7 +195,6 @@ export interface OffsiteStatusSummary {
   lastSuccess: {
     runId: string;
     finishedAt: string;
-    mode: string | null;
     bytes: string | null;
     keyFingerprint: string | null;
   } | null;
@@ -191,6 +203,21 @@ export interface OffsiteStatusSummary {
   /** Days since the last good off-site copy, null when there is none. */
   daysSinceSuccess: number | null;
   alert: boolean;
+  /**
+   * The newest finished local backup: its size and the time its
+   * off-site upload is allowed, so the page shows a backup growing
+   * towards the largest one that can be copied.
+   */
+  lastArchive: {
+    runId: string;
+    bytes: string;
+    uploadLimitMs: number;
+    tooLarge: boolean;
+  } | null;
+  /** The largest backup that can be copied off-site, in bytes. */
+  maxArchiveBytes: string;
+  /** The longest upload time limit allowed, in milliseconds. */
+  maxUploadMs: number;
 }
 
 /**
@@ -217,8 +244,7 @@ function secretAad(endpoint: string | null, keyId: string | null): string {
  * - The bucket secret access key: backup_config, AES-256-GCM under
  *   CREDENTIAL_ENCRYPTION_KEY with the endpoint and key id bound in,
  *   or BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE).
- * - The mirror naming key (random, made once): same cipher.
- * - The local index of mirrored files (backup_offsite_object).
+ * - The key it signs copies with (Ed25519, made once): same cipher.
  */
 @Injectable()
 export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy {
@@ -232,23 +258,18 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   beatEveryMs = 10_000;
   /** Swapped in tests: the longest an upload of `bytes` may take. */
   uploadTimeLimit: (bytes: number) => number = uploadTimeLimitMs;
-  private readonly mirror: OffsiteMirror;
-  private readonly index: MirrorIndexStore;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly backup: BackupService,
     @Optional() private readonly notice?: BackupFailureNotice,
     @Optional() private readonly leader?: LeaderElectionService,
-  ) {
-    this.mirror = new OffsiteMirror(this.log, backup);
-    this.index = new PrismaMirrorIndex(prisma as never);
-  }
+  ) {}
 
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   onModuleInit() {
-    this.backup.onRunSucceeded((info) => this.startUpload(info.runId, info.objectBytes));
+    this.backup.onRunSucceeded((info) => this.startUpload(info.runId));
   }
 
   /**
@@ -265,20 +286,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       60 * 60 * 1000,
     );
     this.sweepTimer.unref?.();
-    void this.sweepIndexLeftovers();
-  }
-
-  /** At startup: remove mirror index folders a crashed run left behind. */
-  async sweepIndexLeftovers(): Promise<number> {
-    try {
-      const { archiveDirectory } = await this.backup.getConfig();
-      const n = await sweepIndexLeftovers(archiveDirectory);
-      if (n > 0) this.log.warn(`Removed ${n} left-over off-site index folder(s).`);
-      return n;
-    } catch (e) {
-      this.log.warn(`Off-site index clean-up failed: ${e instanceof Error ? e.message : e}`);
-      return 0;
-    }
   }
 
   onModuleDestroy() {
@@ -438,14 +445,16 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     const row = await this.backup.configRow();
     if (row.offsiteSigningKeyEncrypted && row.offsiteSigningKeyIv) {
-      const key = this.openSigningKey(
+      const stored = this.openSigningKey(
         row.offsiteSigningKeyEncrypted,
         row.offsiteSigningKeyIv,
         row.offsiteVerifyKey,
       );
-      if (key) return key;
+      if ('key' in stored) return stored.key;
       this.log.warn(
-        'The stored off-site signing key could not be opened, or does not match its verify key; making a new one. Add the new verify key to your key file.',
+        stored.problem === 'unreadable'
+          ? 'The stored off-site signing key could not be opened; making a new one. Add the new verify key to your key file.'
+          : 'The stored off-site signing key does not match its verify key; making a new one. Add the new verify key to your key file.',
       );
       return (await this.replaceSigningKey(null, 'unreadable')).key;
     }
@@ -469,7 +478,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     // Another process made one first: use that one.
     const again = await this.backup.configRow();
-    const key =
+    const theirs =
       again.offsiteSigningKeyEncrypted && again.offsiteSigningKeyIv
         ? this.openSigningKey(
             again.offsiteSigningKeyEncrypted,
@@ -477,34 +486,42 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             again.offsiteVerifyKey,
           )
         : null;
-    if (!key) throw new Error('The off-site signing key could not be stored.');
-    return key;
+    if (!theirs || !('key' in theirs)) throw new Error('The off-site signing key could not be stored.');
+    return theirs.key;
   }
 
+  /**
+   * Open the stored signing key. "unreadable": the seed does not
+   * decrypt (the server key changed), so nothing says the stored
+   * verify key is wrong. "mismatch": the seed opens, but to another key
+   * than the stored verify key, so that verify key is not trusted.
+   */
   private openSigningKey(
     ct: string,
     iv: string,
     storedVerify: string | null,
-  ): OffsiteSigningKey | null {
+  ): { key: OffsiteSigningKey } | { problem: 'unreadable' | 'mismatch' } {
+    let key: OffsiteSigningKey;
     try {
-      const key = signingKeyFromSeed(
-        Buffer.from(decryptCredential(ct, iv, AAD_SIGNING_KEY), 'base64'),
-      );
-      return storedVerify === key.verifyKey.text ? key : null;
+      key = signingKeyFromSeed(Buffer.from(decryptCredential(ct, iv, AAD_SIGNING_KEY), 'base64'));
     } catch {
-      return null;
+      return { problem: 'unreadable' };
     }
+    return storedVerify === key.verifyKey.text ? { key } : { problem: 'mismatch' };
   }
 
   /**
    * Make a new signing key. The old verify key is kept in the list of
    * this portal's earlier keys, so copies it signed still count as
-   * good, but only when the stored key opened and matched its verify
-   * key: a verify key that did not match is never trusted. The change
-   * is made only if the stored key is still the one read, so two
-   * changes at once cannot lose a key. The operator admins get a
-   * notice with both fingerprints, saying whether an admin or the
-   * server made the change.
+   * good for retention, unless the stored key opened to another key
+   * than its verify key: a verify key that did not match is never
+   * trusted. When the stored key cannot be opened at all (the server
+   * key changed), its verify key is kept: it was stored with the key
+   * and nothing shows it is wrong. The change is made only if the
+   * stored key is still the one read, so two changes at once cannot
+   * lose a key. The operator admins get a notice with both
+   * fingerprints, saying whether an admin or the server made the
+   * change and whether the old verify key is still trusted.
    */
   async replaceSigningKey(
     by: string | null,
@@ -515,7 +532,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         'This server has no CREDENTIAL_ENCRYPTION_KEY, so it cannot store a signing key.',
       );
     }
-    if (why === 'admin' && (await this.otherUploadRunning(null))) {
+    if (why === 'admin' && (await this.otherUploadRunning())) {
       throw new ConflictException('An off-site upload is running. Try again when it finishes.');
     }
     const row = await this.backup.configRow();
@@ -529,15 +546,16 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             row.offsiteVerifyKey,
           )
         : null;
-    // Named in the notice either way; kept as an earlier key only when
-    // it is the verify key of the key that was in use.
+    // Named in the notice either way.
     let stored: OffsiteVerifyKey | null = null;
     try {
       stored = row.offsiteVerifyKey ? parseVerifyKey(row.offsiteVerifyKey) : null;
     } catch {
       stored = null;
     }
-    const keep = current ? current.verifyKey : null;
+    let keep: OffsiteVerifyKey | null = null;
+    if (current && 'key' in current) keep = current.key.verifyKey;
+    else if (current && current.problem === 'unreadable') keep = stored;
     const previous = (row.offsitePreviousVerifyKeys ?? []).filter((t) => t !== keep?.text);
     if (keep) previous.push(keep.text);
     const changedAt = new Date();
@@ -568,11 +586,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
                 again.offsiteVerifyKey,
               )
             : null;
-        if (theirs) {
+        if (theirs && 'key' in theirs) {
           return {
-            key: theirs,
+            key: theirs.key,
             from: stored?.fingerprintText ?? null,
-            to: theirs.verifyKey.fingerprintText,
+            to: theirs.key.verifyKey.fingerprintText,
           };
         }
       }
@@ -582,9 +600,14 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     const to = made.verifyKey.fingerprintText;
     const from = stored?.fingerprintText ?? null;
+    const oldKeyKept = keep !== null;
     if (why === 'unreadable') {
       this.log.warn(
-        `The off-site signing key was replaced automatically (verify key ${from ?? 'none'} is now ${to}). The old verify key is not kept as one of this portal's keys. Add the new verify key to your key file.`,
+        `The off-site signing key was replaced automatically (verify key ${from ?? 'none'} is now ${to}). ${
+          oldKeyKept
+            ? "The old verify key is kept as one of this portal's earlier keys, so copies it signed still count."
+            : "The old verify key is not kept as one of this portal's keys."
+        } Add the new verify key to your key file.`,
       );
     } else {
       this.log.warn(
@@ -597,6 +620,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         from,
         to,
         automatic: why === 'unreadable',
+        oldKeyKept,
       });
     } catch (e) {
       this.log.warn(
@@ -714,10 +738,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     if (patch.retentionDays !== undefined) data.offsiteRetentionDays = patch.retentionDays;
     if (patch.alertDays !== undefined) data.offsiteAlertDays = patch.alertDays;
-    if (patch.mirrorThresholdBytes !== undefined) {
-      data.offsiteMirrorThresholdBytes =
-        patch.mirrorThresholdBytes === null ? null : BigInt(patch.mirrorThresholdBytes);
-    }
 
     // Where the bucket secret would be sent after this save. Whatever
     // its source (saved here or set in the environment), the secret
@@ -1069,7 +1089,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           .join(' '),
       );
     }
-    if (await this.otherUploadRunning(null)) {
+    if (await this.otherUploadRunning()) {
       throw new ConflictException('An off-site upload is running. Try again when it finishes.');
     }
     await this.endpointCheck(s.endpoint!, this.policy());
@@ -1113,7 +1133,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
    * the browser without it. Never a bare promise: an async function
    * returning one would be flattened into a single wait.
    */
-  async startUpload(runId: string, objectBytes: number | null): Promise<UploadHandle | undefined> {
+  async startUpload(runId: string): Promise<UploadHandle | undefined> {
     let s: OffsiteSettings;
     try {
       s = await this.settings();
@@ -1128,7 +1148,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       );
       return undefined;
     }
-    const done = this.upload(runId, s, objectBytes).catch((e: unknown) => {
+    const done = this.upload(runId, s).catch((e: unknown) => {
       // upload() records its own failures; this is a last resort.
       this.log.error(`Off-site upload of ${runId} stopped: ${this.safeMessage(e, s)}`);
     });
@@ -1156,27 +1176,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         'This backup is older than the off-site retention window, so its copy would be deleted again at once.',
       );
     }
-    // A mirror copy always holds the files as they are now, so an older
-    // dump would be paired with newer files.
-    const mode = await this.chooseMode(s, run, null);
-    if (mode === 'mirror') {
-      const newest = await this.prisma.backupRun.findFirst({
-        where: { status: 'succeeded' },
-        orderBy: { startedAt: 'desc' },
-        select: { id: true },
-      });
-      if (newest && newest.id !== run.id) {
-        throw new ConflictException(
-          'Large stores are copied file by file as they are now, so only the newest backup can be uploaded again.',
-        );
-      }
-    }
     if (!(await this.claim(runId))) {
       throw new ConflictException(
         'An off-site upload is already running. Try again when it finishes.',
       );
     }
-    void this.upload(runId, s, null).catch((e: unknown) =>
+    void this.upload(runId, s).catch((e: unknown) =>
       this.log.error(`Off-site upload of ${runId} stopped: ${this.safeMessage(e, s)}`),
     );
   }
@@ -1213,22 +1218,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
   }
 
-  private async chooseMode(
-    s: OffsiteSettings,
-    run: { archiveDirectory: string | null; filename: string | null },
-    objectBytes: number | null,
-  ): Promise<OffsiteMode> {
-    const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
-    const bytes =
-      objectBytes ?? (await this.objectBytesFromManifest(path.join(dir, run.filename!)));
-    return bytes !== null && bytes > s.mirrorThresholdBytes ? 'mirror' : 'archive';
-  }
-
-  private async upload(
-    runId: string,
-    s: OffsiteSettings,
-    objectBytes: number | null,
-  ): Promise<void> {
+  private async upload(runId: string, s: OffsiteSettings): Promise<void> {
     const abort = new AbortController();
     // A timer, not calls in each loop: the beat must keep coming while
     // one long step (a big part, a slow listing) is in progress.
@@ -1252,8 +1242,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }, this.beatEveryMs);
     timer.unref?.();
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    const armDeadline = (bytes: number) => {
-      const limit = this.uploadTimeLimit(bytes);
+    const armDeadline = (limit: number) => {
       deadline = setTimeout(() => {
         abort.abort(
           new UploadStop(
@@ -1263,13 +1252,20 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       }, limit);
       deadline.unref?.();
     };
-    let mode: OffsiteMode = 'archive';
     try {
       const missing = missingSettings(s);
       if (missing.length > 0) {
         throw new Error(`Off-site settings are missing: ${missing.map(fieldLabel).join(', ')}.`);
       }
       if (s.problems.length > 0) throw new Error(s.problems.join(' '));
+      const run = await this.prisma.backupRun.findUniqueOrThrow({ where: { id: runId } });
+      const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
+      const archivePath = path.join(dir, run.filename!);
+      const size = (await fs.stat(archivePath)).size;
+      // A backup too large to upload before the next one starts is not
+      // sent at all: the copy fails with a message that says so.
+      const limit = this.uploadTimeLimit(size);
+      if (limit > MAX_UPLOAD_MS) throw new UploadStop(tooLargeMessage(size, limit));
       const policy = this.policy();
       await this.endpointCheck(s.endpoint!, policy);
       if (policy.allowLocal) {
@@ -1282,18 +1278,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           'The off-site endpoint uses plain http (allowed by BACKUP_OFFSITE_ALLOW_HTTP). The files are encrypted, but the bucket keys and names travel unprotected.',
         );
       }
-      const run = await this.prisma.backupRun.findUniqueOrThrow({ where: { id: runId } });
-      const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
-      const archivePath = path.join(dir, run.filename!);
-      const size = (await fs.stat(archivePath)).size;
-      mode = await this.chooseMode(s, run, objectBytes);
-      armDeadline(size + (mode === 'mirror' ? (objectBytes ?? 0) : 0));
+      armDeadline(limit);
       // Every copy is signed; without a signing key nothing is sent.
       const signingKey = await this.signingKey();
       await this.prisma.backupRun.update({
         where: { id: runId },
         data: {
-          offsiteMode: mode,
           offsiteKeyFingerprint: s.publicKey!.fingerprintText,
           offsiteVerifyFingerprint: signingKey.verifyKey.fingerprintText,
         },
@@ -1306,33 +1296,20 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       const result = await untilAborted(
         (async () => {
           await this.ensureInstallMarker(s3, s, signal);
-          const r =
-            mode === 'mirror'
-              ? await this.mirror.upload({
-                  s3,
-                  s,
-                  publicKey: s.publicKey!,
-                  signingKey,
-                  nameKey: await this.nameKey(),
-                  index: this.index,
-                  run,
-                  archivePath,
-                  signal,
-                })
-              : await this.uploadArchive({
-                  s3,
-                  s,
-                  publicKey: s.publicKey!,
-                  signingKey,
-                  run,
-                  archivePath,
-                  size,
-                  signal,
-                });
+          const r = await this.uploadArchive({
+            s3,
+            s,
+            publicKey: s.publicKey!,
+            signingKey,
+            run,
+            archivePath,
+            size,
+            signal,
+          });
           // Clean up while this upload still holds the install-wide
           // claim, so no other upload can be using what is removed.
           try {
-            await this.enforceRetention(s, s3, runId, signal);
+            await this.enforceRetention(s, s3, signal);
           } catch (e) {
             if (signal.aborted) throw e;
             this.log.warn(`Off-site retention failed: ${this.safeMessage(e, s)}`);
@@ -1348,16 +1325,25 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           offsiteKey: result.key,
           offsiteBytes: BigInt(result.bytes),
           offsiteSha256: result.sha256,
+          offsiteKeyFingerprint: result.keyFingerprint,
+          offsiteVerifyFingerprint: result.verifyFingerprint,
           offsiteFinishedAt: new Date(),
           offsiteError: null,
         },
       });
       this.log.log(
-        `Off-site copy of backup ${runId} uploaded (${mode}, ${result.bytes} bytes, key ${s.publicKey!.fingerprintText}).`,
+        result.reused
+          ? `Off-site copy of backup ${runId} was already complete and signed in the bucket (${result.key}); it was not uploaded again.`
+          : `Off-site copy of backup ${runId} uploaded (${result.bytes} bytes, key ${result.keyFingerprint}).`,
       );
     } catch (e) {
       const reason: unknown = abort.signal.aborted ? abort.signal.reason : null;
-      const msg = reason instanceof UploadStop ? reason.message : this.safeMessage(e, s);
+      const msg =
+        reason instanceof UploadStop
+          ? reason.message
+          : e instanceof UploadStop
+            ? e.message
+            : this.safeMessage(e, s);
       // Whatever is still in flight stops with the signal.
       if (!abort.signal.aborted) abort.abort(new UploadStop('Stopped.'));
       this.log.error(`Off-site copy of backup ${runId} failed: ${msg}`);
@@ -1366,7 +1352,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           where: { id: runId },
           data: {
             offsiteStatus: 'failed',
-            offsiteMode: mode,
             offsiteError: msg.slice(0, 500),
             offsiteFinishedAt: new Date(),
           },
@@ -1383,52 +1368,19 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   /**
-   * The key that names mirrored files, made once and stored with the
-   * credential cipher. Mirror mode needs CREDENTIAL_ENCRYPTION_KEY.
+   * Upload one backup, or find that an earlier attempt already did.
+   *
+   * Earlier attempts of the same backup are looked at first. One whose
+   * sidecar carries a signature by this portal for this folder, and
+   * whose stored size (read with HEAD, nothing downloaded) is the
+   * signed size, is complete: it is used as it is. Otherwise the copy
+   * goes up under a name no earlier attempt used, so an object that a
+   * signed sidecar may describe is never replaced. Leftovers of
+   * attempts that never finished (no sidecar, or a sidecar without its
+   * copy) are removed only after the new copy and its sidecar are
+   * both in the bucket. A complete earlier attempt that does not
+   * verify is never removed here; retention sets it aside.
    */
-  private async nameKey(): Promise<Buffer> {
-    try {
-      assertCredentialKeyConfigured();
-    } catch {
-      throw new Error(
-        'Copying a large store file by file needs CREDENTIAL_ENCRYPTION_KEY on this server.',
-      );
-    }
-    const read = async () => {
-      const row = await this.backup.configRow();
-      if (!row.offsiteNameKeyEncrypted || !row.offsiteNameKeyIv) return null;
-      try {
-        return Buffer.from(
-          decryptCredential(row.offsiteNameKeyEncrypted, row.offsiteNameKeyIv, AAD_NAME_KEY),
-          'base64',
-        );
-      } catch {
-        return undefined;
-      }
-    };
-    const have = await read();
-    if (have) return have;
-    const enc = encryptCredential(randomBytes(32).toString('base64'), AAD_NAME_KEY);
-    const row = await this.backup.configRow();
-    if (have === undefined) {
-      // The stored key no longer opens (the server key changed). Files
-      // get new names and are uploaded again; old ones age out.
-      this.log.warn('The off-site naming key could not be opened; making a new one.');
-      await this.prisma.backupConfig.update({
-        where: { id: row.id },
-        data: { offsiteNameKeyEncrypted: enc.ciphertext, offsiteNameKeyIv: enc.iv },
-      });
-    } else {
-      await this.prisma.backupConfig.updateMany({
-        where: { id: row.id, offsiteNameKeyEncrypted: null },
-        data: { offsiteNameKeyEncrypted: enc.ciphertext, offsiteNameKeyIv: enc.iv },
-      });
-    }
-    const made = await read();
-    if (!made) throw new Error('The off-site naming key could not be stored.');
-    return made;
-  }
-
   private async uploadArchive(a: {
     s3: S3Like;
     s: OffsiteSettings;
@@ -1438,10 +1390,40 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     archivePath: string;
     size: number;
     signal: AbortSignal;
-  }): Promise<{ key: string; bytes: number; sha256: string }> {
+  }): Promise<{
+    key: string;
+    bytes: number;
+    sha256: string;
+    keyFingerprint: string;
+    verifyFingerprint: string;
+    reused: boolean;
+  }> {
     if (!a.s.installId) throw new Error('This portal has no install id yet.');
-    const name = `${a.run.filename}${OFFSITE_LAYOUT.sealed}`;
-    const objectKey = `${a.s.prefix}${OFFSITE_LAYOUT.archives}${name}`;
+    const archive = a.run.filename!;
+    const archivesPrefix = `${a.s.prefix}${OFFSITE_LAYOUT.archives}`;
+    const stem = archive.slice(0, -'.tar.gz'.length);
+    const listing = [];
+    for await (const o of listObjects(a.s3, a.s.bucket!, `${archivesPrefix}${stem}`, a.signal)) {
+      listing.push(o);
+    }
+    const earlier = archiveArtifacts(listing, archivesPrefix).sort(
+      (x, y) => copyAttempt(y.id) - copyAttempt(x.id),
+    );
+    const trusted = await this.ownVerifyKeys();
+    for (const c of earlier) {
+      if (!c.complete) continue;
+      const done = await this.completeEarlierCopy(a.s3, a.s, c.id, trusted, a.signal);
+      if (done) return { ...done, reused: true };
+    }
+
+    const attempt = earlier.reduce((n, c) => Math.max(n, copyAttempt(c.id)), 0) + 1;
+    if (attempt > MAX_COPY_ATTEMPT) {
+      throw new Error(
+        `This backup was uploaded ${MAX_COPY_ATTEMPT} times without a complete copy. Check the bucket.`,
+      );
+    }
+    const name = copyObjectName(archive, attempt);
+    const objectKey = `${archivesPrefix}${name}`;
     const up = await uploadStream(a.s3, {
       bucket: a.s.bucket!,
       key: objectKey,
@@ -1456,7 +1438,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       runId: a.run.id,
       installId: a.s.installId,
       keyFingerprint: a.publicKey.fingerprintText,
-      archive: a.run.filename,
+      archive,
       createdAt: a.run.startedAt.toISOString(),
       plainBytes: a.size,
       sealedBytes: up.bytes,
@@ -1486,31 +1468,82 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       'application/json',
       a.signal,
     );
-    return { key: objectKey, bytes: up.bytes, sha256: up.sha256 };
+    for (const c of earlier) {
+      if (c.complete) continue;
+      try {
+        // Sidecar first, as retention does.
+        const ordered = [...c.keys].sort(
+          (x, y) => Number(y.endsWith('.json')) - Number(x.endsWith('.json')),
+        );
+        for (const k of ordered) await deleteObject(a.s3, a.s.bucket!, k, a.signal);
+      } catch (e) {
+        if (a.signal.aborted) throw e;
+        this.log.warn(
+          `An unfinished earlier upload of ${archive} could not be removed; retention removes it later: ${this.safeMessage(e, a.s)}`,
+        );
+      }
+    }
+    return {
+      key: objectKey,
+      bytes: up.bytes,
+      sha256: up.sha256,
+      keyFingerprint: a.publicKey.fingerprintText,
+      verifyFingerprint: a.signingKey.verifyKey.fingerprintText,
+      reused: false,
+    };
   }
 
-  private async objectBytesFromManifest(archivePath: string): Promise<number | null> {
+  /**
+   * An earlier attempt that is complete: its sidecar is signed by one
+   * of this portal's verify keys for this folder, portal install and
+   * name, and the stored size is the signed size. Null otherwise.
+   */
+  private async completeEarlierCopy(
+    s3: S3Like,
+    s: OffsiteSettings,
+    id: string,
+    trusted: readonly OffsiteVerifyKey[],
+    signal: AbortSignal,
+  ): Promise<{
+    key: string;
+    bytes: number;
+    sha256: string;
+    keyFingerprint: string;
+    verifyFingerprint: string;
+  } | null> {
+    const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${id}`;
+    let sidecar: unknown;
     try {
-      const buf = await readTarEntry(archivePath, 'manifest.json');
-      if (!buf) return null;
-      const m = JSON.parse(buf.toString('utf8')) as { minio?: { totalBytes?: unknown } };
-      return typeof m.minio?.totalBytes === 'number' ? m.minio.totalBytes : null;
-    } catch {
+      sidecar = JSON.parse((await getSmall(s3, s.bucket!, `${objectKey}.json`, signal)).toString('utf8'));
+    } catch (e) {
+      if (signal.aborted) throw e;
       return null;
     }
+    const check = checkSignature(sidecar, trusted, {
+      prefix: s.prefix,
+      name: `${OFFSITE_LAYOUT.archives}${id}`,
+      installIds: s.installId ? [s.installId] : [],
+    });
+    if (check.trust !== 'verified' || !check.manifest || !check.signer) return null;
+    const bytes = Number(check.manifest.bytes);
+    if ((await headSize(s3, s.bucket!, objectKey, signal)) !== bytes) return null;
+    return {
+      key: objectKey,
+      bytes,
+      sha256: check.manifest.sha256,
+      keyFingerprint: check.manifest.key,
+      verifyFingerprint: check.signer,
+    };
   }
 
   // ---------------------------------------------------------------
   // Retention
   // ---------------------------------------------------------------
 
-  /** Another upload than `self` holds the claim and is alive. */
-  private async otherUploadRunning(self: string | null): Promise<boolean> {
+  /** An off-site upload holds the claim and is alive. */
+  private async otherUploadRunning(): Promise<boolean> {
     const other = await this.prisma.backupRun.findFirst({
-      where: {
-        offsiteStatus: 'running',
-        ...(self ? { id: { not: self } } : {}),
-      },
+      where: { offsiteStatus: 'running' },
       select: { id: true },
     });
     return other !== null;
@@ -1518,20 +1551,20 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
 
   /**
    * Delete off-site copies older than the retention window, never the
-   * newest complete one. Only names this feature writes, under this
-   * portal's own folder, are touched. Mirror files are collected only
-   * when no other upload is running. Bucket versioning or object lock
+   * newest good one. Only names this feature writes, under this
+   * portal's own folder, are touched. Bucket versioning or object lock
    * at the provider is what protects history from a compromised
    * server; see the help page.
    *
-   * Every sidecar and done marker is read before anything is deleted.
-   * One that cannot be read or parsed stops the pass: nothing is
-   * deleted, and it is reported once (see reportStopped).
+   * Every sidecar is read before anything is deleted. One that cannot
+   * be read or parsed stops the pass: nothing is deleted, and it is
+   * reported once (see reportStopped). Copies set aside (a bad
+   * signature, or a date that cannot be trusted) are kept and
+   * reported, never deleted.
    */
   async enforceRetention(
     s: OffsiteSettings,
     s3: S3Like = this.clientFactory(s),
-    self: string | null = null,
     signal?: AbortSignal,
   ): Promise<number> {
     const now = new Date();
@@ -1540,15 +1573,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     };
     // Another portal may have taken the folder over since the upload
     // started: then its retention applies, not this one's.
-    const ownsFolder = async () => {
-      const owner = await this.readInstallMarker(s3, s, signal);
-      if (s.installId && owner === s.installId) return true;
+    const owner = await this.readInstallMarker(s3, s, signal);
+    if (!s.installId || owner !== s.installId) {
       this.log.warn(
         `This portal no longer owns the off-site folder ${s.prefix}; nothing in it was removed.`,
       );
-      return false;
-    };
-    if (!(await ownsFolder())) return 0;
+      return 0;
+    }
     const archivesPrefix = `${s.prefix}${OFFSITE_LAYOUT.archives}`;
     const listing = [];
     for await (const o of listObjects(s3, s.bucket!, archivesPrefix, signal)) listing.push(o);
@@ -1588,7 +1619,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       }
       a.trust = artifactTrust(
         checkSignature(sidecar, trusted, {
-          kind: 'archive',
           prefix: s.prefix,
           name: `${OFFSITE_LAYOUT.archives}${a.id}`,
           bytes: a.sealedBytes,
@@ -1598,11 +1628,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       );
       if (a.trust === 'bad') bad += 1;
       artifacts.push(a);
-    }
-    const runs = await this.mirror.classifyRuns(s3, s, now, trusted, signal);
-    if (runs.unreadable !== null) {
-      await this.reportStopped(runs.unreadable, now);
-      return 0;
     }
     let removed = 0;
     for (const id of selectExpired(artifacts, now, s.retentionDays)) {
@@ -1617,44 +1642,25 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         removed += 1;
       }
     }
-    stop();
-    if (!(await ownsFolder())) return removed;
-    const collect = !(await this.otherUploadRunning(self));
-    if (!collect)
-      this.log.log('Another off-site upload is running; mirror files are not collected this time.');
-    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect, runs, signal);
-    removed += m.removed;
-    if (m.orphansRemoved > 0) {
-      this.log.log(
-        `Removed ${m.orphansRemoved} mirrored file(s) that no run in the bucket can refer to.`,
-      );
-    }
-    if (m.unknownKept > 0) {
-      this.log.log(
-        `${m.unknownKept} mirrored file(s) in the bucket are not in this server's index and were kept. They are removed once every run in the bucket was made by this server since its index started.`,
-      );
-    }
-    if (unchecked + runs.unchecked > 0) {
+    if (unchecked > 0) {
       this.log.warn(
-        `${unchecked + runs.unchecked} older off-site copies were not checked this pass because many copies were set aside; they were kept, and no mirrored file was collected.`,
+        `${unchecked} older off-site copies were not checked this pass because many copies were set aside; they were kept.`,
       );
     }
-    const setAside = [
-      ...partitionByDate(artifacts, now).suspect.map((a) => ({
+    await this.reportSetAside(
+      partitionByDate(artifacts, now).suspect.map((a) => ({
         id: a.id,
         why: setAsideReason(a, now),
       })),
-      ...m.suspect.map((r) => ({ id: `mirror:${r.id}`, why: r.why })),
-    ];
-    await this.reportSetAside(setAside);
+    );
     if (removed > 0) this.log.log(`Off-site retention removed ${removed} object(s).`);
     return removed;
   }
 
   /**
-   * A sidecar or done marker that could not be read or parsed stops
-   * the retention pass with nothing deleted. One log line per pass,
-   * and at most one notice a day.
+   * A sidecar that could not be read or parsed stops the retention
+   * pass with nothing deleted. One log line per pass, and at most one
+   * notice a day.
    */
   private async reportStopped(id: string, now: Date): Promise<void> {
     this.log.warn(
@@ -1714,7 +1720,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       select: {
         id: true,
         offsiteFinishedAt: true,
-        offsiteMode: true,
         offsiteBytes: true,
         offsiteKeyFingerprint: true,
       },
@@ -1760,12 +1765,18 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       select: { id: true, offsiteStartedAt: true },
     });
     const days = daysSince(last?.offsiteFinishedAt ?? null, now);
+    const newest = await this.prisma.backupRun.findFirst({
+      where: { status: 'succeeded', sizeBytes: { not: null } },
+      orderBy: { startedAt: 'desc' },
+      select: { id: true, sizeBytes: true },
+    });
+    const newestBytes = newest?.sizeBytes == null ? null : Number(newest.sizeBytes);
+    const newestLimit = newestBytes === null ? null : this.uploadTimeLimit(newestBytes);
     return {
       lastSuccess: last?.offsiteFinishedAt
         ? {
             runId: last.id,
             finishedAt: last.offsiteFinishedAt.toISOString(),
-            mode: last.offsiteMode,
             bytes: last.offsiteBytes === null ? null : last.offsiteBytes.toString(),
             keyFingerprint: last.offsiteKeyFingerprint,
           }
@@ -1782,6 +1793,17 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         : null,
       daysSinceSuccess: days,
       alert: settings.enabled && (days === null ? failed !== null : days > settings.alertDays),
+      lastArchive:
+        newest && newestBytes !== null && newestLimit !== null
+          ? {
+              runId: newest.id,
+              bytes: String(newestBytes),
+              uploadLimitMs: newestLimit,
+              tooLarge: newestLimit > MAX_UPLOAD_MS,
+            }
+          : null,
+      maxArchiveBytes: String(MAX_ARCHIVE_BYTES),
+      maxUploadMs: MAX_UPLOAD_MS,
     };
   }
 

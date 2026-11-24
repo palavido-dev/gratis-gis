@@ -189,8 +189,8 @@ async function sendBody(
   markDrained: () => void,
 ): Promise<UploadResult> {
   // Read up to one part first. A body that ends inside it goes up as
-  // one PUT with Content-MD5: one request instead of four, which is
-  // what keeps mirror mode usable with many small files.
+  // one PUT with Content-MD5: one request instead of four for a small
+  // archive.
   const first: Buffer[] = [];
   let firstLen = 0;
   let ended = false;
@@ -476,6 +476,29 @@ export async function deleteObject(
     new DeleteObjectCommand({ Bucket: bucket, Key: key }),
     signal ? { abortSignal: signal } : undefined,
   );
+}
+
+/** The stored size of one object, or null when there is no such object. */
+export async function headSize(
+  s3: S3Like,
+  bucket: string,
+  key: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  try {
+    const head = (await s3.send(
+      new HeadObjectCommand({ Bucket: bucket, Key: key }),
+      signal ? { abortSignal: signal } : undefined,
+    )) as { ContentLength?: number };
+    const n = Number(head.ContentLength);
+    return Number.isSafeInteger(n) && n >= 0 ? n : null;
+  } catch (e) {
+    const err = e as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    throw e;
+  }
 }
 
 /** The body of one object as a byte stream. */

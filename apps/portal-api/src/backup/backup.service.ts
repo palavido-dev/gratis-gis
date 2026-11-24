@@ -209,7 +209,6 @@ export function isNoSuchKey(err: unknown): boolean {
 /** Work that follows a published archive; see BackupService.onRunSucceeded. */
 export type RunSucceededListener = (info: {
   runId: string;
-  objectBytes: number;
 }) => Promise<{ done: Promise<void> } | undefined | void>;
 
 /**
@@ -220,7 +219,7 @@ export type RunSucceededListener = (info: {
  */
 export async function dispatchRunSucceeded(
   listeners: readonly RunSucceededListener[],
-  info: { runId: string; objectBytes: number },
+  info: { runId: string },
   trigger: 'manual' | 'scheduled',
   warn: (msg: string) => void,
 ): Promise<void> {
@@ -486,11 +485,6 @@ export class BackupService implements OnModuleInit {
       }
     }
     return effective;
-  }
-
-  /** The portal's own object store, for the off-site mirror. */
-  sourceStore(): { s3: S3Client; bucket: string } {
-    return { s3: this.s3, bucket: this.bucket };
   }
 
   /** The singleton backup_config row, created on first use. */
@@ -1008,7 +1002,7 @@ export class BackupService implements OnModuleInit {
     const partialPath = path.join(backupDir, `.partial-${run.id}.tar.gz`);
 
     /** Set once the archive is published and recorded. */
-    let published: { objectBytes: number } | null = null;
+    let published = false;
 
     // Retention BEFORE the payload, reserving room for this run.
     //
@@ -1117,7 +1111,7 @@ export class BackupService implements OnModuleInit {
           sizeBytes: BigInt(stat.size),
         },
       });
-      published = { objectBytes: plan.totalBytes };
+      published = true;
       this.log.log(
         `Backup ${run.id} finished: ${filename} (${stat.size} bytes, ` +
           `${plan.count} objects)`,
@@ -1187,7 +1181,7 @@ export class BackupService implements OnModuleInit {
     if (published) {
       await dispatchRunSucceeded(
         this.runSucceededListeners,
-        { runId: run.id, objectBytes: published.objectBytes },
+        { runId: run.id },
         trigger,
         (msg) => this.log.warn(msg),
       );

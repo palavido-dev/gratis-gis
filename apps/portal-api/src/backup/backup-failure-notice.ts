@@ -62,6 +62,7 @@ export class BackupFailureNotice {
       badSignature?: number;
       dated?: number;
       automatic?: boolean;
+      oldKeyKept?: boolean;
     },
   ): Promise<boolean> {
     try {
@@ -82,6 +83,7 @@ export class BackupFailureNotice {
           ['badSignature', payload.badSignature],
           ['dated', payload.dated],
           ['automatic', payload.automatic],
+          ['oldKeyKept', payload.oldKeyKept],
         ] as Array<[string, string | number | boolean | null | undefined]>
       ).filter((e): e is [string, string | number | boolean | null] => e[1] !== undefined),
     );

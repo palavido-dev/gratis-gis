@@ -8,8 +8,14 @@
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Retention reads at most this many sidecars with a bad signature per
+ * pass; older complete copies are then left for a later pass.
+ */
+export const MAX_SET_ASIDE_CHECKED = 100;
+
 export interface OffsiteArtifact {
-  /** Stable id: the archive name, or the mirror run folder. */
+  /** Stable id: the encrypted archive's name in the bucket. */
   id: string;
   createdAt: Date;
   /** The completion marker exists: the upload finished and verified. */
@@ -121,27 +127,6 @@ export function selectExpired(
 }
 
 /**
- * Mirror objects no retained run refers to. Objects newer than the
- * grace period are kept: a run uploads its objects before it writes
- * the index that refers to them.
- */
-export function unreferencedObjects(
-  objects: Iterable<{ key: string; lastModified: Date | null }>,
-  referenced: ReadonlySet<string>,
-  now: Date,
-  graceDays = 2,
-): string[] {
-  const cutoff = now.getTime() - graceDays * DAY_MS;
-  const out: string[] = [];
-  for (const o of objects) {
-    if (referenced.has(o.key)) continue;
-    if (!o.lastModified || o.lastModified.getTime() >= cutoff) continue;
-    out.push(o.key);
-  }
-  return out;
-}
-
-/**
  * The notice key for "no good off-site copy in `alertDays`", or null
  * when no notice is due. One key per quiet period: the key names the
  * last good run, so a later success starts a new period and the same
@@ -179,30 +164,49 @@ export function daysSince(from: Date | null, now: Date): number | null {
 /** Bucket layout under the configured prefix. */
 export const OFFSITE_LAYOUT = {
   archives: 'archives/',
-  mirrorRuns: 'mirror/runs/',
-  mirrorObjects: 'mirror/objects/',
   /** Suffix of every encrypted file. */
   sealed: '.enc',
   /** Written after an archive upload verified. Plain JSON, no secrets. */
   sidecar: '.enc.json',
-  /** Written last in a mirror run folder. */
-  doneMarker: 'done.json',
   /** Names the portal that owns the folder. Plain JSON, no secrets. */
   installMarker: 'gratisgis-install.json',
 } as const;
 
 const STAMP_RE = /(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})(?:-(\d{3}))?/;
 
-/** A local archive name exactly as the portal writes it. No "/". */
-export const ARCHIVE_NAME_RE =
-  /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}\.tar\.gz$/;
-
-/** A mirror run folder name: the archive's time stamp and run id. No "/". */
-export const MIRROR_RUN_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}$/;
+/**
+ * The name of an off-site copy, without ".enc": the local archive name,
+ * or for a copy uploaded again under a new name, that name with
+ * "-r<attempt>" (2 to 999) before ".tar.gz". No "/".
+ */
+export const COPY_NAME_RE =
+  /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}(?:-r(?:[2-9]|[1-9]\d{1,2}))?\.tar\.gz$/;
 
 /** An encrypted archive or its sidecar, directly under archives/. */
 const SEALED_ARCHIVE_RE =
-  /^(backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}\.tar\.gz\.enc)(\.json)?$/;
+  /^(backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}(?:-r(?:[2-9]|[1-9]\d{1,2}))?\.tar\.gz\.enc)(\.json)?$/;
+
+/** The highest attempt number a copy name may carry. */
+export const MAX_COPY_ATTEMPT = 999;
+
+/**
+ * The bucket name (with ".enc") for one upload attempt of a local
+ * archive: attempt 1 is the archive's own name, later ones add
+ * "-r<attempt>".
+ */
+export function copyObjectName(archive: string, attempt: number): string {
+  if (!Number.isInteger(attempt) || attempt < 1 || attempt > MAX_COPY_ATTEMPT) {
+    throw new Error('Unexpected upload attempt number.');
+  }
+  const base = archive.slice(0, -'.tar.gz'.length);
+  return `${attempt === 1 ? archive : `${base}-r${attempt}.tar.gz`}${OFFSITE_LAYOUT.sealed}`;
+}
+
+/** The attempt number in a copy's bucket name (1 when it has none). */
+export function copyAttempt(id: string): number {
+  const m = /-r([2-9]|[1-9]\d{1,2})\.tar\.gz\.enc$/.exec(id);
+  return m ? Number(m[1]) : 1;
+}
 
 /**
  * The time in a backup file or folder name such as
@@ -219,7 +223,7 @@ export function stampFromName(name: string): Date | null {
 }
 
 /**
- * Group an archive-mode listing into artifacts. An archive is complete
+ * Group a listing of archives/ into artifacts. An archive is complete
  * when its sidecar exists; the sidecar is written only after the
  * upload verified. Only names the portal writes count: anything else,
  * including names in sub-folders, is ignored.

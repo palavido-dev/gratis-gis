@@ -391,46 +391,6 @@ model BackupOffsiteNotice {
   @@map("backup_offsite_notice")
 }
 
-/// Mirror mode's local index: one row per file this server uploaded
-/// to the off-site bucket. The bucket's contents are encrypted to a
-/// key the server does not hold, so this is how it knows what is
-/// already there. `target` is a hash of endpoint, bucket and prefix.
-/// `name` is the file's name in the bucket, new and random for every
-/// upload, so an uploaded file is never replaced. `source` says which
-/// stored file and version it holds (a keyed hash), to find it again.
-/// `lastRunAt` is the newest mirror run that referred to the file;
-/// clean-up removes files no retained run can refer to.
-model BackupOffsiteObject {
-  target         String
-  name           String
-  source         String
-  keyFingerprint String   @map("key_fingerprint")
-  plainBytes     BigInt   @map("plain_bytes")
-  sealedBytes    BigInt   @map("sealed_bytes")
-  /// SHA-256 of the encrypted file, hex. Rows without it are uploaded again.
-  sealedSha256   String?  @map("sealed_sha256")
-  contentType    String?  @map("content_type")
-  uploadedAt     DateTime @default(now()) @map("uploaded_at") @db.Timestamptz(6)
-  lastRunAt      DateTime @map("last_run_at") @db.Timestamptz(6)
-
-  @@id([target, name])
-  @@index([target, lastRunAt])
-  @@index([target, source])
-  @@map("backup_offsite_object")
-}
-
-/// Mirror runs this server started, per bucket folder (`target` as
-/// above). A file in the bucket that the local index does not know is
-/// removed only when every run folder in the bucket is listed here.
-model BackupOffsiteMirrorRun {
-  target    String
-  runId     String   @map("run_id")
-  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
-
-  @@id([target, runId])
-  @@map("backup_offsite_mirror_run")
-}
-
 /// "Test latest backup": the database dump of one run restored into a
 /// scratch database, checked with a few queries and dropped.
 model BackupRestoreTest {
@@ -890,17 +850,10 @@ model BackupConfig {
   /// Random id written under the bucket prefix, so two portals never
   /// share (and clean up) one folder.
   offsiteInstallId     String? @map("offsite_install_id")
-  /// HMAC key that names mirrored files in the bucket. Same cipher as
-  /// the secret, its own AAD. Never returned by the API.
-  offsiteNameKeyEncrypted String? @map("offsite_name_key_encrypted")
-  offsiteNameKeyIv        String? @map("offsite_name_key_iv")
   /// Days to keep off-site copies. The newest good copy is always kept.
   offsiteRetentionDays Int? @map("offsite_retention_days")
   /// Raise a notice when no off-site copy succeeded in this many days.
   offsiteAlertDays     Int? @map("offsite_alert_days")
-  /// Object storage larger than this is mirrored object by object
-  /// instead of uploaded inside the archive.
-  offsiteMirrorThresholdBytes BigInt? @map("offsite_mirror_threshold_bytes")
   /// When the saved public key last changed, who changed it, and the
   /// fingerprint it replaced. Shown on the page.
   offsiteKeyChangedAt        DateTime? @map("offsite_key_changed_at") @db.Timestamptz(6)
@@ -1012,14 +965,11 @@ model BackupRun {
   /// when the run finished. Otherwise 'running', 'succeeded',
   /// 'failed' or 'skipped'.
   offsiteStatus     String?   @map("offsite_status")
-  /// 'archive' (the whole archive, encrypted) or 'mirror' (the
-  /// database dump plus new or changed objects, one by one).
-  offsiteMode       String?   @map("offsite_mode")
-  /// Object key of the main artifact in the off-site bucket.
+  /// Object key of the encrypted archive in the off-site bucket.
   offsiteKey        String?   @map("offsite_key")
   /// Encrypted bytes sent for this run.
   offsiteBytes      BigInt?   @map("offsite_bytes")
-  /// SHA-256 of the main encrypted artifact, hex.
+  /// SHA-256 of the encrypted archive, hex.
   offsiteSha256     String?   @map("offsite_sha256")
   /// Fingerprint of the public key the copy was encrypted to.
   offsiteKeyFingerprint String? @map("offsite_key_fingerprint")

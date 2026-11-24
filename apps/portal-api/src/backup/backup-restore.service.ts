@@ -245,11 +245,8 @@ const OFFSITE_CONFIG_COLUMNS = {
   offsiteSecretIv: true,
   offsitePublicKey: true,
   offsiteInstallId: true,
-  offsiteNameKeyEncrypted: true,
-  offsiteNameKeyIv: true,
   offsiteRetentionDays: true,
   offsiteAlertDays: true,
-  offsiteMirrorThresholdBytes: true,
   offsiteKeyChangedAt: true,
   offsiteKeyChangedBy: true,
   offsitePreviousFingerprint: true,
@@ -509,9 +506,9 @@ export class BackupRestoreService {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.error(`RESTORE FAILED: ${msg}`);
       if (started) {
-        // The database may hold the archive's off-site settings and its
-        // older record of mirrored files. Put the live settings back and
-        // empty the record, so off-site clean-up never works from it.
+        // The database may hold the archive's off-site settings. Put the
+        // live ones back, so off-site clean-up never works from the
+        // archive's folder, install id or signing key.
         if (history) {
           const kept = history;
           await this.prisma
@@ -616,23 +613,11 @@ export class BackupRestoreService {
     ]);
   }
 
-  /**
-   * The live off-site settings, and an empty record of mirrored files
-   * and of the mirror runs this server started. The archive's record is
-   * older than the bucket: trusting it could let clean-up remove files
-   * newer runs still use. Empty means "upload everything again under
-   * new names", never a delete or a replaced file.
-   */
+  /** The live off-site settings, written back over the archive's. */
   private keptOffsiteOps(
     history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>>,
   ) {
-    return [
-      this.prisma.backupOffsiteObject.deleteMany({}),
-      this.prisma.backupOffsiteMirrorRun.deleteMany({}),
-      ...(history.offsite
-        ? [this.prisma.backupConfig.updateMany({ data: history.offsite })]
-        : []),
-    ];
+    return history.offsite ? [this.prisma.backupConfig.updateMany({ data: history.offsite })] : [];
   }
 
   private async assertSchemaMatches(

@@ -135,7 +135,7 @@ describe('offsite-cli', () => {
     );
     svc.clientFactory = () => remote;
     svc.endpointCheck = async () => undefined;
-    const handle = await svc.startUpload(String(runs[0]!.id), 9);
+    const handle = await svc.startUpload(String(runs[0]!.id));
     await handle?.done;
     signer = await svc.signingKey();
     process.env = saved;
@@ -520,7 +520,6 @@ describe('offsite-cli', () => {
     expect(await runCli(['describe', ...withKey()], io())).toBe(0);
     expect(out).toEqual(
       expect.arrayContaining([
-        'kind=archive',
         `name=${NAME}`,
         'created=2026-11-24T02:00:00.000Z',
         `fingerprint=${key.publicKey.fingerprintText}`,
@@ -531,47 +530,25 @@ describe('offsite-cli', () => {
     expect(out.find((l) => l.startsWith('suspect='))).toBeUndefined();
   });
 
-  it('describe picks the newer of the newest archive and the newest mirror run', async () => {
-    const run = '2026-11-24T05-00-00-000-abababab';
-    const folder = `mirror/runs/${run}/`;
-    const h = 'a'.repeat(64);
-    remote.objects.set(`${PREFIX}${folder}done.json`, {
-      body: Buffer.from(
-        JSON.stringify({
-          keyFingerprint: key.publicKey.fingerprintText,
-          signature: signManifest(
-            {
-              kind: 'mirror',
-              format: 'GROF1',
-              install: INSTALL,
-              prefix: PREFIX,
-              run,
-              created: '2026-11-24T05:00:00.000Z',
-              key: key.publicKey.fingerprintText,
-              'dump.name': `${folder}database.dump.enc`,
-              'dump.bytes': '1',
-              'dump.sha256': h,
-              'manifest.name': `${folder}manifest.json.enc`,
-              'manifest.bytes': '1',
-              'manifest.sha256': h,
-              'index.name': `${folder}objects.jsonl.enc`,
-              'index.bytes': '1',
-              'index.sha256': h,
-              'index.files': '0',
-            },
-            signer,
-          ),
-        }),
-      ),
-      lastModified: new Date(),
-      etag: '"d"',
-    });
-    expect(await runCli(['describe', ...withKey()], io())).toBe(0);
-    expect(out).toEqual(expect.arrayContaining(['kind=mirror', `name=${run}`]));
+  it('lists, describes and fetches a copy that was uploaded again under a new name', async () => {
+    const again = NAME.replace('.tar.gz', '-r2.tar.gz');
+    plantSigned(again);
+    // Only the second attempt is complete now.
+    remote.objects.delete(sideKey(NAME));
+    expect(await runCli(['list'], io())).toBe(0);
+    expect(out).toContain(`latest=${again}`);
     out.length = 0;
-    // fetch refuses to download a mirror run; it names the right command.
-    expect(await runCli(['fetch', ...withKey('--out', path.join(dir, 'r'))], io())).toBe(1);
-    expect(errs.join(' ')).toMatch(/use fetch-mirror/);
+    expect(await runCli(['describe', ...withKey()], io())).toBe(0);
+    expect(out).toEqual(expect.arrayContaining([`name=${again}`, 'signature=verified']));
+    out.length = 0;
+    const outDir = path.join(dir, 'again');
+    expect(
+      await runCli(['fetch', ...withKey('--out', outDir, '--confirm-copy', again)], io()),
+    ).toBe(0);
+    expect(out).toContain(`archive=${path.join(outDir, again)}`);
+    expect(fs.readFileSync(path.join(outDir, again)).equals(original)).toBe(true);
+    expect(await runCli(['describe', ...withKey('--name', `${NAME}.r2`)], io())).toBe(1);
+    expect(errs.join(' ')).toMatch(/--name must be a copy name/);
   });
 
   it('downloads nothing until the copy is confirmed by its name', async () => {

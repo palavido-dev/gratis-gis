@@ -666,6 +666,7 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       badSignature?: number;
       dated?: number;
       automatic?: boolean;
+      oldKeyKept?: boolean;
     },
     ctx,
   ) => {
@@ -687,9 +688,13 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       const from = typeof payload.from === 'string' ? payload.from : 'none';
       const to = typeof payload.to === 'string' ? payload.to : 'none';
       const subject = `The off-site backup signing key was changed on ${ctx.orgLabel}`;
+      const kept =
+        payload.oldKeyKept === false
+          ? `The old verify key did not match the stored key, so it is no longer trusted: copies signed with it are set aside (kept, not deleted) by this server.`
+          : `Copies signed with the old key still count as good, because its verify key is kept as one of this portal's earlier keys.`;
       const how =
         payload.automatic === true
-          ? `The server replaced it by itself because the stored key could not be opened or did not match its verify key. Copies signed with the old key are no longer counted as good by this server.`
+          ? `The server replaced it by itself because the stored key could not be opened or did not match its verify key. ${kept}`
           : `An admin replaced it on Admin, Backup.`;
       const line =
         `The key this portal signs off-site backup copies with was replaced. ${how} ` +

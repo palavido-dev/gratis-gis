@@ -19,7 +19,7 @@ import {
   type OffsitePrivateKey,
 } from './offsite-crypto.js';
 import { generateSigningKey, signManifest, type OffsiteSigningKey } from './offsite-sign.js';
-import { MAX_SET_ASIDE_CHECKED } from './offsite-mirror.js';
+import { MAX_SET_ASIDE_CHECKED } from './offsite-rules.js';
 import { OffsiteService } from './offsite.service.js';
 
 const SECRET = 'S3CR3T-access-key-value-0001';
@@ -148,8 +148,8 @@ describe('OffsiteService', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  async function runUpload(id = 'run-1', objectBytes: number | null = 10) {
-    const handle = await svc.startUpload(id, objectBytes);
+  async function runUpload(id = 'run-1') {
+    const handle = await svc.startUpload(id);
     await handle?.done;
   }
 
@@ -159,7 +159,6 @@ describe('OffsiteService', () => {
     await runUpload();
     const run = runs[0]!;
     expect(run.offsiteStatus).toBe('succeeded');
-    expect(run.offsiteMode).toBe('archive');
     expect(run.offsiteKeyFingerprint).toBe(key.publicKey.fingerprintText);
     const objectKey = `${PREFIX}archives/${NAME1}.enc`;
     expect(run.offsiteKey).toBe(objectKey);
@@ -359,7 +358,7 @@ describe('OffsiteService', () => {
 
   it('does nothing when off-site is off', async () => {
     process.env.BACKUP_OFFSITE_ENABLED = 'false';
-    expect(await svc.startUpload('run-1', 10)).toBeUndefined();
+    expect(await svc.startUpload('run-1')).toBeUndefined();
     expect(runs[0]!.offsiteStatus).toBeNull();
     expect(s3.calls).toHaveLength(0);
   });
@@ -416,7 +415,7 @@ describe('OffsiteService', () => {
     addRun('run-2', 'backup-2026-11-24T03-00-00-000-bbbbbbbb.tar.gz', new Date());
     runs[0]!.offsiteStatus = 'running';
     runs[0]!.offsiteHeartbeatAt = new Date();
-    expect(await svc.startUpload('run-2', 10)).toBeUndefined();
+    expect(await svc.startUpload('run-2')).toBeUndefined();
     expect(runs[1]!.offsiteStatus).toBeNull();
     await expect(svc.retry('run-2')).rejects.toThrow(/already running/);
     // A dead one is closed out and no longer blocks.
@@ -429,7 +428,7 @@ describe('OffsiteService', () => {
   it('answers before the upload ends; the heartbeat keeps coming while it waits', async () => {
     svc.beatEveryMs = 20;
     s3.hold();
-    const handle = await svc.startUpload('run-1', 10);
+    const handle = await svc.startUpload('run-1');
     expect(handle).toBeDefined();
     expect(runs[0]!.offsiteStatus).toBe('running');
     const first = runs[0]!.offsiteHeartbeatAt as Date;
@@ -455,7 +454,7 @@ describe('OffsiteService', () => {
       let returned = false;
       await dispatchRunSucceeded(
         [l.fn],
-        { runId: 'r', objectBytes: 1 },
+        { runId: 'r' },
         'manual',
         () => undefined,
       ).then(() => {
@@ -470,7 +469,7 @@ describe('OffsiteService', () => {
       let returned = false;
       const p = dispatchRunSucceeded(
         [l.fn],
-        { runId: 'r', objectBytes: 1 },
+        { runId: 'r' },
         'scheduled',
         () => undefined,
       ).then(() => {
@@ -488,7 +487,7 @@ describe('OffsiteService', () => {
       await expect(
         dispatchRunSucceeded(
           [jest.fn(async () => Promise.reject(new Error('boom')))],
-          { runId: 'r', objectBytes: 1 },
+          { runId: 'r' },
           'scheduled',
           warn,
         ),
@@ -502,11 +501,11 @@ describe('OffsiteService', () => {
       await dispatchRunSucceeded(
         [
           async (info) => {
-            got.handle = await svc.startUpload(info.runId, info.objectBytes);
+            got.handle = await svc.startUpload(info.runId);
             return got.handle;
           },
         ],
-        { runId: 'run-1', objectBytes: 10 },
+        { runId: 'run-1' },
         'manual',
         () => undefined,
       );
@@ -569,6 +568,32 @@ describe('OffsiteService', () => {
   /** A sidecar as copies made before signing have: no signature. */
   const legacySidecar = (installId = configRow.offsiteInstallId) =>
     Buffer.from(JSON.stringify({ format: 'GROF1', kind: 'archive', installId }));
+
+  /** A name's time stamp, `days` before now. */
+  const stampAgo = (days: number) =>
+    new Date(Date.now() - days * DAY).toISOString().replace(/[:.]/g, '-').replace('Z', '');
+
+  /** A sidecar signed by `by` for a copy of `bytes` named `name` (with ".enc"). */
+  const signedSidecarFor = (name: string, by: OffsiteSigningKey, bytes: number) =>
+    Buffer.from(
+      JSON.stringify({
+        installId: configRow.offsiteInstallId,
+        signature: signManifest(
+          {
+            kind: 'archive',
+            format: 'GROF1',
+            install: String(configRow.offsiteInstallId),
+            prefix: PREFIX,
+            name: `archives/${name}`,
+            bytes: String(bytes),
+            sha256: 'c'.repeat(64),
+            key: key.publicKey.fingerprintText,
+            created: new Date().toISOString(),
+          },
+          by,
+        ),
+      }),
+    );
 
   it('retention removes old copies and keeps the newest good one', async () => {
     const now = Date.now();
@@ -643,32 +668,6 @@ describe('OffsiteService', () => {
       expect(logged.join('\n')).toMatch(/no longer owns the off-site folder/);
     });
 
-    it('stops before mirror clean-up when the folder changes hands midway', async () => {
-      setOwner(configRow.offsiteInstallId as string);
-      const s = await svc.settings();
-      const send = s3.send.bind(s3);
-      let markerReads = 0;
-      jest.spyOn(s3, 'send').mockImplementation(async (cmd) => {
-        const c = cmd as { constructor: { name: string }; input: { Key?: string } };
-        if (
-          c.constructor.name === 'GetObjectCommand' &&
-          String(c.input.Key).endsWith('gratisgis-install.json') &&
-          ++markerReads === 2
-        ) {
-          setOwner('ffffffff-other-install');
-        }
-        return send(cmd as never);
-      });
-      const mirrorClean = jest.spyOn(
-        (svc as unknown as { mirror: { enforceRetention: () => unknown } }).mirror,
-        'enforceRetention',
-      );
-      await svc.enforceRetention(s, s3);
-      // The first check passed (archive retention ran), the second stopped the rest.
-      expect(markerReads).toBe(2);
-      expect(mirrorClean).not.toHaveBeenCalled();
-      expect(logged.join('\n')).toMatch(/no longer owns the off-site folder/);
-    });
   });
 
   it('a copy dated in the future is kept, reported, and does not stop retention', async () => {
@@ -938,6 +937,7 @@ describe('OffsiteService', () => {
         from: res.from,
         to: res.to,
         automatic: false,
+        oldKeyKept: true,
       });
       const info = await svc.signingInfo();
       expect(info.previousFingerprints).toEqual([first.verifyKey.fingerprintText]);
@@ -968,8 +968,54 @@ describe('OffsiteService', () => {
         from: planted.fingerprintText,
         to: next.verifyKey.fingerprintText,
         automatic: true,
+        oldKeyKept: false,
       });
       expect(logged.join('\n')).toMatch(/replaced automatically.*is not kept/);
+    });
+
+    it('a stored key that cannot be opened keeps its verify key, so earlier copies still count and are retained as before', async () => {
+      // Two copies signed by the first key: a recent one, and one past
+      // the retention window.
+      const recent = `backup-${stampAgo(2)}-aaaaaaa1.tar.gz`;
+      addRun('run-a', recent, new Date(Date.now() - 2 * DAY));
+      await runUpload('run-a');
+      const first = configRow.offsiteVerifyKey as string;
+      const own = await svc.signingKey();
+      const recentKey = `${PREFIX}archives/${recent}.enc`;
+      const oldName = `backup-${stampAgo(60)}-cccccccc.tar.gz.enc`;
+      const oldKey = `${PREFIX}archives/${oldName}`;
+      const at = new Date(Date.now() - 60 * DAY);
+      s3.objects.set(oldKey, { body: Buffer.from('old copy'), lastModified: at, etag: '"o"' });
+      s3.objects.set(`${oldKey}.json`, {
+        body: signedSidecarFor(oldName, own, Buffer.byteLength('old copy')),
+        lastModified: at,
+        etag: '"o"',
+      });
+
+      // The server key changes: the stored signing key no longer opens.
+      process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+      _resetKeyCacheForTests();
+      notice.announceOffsite.mockClear();
+      addRun('run-b', `backup-${stampAgo(1)}-bbbbbbb1.tar.gz`, new Date(Date.now() - DAY));
+      await runUpload('run-b');
+      expect(runs.find((r) => r.id === 'run-b')!.offsiteStatus).toBe('succeeded');
+      expect(configRow.offsiteVerifyKey).not.toBe(first);
+      expect(configRow.offsitePreviousVerifyKeys).toEqual([first]);
+      expect(notice.announceOffsite).toHaveBeenCalledWith(
+        expect.stringMatching(/^signing:/),
+        expect.objectContaining({ automatic: true, oldKeyKept: true }),
+      );
+      expect(logged.join('\n')).toMatch(/could not be opened; making a new one/);
+      expect(logged.join('\n')).toMatch(/old verify key is kept/);
+      // Earlier signed copies still count: nothing is set aside, the
+      // recent one is kept, the one past the window is removed.
+      expect(notice.announceOffsite).not.toHaveBeenCalledWith(
+        expect.stringMatching(/^set-aside:/),
+        expect.anything(),
+      );
+      expect(s3.objects.has(recentKey)).toBe(true);
+      expect(s3.objects.has(oldKey)).toBe(false);
+      expect(s3.objects.has(`${oldKey}.json`)).toBe(false);
     });
 
     it('two key changes at once cannot lose a key: the second is refused', async () => {
@@ -1111,6 +1157,147 @@ describe('OffsiteService', () => {
       new Date(Date.now() - 400 * DAY),
     );
     await expect(svc.retry('old')).rejects.toThrow(/retention window/);
+  });
+
+  describe('uploading a backup again', () => {
+    const base = `${PREFIX}archives/${NAME1}.enc`;
+    const second = `${PREFIX}archives/${NAME1.replace('.tar.gz', '-r2.tar.gz')}.enc`;
+    /** Object keys of the commands sent from now on. */
+    const watch = () => {
+      const sent: Array<[string, string]> = [];
+      const send = s3.send.bind(s3);
+      jest.spyOn(s3, 'send').mockImplementation(async (c) => {
+        const cmd = c as { constructor: { name: string }; input: Record<string, unknown> };
+        sent.push([cmd.constructor.name, String(cmd.input.Key ?? '')]);
+        return send(c as never);
+      });
+      return sent;
+    };
+
+    it('finds a complete signed copy from an earlier attempt and uploads nothing', async () => {
+      await runUpload();
+      const first = { ...runs[0]! };
+      // The run was marked failed after its copy was complete.
+      runs[0]!.offsiteStatus = 'failed';
+      const sent = watch();
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(runs[0]!.offsiteKey).toBe(base);
+      expect(runs[0]!.offsiteSha256).toBe(first.offsiteSha256);
+      expect(runs[0]!.offsiteBytes).toBe(first.offsiteBytes);
+      // Size from HEAD; the copy itself is never downloaded or written.
+      expect(sent).toContainEqual(['HeadObjectCommand', base]);
+      expect(sent.filter(([, k]) => k === base).map(([c]) => c)).toEqual(['HeadObjectCommand']);
+      expect(sent.some(([c]) => c === 'CreateMultipartUploadCommand')).toBe(false);
+      expect(s3.objects.has(second)).toBe(false);
+      expect(logged.join('\n')).toMatch(/already complete and signed in the bucket/);
+    });
+
+    it('an unfinished earlier attempt: uploads under a new name, then removes the leftover', async () => {
+      await runUpload();
+      // The earlier attempt stopped before its sidecar was written.
+      s3.objects.delete(`${base}.json`);
+      runs[0]!.offsiteStatus = 'failed';
+      const sent = watch();
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(runs[0]!.offsiteKey).toBe(second);
+      expect(s3.objects.has(`${second}.json`)).toBe(true);
+      expect(s3.objects.has(base)).toBe(false);
+      // Removed only after the new copy and its sidecar were written.
+      const putSidecar = sent.findIndex(([c, k]) => c === 'PutObjectCommand' && k === `${second}.json`);
+      const removeOld = sent.findIndex(([c, k]) => c === 'DeleteObjectCommand' && k === base);
+      expect(putSidecar).toBeGreaterThanOrEqual(0);
+      expect(removeOld).toBeGreaterThan(putSidecar);
+      // Nothing was written under the earlier name.
+      expect(sent.some(([c, k]) => c !== 'DeleteObjectCommand' && c !== 'HeadObjectCommand' && k === base)).toBe(false);
+      const plain = await collect(
+        unsealStream(Readable.from([s3.objects.get(second)!.body]), key),
+      );
+      expect(plain.toString()).toBe(archiveText);
+    });
+
+    it('a complete earlier copy that does not verify is kept as it is, and the backup goes up under a new name', async () => {
+      await runUpload();
+      const side = JSON.parse(s3.objects.get(`${base}.json`)!.body.toString()) as Record<string, unknown>;
+      side.signature = signManifest(
+        {
+          kind: 'archive',
+          format: 'GROF1',
+          install: String(configRow.offsiteInstallId),
+          prefix: PREFIX,
+          name: `archives/${NAME1}.enc`,
+          bytes: String(s3.objects.get(base)!.body.length),
+          sha256: 'c'.repeat(64),
+          key: key.publicKey.fingerprintText,
+          created: new Date().toISOString(),
+        },
+        generateSigningKey(),
+      );
+      const planted = Buffer.from(JSON.stringify(side));
+      s3.objects.get(`${base}.json`)!.body = planted;
+      const before = Buffer.from(s3.objects.get(base)!.body);
+      runs[0]!.offsiteStatus = 'failed';
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(runs[0]!.offsiteKey).toBe(second);
+      expect(s3.objects.get(base)!.body.equals(before)).toBe(true);
+      expect(s3.objects.get(`${base}.json`)!.body.equals(planted)).toBe(true);
+    });
+
+    it('a signed copy whose stored size differs from the signed size is not used', async () => {
+      await runUpload();
+      runs[0]!.offsiteStatus = 'failed';
+      s3.lieAboutSize = true;
+      const send = s3.send.bind(s3);
+      // Only the first HEAD (of the earlier copy) reports a wrong size.
+      jest.spyOn(s3, 'send').mockImplementation(async (c) => {
+        const r = await send(c as never);
+        if ((c as { constructor: { name: string } }).constructor.name === 'HeadObjectCommand') {
+          s3.lieAboutSize = false;
+        }
+        return r;
+      });
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(runs[0]!.offsiteKey).toBe(second);
+      expect(s3.objects.has(base)).toBe(true);
+    });
+  });
+
+  describe('a backup too large to upload before the next one', () => {
+    it('fails its off-site copy with a clear message and the usual notice; the local backup stands', async () => {
+      runs[0]!.sizeBytes = BigInt(Buffer.byteLength(archiveText));
+      svc.uploadTimeLimit = () => 25 * 60 * 60 * 1000;
+      await runUpload();
+      const run = runs[0]!;
+      expect(run.status).toBe('succeeded');
+      expect(run.offsiteStatus).toBe('failed');
+      expect(String(run.offsiteError)).toMatch(
+        /more than the 24 hours between nightly backups, so no off-site copy was made\. The local backup is complete\./,
+      );
+      expect(notice.announceOffsite).toHaveBeenCalledWith('failed:run-1', {
+        runId: 'run-1',
+        kind: 'offsite_failed',
+      });
+      expect([...s3.objects.keys()].some((k) => k.endsWith('.enc'))).toBe(false);
+      const status = await svc.statusSummary();
+      expect(status.lastArchive).toMatchObject({
+        runId: 'run-1',
+        bytes: String(Buffer.byteLength(archiveText)),
+        tooLarge: true,
+      });
+      expect(status.maxUploadMs).toBe(24 * 60 * 60 * 1000);
+    });
+
+    it('the largest backup that fits is about 20 GB with the time limit as it is', async () => {
+      const { MAX_ARCHIVE_BYTES, MAX_UPLOAD_MS, uploadTimeLimitMs } = await import(
+        './offsite.service.js'
+      );
+      expect(uploadTimeLimitMs(MAX_ARCHIVE_BYTES)).toBeLessThanOrEqual(MAX_UPLOAD_MS);
+      expect(uploadTimeLimitMs(MAX_ARCHIVE_BYTES + 1024 ** 2)).toBeGreaterThan(MAX_UPLOAD_MS);
+      expect(MAX_ARCHIVE_BYTES / 1024 ** 3).toBeCloseTo(19.3, 1);
+    });
   });
 
   it('raises the quiet-period notice once the alert window passes', async () => {

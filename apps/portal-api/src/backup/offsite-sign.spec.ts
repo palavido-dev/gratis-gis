@@ -25,13 +25,11 @@ import {
   checkSignature,
   generateSigningKey,
   manifestBytes,
-  MIRROR_FIELDS,
   parseManifest,
   parseVerifyKey,
   signingKeyFromSeed,
   signManifest,
   type ArchiveManifest,
-  type MirrorManifest,
 } from './offsite-sign.js';
 
 const KEY_MJS = path.resolve(__dirname, '../../../../infra/recovery/offsite-key.mjs');
@@ -54,30 +52,7 @@ const archive = (over: Partial<ArchiveManifest> = {}): ArchiveManifest => ({
   ...over,
 });
 
-const RUN = '2026-11-24T02-00-00-000-abcdef12';
-const mirror = (over: Partial<MirrorManifest> = {}): MirrorManifest => ({
-  kind: 'mirror',
-  format: 'GROF1',
-  install: INSTALL,
-  prefix: PREFIX,
-  run: RUN,
-  created: '2026-11-24T02:00:00.000Z',
-  key: '8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184',
-  'dump.name': `mirror/runs/${RUN}/database.dump.enc`,
-  'dump.bytes': '1000',
-  'dump.sha256': '01'.repeat(32),
-  'manifest.name': `mirror/runs/${RUN}/manifest.json.enc`,
-  'manifest.bytes': '200',
-  'manifest.sha256': '02'.repeat(32),
-  'index.name': `mirror/runs/${RUN}/objects.jsonl.enc`,
-  'index.bytes': '300',
-  'index.sha256': '03'.repeat(32),
-  'index.files': '2',
-  ...over,
-});
-
 const EXPECT_ARCHIVE = {
-  kind: 'archive' as const,
   prefix: PREFIX,
   name: `archives/${NAME}.enc`,
   bytes: 254,
@@ -143,16 +118,17 @@ describe('signed manifests', () => {
   });
 
   it('parse back only from exactly canonical bytes', () => {
-    const text = manifestBytes(mirror()).toString('utf8');
-    expect(parseManifest(text)).toEqual(mirror());
+    const text = manifestBytes(archive()).toString('utf8');
+    expect(parseManifest(text)).toEqual(archive());
     for (const bad of [
       text.slice(0, -1),
       `${text}\n`,
       text.replace('\n', '\r\n'),
-      text.replace('kind=mirror\nformat=GROF1', 'format=GROF1\nkind=mirror'),
+      text.replace('kind=archive\nformat=GROF1', 'format=GROF1\nkind=archive'),
+      text.replace('kind=archive', 'kind=other'),
       text.replace('format=GROF1', 'format=GROF2'),
-      text.replace('index.files=2', 'index.files=02'),
-      text.replace('index.files=2\n', 'index.files=2\nextra=1\n'),
+      text.replace('bytes=254', 'bytes=0254'),
+      text.replace('created=2026-11-24T02:00:00.000Z\n', 'created=2026-11-24T02:00:00.000Z\nextra=1\n'),
       text.replace(`prefix=${PREFIX}`, 'prefix=../x/'),
       text.replace('created=2026-11-24T02:00:00.000Z', 'created=2026-11-24T02:00:00Z'),
       text.replace(SIGNED_LINE, 'gratisgis-offsite-signed-v2'),
@@ -219,35 +195,6 @@ describe('checking a signature', () => {
     },
   );
 
-  it.each(MIRROR_FIELDS.filter((f) => f !== 'kind' && f !== 'format'))(
-    'a changed signed mirror field (%s) no longer verifies',
-    (field) => {
-      const j = { signature: signManifest(mirror(), signer) };
-      const lines = j.signature.manifest.split('\n');
-      const i = lines.findIndex((l) => l.startsWith(`${field}=`));
-      const changed = field.endsWith('.name')
-        ? `mirror/runs/${RUN}/other.enc`
-        : field.endsWith('.sha256')
-          ? 'ff'.repeat(32)
-          : field.endsWith('.bytes') || field === 'index.files'
-            ? '7'
-            : (
-                {
-                  install: '1f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0',
-                  prefix: 'other/',
-                  run: '2026-11-25T02-00-00-000-abcdef12',
-                  created: '2027-11-24T02:00:00.000Z',
-                  key: '0000-27c4-5ca4-dba4-eef7-c151-2d36-d184',
-                } as Record<string, string>
-              )[field]!;
-      lines[i] = `${field}=${changed}`;
-      j.signature.manifest = lines.join('\n');
-      expect(checkSignature(j, trusted, { kind: 'mirror', prefix: PREFIX, name: RUN }).trust).toBe(
-        'bad',
-      );
-    },
-  );
-
   it('a changed signature value does not verify', () => {
     const j = sidecar();
     const sig = Buffer.from(j.signature.value, 'base64url');
@@ -269,29 +216,6 @@ describe('checking a signature', () => {
     expect(checkSignature(sidecar(), trusted, { ...EXPECT_ARCHIVE, bytes: 253 }).reason).toMatch(
       /size does not match/,
     );
-    expect(
-      checkSignature({ signature: signManifest(mirror(), signer) }, trusted, EXPECT_ARCHIVE).reason,
-    ).toMatch(/kind does not match/);
-    expect(
-      checkSignature({ signature: signManifest(mirror(), signer) }, trusted, {
-        kind: 'mirror',
-        prefix: PREFIX,
-        name: '2026-11-25T02-00-00-000-abcdef12',
-      }).reason,
-    ).toMatch(/run does not match/);
-  });
-
-  it('a mirror manifest must name the objects of its own run folder', () => {
-    const m = mirror({
-      'dump.name': 'mirror/runs/2026-11-01T02-00-00-000-abcdef12/database.dump.enc',
-    });
-    expect(
-      checkSignature({ signature: signManifest(m, signer) }, trusted, {
-        kind: 'mirror',
-        prefix: PREFIX,
-        name: RUN,
-      }).reason,
-    ).toMatch(/object names/);
   });
 
   it('tells unsigned, untrusted, foreign and damaged apart', () => {

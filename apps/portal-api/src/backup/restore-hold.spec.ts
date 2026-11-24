@@ -180,12 +180,6 @@ describe('runRestore', () => {
         deleteMany: jest.fn(() => 'deleteRestoreTests'),
         createMany: jest.fn((a: unknown) => ({ createRestoreTests: a })),
       },
-      backupOffsiteObject: {
-        deleteMany: jest.fn(() => 'deleteOffsiteObjects'),
-      },
-      backupOffsiteMirrorRun: {
-        deleteMany: jest.fn(() => 'deleteOffsiteMirrorRuns'),
-      },
       backupConfig: {
         findFirst: jest.fn(async () => ({ offsitePublicKey: 'ggpub1:live' })),
         updateMany: jest.fn((a: unknown) => ({ updateConfig: a })),
@@ -267,13 +261,10 @@ describe('runRestore', () => {
     expect(t.prisma.backupFailureNotice.createMany).toHaveBeenCalledWith({
       data: [{ runId: 'run-old' }],
     });
-    // The live off-site settings win, and the archive's record of
-    // mirrored files is emptied.
+    // The live off-site settings win over the archive's.
     expect(t.prisma.backupConfig.updateMany).toHaveBeenCalledWith({
       data: { offsitePublicKey: 'ggpub1:live' },
     });
-    expect(t.prisma.backupOffsiteObject.deleteMany).toHaveBeenCalledWith({});
-    expect(t.prisma.backupOffsiteMirrorRun.deleteMany).toHaveBeenCalledWith({});
     // Snapshot is taken before pg_restore replaces the tables.
     const snapOrder = t.prisma.backupRun.findMany.mock.invocationCallOrder[0]!;
     const restoreOrder = t.pgRestore.mock.invocationCallOrder[0]!;
@@ -296,7 +287,7 @@ describe('runRestore', () => {
     expect(restarted.isActive()).toBe(true);
   });
 
-  it('a pg_restore failure puts the live off-site settings back and empties the mirror record', async () => {
+  it('a pg_restore failure puts the live off-site settings back', async () => {
     const t = setup();
     await t.mode.activate('restore');
     t.pgRestore.mockRejectedValue(new Error('pg_restore exited with code 1'));
@@ -305,8 +296,6 @@ describe('runRestore', () => {
     );
     expect(t.tx).toHaveBeenCalledTimes(1);
     expect(t.tx).toHaveBeenCalledWith([
-      'deleteOffsiteObjects',
-      'deleteOffsiteMirrorRuns',
       { updateConfig: { data: { offsitePublicKey: 'ggpub1:live' } } },
     ]);
     expect(existsSync(restoreMarkerPath())).toBe(true);
