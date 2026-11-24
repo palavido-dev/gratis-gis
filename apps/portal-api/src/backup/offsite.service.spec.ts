@@ -447,12 +447,12 @@ describe('OffsiteService', () => {
 
     it('with the real service: a manual trigger answers while the upload is held', async () => {
       s3.hold();
-      let handle: Awaited<ReturnType<typeof svc.startUpload>>;
+      const got: { handle?: Awaited<ReturnType<typeof svc.startUpload>> } = {};
       await dispatchRunSucceeded(
         [
           async (info) => {
-            handle = await svc.startUpload(info.runId, info.objectBytes);
-            return handle;
+            got.handle = await svc.startUpload(info.runId, info.objectBytes);
+            return got.handle;
           },
         ],
         { runId: 'run-1', objectBytes: 10 },
@@ -461,7 +461,8 @@ describe('OffsiteService', () => {
       );
       expect(runs[0]!.offsiteStatus).toBe('running');
       s3.release();
-      await handle!?.done;
+      expect(got.handle).toBeDefined();
+      await got.handle?.done;
       expect(runs[0]!.offsiteStatus).toBe('succeeded');
     });
   });
