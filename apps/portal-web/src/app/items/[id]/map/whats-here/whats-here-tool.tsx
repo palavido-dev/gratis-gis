@@ -143,15 +143,23 @@ export interface WhatsHereToolProps {
 export function useSharedWhatsHere(): SharedArea | null {
   const [shared, setShared] = useState<SharedArea | null>(null);
   useEffect(() => {
-    const code = readShareHash();
-    if (!code) return;
     let live = true;
-    void decodeSharedArea(code).then((area) => {
-      if (live) setShared(area);
-      if (!area) clearShareHash();
-    });
+    const check = () => {
+      const code = readShareHash();
+      if (!code) return;
+      void decodeSharedArea(code).then((area) => {
+        if (!live) return;
+        // A fresh object each time, so a link pasted into a tab that
+        // already shows this map applies again.
+        if (area) setShared({ ...area });
+        else clearShareHash();
+      });
+    };
+    check();
+    window.addEventListener('hashchange', check);
     return () => {
       live = false;
+      window.removeEventListener('hashchange', check);
     };
   }, []);
   return shared;
