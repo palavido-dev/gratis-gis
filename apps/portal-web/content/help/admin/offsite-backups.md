@@ -322,6 +322,11 @@ format is described in `docs/operations/offsite-backup-format.md`.
 | `BACKUP_OFFSITE_ALERT_DAYS` | Days without a good copy before a notice (3) |
 | `BACKUP_OFFSITE_MIRROR_THRESHOLD_GB` | Copy files one by one above this (50) |
 
+Docker Compose reads `$` in `infra/.env.prod` as the start of a
+variable. If the secret access key contains a `$`, put it in a file
+and use `BACKUP_OFFSITE_SECRET_ACCESS_KEY_FILE` instead, or save it on
+the page.
+
 Values from the environment are checked like values typed on the page.
 A refused value is shown on the page and off-site copies do not run
 until it is fixed.
