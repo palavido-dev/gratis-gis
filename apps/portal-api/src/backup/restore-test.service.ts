@@ -62,17 +62,17 @@ const LIBPQ_PARAMS: Record<string, string> = {
  */
 export function pgEnvFromUrl(databaseUrl: string): Record<string, string> {
   const u = new URL(databaseUrl);
-  const env: Record<string, string> = {};
+  const vars: Record<string, string> = {};
   const host = u.hostname.replace(/^\[|\]$/g, '');
-  if (host) env.PGHOST = host;
-  if (u.port) env.PGPORT = u.port;
-  if (u.username) env.PGUSER = decodeURIComponent(u.username);
-  if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
+  if (host) vars.PGHOST = host;
+  if (u.port) vars.PGPORT = u.port;
+  if (u.username) vars.PGUSER = decodeURIComponent(u.username);
+  if (u.password) vars.PGPASSWORD = decodeURIComponent(u.password);
   for (const [param, name] of Object.entries(LIBPQ_PARAMS)) {
     const v = u.searchParams.get(param);
-    if (v !== null) env[name] = v;
+    if (v !== null) vars[name] = v;
   }
-  return env;
+  return vars;
 }
 
 /** The database name in the portal's URL. */
