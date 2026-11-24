@@ -31,6 +31,7 @@ export const OFFSITE_ENV = {
   publicKey: 'BACKUP_OFFSITE_PUBLIC_KEY',
   retentionDays: 'BACKUP_OFFSITE_RETENTION_DAYS',
   alertDays: 'BACKUP_OFFSITE_ALERT_DAYS',
+  maxUploadHours: 'BACKUP_OFFSITE_MAX_UPLOAD_HOURS',
 } as const;
 
 export const OFFSITE_DEFAULTS = {
@@ -40,6 +41,8 @@ export const OFFSITE_DEFAULTS = {
   pathStyle: true,
   retentionDays: 30,
   alertDays: 3,
+  /** The longest one off-site upload may take. */
+  maxUploadHours: 20,
 } as const;
 
 export type SettingSource = 'database' | 'environment' | null;
@@ -60,6 +63,7 @@ export interface OffsiteSettings {
   publicKeySource: SettingSource;
   retentionDays: number;
   alertDays: number;
+  maxUploadHours: number;
   installId: string | null;
   /** Values that were set but refused, in plain words. */
   problems: string[];
@@ -81,6 +85,7 @@ export interface OffsitePublicConfig {
   publicKeySource: SettingSource;
   retentionDays: number;
   alertDays: number;
+  maxUploadHours: number;
   installId: string | null;
   /** Plain http endpoints are allowed by the server environment. */
   httpAllowed: boolean;
@@ -104,6 +109,7 @@ export interface OffsiteRow {
   offsiteInstallId: string | null;
   offsiteRetentionDays: number | null;
   offsiteAlertDays: number | null;
+  offsiteMaxUploadHours?: number | null;
 }
 
 export type EnvReader = (name: string) => string | undefined;
@@ -263,6 +269,7 @@ const checks = {
 const LIMITS = {
   retentionDays: ['Days to keep off-site copies', 1, 3650],
   alertDays: ['Days before a missing off-site copy is reported', 1, 90],
+  maxUploadHours: ['Longest off-site upload in hours', 1, 72],
 } as const;
 
 /**
@@ -406,6 +413,12 @@ export function resolveOffsiteSettings(
     envInt(OFFSITE_ENV.alertDays),
     intIn(LIMITS.alertDays),
   );
+  const maxUpload = pick(
+    'longest upload hours',
+    row.offsiteMaxUploadHours ?? null,
+    envInt(OFFSITE_ENV.maxUploadHours),
+    intIn(LIMITS.maxUploadHours),
+  );
   const enabledEnv = envBool(OFFSITE_ENV.enabled);
   const pathStyleEnv = envBool(OFFSITE_ENV.pathStyle);
 
@@ -424,6 +437,7 @@ export function resolveOffsiteSettings(
     publicKeySource: publicKey.source,
     retentionDays: ret.value ?? OFFSITE_DEFAULTS.retentionDays,
     alertDays: alert.value ?? OFFSITE_DEFAULTS.alertDays,
+    maxUploadHours: maxUpload.value ?? OFFSITE_DEFAULTS.maxUploadHours,
     installId: row.offsiteInstallId,
     problems,
   };
@@ -464,6 +478,7 @@ export function toPublicConfig(s: OffsiteSettings, policy: EndpointPolicy): Offs
     publicKeySource: s.publicKeySource,
     retentionDays: s.retentionDays,
     alertDays: s.alertDays,
+    maxUploadHours: s.maxUploadHours,
     installId: s.installId,
     httpAllowed: policy.allowHttp,
     complete: missing.length === 0 && s.problems.length === 0,
@@ -487,6 +502,7 @@ export interface OffsitePatch {
   publicKey?: string | null;
   retentionDays?: number | null;
   alertDays?: number | null;
+  maxUploadHours?: number | null;
 }
 
 /** Names a patch may never carry: the server takes no private key material. */
@@ -530,6 +546,14 @@ export function validateOffsitePatch(patch: OffsitePatch, policy: EndpointPolicy
   }
   if (patch.alertDays !== undefined && patch.alertDays !== null) {
     checks.int(LIMITS.alertDays[0], patch.alertDays, LIMITS.alertDays[1], LIMITS.alertDays[2]);
+  }
+  if (patch.maxUploadHours !== undefined && patch.maxUploadHours !== null) {
+    checks.int(
+      LIMITS.maxUploadHours[0],
+      patch.maxUploadHours,
+      LIMITS.maxUploadHours[1],
+      LIMITS.maxUploadHours[2],
+    );
   }
 }
 

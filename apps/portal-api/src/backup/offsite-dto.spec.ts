@@ -40,6 +40,19 @@ describe('off-site request bodies', () => {
     );
     await expect(check(TakeOverOffsiteDto, {})).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('the longest upload: whole hours from 1 to 72, as in the environment', async () => {
+    for (const ok of [1, 20, 72, null]) {
+      await expect(check(UpdateOffsiteDto, { maxUploadHours: ok })).resolves.toMatchObject({
+        maxUploadHours: ok,
+      });
+    }
+    for (const bad of [0, 73, 1.5, '20']) {
+      await expect(check(UpdateOffsiteDto, { maxUploadHours: bad })).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    }
+  });
 });
 
 describe('audit of a changed public key', () => {

@@ -124,8 +124,11 @@ valid. A server restored from an off-site copy makes its own new
 signing key; add that one too.
 
 If the stored signing key can no longer be opened (for example because
-`CREDENTIAL_ENCRYPTION_KEY` changed), the portal makes a new one by
-itself and the notice says so. The old verify key stays one of the
+`CREDENTIAL_ENCRYPTION_KEY` changed), the page says so under the
+signing key. Opening the page or checking a key changes nothing, so a
+server key that was wrong for a moment does not cost you the signing
+key. The next off-site upload then makes a new signing key by itself,
+and the notice says so. The old verify key stays one of the
 portal's earlier keys, so copies signed with it still count as good and
 age out as usual. Only if the stored signing key opens but does not
 match its verify key is that verify key no longer trusted: copies
@@ -175,27 +178,43 @@ both in the bucket. An earlier copy that is complete but does not
 check is left as it is; retention sets it aside.
 
 One off-site upload runs at a time for the whole portal. A backup that
-finishes while another copy is uploading is not copied off-site; use
-**Upload again** on it, or let the next backup run.
+finishes while another copy is uploading is not copied off-site: its
+copy is marked failed with "Skipped: another off-site upload was
+running", so it has an **Upload again** button. Use it, or let the next
+backup run.
 
 An upload that stops getting answers from the provider is given up:
-each request after 2 minutes of silence, and the whole upload after 2
-hours plus the time to send it at 256 KiB/s (about 2 Mbit/s). It is
-marked failed, a notice goes out, and the next upload can start.
+each request after 2 minutes of silence, and the whole upload when
+**Longest upload** (below) runs out. It is marked failed, a notice goes
+out, and the next upload can start.
 
 A notice goes to the operator admins when a copy fails, and when no
 copy has succeeded for the number of days you set (3 by default).
 
 ### Very large backups
 
-A backup is copied off-site only when its upload time limit (above)
-fits in the 24 hours between nightly backups, which is a backup of
-about 19 GB. The off-site copy of a larger backup fails with a message
-that says so, and the usual notice goes out; the local backup is not
-affected. The page shows the size of the newest backup and its upload
-time limit, so you can see a backup growing towards that size. Very
-large installs whose backup cannot be uploaded each night are not
-covered by this feature yet.
+**Longest upload** (20 hours unless you change it, from 1 to 72) is
+the most time one off-site upload may take. Before an upload starts,
+the portal estimates how long it will take: the size of the backup
+divided by the upload speed. The speed is the slowest of the last three
+successful uploads of at least 256 MB (size over the time from start to
+finish). Until there is one, it assumes 256 KiB/s (about 2 Mbit/s).
+
+- When the estimate is longer than **Longest upload**, the backup is
+  not sent. Its off-site copy fails at once with a message that says
+  so; the local backup is not affected.
+- Otherwise the upload is tried. If it is still running when
+  **Longest upload** runs out, it is stopped and marked failed.
+
+For these two failures the operator admins get one notice, not one a
+night. Another one goes out only after a good copy, or after you change
+**Longest upload**.
+
+The page shows the upload speed in use, the size of the newest backup
+with its estimated upload time, and the largest backup that fits, so
+you can see a backup growing towards that size. A **Longest upload**
+longer than the time between backups is allowed: a backup that
+finishes while an upload runs is skipped, as above.
 
 ## What is in the bucket
 
@@ -217,8 +236,9 @@ newest copy and never deleted by retention. The same happens to a copy
 whose signature does not check with this portal's verify keys. The
 operator admins get one notice per retention pass with how many copies
 were set aside and why; the same copies are not announced twice. Each
-pass reads at most 100 badly signed copies; older copies then wait for
-a later pass, and nothing older is deleted in that pass.
+pass reads at most 100 badly signed copies; older complete copies then
+wait for a later pass, and no older complete copy is deleted in that
+pass.
 Retention counts a signed copy as the newest good one; copies made
 before signing existed count until the first signed copy is there, then
 age out as usual.
@@ -412,9 +432,11 @@ numbers recorded in the backup.
 Off-site copies are **turned off** on the restored server, and it gets a
 new install id and a new signing key, so a test restore can never clean
 up the real portal's copies, and the old server's signing key is not
-reused. The backup's verify key is kept as one of the portal's earlier
-keys only when the copy's signature was checked with it, so copies the
-old server signed still count once this server takes the folder over.
+reused. When the copy's signature was checked with your key file, the
+verify key that checked it is kept as one of the portal's earlier keys
+(and the backup's own verify keys too, when that is the backup's key),
+so copies the old server signed still count once this server takes the
+folder over.
 Add the new verify key to your key file. Once the new server is the one
 in use, turn off-site copies on again on Admin, Backup. The first copy stops because the folder still
 belongs to the old install: open **Take over this folder**, type the
@@ -473,6 +495,7 @@ format is described in `docs/operations/offsite-backup-format.md`.
 | `BACKUP_OFFSITE_PUBLIC_KEY` | Your public key (`ggpub1:...`) |
 | `BACKUP_OFFSITE_RETENTION_DAYS` | Days to keep copies (30) |
 | `BACKUP_OFFSITE_ALERT_DAYS` | Days without a good copy before a notice (3) |
+| `BACKUP_OFFSITE_MAX_UPLOAD_HOURS` | Longest upload, in hours, from 1 to 72 (20) |
 
 Docker Compose reads `$` in `infra/.env.prod` as the start of a
 variable. If the secret access key contains a `$`, put it in a file

@@ -42,6 +42,7 @@ interface OffsiteConfig {
   publicKeySource: 'database' | 'environment' | null;
   retentionDays: number;
   alertDays: number;
+  maxUploadHours: number;
   complete: boolean;
   missing: string[];
   problems: string[];
@@ -60,17 +61,21 @@ interface OffsiteConfig {
     running: { runId: string; startedAt: string | null } | null;
     daysSinceSuccess: number | null;
     alert: boolean;
-    /** The newest local backup's size and the time its upload may take. */
+    /** The newest local backup's size and the time its upload should take. */
     lastArchive?: {
       runId: string;
       bytes: string;
-      uploadLimitMs: number;
+      estimateMs: number;
       tooLarge: boolean;
     } | null;
-    /** The largest backup that can be copied off-site. */
+    /** The largest backup that can be copied off-site at that speed. */
     maxArchiveBytes?: string;
-    /** The longest upload time allowed, in milliseconds. */
+    /** The longest one upload may take, in milliseconds. */
     maxUploadMs?: number;
+    /** The upload speed the estimate uses, in bytes a second. */
+    bytesPerSecond?: number;
+    /** False when no upload was measured and the slowest speed is assumed. */
+    speedMeasured?: boolean;
   };
 }
 
@@ -87,6 +92,7 @@ interface Draft {
   keyStored: boolean;
   retentionDays: number;
   alertDays: number;
+  maxUploadHours: number;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -105,6 +111,7 @@ function toDraft(c: OffsiteConfig): Draft {
     keyStored: false,
     retentionDays: c.retentionDays,
     alertDays: c.alertDays,
+    maxUploadHours: c.maxUploadHours,
   };
 }
 
@@ -198,6 +205,7 @@ export function OffsiteSection() {
         accessKeyId: draft.accessKeyId.trim() || null,
         retentionDays: draft.retentionDays,
         alertDays: draft.alertDays,
+        maxUploadHours: draft.maxUploadHours,
       };
       // Secrets only when typed: a blank field keeps the saved one.
       if (draft.secretAccessKey) body.secretAccessKey = draft.secretAccessKey;
@@ -373,22 +381,34 @@ export function OffsiteSection() {
             </p>
           ) : null}
           {st.running ? <p>{t('adminBackup.offsite.uploading')}</p> : null}
+          {st.bytesPerSecond ? (
+            <p>
+              {t(
+                st.speedMeasured
+                  ? 'adminBackup.offsite.uploadSpeed'
+                  : 'adminBackup.offsite.uploadSpeedAssumed',
+                { speed: formatBytes(BigInt(st.bytesPerSecond)) },
+              )}
+            </p>
+          ) : null}
           {st.lastArchive && st.maxArchiveBytes && st.maxUploadMs ? (
             <p
               role={st.lastArchive.tooLarge ? 'status' : undefined}
               className={st.lastArchive.tooLarge ? 'text-danger' : undefined}
             >
-              {st.lastArchive.tooLarge
-                ? t('adminBackup.offsite.lastArchiveTooLarge', {
-                    size: formatBytes(BigInt(st.lastArchive.bytes)),
-                    max: formatBytes(BigInt(st.maxArchiveBytes)),
-                    hours: Math.round(st.maxUploadMs / HOUR_MS),
-                  })
-                : t('adminBackup.offsite.lastArchive', {
-                    size: formatBytes(BigInt(st.lastArchive.bytes)),
-                    hours: Math.ceil(st.lastArchive.uploadLimitMs / HOUR_MS),
-                    max: formatBytes(BigInt(st.maxArchiveBytes)),
-                  })}
+              {t(
+                st.lastArchive.tooLarge
+                  ? 'adminBackup.offsite.lastArchiveTooLarge'
+                  : 'adminBackup.offsite.lastArchive',
+                {
+                  size: formatBytes(BigInt(st.lastArchive.bytes)),
+                  estimate: fmt.number(Math.max(0.1, st.lastArchive.estimateMs / HOUR_MS), {
+                    maximumFractionDigits: 1,
+                  }),
+                  hours: Math.round(st.maxUploadMs / HOUR_MS),
+                  max: formatBytes(BigInt(st.maxArchiveBytes)),
+                },
+              )}
             </p>
           ) : null}
         </div>
@@ -675,6 +695,20 @@ export function OffsiteSection() {
               value={draft.alertDays}
               onChange={(e) => set('alertDays', Number(e.target.value))}
             />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-ink-1">
+              {t('adminBackup.offsite.maxUploadHours')}
+            </span>
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              max={72}
+              value={draft.maxUploadHours}
+              onChange={(e) => set('maxUploadHours', Number(e.target.value))}
+            />
+            <span className="text-2xs text-muted">{t('adminBackup.offsite.maxUploadHint')}</span>
           </label>
         </div>
 

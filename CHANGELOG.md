@@ -27,14 +27,20 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   on the page. Uploads stream in parts, are checked by size and
   checksum, run one at a time per install, and keep the newest good
   copy whatever the retention. Each portal claims its own folder in the
-  bucket. A backup whose upload time limit would be more than the 24
-  hours between nightly backups (about 19 GB) is not sent: its off-site
-  copy fails with a message that says so, and the page shows the newest
-  backup's size and upload time limit. Uploading a backup again reuses
-  an earlier upload that is complete and signed, and otherwise uploads
-  under a new name, so an object a signed record may describe is never
-  replaced. A failed copy, or no good copy for a set number of days,
-  raises a notice. Set it on Admin,
+  bucket. One upload may take at most "Longest upload" (20 hours by
+  default, 1 to 72, `BACKUP_OFFSITE_MAX_UPLOAD_HOURS`). A backup whose
+  estimated upload time (its size at the slowest of the last three
+  measured upload speeds, or 256 KiB/s before any) is longer is not
+  sent: its off-site copy fails with a message that says so. Any other
+  is tried and stopped when the time runs out. These two failures send
+  one notice until a good copy or a changed limit. The page shows the
+  speed, the newest backup's estimated upload time and the limit. A
+  backup that finishes while another upload runs is marked as skipped,
+  with "Upload again". Uploading a backup again reuses an earlier
+  upload that is complete, signed and encrypted to the current public
+  key, and otherwise uploads under a new name, so an object a signed
+  record may describe is never replaced. A failed copy, or no good copy
+  for a set number of days, raises a notice. Set it on Admin,
   Backup (operator admins) or with `BACKUP_OFFSITE_*` variables, which
   are checked the same way. Plain http endpoints need
   `BACKUP_OFFSITE_ALLOW_HTTP` and this server's loopback address needs
@@ -74,13 +80,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   stops, deleting nothing, if one cannot be read. It never counts a
   badly signed copy as the newest good one; it keeps it and sends one
   summary notice per pass, reading at most 100 such copies per pass.
-  When the stored signing key can no longer be opened, the server makes
-  a new one and keeps the old verify key as an earlier key, so copies it
+  When the stored signing key can no longer be opened, the page says
+  so, and the next upload (never a page load or a check) makes a new
+  one and keeps the old verify key as an earlier key, so copies it
   signed still count; only a stored key that opens to another key than
   its verify key loses that trust. The notice says whether the server
   or an admin made the change. A restored server makes a new signing
-  key, and keeps the backup's verify key as an earlier key only when
-  the restored copy's signature was checked with it.
+  key and keeps the verify key that checked the restored copy as an
+  earlier key, and the backup's own verify keys too when that was the
+  backup's key.
   New routes: `POST /api/admin/backup/offsite/signing-key` and
   `POST /api/admin/backup/offsite/check-verify-key`, both operator only.
 - The help page and `docs/operations/offsite-backup-format.md` say

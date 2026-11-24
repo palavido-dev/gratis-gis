@@ -854,6 +854,8 @@ model BackupConfig {
   offsiteRetentionDays Int? @map("offsite_retention_days")
   /// Raise a notice when no off-site copy succeeded in this many days.
   offsiteAlertDays     Int? @map("offsite_alert_days")
+  /// The longest one off-site upload may take, in hours (1 to 72).
+  offsiteMaxUploadHours Int? @map("offsite_max_upload_hours")
   /// When the saved public key last changed, who changed it, and the
   /// fingerprint it replaced. Shown on the page.
   offsiteKeyChangedAt        DateTime? @map("offsite_key_changed_at") @db.Timestamptz(6)

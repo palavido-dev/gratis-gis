@@ -89,6 +89,7 @@ describe('off-site settings', () => {
         BACKUP_OFFSITE_PUBLIC_KEY: PUB.text,
         BACKUP_OFFSITE_RETENTION_DAYS: '90',
         BACKUP_OFFSITE_ALERT_DAYS: '5',
+        BACKUP_OFFSITE_MAX_UPLOAD_HOURS: '36',
       }),
       strict,
     );
@@ -105,6 +106,7 @@ describe('off-site settings', () => {
       publicKeySource: 'environment',
       retentionDays: 90,
       alertDays: 5,
+      maxUploadHours: 36,
       problems: [],
     });
     expect(s.publicKey?.fingerprintText).toBe(PUB.fingerprintText);
@@ -135,6 +137,43 @@ describe('off-site settings', () => {
     expect(s.problems.join(' ')).toMatch(/BACKUP_OFFSITE_ENABLED must be true or false/);
     expect(s.problems.join(' ')).toMatch(/BACKUP_OFFSITE_ALERT_DAYS must be a whole number/);
     expect(toPublicConfig(s, strict).complete).toBe(false);
+  });
+
+  it('the longest upload: 20 hours unless set, the same bounds from the page and the environment', () => {
+    expect(resolveOffsiteSettings(EMPTY_ROW, noSecret, env({}), strict).maxUploadHours).toBe(20);
+    const cases: Array<[string, string]> = [
+      ['0', 'Longest off-site upload in hours must be a whole number from 1 to 72.'],
+      ['73', 'Longest off-site upload in hours must be a whole number from 1 to 72.'],
+      ['1.5', 'BACKUP_OFFSITE_MAX_UPLOAD_HOURS must be a whole number.'],
+    ];
+    for (const [v, msg] of cases) {
+      const s = resolveOffsiteSettings(
+        EMPTY_ROW,
+        noSecret,
+        env({ BACKUP_OFFSITE_MAX_UPLOAD_HOURS: v }),
+        strict,
+      );
+      expect(s.maxUploadHours).toBe(20);
+      expect(s.problems.join(' ')).toContain(msg);
+    }
+    const saved = resolveOffsiteSettings(
+      { ...EMPTY_ROW, offsiteMaxUploadHours: 73 },
+      noSecret,
+      env({ BACKUP_OFFSITE_MAX_UPLOAD_HOURS: '10' }),
+      strict,
+    );
+    expect(saved.maxUploadHours).toBe(20);
+    expect(saved.problems.join(' ')).toMatch(
+      /from 1 to 72\. \(from the saved longest upload hours\)/,
+    );
+    const fromPage = resolveOffsiteSettings(
+      { ...EMPTY_ROW, offsiteMaxUploadHours: 1 },
+      noSecret,
+      env({ BACKUP_OFFSITE_MAX_UPLOAD_HOURS: '72' }),
+      strict,
+    );
+    expect(fromPage).toMatchObject({ maxUploadHours: 1, problems: [] });
+    expect(toPublicConfig(fromPage, strict).maxUploadHours).toBe(1);
   });
 
   it('an http endpoint needs the server flag, from the page or the environment', () => {
@@ -302,6 +341,9 @@ describe('validateOffsitePatch', () => {
     [{ publicKey: 'ggpub1:short' }, /wrong length/],
     [{ retentionDays: 0 }, /from 1 to 3650/],
     [{ alertDays: 91 }, /from 1 to 90/],
+    [{ maxUploadHours: 0 }, /Longest off-site upload in hours must be a whole number from 1 to 72/],
+    [{ maxUploadHours: 73 }, /from 1 to 72/],
+    [{ maxUploadHours: 1.5 }, /from 1 to 72/],
   ])('refuses %j', (patch, msg) => {
     expect(() => validateOffsitePatch(patch, strict)).toThrow(msg);
   });
@@ -349,6 +391,7 @@ describe('validateOffsitePatch', () => {
           publicKey: PUB.text,
           retentionDays: 30,
           alertDays: 3,
+          maxUploadHours: 72,
         },
         strict,
       ),

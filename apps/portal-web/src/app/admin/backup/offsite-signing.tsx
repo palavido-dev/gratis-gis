@@ -19,6 +19,8 @@ export interface OffsiteSigningInfo {
   changedBy: string | null;
   previousFingerprints: string[];
   available: boolean;
+  /** A signing key is stored but cannot be opened; the next upload replaces it. */
+  unopenable?: boolean;
 }
 
 /** What the admin runs on their own computer; not translated. */
@@ -150,6 +152,11 @@ export function OffsiteSigning({
         </p>
       ) : signing.verifyKey && signing.fingerprint ? (
         <>
+          {signing.unopenable ? (
+            <p role="status" className="mt-2 text-xs font-medium text-danger">
+              {t('adminBackup.offsite.signingUnopenable')}
+            </p>
+          ) : null}
           <label className="mt-3 block">
             <span className="text-xs font-medium text-ink-1">
               {t('adminBackup.offsite.verifyKey')}

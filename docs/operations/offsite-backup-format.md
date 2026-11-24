@@ -433,12 +433,20 @@ names; the same set of copies is not announced twice.
 
 Every request to the bucket has time limits: 30 seconds to connect, 2
 minutes without a byte in either direction, and 15 minutes (longer for
-a large part) until the answer starts. A whole upload may take 2 hours
-plus the time to send its bytes at 256 KiB/s; past that it is stopped
-and marked failed, and the next upload can start. A backup whose limit
-would be more than 24 hours (the time between nightly backups, a
-backup of about 19 GB) is not sent: its off-site copy fails at once
-with a message that says so. The S3 client
+a large part) until the answer starts. A whole upload may take the
+"longest upload" setting (`backup_config.offsite_max_upload_hours` or
+`BACKUP_OFFSITE_MAX_UPLOAD_HOURS`, 1 to 72 hours, 20 when unset); past
+that it is stopped and marked failed, and the next upload can start.
+Before it starts, the upload time is estimated as the archive size
+divided by a speed: the slowest of the last three successful uploads
+of at least 256 MiB (`offsite_bytes` over `offsite_finished_at` minus
+`offsite_started_at`), or 256 KiB/s when there are none. A backup whose
+estimate is longer than the setting is not sent: its off-site copy
+fails at once with a message that says so. Every other backup is
+tried. Both failures use the notice key
+`too-large:<last good run id or none>:<limit in ms>` or
+`deadline:<...>:<...>`, so one notice goes out per run of such
+failures, and another only after a good copy or a changed limit. The S3 client
 connects only to addresses the endpoint rules allow, checked on the
 lookup the connection itself uses.
 
@@ -458,8 +466,12 @@ encrypted under `CREDENTIAL_ENCRYPTION_KEY`, which is not in the copy.
 The copy itself is encrypted to the admin's key on top of that.
 
 A stored signing key that no longer opens (the server key changed) or
-does not match its verify key is replaced by a new one, and the
-operator admins are told that the server replaced it by itself. When it
+does not match its verify key is replaced by a new one at the start of
+the next upload, and the operator admins are told that the server
+replaced it by itself. Nothing else replaces it: loading the page,
+saving settings and the key checks only report it (`unopenable` in the
+signing info), so a server key that is wrong for a moment does not
+cost the signing key. When it
 no longer opens, its stored verify key is kept as an earlier key: it
 was stored with the key and nothing shows it is wrong, so retention
 keeps counting the copies it signed. When it opens to another key than
@@ -479,11 +491,12 @@ new one.
 id, and removes the signing key that came with the dump, so the
 restored server makes its own signing key and a new install id, and
 does not own the folder until an admin takes it over on Admin, Backup.
-The dump's verify key, and the dump's earlier verify keys, are kept as
-earlier keys only when the restored copy was verified or foreign and
-the verify key that checked its signature is the dump's verify key;
-the key that checked it is added when it differs. Each is kept once,
-at most 20. Otherwise no verify key from the dump is kept.
+Only when the restored copy was verified or foreign are verify keys
+kept as earlier keys. Then the key from the key file that checked its
+signature is always kept, and the dump's verify key and its earlier
+verify keys too when the key that checked it is the dump's verify key.
+Each is kept once, at most 20. For any other copy no verify key is
+kept.
 
 `infra/recovery/restore.sh` (host recovery bundles) does the same after
 restoring the portal database: off-site copies off, install id cleared,
@@ -520,10 +533,13 @@ copies with a new provider, run this once against a real bucket:
    notice arrives, the local backup still succeeds.
 6. Set retention to 1 day, wait a day, run two backups: the older copy
    is removed and the newest good one kept.
-7. Delete the `.json` sidecar of the newest copy and use **Upload
-   again** on that run: the copy goes up as `...-r2.tar.gz.enc` with its
-   own sidecar, and the first `.enc` is removed. **Upload again** once
-   more: nothing is sent, and the run points at the `-r2` copy.
+7. Delete the `.json` sidecar of the newest copy. **Upload again** is
+   shown only for a failed copy, so mark that run failed in the portal
+   database (`UPDATE backup_run SET offsite_status = 'failed' WHERE id =
+   '<run id>';`) and reload the page. Use **Upload again**: the copy
+   goes up as `...-r2.tar.gz.enc` with its own sidecar, and the first
+   `.enc` is removed. Mark the run failed again and use **Upload again**
+   once more: nothing is sent, and the run points at the `-r2` copy.
 8. On a fresh server, with only the env file, the key file and its
    passphrase: `restore-from-offsite.sh --list`, then a full restore.
    The printed counts match the original portal.

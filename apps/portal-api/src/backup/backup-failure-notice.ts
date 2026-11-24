@@ -32,7 +32,10 @@ export class BackupFailureNotice {
 
   /**
    * One notice per off-site event, keyed in backup_offsite_notice:
-   * "failed:<run id>" for an upload that failed, "stale:<run id or
+   * "failed:<run id>" for an upload that failed,
+   * "too-large:<last good run id or none>:<limit>" and
+   * "deadline:<...>:<...>" for a copy too large for the time allowed or
+   * out of time (one per run of such failures), "stale:<run id or
    * none>" for a quiet period, "key:<fingerprint>:<time>" for a changed
    * public key, "signing:<fingerprint>:<time>" for a new signing key,
    * "set-aside:<digest>" for one retention pass's summary of copies set

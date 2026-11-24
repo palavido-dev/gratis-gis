@@ -108,37 +108,71 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * The longest one off-site upload may take: two hours, plus the time
- * to send its bytes at 256 KiB/s (about 2 Mbit/s). Past it the upload
- * is stopped and marked failed, so a provider that stops answering
- * cannot hold the install-wide upload claim.
+ * The upload speed assumed while no upload has been measured: 256 KiB/s
+ * (about 2 Mbit/s).
  */
-export function uploadTimeLimitMs(bytes: number): number {
-  return 2 * HOUR_MS + Math.ceil((Math.max(0, bytes) / (256 * 1024)) * 1000);
+export const FLOOR_BYTES_PER_SECOND = 256 * 1024;
+/**
+ * Uploads smaller than this do not count towards the measured speed:
+ * the fixed steps of an upload (the folder check, the clean-up) take
+ * most of their time.
+ */
+export const MIN_MEASURED_BYTES = 256 * 1024 ** 2;
+/** The measured speed is the slowest of this many recent uploads. */
+export const MEASURED_UPLOADS = 3;
+
+/** The time an upload of `bytes` is expected to take at `bytesPerSecond`. */
+export function estimateUploadMs(bytes: number, bytesPerSecond: number): number {
+  return Math.ceil((Math.max(0, bytes) / bytesPerSecond) * 1000);
 }
 
 /**
- * The longest upload time limit an off-site copy may need: the time
- * between two nightly backups. A backup whose limit is longer is not
- * sent; its off-site copy fails with a message saying so.
+ * The speed of the slowest of the given uploads, in bytes a second,
+ * or null when none can be used.
  */
-export const MAX_UPLOAD_MS = 24 * HOUR_MS;
-
-/** The largest backup whose upload time limit fits in MAX_UPLOAD_MS. */
-export const MAX_ARCHIVE_BYTES = Math.floor(((MAX_UPLOAD_MS - 2 * HOUR_MS) / 1000) * 256 * 1024);
+export function slowestSpeed(uploads: Array<{ bytes: number; ms: number }>): number | null {
+  let slowest: number | null = null;
+  for (const u of uploads) {
+    if (!(u.bytes > 0) || !(u.ms > 0)) continue;
+    const speed = u.bytes / (u.ms / 1000);
+    if (slowest === null || speed < slowest) slowest = speed;
+  }
+  return slowest;
+}
 
 function gigabytes(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
 }
 
+function speedText(bytesPerSecond: number): string {
+  return `${(bytesPerSecond / 1024 ** 2).toFixed(2)} MB/s`;
+}
+
 /** Why a backup of `bytes` is not copied off-site. */
-export function tooLargeMessage(bytes: number, limitMs: number): string {
-  return `This backup is ${gigabytes(bytes)} GB. Its off-site upload would be allowed ${Math.ceil(limitMs / HOUR_MS)} hours, more than the ${MAX_UPLOAD_MS / HOUR_MS} hours between nightly backups, so no off-site copy was made. The local backup is complete. Off-site copies work for backups up to ${gigabytes(MAX_ARCHIVE_BYTES)} GB.`;
+export function tooLargeMessage(
+  bytes: number,
+  estimateMs: number,
+  limitMs: number,
+  speed: { bytesPerSecond: number; measured: boolean },
+): string {
+  const at = speed.measured
+    ? `At the speed of recent off-site uploads (${speedText(speed.bytesPerSecond)})`
+    : `With no upload measured yet, at the assumed slowest speed (${speedText(speed.bytesPerSecond)})`;
+  return `This backup is ${gigabytes(bytes)} GB. ${at} its upload would take about ${Math.ceil(estimateMs / HOUR_MS)} hours, more than the ${Math.round(limitMs / HOUR_MS)} hours allowed for one upload, so no off-site copy was made. The local backup is complete. Raise "Longest upload" on the Backup page to allow longer uploads.`;
+}
+
+/** Why an upload that ran out of time was stopped. */
+export function deadlineMessage(limitMs: number): string {
+  return `Stopped: the upload did not finish in the ${Math.max(1, Math.round(limitMs / HOUR_MS))} hour(s) allowed for one upload. The storage provider may be slow or may have stopped answering. Raise "Longest upload" on the Backup page if uploads need longer.`;
 }
 
 /** Why an upload was stopped from outside its own steps. */
 class UploadStop extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** Too large to fit, or out of time: one notice for a run of these, not one each. */
+    readonly limit: 'too-large' | 'deadline' | null = null,
+  ) {
     super(message);
     this.name = 'UploadStop';
   }
@@ -188,6 +222,11 @@ export interface OffsiteSigningInfo {
   previousFingerprints: string[];
   /** False when the server cannot store a signing key (no CREDENTIAL_ENCRYPTION_KEY). */
   available: boolean;
+  /**
+   * True when a signing key is stored but cannot be opened, or opens
+   * to another key than its verify key. The next upload replaces it.
+   */
+  unopenable: boolean;
 }
 
 /** What the page shows under the settings. */
@@ -205,19 +244,23 @@ export interface OffsiteStatusSummary {
   alert: boolean;
   /**
    * The newest finished local backup: its size and the time its
-   * off-site upload is allowed, so the page shows a backup growing
-   * towards the largest one that can be copied.
+   * off-site upload is expected to take, so the page shows a backup
+   * growing towards the largest one that can be copied.
    */
   lastArchive: {
     runId: string;
     bytes: string;
-    uploadLimitMs: number;
+    estimateMs: number;
     tooLarge: boolean;
   } | null;
-  /** The largest backup that can be copied off-site, in bytes. */
+  /** The largest backup that can be copied off-site at that speed, in bytes. */
   maxArchiveBytes: string;
-  /** The longest upload time limit allowed, in milliseconds. */
+  /** The longest one upload may take (the setting), in milliseconds. */
   maxUploadMs: number;
+  /** The upload speed the estimate uses, in bytes a second. */
+  bytesPerSecond: number;
+  /** True when that speed was measured; false for the assumed slowest speed. */
+  speedMeasured: boolean;
 }
 
 /**
@@ -256,8 +299,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     assertEndpointReachable;
   /** How often a running upload writes its heartbeat. */
   beatEveryMs = 10_000;
-  /** Swapped in tests: the longest an upload of `bytes` may take. */
-  uploadTimeLimit: (bytes: number) => number = uploadTimeLimitMs;
+  /** Swapped in tests: the longest one upload may take, in milliseconds. */
+  uploadLimitMs: (s: OffsiteSettings) => number = (s) => s.maxUploadHours * HOUR_MS;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -367,6 +410,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     // environment), the server makes its signing key, so the page can
     // show the verify key before the first copy.
     if (s.enabled || s.bucket || s.publicKey) await this.ensureSigningKeyQuietly();
+    // Read only from here on: a stored key that cannot be opened is
+    // reported on the page, and replaced only by the next upload.
     return {
       ...toPublicConfig(s, this.policy()),
       status: await this.statusSummary(s),
@@ -375,9 +420,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     };
   }
 
-  /** Make the signing key when it is missing; a failure only leaves it missing. */
+  /**
+   * Make the signing key when there is none; a failure only leaves it
+   * missing. A stored key is never replaced here, even one that cannot
+   * be opened: only an upload does that.
+   */
   private async ensureSigningKeyQuietly(): Promise<void> {
     if (!credentialKeySet()) return;
+    const row = await this.backup.configRow();
+    if (row.offsiteSigningKeyEncrypted || row.offsiteSigningKeyIv) return;
     try {
       await this.signingKey();
     } catch (e) {
@@ -417,13 +468,27 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         // A damaged entry is left out.
       }
     }
+    const available = credentialKeySet();
+    const unopenable =
+      available &&
+      !!row.offsiteSigningKeyEncrypted &&
+      !!row.offsiteSigningKeyIv &&
+      !(
+        'key' in
+        this.openSigningKey(
+          row.offsiteSigningKeyEncrypted,
+          row.offsiteSigningKeyIv,
+          row.offsiteVerifyKey,
+        )
+      );
     return {
       verifyKey: verify?.text ?? null,
       fingerprint: verify?.fingerprintText ?? null,
       changedAt: row.offsiteSigningKeyChangedAt?.toISOString() ?? null,
       changedBy: await this.userName(row.offsiteSigningKeyChangedBy),
       previousFingerprints: previous,
-      available: credentialKeySet(),
+      available,
+      unopenable,
     };
   }
 
@@ -434,10 +499,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
    * put in a notice or written to the bucket.
    *
    * A stored key that no longer opens (the server key changed) or no
-   * longer matches its verify key is replaced, and the operator admins
-   * are told: the admin must add the new verify key to their key file.
+   * longer matches its verify key is replaced only when
+   * `replaceUnopenable` is set, which only an upload does; the
+   * operator admins are told, and the admin must add the new verify
+   * key to their key file. Otherwise it is an error, and nothing is
+   * written.
    */
-  async signingKey(): Promise<OffsiteSigningKey> {
+  async signingKey(opts: { replaceUnopenable?: boolean } = {}): Promise<OffsiteSigningKey> {
     if (!credentialKeySet()) {
       throw new Error(
         'Signing off-site copies needs CREDENTIAL_ENCRYPTION_KEY on this server. Set it, then try again.',
@@ -451,6 +519,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         row.offsiteVerifyKey,
       );
       if ('key' in stored) return stored.key;
+      if (!opts.replaceUnopenable) {
+        throw new Error(
+          'The stored off-site signing key cannot be opened. The next off-site upload makes a new one.',
+        );
+      }
       this.log.warn(
         stored.problem === 'unreadable'
           ? 'The stored off-site signing key could not be opened; making a new one. Add the new verify key to your key file.'
@@ -739,6 +812,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     if (patch.retentionDays !== undefined) data.offsiteRetentionDays = patch.retentionDays;
     if (patch.alertDays !== undefined) data.offsiteAlertDays = patch.alertDays;
+    if (patch.maxUploadHours !== undefined) data.offsiteMaxUploadHours = patch.maxUploadHours;
 
     // Where the bucket secret would be sent after this save. Whatever
     // its source (saved here or set in the environment), the secret
@@ -1147,6 +1221,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       this.log.warn(
         `Off-site copy of backup ${runId} not started: another off-site upload is running.`,
       );
+      await this.markSkipped(runId);
       return undefined;
     }
     const done = this.upload(runId, s).catch((e: unknown) => {
@@ -1154,6 +1229,29 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       this.log.error(`Off-site upload of ${runId} stopped: ${this.safeMessage(e, s)}`);
     });
     return { done };
+  }
+
+  /**
+   * A backup whose copy could not start because another upload held
+   * the claim is marked failed, so the page shows it and offers
+   * "Upload again". A run that already has an off-site status keeps it.
+   */
+  private async markSkipped(runId: string): Promise<void> {
+    try {
+      await this.prisma.backupRun.updateMany({
+        where: { id: runId, status: 'succeeded', offsiteStatus: null },
+        data: {
+          offsiteStatus: 'failed',
+          offsiteError:
+            'Skipped: another off-site upload was running when this backup finished. Use "Upload again" to copy it.',
+          offsiteFinishedAt: new Date(),
+        },
+      });
+    } catch (e) {
+      this.log.warn(
+        `Off-site copy of backup ${runId} could not be marked skipped: ${e instanceof Error ? e.message : e}`,
+      );
+    }
   }
 
   /** Admin "Upload again" for one run. */
@@ -1243,13 +1341,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }, this.beatEveryMs);
     timer.unref?.();
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    const armDeadline = (limit: number) => {
+    const limit = this.uploadLimitMs(s);
+    const armDeadline = () => {
       deadline = setTimeout(() => {
-        abort.abort(
-          new UploadStop(
-            `Stopped: the upload took longer than the ${Math.max(1, Math.round(limit / HOUR_MS))} hour(s) allowed for its size. The storage provider may have stopped answering.`,
-          ),
-        );
+        abort.abort(new UploadStop(deadlineMessage(limit), 'deadline'));
       }, limit);
       deadline.unref?.();
     };
@@ -1263,10 +1358,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
       const archivePath = path.join(dir, run.filename!);
       const size = (await fs.stat(archivePath)).size;
-      // A backup too large to upload before the next one starts is not
-      // sent at all: the copy fails with a message that says so.
-      const limit = this.uploadTimeLimit(size);
-      if (limit > MAX_UPLOAD_MS) throw new UploadStop(tooLargeMessage(size, limit));
+      // A backup whose upload is expected to take longer than allowed
+      // (at the measured speed, or the assumed slowest one) is not sent
+      // at all: the copy fails with a message that says so. Any other
+      // is tried, and stopped when the time allowed runs out.
+      const speed = await this.uploadSpeed();
+      const estimate = estimateUploadMs(size, speed.bytesPerSecond);
+      if (estimate > limit) {
+        throw new UploadStop(tooLargeMessage(size, estimate, limit, speed), 'too-large');
+      }
       const policy = this.policy();
       await this.endpointCheck(s.endpoint!, policy);
       if (policy.allowLocal) {
@@ -1279,9 +1379,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           'The off-site endpoint uses plain http (allowed by BACKUP_OFFSITE_ALLOW_HTTP). The files are encrypted, but the bucket keys and names travel unprotected.',
         );
       }
-      armDeadline(limit);
+      armDeadline();
       // Every copy is signed; without a signing key nothing is sent.
-      const signingKey = await this.signingKey();
+      // Only an upload may replace a stored key that cannot be opened.
+      const signingKey = await this.signingKey({ replaceUnopenable: true });
       await this.prisma.backupRun.update({
         where: { id: runId },
         data: {
@@ -1339,12 +1440,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       );
     } catch (e) {
       const reason: unknown = abort.signal.aborted ? abort.signal.reason : null;
-      const msg =
-        reason instanceof UploadStop
-          ? reason.message
-          : e instanceof UploadStop
-            ? e.message
-            : this.safeMessage(e, s);
+      const stop = reason instanceof UploadStop ? reason : e instanceof UploadStop ? e : null;
+      const msg = stop ? stop.message : this.safeMessage(e, s);
       // Whatever is still in flight stops with the signal.
       if (!abort.signal.aborted) abort.abort(new UploadStop('Stopped.'));
       this.log.error(`Off-site copy of backup ${runId} failed: ${msg}`);
@@ -1358,7 +1455,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           },
         })
         .catch(() => undefined);
-      await this.notice?.announceOffsite(`failed:${runId}`, { runId, kind: 'offsite_failed' });
+      await this.notice?.announceOffsite(
+        stop?.limit ? await this.limitNoticeKey(stop.limit, limit) : `failed:${runId}`,
+        { runId, kind: 'offsite_failed' },
+      );
     } finally {
       clearInterval(timer);
       if (deadline) clearTimeout(deadline);
@@ -1413,7 +1513,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const trusted = await this.ownVerifyKeys();
     for (const c of earlier) {
       if (!c.complete) continue;
-      const done = await this.completeEarlierCopy(a.s3, a.s, c.id, trusted, a.signal);
+      const done = await this.completeEarlierCopy(a.s3, a.s, c.id, trusted, a.publicKey, a.signal);
       if (done) return { ...done, reused: true };
     }
 
@@ -1500,13 +1600,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   /**
    * An earlier attempt that is complete: its sidecar is signed by one
    * of this portal's verify keys for this folder, portal install and
-   * name, and the stored size is the signed size. Null otherwise.
+   * name, it was encrypted to the current public key, and the stored
+   * size is the signed size. Null otherwise.
    */
   private async completeEarlierCopy(
     s3: S3Like,
     s: OffsiteSettings,
     id: string,
     trusted: readonly OffsiteVerifyKey[],
+    publicKey: OffsitePublicKey,
     signal: AbortSignal,
   ): Promise<{
     key: string;
@@ -1531,6 +1633,9 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       installIds: s.installId ? [s.installId] : [],
     });
     if (check.trust !== 'verified' || !check.manifest || !check.signer) return null;
+    // A copy made for another public key is left as it is: this backup
+    // goes up again, encrypted to the key in use now.
+    if (check.manifest.key !== publicKey.fingerprintText) return null;
     const bytes = Number(check.manifest.bytes);
     if ((await headSize(s3, s.bucket!, objectKey, signal)) !== bytes) return null;
     return {
@@ -1732,6 +1837,45 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     });
   }
 
+  /**
+   * The upload speed to plan with: the slowest of the last few
+   * successful uploads of at least MIN_MEASURED_BYTES (bytes over the
+   * time from start to finish), or FLOOR_BYTES_PER_SECOND when there
+   * are none.
+   */
+  async uploadSpeed(): Promise<{ bytesPerSecond: number; measured: boolean }> {
+    const recent = await this.prisma.backupRun.findMany({
+      where: {
+        offsiteStatus: 'succeeded',
+        offsiteBytes: { gte: BigInt(MIN_MEASURED_BYTES) },
+        offsiteStartedAt: { not: null },
+        offsiteFinishedAt: { not: null },
+      },
+      orderBy: { offsiteFinishedAt: 'desc' },
+      take: MEASURED_UPLOADS,
+      select: { offsiteBytes: true, offsiteStartedAt: true, offsiteFinishedAt: true },
+    });
+    const measured = slowestSpeed(
+      recent.map((r) => ({
+        bytes: Number(r.offsiteBytes ?? 0),
+        ms: (r.offsiteFinishedAt?.getTime() ?? 0) - (r.offsiteStartedAt?.getTime() ?? 0),
+      })),
+    );
+    return measured === null
+      ? { bytesPerSecond: FLOOR_BYTES_PER_SECOND, measured: false }
+      : { bytesPerSecond: measured, measured: true };
+  }
+
+  /**
+   * The notice key for a copy that was too large or ran out of time:
+   * one notice for each run of such failures, again only after a good
+   * copy or a changed limit, like the quiet-period notice.
+   */
+  private async limitNoticeKey(why: 'too-large' | 'deadline', limitMs: number): Promise<string> {
+    const last = await this.lastSuccess();
+    return `${why}:${last?.id ?? 'none'}:${limitMs}`;
+  }
+
   /** Raise the "no off-site copy lately" notice when one is due. */
   async checkStale(now = new Date()): Promise<string | null> {
     const s = await this.settings();
@@ -1777,7 +1921,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       select: { id: true, sizeBytes: true },
     });
     const newestBytes = newest?.sizeBytes == null ? null : Number(newest.sizeBytes);
-    const newestLimit = newestBytes === null ? null : this.uploadTimeLimit(newestBytes);
+    const limit = this.uploadLimitMs(settings);
+    const speed = await this.uploadSpeed();
+    const newestEstimate =
+      newestBytes === null ? null : estimateUploadMs(newestBytes, speed.bytesPerSecond);
     return {
       lastSuccess: last?.offsiteFinishedAt
         ? {
@@ -1800,16 +1947,18 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       daysSinceSuccess: days,
       alert: settings.enabled && (days === null ? failed !== null : days > settings.alertDays),
       lastArchive:
-        newest && newestBytes !== null && newestLimit !== null
+        newest && newestBytes !== null && newestEstimate !== null
           ? {
               runId: newest.id,
               bytes: String(newestBytes),
-              uploadLimitMs: newestLimit,
-              tooLarge: newestLimit > MAX_UPLOAD_MS,
+              estimateMs: newestEstimate,
+              tooLarge: newestEstimate > limit,
             }
           : null,
-      maxArchiveBytes: String(MAX_ARCHIVE_BYTES),
-      maxUploadMs: MAX_UPLOAD_MS,
+      maxArchiveBytes: String(Math.floor((limit / 1000) * speed.bytesPerSecond)),
+      maxUploadMs: limit,
+      bytesPerSecond: Math.floor(speed.bytesPerSecond),
+      speedMeasured: speed.measured,
     };
   }
 

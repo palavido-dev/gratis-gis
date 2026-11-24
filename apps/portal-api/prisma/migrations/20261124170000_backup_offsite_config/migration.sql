@@ -20,6 +20,7 @@ ALTER TABLE "backup_config"
   ADD COLUMN "offsite_install_id" TEXT,
   ADD COLUMN "offsite_retention_days" INTEGER,
   ADD COLUMN "offsite_alert_days" INTEGER,
+  ADD COLUMN "offsite_max_upload_hours" INTEGER,
   ADD COLUMN "offsite_key_changed_at" TIMESTAMPTZ(6),
   ADD COLUMN "offsite_key_changed_by" UUID,
   ADD COLUMN "offsite_previous_fingerprint" TEXT,

@@ -62,6 +62,7 @@ describe('OffsiteService', () => {
     'BACKUP_OFFSITE_PUBLIC_KEY',
     'BACKUP_OFFSITE_RETENTION_DAYS',
     'BACKUP_OFFSITE_ALLOW_HTTP',
+    'BACKUP_OFFSITE_MAX_UPLOAD_HOURS',
     'CREDENTIAL_ENCRYPTION_KEY',
   ];
   const saved: Record<string, string | undefined> = {};
@@ -108,6 +109,7 @@ describe('OffsiteService', () => {
       'BACKUP_OFFSITE_RETENTION_DAYS',
       'BACKUP_OFFSITE_PREFIX',
       'BACKUP_OFFSITE_ALLOW_HTTP',
+      'BACKUP_OFFSITE_MAX_UPLOAD_HOURS',
     ]) {
       delete process.env[k];
     }
@@ -416,7 +418,10 @@ describe('OffsiteService', () => {
     runs[0]!.offsiteStatus = 'running';
     runs[0]!.offsiteHeartbeatAt = new Date();
     expect(await svc.startUpload('run-2')).toBeUndefined();
-    expect(runs[1]!.offsiteStatus).toBeNull();
+    // Marked failed, so the page shows it and offers "Upload again".
+    expect(runs[1]!.offsiteStatus).toBe('failed');
+    expect(String(runs[1]!.offsiteError)).toMatch(/^Skipped: another off-site upload was running/);
+    expect(runs[0]!.offsiteStatus).toBe('running');
     await expect(svc.retry('run-2')).rejects.toThrow(/already running/);
     // A dead one is closed out and no longer blocks.
     runs[0]!.offsiteHeartbeatAt = new Date(Date.now() - 60 * 60 * 1000);
@@ -949,7 +954,12 @@ describe('OffsiteService', () => {
       const planted = generateSigningKey().verifyKey;
       configRow.offsiteVerifyKey = planted.text;
       notice.announceOffsite.mockClear();
-      const next = await svc.signingKey();
+      // Outside an upload it is reported, never replaced.
+      const before = configRow.offsiteSigningKeyEncrypted;
+      await expect(svc.signingKey()).rejects.toThrow(/cannot be opened/);
+      expect((await svc.signingInfo()).unopenable).toBe(true);
+      expect(configRow.offsiteSigningKeyEncrypted).toBe(before);
+      const next = await svc.signingKey({ replaceUnopenable: true });
       expect(next.verifyKey.text).not.toBe(planted.text);
       // The verify key that did not match is never carried over.
       expect(configRow.offsitePreviousVerifyKeys).toEqual(kept);
@@ -1009,6 +1019,40 @@ describe('OffsiteService', () => {
       expect(s3.objects.has(`${oldKey}.json`)).toBe(false);
     });
 
+    it('a key that cannot be opened is only reported by the page and the checks; the next upload replaces it', async () => {
+      await svc.getPublicConfig();
+      const first = configRow.offsiteVerifyKey as string;
+      const stored = configRow.offsiteSigningKeyEncrypted;
+      expect(stored).toBeTruthy();
+      expect((await svc.signingInfo()).unopenable).toBe(false);
+      // A briefly wrong server key.
+      const right = process.env.CREDENTIAL_ENCRYPTION_KEY;
+      process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+      _resetKeyCacheForTests();
+      const cfg = await svc.getPublicConfig();
+      expect(cfg.signing).toMatchObject({ unopenable: true, verifyKey: first });
+      await svc.signingInfo();
+      await svc.checkVerifyKey(first);
+      await svc.updateConfig({ retentionDays: 31 }, 'admin-1');
+      expect(configRow.offsiteSigningKeyEncrypted).toBe(stored);
+      expect(configRow.offsiteVerifyKey).toBe(first);
+      expect(notice.announceOffsite).not.toHaveBeenCalledWith(
+        expect.stringMatching(/^signing:/),
+        expect.anything(),
+      );
+      // The right key again: nothing changed.
+      process.env.CREDENTIAL_ENCRYPTION_KEY = right;
+      _resetKeyCacheForTests();
+      expect((await svc.signingInfo()).unopenable).toBe(false);
+      // Still wrong at upload time: the upload replaces it.
+      process.env.CREDENTIAL_ENCRYPTION_KEY = randomBytes(32).toString('base64');
+      _resetKeyCacheForTests();
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(configRow.offsiteVerifyKey).not.toBe(first);
+      expect((await svc.signingInfo()).unopenable).toBe(false);
+    });
+
     it('two key changes at once cannot lose a key: the second is refused', async () => {
       const first = await svc.signingKey();
       // Both requests read the same row before either writes.
@@ -1042,27 +1086,59 @@ describe('OffsiteService', () => {
 
   describe('an upload that stops getting answers', () => {
     it('is stopped by its time limit, marked failed, and frees the claim', async () => {
-      svc.uploadTimeLimit = () => 60;
+      svc.uploadLimitMs = () => 60;
       s3.hold();
       await runUpload();
       expect(runs[0]!.offsiteStatus).toBe('failed');
-      expect(String(runs[0]!.offsiteError)).toMatch(/took longer than/);
-      expect(notice.announceOffsite).toHaveBeenCalledWith('failed:run-1', {
+      expect(String(runs[0]!.offsiteError)).toMatch(/did not finish in the 1 hour\(s\) allowed/);
+      expect(notice.announceOffsite).toHaveBeenCalledWith('deadline:none:60', {
         runId: 'run-1',
         kind: 'offsite_failed',
       });
       // The next upload can start at once.
       s3.release();
-      svc.uploadTimeLimit = () => 60_000;
+      svc.uploadLimitMs = () => 60_000;
       addRun('run-2', 'backup-2026-11-24T03-00-00-000-bbbbbbbb.tar.gz', new Date());
       await runUpload('run-2');
       expect(runs[1]!.offsiteStatus).toBe('succeeded');
     });
 
-    it('scales the limit with the size of the upload', async () => {
-      const { uploadTimeLimitMs } = await import('./offsite.service.js');
-      expect(uploadTimeLimitMs(0)).toBe(2 * 60 * 60 * 1000);
-      expect(uploadTimeLimitMs(50 * 1024 ** 3)).toBeGreaterThan(50 * 60 * 60 * 1000);
+    it('the time limit is the "longest upload" setting', async () => {
+      expect(svc.uploadLimitMs(await svc.settings())).toBe(20 * 60 * 60 * 1000);
+      process.env.BACKUP_OFFSITE_MAX_UPLOAD_HOURS = '30';
+      expect(svc.uploadLimitMs(await svc.settings())).toBe(30 * 60 * 60 * 1000);
+      await svc.updateConfig({ maxUploadHours: 6 }, 'admin-1');
+      expect(svc.uploadLimitMs(await svc.settings())).toBe(6 * 60 * 60 * 1000);
+      expect((await svc.getPublicConfig()).maxUploadHours).toBe(6);
+      await expect(svc.updateConfig({ maxUploadHours: 73 }, 'admin-1')).rejects.toThrow(
+        /from 1 to 72/,
+      );
+    });
+
+    it('one notice per run of time-outs, again after a good copy or a changed limit', async () => {
+      const keys = () => notice.announceOffsite.mock.calls.map((c) => c[0] as string);
+      svc.uploadLimitMs = () => 60;
+      s3.hold();
+      await runUpload();
+      addRun('run-2', 'backup-2026-11-24T03-00-00-000-bbbbbbbb.tar.gz', new Date());
+      await runUpload('run-2');
+      // The same key twice: the notice table sends it once.
+      expect(keys()).toEqual(['deadline:none:60', 'deadline:none:60']);
+      // A changed limit is a new key.
+      svc.uploadLimitMs = () => 90;
+      addRun('run-3', 'backup-2026-11-24T04-00-00-000-cccccccc.tar.gz', new Date());
+      await runUpload('run-3');
+      expect(keys().at(-1)).toBe('deadline:none:90');
+      // After a good copy, a new key.
+      s3.release();
+      svc.uploadLimitMs = () => 60_000;
+      await runUpload('run-2');
+      expect(runs[1]!.offsiteStatus).toBe('succeeded');
+      svc.uploadLimitMs = () => 60;
+      s3.hold();
+      addRun('run-4', 'backup-2026-11-24T05-00-00-000-dddddddd.tar.gz', new Date());
+      await runUpload('run-4');
+      expect(keys().at(-1)).toBe('deadline:run-2:60');
     });
   });
 
@@ -1184,6 +1260,26 @@ describe('OffsiteService', () => {
       expect(logged.join('\n')).toMatch(/already complete and signed in the bucket/);
     });
 
+    it('a complete earlier copy made for another public key is kept, and the backup goes up under the current key', async () => {
+      await runUpload();
+      const old = { ...runs[0]! };
+      runs[0]!.offsiteStatus = 'failed';
+      const next = generateOffsiteKeyPair();
+      process.env.BACKUP_OFFSITE_PUBLIC_KEY = next.publicKey.text;
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(runs[0]!.offsiteKey).toBe(second);
+      expect(runs[0]!.offsiteKeyFingerprint).toBe(next.publicKey.fingerprintText);
+      // The new copy opens with the new key; the old one is untouched.
+      const plain = await collect(
+        unsealStream(Readable.from([s3.objects.get(second)!.body]), next),
+      );
+      expect(plain.toString()).toBe(archiveText);
+      expect(s3.objects.has(base)).toBe(true);
+      expect(s3.objects.has(`${base}.json`)).toBe(true);
+      expect(old.offsiteKeyFingerprint).toBe(key.publicKey.fingerprintText);
+    });
+
     it('an unfinished earlier attempt: uploads under a new name, then removes the leftover', async () => {
       await runUpload();
       // The earlier attempt stopped before its sidecar was written.
@@ -1263,18 +1359,36 @@ describe('OffsiteService', () => {
     });
   });
 
-  describe('a backup too large to upload before the next one', () => {
-    it('fails its off-site copy with a clear message and the usual notice; the local backup stands', async () => {
+  describe('a backup too large to upload in the time allowed', () => {
+    const MiB = 1024 ** 2;
+    /** An earlier good upload of `bytes` that took `seconds`. */
+    function pastUpload(id: string, bytes: number, seconds: number, hoursAgo: number) {
+      const finished = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+      runs.push({
+        id,
+        status: 'succeeded',
+        filename: `${id}.tar.gz`,
+        startedAt: new Date(finished.getTime() - seconds * 1000),
+        offsiteStatus: 'succeeded',
+        offsiteBytes: BigInt(bytes),
+        offsiteStartedAt: new Date(finished.getTime() - seconds * 1000),
+        offsiteFinishedAt: finished,
+      });
+    }
+
+    it('is refused up front when the estimate cannot fit; the local backup stands', async () => {
       runs[0]!.sizeBytes = BigInt(Buffer.byteLength(archiveText));
-      svc.uploadTimeLimit = () => 25 * 60 * 60 * 1000;
+      // At 256 KiB/s this backup takes about 14 ms; allow 1 ms.
+      svc.uploadLimitMs = () => 1;
       await runUpload();
       const run = runs[0]!;
       expect(run.status).toBe('succeeded');
       expect(run.offsiteStatus).toBe('failed');
       expect(String(run.offsiteError)).toMatch(
-        /more than the 24 hours between nightly backups, so no off-site copy was made\. The local backup is complete\./,
+        /With no upload measured yet, at the assumed slowest speed \(0\.25 MB\/s\).*so no off-site copy was made\. The local backup is complete\./,
       );
-      expect(notice.announceOffsite).toHaveBeenCalledWith('failed:run-1', {
+      expect(runs[0]!.offsiteVerifyFingerprint ?? null).toBeNull();
+      expect(notice.announceOffsite).toHaveBeenCalledWith('too-large:none:1', {
         runId: 'run-1',
         kind: 'offsite_failed',
       });
@@ -1285,15 +1399,43 @@ describe('OffsiteService', () => {
         bytes: String(Buffer.byteLength(archiveText)),
         tooLarge: true,
       });
-      expect(status.maxUploadMs).toBe(24 * 60 * 60 * 1000);
+      expect(status).toMatchObject({ maxUploadMs: 1, speedMeasured: false });
     });
 
-    it('the largest backup that fits is about 20 GB with the time limit as it is', async () => {
-      const { MAX_ARCHIVE_BYTES, MAX_UPLOAD_MS, uploadTimeLimitMs } =
-        await import('./offsite.service.js');
-      expect(uploadTimeLimitMs(MAX_ARCHIVE_BYTES)).toBeLessThanOrEqual(MAX_UPLOAD_MS);
-      expect(uploadTimeLimitMs(MAX_ARCHIVE_BYTES + 1024 ** 2)).toBeGreaterThan(MAX_UPLOAD_MS);
-      expect(MAX_ARCHIVE_BYTES / 1024 ** 3).toBeCloseTo(19.3, 1);
+    it('plans with the slowest of the last three measured uploads, or 256 KiB/s without one', async () => {
+      const GiB = 1024 ** 3;
+      runs[0]!.sizeBytes = BigInt(30 * GiB);
+      let status = await svc.statusSummary();
+      // 30 GB at 256 KiB/s is about 34 hours: more than the 20 allowed.
+      expect(status).toMatchObject({
+        speedMeasured: false,
+        bytesPerSecond: 256 * 1024,
+        maxUploadMs: 20 * 60 * 60 * 1000,
+      });
+      expect(status.lastArchive!.tooLarge).toBe(true);
+      expect(Number(status.maxArchiveBytes) / GiB).toBeCloseTo(17.6, 1);
+
+      pastUpload('p1', 1000 * MiB, 100, 1); // 10 MiB/s
+      pastUpload('p2', 1000 * MiB, 500, 2); // 2 MiB/s, the slowest of the three
+      pastUpload('p3', 1000 * MiB, 200, 3); // 5 MiB/s
+      pastUpload('p4', 1000 * MiB, 10_000, 4); // older than the last three
+      pastUpload('p5', 10 * MiB, 1000, 0.5); // too small to measure
+      status = await svc.statusSummary();
+      expect(status.speedMeasured).toBe(true);
+      expect(status.bytesPerSecond).toBe(2 * MiB);
+      // 30 GB at 2 MiB/s is about 4.3 hours.
+      expect(status.lastArchive!.tooLarge).toBe(false);
+      expect(status.lastArchive!.estimateMs).toBe(30 * 512 * 1000);
+    });
+
+    it('a backup that fits the estimate is tried, with the hard limit as its deadline', async () => {
+      pastUpload('p1', 1000 * MiB, 100, 1);
+      svc.uploadLimitMs = () => 60;
+      s3.hold();
+      await runUpload();
+      expect(String(runs[0]!.offsiteError)).toMatch(/did not finish in the/);
+      // It was started: signed for, then stopped by the deadline.
+      expect(runs[0]!.offsiteVerifyFingerprint).toBeTruthy();
     });
   });
 
