@@ -128,29 +128,30 @@ ggo_valid_fingerprint() {
 }
 
 # The earlier verify keys a restored portal keeps, one per line, oldest
-# first: the backup's own earlier keys and its verify key, but only when
-# the copy's signature was checked with a key in the key file (state
-# verified or foreign) and that key is the backup's verify key; then
-# also the key that checked it, if it is another one. Otherwise none of
-# the backup's keys are kept: nothing showed they are this portal's.
-# Each kept once (the last time it appears), at most 20.
+# first. Only when the copy's signature was checked with a key in the
+# key file (state verified or foreign): then the key that checked it is
+# always kept, and the backup's own earlier keys and its verify key
+# too when that key is the backup's verify key. Otherwise nothing is
+# kept: nothing showed any of them are this portal's. Each kept once
+# (the last time it appears), at most 20.
 #   $1 state, $2 checked signer fingerprint, $3 checked signer key,
 #   $4 backup's verify key, $5 its fingerprint; earlier keys on stdin.
 ggo_kept_verify_keys() {
   local state="$1" signer="$2" signer_key="$3" dump_key="$4" dump_fp="$5" line
   local -a keys=() uniq=()
-  if [[ "$state" != "verified" && "$state" != "foreign" ]] || ! ggo_valid_fingerprint "$signer" ||
-    ! ggo_valid_verify_key "$dump_key" || [[ "$dump_fp" != "$signer" ]]; then
+  if [[ "$state" != "verified" && "$state" != "foreign" ]] || ! ggo_valid_fingerprint "$signer"; then
     cat >/dev/null
     return 0
   fi
-  while IFS= read -r line; do
-    ggo_valid_verify_key "$line" && keys+=("$line")
-  done
-  keys+=("$dump_key")
-  if ggo_valid_verify_key "$signer_key" && [[ "$signer_key" != "$dump_key" ]]; then
-    keys+=("$signer_key")
+  if ggo_valid_verify_key "$dump_key" && [[ "$dump_fp" == "$signer" ]]; then
+    while IFS= read -r line; do
+      ggo_valid_verify_key "$line" && keys+=("$line")
+    done
+    keys+=("$dump_key")
+  else
+    cat >/dev/null
   fi
+  ggo_valid_verify_key "$signer_key" && keys+=("$signer_key")
   local i j seen
   for ((i = ${#keys[@]} - 1; i >= 0; i--)); do
     seen=0
@@ -574,10 +575,11 @@ ggo_main() {
   # folder restored from is kept as the setting, since the default
   # folder name comes from the install id. The signing key that came
   # with the dump is removed, never reused: this server makes its own.
-  # Its verify key is kept as an earlier key only when the copy's
-  # signature was checked with that very key (see
-  # ggo_kept_verify_keys), so copies the old server signed still count
-  # for retention once this server takes over.
+  # The key that checked the copy's signature is kept as an earlier
+  # key, and the dump's verify key with its earlier keys too when that
+  # is the same key (see ggo_kept_verify_keys), so copies the old
+  # server signed still count for retention once this server takes
+  # over.
   local dump_key dump_hex dump_fp="" kept array="ARRAY[]::text[]" k
   dump_key="$(ggo_psql "$PG_DB" -c "SELECT offsite_verify_key FROM backup_config WHERE offsite_verify_key ~ '^ggver1:[A-Za-z0-9_-]{48}\$' LIMIT 1" | tr -d '[:space:]')"
   if ggo_valid_verify_key "$dump_key"; then
@@ -603,7 +605,7 @@ ggo_main() {
   if [[ -n "$kept" ]]; then
     echo "Kept $(wc -l <<<"$kept") earlier verify key(s) of this portal, so copies they signed still count."
   else
-    echo "No verify key from the backup was kept: the copy was not checked with it."
+    echo "No verify key was kept: the copy's signature was not checked with your key file."
   fi
   echo "Off-site copies are off on this server, and it does not own the bucket folder."
   echo "If this server replaces the old one: on Admin, Backup, turn off-site copies on"

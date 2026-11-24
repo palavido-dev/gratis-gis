@@ -76,14 +76,18 @@ expect_true "the backup's key kept once, in its newest place" \
   '[[ "$(kept_keys verified "$FP_A" "$VK_A" "$VK_A" "$FP_A" "$VK_A" "$VK_B")" == "$VK_B $VK_A " ]]'
 expect_true "the checking key is added when it differs from the backup's" \
   '[[ "$(kept_keys verified "$FP_A" "$VK_C" "$VK_A" "$FP_A" "$VK_B")" == "$VK_B $VK_A $VK_C " ]]'
-expect_true "nothing kept when another key signed the copy" \
-  '[[ -z "$(kept_keys verified bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb "$VK_B" "$VK_A" "$FP_A" "$VK_C")" ]]'
+expect_true "another key signed the copy: only the checking key is kept" \
+  '[[ "$(kept_keys verified bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb "$VK_B" "$VK_A" "$FP_A" "$VK_C")" == "$VK_B " ]]'
+expect_true "foreign, another key signed the copy: the checking key is kept" \
+  '[[ "$(kept_keys foreign bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb "$VK_B" "$VK_A" "$FP_A" "$VK_C")" == "$VK_B " ]]'
 for state in untrusted unsigned bad; do
   expect_true "nothing kept for a $state copy" \
     "[[ -z \"\$(kept_keys $state \"\$FP_A\" \"\$VK_A\" \"\$VK_A\" \"\$FP_A\" \"\$VK_B\")\" ]]"
 done
-expect_true "nothing kept without a backup verify key" \
-  '[[ -z "$(kept_keys verified "$FP_A" "$VK_A" "" "" "$VK_B")" ]]'
+expect_true "without a backup verify key, only the checking key is kept" \
+  '[[ "$(kept_keys verified "$FP_A" "$VK_A" "" "" "$VK_B")" == "$VK_A " ]]'
+expect_true "nothing kept for a bad signer fingerprint" \
+  '[[ -z "$(kept_keys verified "x" "$VK_A" "$VK_A" "$FP_A" "$VK_B")" ]]'
 many=()
 for i in $(seq 1 25); do many+=("ggver1:$(printf 'K%02d' "$i")$(printf 'k%.0s' $(seq 1 45))"); done
 expect_true "at most 20 kept, the newest" \
@@ -278,12 +282,12 @@ FLOW_ARGS=(--confirm-database portal_db --archive "$A")
 out="$(run_flow FAKE_LATEST=$A FAKE_DUMP_PREVIOUS="$VK_B $VK_B")"
 expect_in "a verified copy keeps the backup's earlier keys once, then its verify key" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['$VK_B','ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX']::text[]"
 out="$(run_flow FAKE_LATEST=$A FAKE_DUMP_FP_HEX=ffffffffffffffffffffffffffffffff FAKE_DUMP_PREVIOUS="$VK_B")"
-expect_in "a backup verify key that did not sign the copy is not kept" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY[]::text[]"
-expect_in "says no key was kept" "$out" "No verify key from the backup was kept"
+expect_in "a backup verify key that did not sign the copy is not kept; the checking key is" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX']::text[]"
+expect_in "says one key was kept" "$out" "Kept 1 earlier verify key(s)"
 out="$(run_flow FAKE_LATEST=$A FAKE_SIGNER_KEY="$VK_C" FAKE_DUMP_PREVIOUS="$VK_B")"
 expect_in "the checking key is kept too when it differs" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['$VK_B','ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX','$VK_C']::text[]"
 out="$(run_flow FAKE_LATEST=$A FAKE_DUMP_KEY= FAKE_DUMP_PREVIOUS="$VK_B")"
-expect_in "a backup without a verify key keeps none" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY[]::text[]"
+expect_in "a backup without a verify key keeps only the checking key" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX']::text[]"
 
 A2=backup-2026-11-24T02-00-00-000-aaaaaaaa-r2.tar.gz
 FLOW_ARGS=(--confirm-database portal_db --archive "$A2")
