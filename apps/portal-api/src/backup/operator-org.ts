@@ -5,9 +5,13 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  SetMetadata,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { isMultiTenant } from '../common/tenancy.js';
+import { runAsSystem } from '../common/tenant-context.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
@@ -22,6 +26,12 @@ import { PrismaService } from '../prisma/prisma.service.js';
  * `none` says the same thing on purpose, with no warning: for an
  * install whose admin login is shared, such as a public demo, where
  * nobody signing in should hold install-wide powers.
+ *
+ * When the install serves many organizations (GRATIS_TENANCY=multi)
+ * there is no "oldest organization" fallback: GRATIS_OPERATOR_ORG_ID
+ * must name the operator, and unset means nobody is the operator.
+ * The API logs an error at boot when it is unset
+ * (checkOperatorOrgConfig).
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const logger = new Logger('OperatorOrg');
@@ -59,6 +69,7 @@ export async function operatorOrgId(prisma: {
     });
     return row?.id ?? null;
   }
+  if (isMultiTenant()) return null;
   const oldest = await prisma.organization.findFirst({
     orderBy: { createdAt: 'asc' },
     select: { id: true },
@@ -66,14 +77,57 @@ export async function operatorOrgId(prisma: {
   return oldest?.id ?? null;
 }
 
+/**
+ * Boot check for multi mode: without GRATIS_OPERATOR_ORG_ID nobody
+ * holds install-wide powers, which is safe but almost certainly not
+ * what the operator meant, so say it loudly. Returns false when the
+ * setting is missing. Single mode needs no setting and logs nothing.
+ */
+export function checkOperatorOrgConfig(log: Pick<Logger, 'error'>): boolean {
+  if (!isMultiTenant()) return true;
+  if (process.env.GRATIS_OPERATOR_ORG_ID?.trim()) return true;
+  log.error(
+    'GRATIS_OPERATOR_ORG_ID is not set. This install serves many organizations, so it must name the operator organization; until it does, no organization holds install-wide powers (backup, maintenance, sign-in settings, housekeeping).',
+  );
+  return false;
+}
+
+/**
+ * Marks a route under OperatorOrgGuard whose setting belongs to each
+ * organization once the install serves many. In multi mode the guard
+ * lets any caller through on such a route (the admin check beside it
+ * still applies) and the route acts on the caller's own org. In
+ * single mode the mark does nothing.
+ */
+export const ORG_SCOPED_WHEN_MULTI = 'gratis:org-scoped-when-multi-tenant';
+
+export const OrgScopedWhenMultiTenant = (): MethodDecorator =>
+  SetMetadata(ORG_SCOPED_WHEN_MULTI, true);
+
+// Read without injecting Reflector, so the guard keeps its one
+// dependency and every module that provides it stays unchanged.
+const reflector = new Reflector();
+
+function isOrgScopedWhenMulti(handler: unknown): boolean {
+  return (
+    typeof handler === 'function' &&
+    reflector.get<boolean | undefined>(ORG_SCOPED_WHEN_MULTI, handler) === true
+  );
+}
+
 @Injectable()
 export class OperatorOrgGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (isMultiTenant() && isOrgScopedWhenMulti(context.getHandler?.())) {
+      return true;
+    }
     const req = context.switchToHttp().getRequest<{ user?: AuthUser }>();
     const user = req.user;
-    const orgId = await operatorOrgId(this.prisma);
+    // Guards run before the tenant context is set for the request,
+    // and this read is about the install, not about any one org.
+    const orgId = await runAsSystem('operator-check', () => operatorOrgId(this.prisma));
     if (!user || !orgId || user.orgId !== orgId) {
       throw new ForbiddenException(
         'This action is limited to admins of the operator organization.',

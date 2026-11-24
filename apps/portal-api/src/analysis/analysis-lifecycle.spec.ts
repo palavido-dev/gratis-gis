@@ -224,12 +224,13 @@ describe('AnalysisService.cancelJob', () => {
     expect(out.state).toBe('cancelled');
   });
 
-  it('refuses cross-org access and unknown jobs', async () => {
+  it('answers not found for a job of another org, the same as an unknown job', async () => {
     const world = freshWorld();
     const svc = makeService(world);
     await expect(
       svc.cancelJob(user({ orgId: 'other-org' }), 'job-1'),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(world.updateManyCalls).toHaveLength(0);
 
     const empty = freshWorld({ job: null });
     const svc2 = makeService(empty);

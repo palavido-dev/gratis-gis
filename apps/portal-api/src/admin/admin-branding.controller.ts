@@ -174,7 +174,7 @@ export class AdminBrandingController {
         timeZone: true,
       },
     });
-    if (data.timeZone !== undefined) clearExpressionTimeZoneCache();
+    if (data.timeZone !== undefined) clearExpressionTimeZoneCache(user.orgId);
     void this.audit?.record({
       orgId: user.orgId,
       actorUserId: user.id,

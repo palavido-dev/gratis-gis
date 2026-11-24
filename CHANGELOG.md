@@ -34,6 +34,25 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   the item GeoJSON read now follows the same rule as the feature
   routes, and a map's or editor's stored extent only draws on layers
   from its own organization or public ones.
+- An id that belongs to another organization now answers 404, the same
+  as an id that does not exist, on analysis and import jobs, form
+  submissions, map presence, the anonymous markup setting, admin user
+  changes and PostGIS Live service reads. Inside one organization a
+  missing permission still answers 403. A private attachment or file
+  link answers 404 to a caller who cannot read it.
+- Saving a map refuses a newly added layer whose item the author cannot
+  read. Layers already in the map keep saving after their item is
+  unshared. A web map import leaves such layers out with a warning.
+- The housekeeping extent recompute uses the same rule as the
+  background refresh: a map's extent draws on layers from its own
+  organization or public ones.
+
+### Fixed
+
+- Saving a notification preference, or an organization's default for
+  a notification, no longer fails with a server error. A migration
+  changes `notification_type_default.type` and `.channel` to the enum
+  types the API reads them as.
 
 ## [1.7.0] - 2026-11-23
 

@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from '../items/sharing.service.js';
+import { refuseAccess } from '../common/org-not-found.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
 /**
@@ -346,7 +347,7 @@ export class RealtimeService {
     });
     if (!this.sharing.canRead(user, item as Item, shares)) {
       this.readOk.delete(key);
-      throw new ForbiddenException('You do not have access to this map');
+      refuseAccess(user, item, 'Map not found', 'You do not have access to this map');
     }
     if (this.readOk.size >= READ_CACHE_MAX) this.readOk.clear();
     this.readOk.set(key, now + READ_CACHE_MS);

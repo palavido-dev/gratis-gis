@@ -245,6 +245,7 @@ d('share limits on v3 writes', () => {
     const scope = await editScope('all-rows', geoShare);
     const args = {
       itemId: ITEM,
+      orgId: ORG,
       layerId: LAYER,
       expression: "'closed'",
       outputName: 'status',

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Prisma } from '@prisma/client';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from '../items/sharing.service.js';
@@ -469,5 +469,38 @@ describe('FormsService mirror target re-check', () => {
     await m.service.submit('form-1', makeUser(), VALID_DTO);
     await flush();
     expect(m.dataLayerFeatures.insertFeatures).not.toHaveBeenCalled();
+  });
+});
+
+describe('FormsService access by organization', () => {
+  it('answers not found for a form of another org, the same as an unknown form', async () => {
+    const m = makeMocks({ form: { orgId: 'org-2', access: 'public' } });
+    const unknown = await m.service.count('no-such-form', makeUser()).catch((e: unknown) => e);
+    for (const call of [
+      () => m.service.submit('form-1', makeUser(), VALID_DTO),
+      () => m.service.list('form-1', makeUser()),
+      () => m.service.count('form-1', makeUser()),
+      () => m.service.submissionPdf('form-1', 'sub-1', makeUser()),
+    ]) {
+      const err = await call().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NotFoundException);
+      expect((err as NotFoundException).getResponse()).toEqual(
+        (unknown as NotFoundException).getResponse(),
+      );
+    }
+  });
+
+  it('keeps 403 for a member of the form org without access to it', async () => {
+    const m = makeMocks({ form: { access: 'private' } });
+    await expect(m.service.submit('form-1', makeUser(), VALID_DTO)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+  });
+
+  it('keeps 403 for a member who can read the form but does not own it', async () => {
+    const m = makeMocks();
+    await expect(m.service.count('form-1', makeUser())).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });

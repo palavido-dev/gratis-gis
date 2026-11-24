@@ -61,7 +61,12 @@ import {
 } from '../data-layer/tile-settings.js';
 import { synthesizeThumbnailUrl } from '../items/thumbnail-url.js';
 import { withMetaUi } from '../items/meta-ui.js';
-import { readEmbedOrigins } from '../admin/embed-origins.js';
+import {
+  publicEmbedOriginsOrgId,
+  readEmbedOrigins,
+} from '../admin/embed-origins.js';
+import { resolvePublicOrg } from '../common/public-org.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { ItemsService } from '../items/items.service.js';
 import { redactItemData } from '../items/item-data-redact.js';
 import {
@@ -98,10 +103,9 @@ export class PublicController {
    *   - grid of public items (honoring featuredItemIds order) OR
    *     empty array when the toggle is off
    *
-   * The `org` query param is optional and resolves to the
-   * deployment's only organization. It is kept because older clients
-   * send it and because it makes the resolved org explicit in logs,
-   * not because a portal ever serves more than one.
+   * The `org` query param names the organization. Without it a
+   * single-organization install answers for its own organization; an
+   * install that serves many answers 404 (see resolvePublicOrg).
    */
   @Public()
   // Tighter than the global 300/min: org resolve + optional
@@ -109,16 +113,8 @@ export class PublicController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('landing')
   async landing(@Query('org') orgSlug?: string) {
-    const org = orgSlug
-      ? await this.prisma.organization.findUnique({ where: { slug: orgSlug } })
-      : await this.resolveSingleOrg();
-    if (!org) {
-      throw new NotFoundException(
-        orgSlug
-          ? `No organization with slug "${orgSlug}"`
-          : 'No organization configured on this portal yet',
-      );
-    }
+    const org = await resolvePublicOrg(this.prisma, { slug: orgSlug });
+    if (!org) throw this.orgNotFound(orgSlug);
 
     const items = org.landingShowPublicItems
       ? await this.publicItemsFor(org.id, org.landingFeaturedItemIds)
@@ -155,16 +151,8 @@ export class PublicController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('catalog.json')
   async catalog(@Req() req: Request, @Query('org') orgSlug?: string) {
-    const org = orgSlug
-      ? await this.prisma.organization.findUnique({ where: { slug: orgSlug } })
-      : await this.resolveSingleOrg();
-    if (!org) {
-      throw new NotFoundException(
-        orgSlug
-          ? `No organization with slug "${orgSlug}"`
-          : 'No organization configured on this portal yet',
-      );
-    }
+    const org = await resolvePublicOrg(this.prisma, { slug: orgSlug });
+    if (!org) throw this.orgNotFound(orgSlug);
 
     // Self URLs come from PORTAL_BASE_URL like every OGC document;
     // the request headers are only a dev fallback (see ogc/url.ts).
@@ -319,13 +307,20 @@ export class PublicController {
    * 28b-5). portal-web's middleware reads this to build `frame-src`
    * for /items/:id/custom/run, so it must answer without a session.
    * The list is site addresses an admin chose to allow; it holds
-   * nothing private.
+   * nothing private. `?org=<slug>` names the organization when the
+   * install serves many.
    */
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 120 } })
   @Get('embed-origins')
-  async embedOrigins(): Promise<{ origins: string[] }> {
-    return { origins: await readEmbedOrigins(this.prisma) };
+  async embedOrigins(@Query('org') orgSlug?: string): Promise<{ origins: string[] }> {
+    const orgId = await publicEmbedOriginsOrgId(this.prisma, orgSlug);
+    if (!orgId) {
+      // An install with no organization yet has no list.
+      if (!isMultiTenant()) return { origins: [] };
+      throw this.orgNotFound(orgSlug);
+    }
+    return { origins: await readEmbedOrigins(this.prisma, orgId) };
   }
 
   /**
@@ -1278,12 +1273,13 @@ export class PublicController {
    * is unnecessary. Orders by createdAt so the original seed wins;
    * additional orgs (if any) can still be reached by explicit slug.
    */
-  private async resolveSingleOrg() {
-    const orgs = await this.prisma.organization.findMany({
-      orderBy: { createdAt: 'asc' },
-      take: 1,
-    });
-    return orgs[0] ?? null;
+  private orgNotFound(orgSlug: string | undefined): NotFoundException {
+    if (orgSlug) return new NotFoundException(`No organization with slug "${orgSlug}"`);
+    return new NotFoundException(
+      isMultiTenant()
+        ? 'Name the organization with ?org=<slug>'
+        : 'No organization configured on this portal yet',
+    );
   }
 
   /**
