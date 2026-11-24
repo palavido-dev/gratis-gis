@@ -84,6 +84,12 @@ jobs:
       - name: Raw SQL inventory guard
         run: node scripts/check-raw-sql.mjs --self-test
 
+      # New object keys come from storage/object-keys.ts (or the
+      # worker's storage_key), which puts each object under its
+      # organization. Fails on a key built by hand anywhere else.
+      - name: Storage key guard
+        run: node scripts/check-storage-keys.mjs --self-test
+
       - name: Typecheck
         run: pnpm typecheck
 
