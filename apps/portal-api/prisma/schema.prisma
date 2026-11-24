@@ -986,7 +986,7 @@ model BackupRun {
   /// 20261026042100): at most one row with status='running'. Enforced
   /// in SQL, not Prisma schema, because Prisma cannot express
   /// partial uniques. #235. Likewise `backup_run_one_offsite_running_idx`
-  /// (migration 20261124130100): at most one off-site upload at a time.
+  /// (migration 20261124170100): at most one off-site upload at a time.
   @@map("backup_run")
 }
 
