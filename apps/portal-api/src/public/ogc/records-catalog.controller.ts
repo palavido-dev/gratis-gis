@@ -13,7 +13,8 @@ import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { absoluteBase } from './url.js';
+import { OGC_LIST_PATHS, absoluteBase, withOrgLinks } from './url.js';
+import { publicListScope, scopedWhere } from '../../common/list-scope.js';
 import {
   CATALOG_COLLECTION_ID,
   ITEM_SELECT,
@@ -50,9 +51,14 @@ export class OgcRecordsCatalogController {
   // Static catalog collection doc (SEC-stac-ogc-landing-doc-throttle).
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
-  catalog(@Req() req: Request) {
+  async catalog(@Req() req: Request, @Query('org') orgSlug?: string) {
+    const { org, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
-    return catalogCollectionDoc(`${base}/api/public/ogc`);
+    return withOrgLinks(
+      catalogCollectionDoc(`${base}/api/public/ogc`, org?.name),
+      slug,
+      OGC_LIST_PATHS,
+    );
   }
 
   @Public()
@@ -68,7 +74,9 @@ export class OgcRecordsCatalogController {
     @Query('type') typeParam?: string,
     @Query('sortby') sortbyParam?: string,
     @Query('bbox') bboxParam?: string,
+    @Query('org') orgSlug?: string,
   ) {
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
     const selfBase = `${base}/api/public/ogc/collections/${CATALOG_COLLECTION_ID}/items`;
     const rootHref = `${base}/api/public/ogc/`;
@@ -87,7 +95,7 @@ export class OgcRecordsCatalogController {
       sortby: sortbyParam,
       bbox: bboxParam,
     });
-    const where = recordsWhere({ q, type: typeParam });
+    const where = scopedWhere(recordsWhere({ q, type: typeParam }), scope);
     const orderBy = parseSortby(sortbyParam);
 
     const { rows, total } = await queryPublicRecords(this.prisma, {
@@ -97,13 +105,10 @@ export class OgcRecordsCatalogController {
       limit,
       bbox: bboxParam,
     });
-    return buildRecordsPage(
-      rows,
-      total,
-      base,
-      selfBase,
-      params,
-      rootHref,
+    return withOrgLinks(
+      buildRecordsPage(rows, total, base, selfBase, params, rootHref),
+      slug,
+      OGC_LIST_PATHS,
     );
   }
 

@@ -16,7 +16,12 @@ import type { Request } from 'express';
 import { Public } from '../../auth/public.decorator.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { DataLayerFeaturesService } from '../../data-layer/features.service.js';
-import { absoluteBase } from './url.js';
+import { OGC_LIST_PATHS, absoluteBase, withOrgLinks } from './url.js';
+import {
+  publicListScope,
+  scopedWhere,
+  type ItemListScope,
+} from '../../common/list-scope.js';
 import { parseCollectionId } from './collection-id.js';
 import {
   PUBLIC_TIER_SELECT,
@@ -93,13 +98,14 @@ export class OgcFeaturesController {
   // public data_layer (SEC-ogc-features-collections-throttle).
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
-  async collections(@Req() req: Request) {
+  async collections(@Req() req: Request, @Query('org') orgSlug?: string) {
+    const { org, scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
     const ogcRoot = `${base}/api/public/ogc`;
-    const rows = await this.publicV3DataLayers();
+    const rows = await this.publicV3DataLayers(scope);
     // Catalogue collection first so MetaSearch / OWSLib see
     // itemType=record without scanning the whole Features list.
-    return {
+    return withOrgLinks({
       links: [
         {
           href: `${ogcRoot}/collections`,
@@ -118,12 +124,12 @@ export class OgcFeaturesController {
         },
       ],
       collections: [
-        catalogCollectionDoc(ogcRoot),
+        catalogCollectionDoc(ogcRoot, org?.name),
         ...rows.map((r) =>
           collectionDoc(r, ogcRoot, { tilesAndStyles: true }),
         ),
       ],
-    };
+    }, slug, OGC_LIST_PATHS);
   }
 
   @Public()
@@ -254,13 +260,16 @@ export class OgcFeaturesController {
    * collectionId) rows via the shared expansion, then annotated with
    * each item's public tier boundary for the read-time clip.
    */
-  private async publicV3DataLayers(): Promise<DataLayerRow[]> {
+  private async publicV3DataLayers(scope: ItemListScope): Promise<DataLayerRow[]> {
     const rows = await this.prisma.item.findMany({
-      where: {
-        type: 'data_layer',
-        access: 'public',
-        deletedAt: null,
-      },
+      where: scopedWhere(
+        {
+          type: 'data_layer',
+          access: 'public',
+          deletedAt: null,
+        },
+        scope,
+      ),
       select: {
         id: true,
         title: true,

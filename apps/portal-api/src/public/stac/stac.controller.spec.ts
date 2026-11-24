@@ -34,18 +34,18 @@ function makePublic(rows: unknown[] = []) {
 }
 
 describe('PublicStacController', () => {
-  it('landing and /conformance declare the same classes', () => {
+  it('landing and /conformance declare the same classes', async () => {
     const { ctrl } = makePublic();
-    const landing = ctrl.landing(fakeReq()) as unknown as {
+    const landing = (await ctrl.landing(fakeReq())) as unknown as {
       conformsTo: string[];
     };
     const conf = ctrl.conformance() as unknown as { conformsTo: string[] };
     expect(landing.conformsTo).toEqual(conf.conformsTo);
   });
 
-  it('the landing links advertise GET and POST search', () => {
+  it('the landing links advertise GET and POST search', async () => {
     const { ctrl } = makePublic();
-    const landing = ctrl.landing(fakeReq()) as unknown as {
+    const landing = (await ctrl.landing(fakeReq())) as unknown as {
       links: Array<{ rel: string; method?: string }>;
     };
     const search = landing.links.filter((l) => l.rel === 'search');
@@ -122,23 +122,25 @@ describe('AuthedStacController', () => {
     const visibleWhere = jest
       .fn()
       .mockReturnValue({ marker: 'visible-where' });
-    const sharing = { visibleWhere } as unknown as SharingService;
+    const listWhere = jest.fn().mockReturnValue({ marker: 'list-where' });
+    const sharing = { visibleWhere, listWhere } as unknown as SharingService;
     return {
       ctrl: new AuthedStacController(prisma, sharing),
       findMany,
       findFirst,
       visibleWhere,
+      listWhere,
     };
   }
 
-  it('lists through SharingService.visibleWhere, the one true predicate', async () => {
-    const { ctrl, findMany, visibleWhere } = makeAuthed();
+  it('lists through SharingService.listWhere, the one list predicate', async () => {
+    const { ctrl, findMany, listWhere } = makeAuthed();
     await ctrl.collections(user, fakeReq());
-    expect(visibleWhere).toHaveBeenCalledWith(user);
+    expect(listWhere).toHaveBeenCalledWith(user);
     const where = findMany.mock.calls[0]![0].where;
     expect(where.AND).toEqual([
       { type: 'tile_layer' },
-      { marker: 'visible-where' },
+      { marker: 'list-where' },
     ]);
   });
 

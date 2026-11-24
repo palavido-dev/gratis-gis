@@ -37,6 +37,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ownOrgListScope, scopedWhere } from '../common/list-scope.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { isAdminTierLocked } from './admin-tier-lock.js';
 
@@ -820,8 +821,10 @@ export class AdminUsersController {
         this.prisma.item.count({
           where: { access: 'org', orgId: target.orgId, deletedAt: null },
         }),
+        // Counted like the lists the user sees, so the number never
+        // covers another organization's items.
         this.prisma.item.count({
-          where: { access: 'public', deletedAt: null },
+          where: scopedWhere({ access: 'public', deletedAt: null }, ownOrgListScope(target)),
         }),
       ]);
 

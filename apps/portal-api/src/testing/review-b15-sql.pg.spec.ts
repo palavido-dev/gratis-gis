@@ -42,10 +42,15 @@ d('area search against Postgres', () => {
 
   async function idsIn(bbox: [number, number, number, number]): Promise<string[]> {
     const svc = Object.create(ItemsService.prototype) as ItemsService;
-    Object.assign(svc, { prisma: client, sharing: { visibleWhere: () => ({}) } });
-    const where = (await (svc as unknown as {
-      buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
-    }).buildListWhere({ id: 'u', orgId: org }, { bbox }));
+    Object.assign(svc, {
+      prisma: client,
+      sharing: { visibleWhere: () => ({}), listWhere: () => ({}) },
+    });
+    const where = await (
+      svc as unknown as {
+        buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
+      }
+    ).buildListWhere({ id: 'u', orgId: org }, { bbox });
     return where.AND.find((c) => c.id)!.id!.in;
   }
 

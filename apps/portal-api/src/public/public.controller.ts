@@ -66,6 +66,7 @@ import {
   readEmbedOrigins,
 } from '../admin/embed-origins.js';
 import { resolvePublicOrg } from '../common/public-org.js';
+import { publicListScope, publicOrgNotFound } from '../common/list-scope.js';
 import { isMultiTenant } from '../common/tenancy.js';
 import { ItemsService } from '../items/items.service.js';
 import { redactItemData } from '../items/item-data-redact.js';
@@ -335,7 +336,9 @@ export class PublicController {
    * admin's customised starter theme ('forest') instead of the stock
    * colours. Only themes shared publicly are served. `?orgId=` scopes
    * the list to the app's organization, so one org's "forest" never
-   * colours another org's app.
+   * colours another org's app. `?org=<slug>` names the organization
+   * the same way the other public lists do. An install that serves
+   * many organizations answers 404 when neither is given.
    *
    * Mirrors the authed list's paging contract so the runtime pages
    * can swap one for the other without branching: data_json is
@@ -355,6 +358,7 @@ export class PublicController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('orgId') orgId?: string,
+    @Query('org') orgSlug?: string,
   ) {
     if (type !== 'basemap' && type !== 'theme') {
       // Keep the header present on the refusal path too so a pager
@@ -364,13 +368,14 @@ export class PublicController {
     }
     // A malformed orgId would make Postgres reject the uuid cast, so
     // it is treated as "no org filter" rather than a 500.
-    const orgFilter =
-      orgId && isUuidShape(orgId) ? { orgId } : {};
+    const { scope } = await publicListScope(this.prisma, { slug: orgSlug, orgId });
+    // The scope is a plain `{ orgId }`, so it merges flat into the
+    // filter: the query is the one this route has always run.
     const where = {
       type,
       access: 'public',
       deletedAt: null,
-      ...orgFilter,
+      ...(scope ?? {}),
     } as const;
     const parsedLimit = Number.parseInt(limit ?? '', 10);
     const take =
@@ -1274,12 +1279,7 @@ export class PublicController {
    * additional orgs (if any) can still be reached by explicit slug.
    */
   private orgNotFound(orgSlug: string | undefined): NotFoundException {
-    if (orgSlug) return new NotFoundException(`No organization with slug "${orgSlug}"`);
-    return new NotFoundException(
-      isMultiTenant()
-        ? 'Name the organization with ?org=<slug>'
-        : 'No organization configured on this portal yet',
-    );
+    return publicOrgNotFound(orgSlug);
   }
 
   /**

@@ -16,6 +16,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
 - `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
+- The public catalog feeds (OGC API Records, Features collections and
+  Styles, STAC, CSW) take `?org=<slug>` like `catalog.json` does: the
+  answer lists that organization's public items only, and the links in
+  it keep the parameter. Without it the feeds answer as before.
 - Save as for maps: make your own copy of any map you can open, from
   the map builder or the map's page, with unsaved changes and,
   optionally, its markup. The copy starts private. `POST

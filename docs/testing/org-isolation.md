@@ -65,11 +65,14 @@ Pick the helper that matches what the route does:
 - `write()`: changes something by id. Org B gets 404 and nothing org A
   owns changes. Give a valid `body`, or the probe stops at validation.
 - `list()`: lists or searches. The answer to org B holds none of org
-  A's ids, names or text.
+  A's ids, names or text, and in multi mode none of org A's public
+  items either: those stay readable by id but are never listed.
 - `own()`: a write that only acts on the caller's own org, with no id
   from outside it.
 - `pub()`: open to signed-out callers for public items only.
-- `pubList()`: a public listing named with `?org=<slug>`.
+- `pubList()`: a public listing or feed named with `?org=<slug>`. With
+  no org it answers 404 in multi mode; named for org A it holds none of
+  org B's items.
 - `op()`: install-wide powers behind `OperatorOrgGuard`.
 - `none()`: no org data at all (health, versions, static lists).
 - `skip(cls, reason)`: classified but not probed, with the reason.

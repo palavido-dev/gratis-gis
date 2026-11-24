@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import type { Request } from 'express';
 
-import { absoluteBase } from './url.js';
+import { OGC_LIST_PATHS, absoluteBase, withOrgLinks, withOrgParam } from './url.js';
 
 const req = (headers: Record<string, string>): Request =>
   ({ headers, protocol: 'https' }) as unknown as Request;
@@ -33,5 +33,52 @@ describe('absoluteBase (OGC self-links must not follow a forged Host)', () => {
     expect(absoluteBase(req({ host: 'localhost:4000' }))).toBe(
       'https://localhost:4000',
     );
+  });
+});
+
+describe('withOrgParam / withOrgLinks (links stay in the named org)', () => {
+  it('adds org to a link once, and nothing without a slug', () => {
+    expect(withOrgParam('https://p.test/api/public/ogc/records?limit=10', 'a')).toBe(
+      'https://p.test/api/public/ogc/records?limit=10&org=a',
+    );
+    expect(withOrgParam('https://p.test/api/public/ogc/records?org=b', 'a')).toBe(
+      'https://p.test/api/public/ogc/records?org=b',
+    );
+    expect(withOrgParam('https://p.test/x', undefined)).toBe('https://p.test/x');
+  });
+
+  it('marks list links and leaves single-item links alone', () => {
+    const doc = {
+      links: [
+        { href: 'https://p.test/api/public/ogc/', rel: 'self' },
+        { href: 'https://p.test/api/public/ogc/records?offset=10', rel: 'next' },
+        { href: 'https://p.test/api/public/ogc/conformance', rel: 'conformance' },
+      ],
+      features: [
+        {
+          links: [
+            { href: 'https://p.test/api/public/ogc/records/abc', rel: 'self' },
+            { href: 'https://p.test/api/public/ogc/collections/abc/items', rel: 'items' },
+          ],
+        },
+      ],
+    };
+    withOrgLinks(doc, 'a b', OGC_LIST_PATHS);
+    expect(doc.links.map((l) => l.href)).toEqual([
+      'https://p.test/api/public/ogc/?org=a+b',
+      'https://p.test/api/public/ogc/records?offset=10&org=a+b',
+      'https://p.test/api/public/ogc/conformance',
+    ]);
+    expect(doc.features[0]!.links.map((l) => l.href)).toEqual([
+      'https://p.test/api/public/ogc/records/abc',
+      'https://p.test/api/public/ogc/collections/abc/items',
+    ]);
+  });
+
+  it('returns the document unchanged with no slug', () => {
+    const doc = { links: [{ href: 'https://p.test/api/public/ogc/records' }] };
+    expect(withOrgLinks(doc, undefined, OGC_LIST_PATHS)).toEqual({
+      links: [{ href: 'https://p.test/api/public/ogc/records' }],
+    });
   });
 });

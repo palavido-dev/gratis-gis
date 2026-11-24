@@ -6,7 +6,9 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../auth/public.decorator.js';
+import { publicListScope, scopedWhere, type PublicListScope } from '../common/list-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { withOrgParam } from './ogc/url.js';
 
 /**
  * CSW (Catalog Service for the Web) 2.0.2 surface (#31).
@@ -53,15 +55,18 @@ export class PublicCswController {
     const startPosition = q.startposition;
     const maxRecords = q.maxrecords;
     const base = absoluteBase(req);
+    // `?org=<slug>` names the organization whose catalog this is. In
+    // multi mode a request that names none answers 404.
+    const scope = await publicListScope(this.prisma, { slug: q.org });
     if (!service || service.toUpperCase() !== 'CSW') {
       return ows('MissingParameterValue', 'service', 'service must be CSW');
     }
     const op = (request ?? '').toLowerCase();
-    if (op === 'getcapabilities') return getCapabilities(base);
+    if (op === 'getcapabilities') return getCapabilities(base, scope);
     if (op === 'getrecords') {
       const start = clamp(parseInt(startPosition ?? '1', 10) || 1, 1, 1_000_000);
       const max = clamp(parseInt(maxRecords ?? '50', 10) || 50, 1, 200);
-      return this.getRecords(start, max);
+      return this.getRecords(start, max, scope);
     }
     return ows(
       'InvalidParameterValue',
@@ -71,12 +76,15 @@ export class PublicCswController {
     );
   }
 
-  private async getRecords(start: number, max: number): Promise<string> {
-    const total = await this.prisma.item.count({
-      where: { access: 'public', deletedAt: null },
-    });
+  private async getRecords(
+    start: number,
+    max: number,
+    { scope }: PublicListScope,
+  ): Promise<string> {
+    const where = scopedWhere({ access: 'public', deletedAt: null }, scope);
+    const total = await this.prisma.item.count({ where });
     const rows = await this.prisma.item.findMany({
-      where: { access: 'public', deletedAt: null },
+      where,
       select: {
         id: true,
         title: true,
@@ -135,8 +143,9 @@ export class PublicCswController {
   }
 }
 
-function getCapabilities(base: string): string {
-  const endpoint = `${base}/api/public/csw`;
+function getCapabilities(base: string, { org, slug }: PublicListScope): string {
+  const endpoint = withOrgParam(`${base}/api/public/csw`, slug);
+  const title = org ? `${org.name} public catalog` : 'GratisGIS public catalog';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <csw:Capabilities
   xmlns:csw="http://www.opengis.net/cat/csw/2.0.2"
@@ -144,7 +153,7 @@ function getCapabilities(base: string): string {
   xmlns:xlink="http://www.w3.org/1999/xlink"
   version="2.0.2">
   <ows:ServiceIdentification>
-    <ows:Title>GratisGIS public catalog</ows:Title>
+    <ows:Title>${esc(title)}</ows:Title>
     <ows:Abstract>Read-only CSW 2.0.2 view of public items in this portal.</ows:Abstract>
     <ows:ServiceType>CSW</ows:ServiceType>
     <ows:ServiceTypeVersion>2.0.2</ows:ServiceTypeVersion>

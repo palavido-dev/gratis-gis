@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Controller, Get, Header, Req } from '@nestjs/common';
+import { Controller, Get, Header, Query, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
-import { absoluteBase } from './url.js';
+import { publicListScope } from '../../common/list-scope.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OGC_LIST_PATHS, absoluteBase, withOrgLinks } from './url.js';
 
 /**
  * Landing + conformance + OpenAPI endpoints for the OGC API surface.
@@ -20,6 +22,8 @@ import { absoluteBase } from './url.js';
 @ApiTags('public', 'ogc')
 @Controller('public/ogc')
 export class OgcLandingController {
+  constructor(private readonly prisma: PrismaService) {}
+
   /**
    * Landing page. OGC API Common Part 1 §6 mandates a root JSON
    * document with `title`, `description`, and a `links` array
@@ -31,11 +35,18 @@ export class OgcLandingController {
   // cannot lean on that bucket alone (SEC-stac-ogc-landing-doc-throttle).
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
-  landing(@Req() req: Request) {
+  async landing(@Req() req: Request, @Query('org') orgSlug?: string) {
+    // The landing describes one organization's catalog when one is
+    // named; its links then carry the org so a client stays in it.
+    const { org, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
     const root = `${base}/api/public/ogc`;
+    return withOrgLinks(this.landingDoc(root, org?.name), slug, OGC_LIST_PATHS);
+  }
+
+  private landingDoc(root: string, orgName: string | undefined) {
     return {
-      title: 'GratisGIS OGC API',
+      title: orgName ? `${orgName} OGC API` : 'GratisGIS OGC API',
       description:
         'OGC API endpoints exposing the publicly-shared data ' +
         'layers, styles, tilesets, and catalog records hosted by ' +
