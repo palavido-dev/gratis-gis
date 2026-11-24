@@ -33,16 +33,34 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   Backup (operator admins) or with `BACKUP_OFFSITE_*` variables, which
   are checked the same way. Plain http endpoints need
   `BACKUP_OFFSITE_ALLOW_HTTP`; endpoints on the server itself, link-local
-  or cloud metadata addresses are refused.
+  or cloud metadata addresses are refused, on every connection. Every
+  request to the bucket has time limits and each upload an overall one,
+  so a provider that stops answering ends the upload as failed. The
+  folder can never be the whole bucket, and the environment's secret
+  goes only with the environment's endpoint. Changing the public key
+  notifies the operator admins and is shown on the page with who changed
+  it and when. Copies dated in the future are kept, reported, and never
+  treated as the newest. A restore inside the portal keeps the live
+  off-site settings.
+- The help page and `docs/operations/offsite-backup-format.md` say
+  plainly what the copies' checksums prove (damage, not who made a
+  copy) and how to protect a bucket: a key used only by the portal,
+  versioning or object lock, and restoring a copy from before an
+  incident.
 - **Test latest backup** on Admin, Backup restores the newest
   backup's database into a scratch database, counts the main tables
   and drops it, with a free-space check (or a size confirmation) first
-  and a reminder when no test passed in 30 days.
+  and a reminder when no test passed in 30 days. One test runs at a
+  time.
 - `infra/restore-from-offsite.sh` brings a portal back on a new server
-  from the bucket, the key file and its passphrase. It shows what it
-  will replace, asks for the database name, refuses a database in use
-  without `--replace-existing`, and saves the current database first.
-  `install.sh --check` says whether off-site backups are set up.
+  from the bucket, the key file and its passphrase. It shows the copy
+  it will use (name, date, size, key fingerprint) and what it will
+  replace, asks for the database name before anything changes, refuses
+  a database in use without `--replace-existing`, and saves the current
+  database first, checking the saved file reads back. The restored
+  server gets a new off-site install id; "Take over this folder" on
+  Admin, Backup makes it the folder's owner when it replaces the old
+  server. `install.sh --check` says whether off-site backups are set up.
 - Save as for maps: make your own copy of any map you can open, from
   the map builder or the map's page, with unsaved changes and,
   optionally, its markup. The copy starts private. `POST

@@ -147,11 +147,33 @@ header, the wrapped key or any record; records swapped or dropped; a
 file cut anywhere, including exactly at a record boundary (the last
 record left was sealed as not final); and bytes after the final record.
 
-**What the format does not prove.** Anyone with the public key can
-write a valid file; the public key is not secret. Integrity against
-change comes from the checksums the portal records (on the run and in
-each sidecar) and from the bucket's own access control. Turn on
-versioning or object lock at the provider; see the help page.
+**What the format does not prove.** It does not say who made a file.
+Anyone with the public key can write a valid file, and the public key
+is not secret. The sidecar and `done.json` are plain JSON in the same
+bucket, and the run row that also records the checksum is not on a new
+server at restore time. So the checksums catch damage (a cut-short or
+corrupted download), not a deliberate change: anyone who can write to
+the bucket can add a copy that looks complete and decrypts with your
+key. What protects the copies is who can write to the bucket:
+
+- Use a bucket key that only this portal has, made for this bucket
+  alone and not kept or reused anywhere else.
+- Turn on versioning or object lock at the provider, so a copy that was
+  replaced or deleted can still be got back.
+- Restore a copy dated before any suspected break-in. The restore tool
+  shows the chosen copy's name, date, size and key fingerprint and asks
+  for confirmation before it changes anything. It never picks a copy
+  whose name is dated in the future (or more than an hour after the
+  provider recorded the upload) as the newest; such a copy is used only
+  when named, with a warning.
+- The dump is restored by the database's owner role, which in the
+  default install is a superuser, and a dump can hold any SQL that role
+  may run. If a copy's origin is in doubt, list it first
+  (`pg_restore -l`), restore it on a spare server, or restore with a
+  role that is not a superuser where your setup allows it.
+
+**Planned.** A later format version may add a signature, so a restore
+can tell a copy this portal made from one it did not.
 
 ### Decrypt by hand
 
@@ -177,11 +199,12 @@ after asking for the passphrase), `fingerprint PUBLICKEY`, and
 ## Bucket layout
 
 Under the configured folder (default `gratisgis-<first 8 hex of the
-install id>/`, so every portal gets its own):
+install id>/`, so every portal gets its own; never empty, so never the
+whole bucket):
 
 | Key | Content |
 | --- | --- |
-| `gratisgis-install.json` | Which portal owns the folder: `{"kind": "gratisgis-offsite-folder", "installId": "...", "createdAt": "..."}`. A portal stops, without deleting anything, when the folder belongs to another install id. |
+| `gratisgis-install.json` | Which portal owns the folder: `{"kind": "gratisgis-offsite-folder", "installId": "...", "createdAt": "..."}`, plus `takenOverFrom` when an admin took the folder over after a restore. A portal stops, without deleting anything, when the folder belongs to another install id. |
 | `archives/<archive>.enc` | The local backup archive (`backup-<time>-<id>.tar.gz`), GROF1 |
 | `archives/<archive>.enc.json` | Sidecar, plain JSON, written last |
 | `mirror/runs/<time>-<id>/database.dump.enc` | Mirror mode: the `pg_dump` custom-format dump, GROF1 |
@@ -191,7 +214,12 @@ install id>/`, so every portal gets its own):
 | `mirror/objects/<name>.enc` | Mirror mode: one stored file, GROF1 |
 
 A copy without its sidecar is unfinished and is never used for a
-restore.
+restore. Only these exact names count: `archives/backup-<YYYY-MM-DD>T<HH-MM-SS-mmm>-<8 hex>.tar.gz.enc`
+(and `.json`), and mirror run folders `<YYYY-MM-DD>T<HH-MM-SS-mmm>-<8 hex>/`.
+Anything else, including names in sub-folders, is ignored by retention
+and by the restore tool. A copy dated after now (plus one hour), or more
+than an hour after the provider's own date for it, is kept, reported to
+the operator admins, and never counted as the newest copy.
 
 The archive sidecar:
 
@@ -256,7 +284,17 @@ kept and counted in the log; a bucket lifecycle rule can expire them.
   bytes sent, which must equal the predicted encrypted size (for
   mirrored files too).
 - The SHA-256 of the encrypted bytes is recorded on the run and in the
-  sidecar. The restore helper checks it after download.
+  sidecar. The restore helper checks it after download. This catches
+  damage, not a deliberate change: see "What the format does not
+  prove" above.
+
+Every request to the bucket has time limits: 30 seconds to connect, 2
+minutes without a byte in either direction, and 15 minutes (longer for
+a large part) until the answer starts. A whole upload may take 2 hours
+plus the time to send its bytes at 256 KiB/s; past that it is stopped
+and marked failed, and the next upload can start. The S3 client
+connects only to addresses the endpoint rules allow, checked on the
+lookup the connection itself uses.
 
 ## Where key material and secrets live
 
@@ -270,6 +308,19 @@ kept and counted in the log; a bucket lifecycle rule can expire them.
 The database dump inside each copy contains the `backup_config` row, so
 it holds the bucket secret and the naming key, encrypted under
 `CREDENTIAL_ENCRYPTION_KEY`, which is not in the copy.
+
+A restore inside the portal keeps the live server's off-site settings
+(public key, bucket settings, install id, naming key) instead of the
+archive's, and empties `backup_offsite_object`, since the archive's copy
+of it is older than the bucket. `restore-from-offsite.sh` also empties
+it, turns off-site copies off and clears the install id, so the
+restored server makes a new one and does not own the folder until an
+admin takes it over on Admin, Backup.
+
+The bucket secret from `BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE)` is
+used only with the endpoint and access key id from the environment
+when those are set there, and never in place of a saved secret that no
+longer opens.
 
 ## Manual test with a real second store
 
@@ -296,4 +347,8 @@ copies with a new provider, run this once against a real bucket:
    passphrase: `restore-from-offsite.sh --list`, then a full restore.
    The printed counts match the original portal.
 9. Replace the public key: the next copy carries the new fingerprint;
-   the older copy still decrypts with the old key file.
+   the older copy still decrypts with the old key file. The operator
+   admins get a notice, and the page says who changed the key and when.
+10. After step 8, turn off-site copies on on the restored server: the
+    first copy is refused because the folder belongs to the old install.
+    Take the folder over on the page; the next copy succeeds.

@@ -22,7 +22,7 @@ new release banner when cutting a version tag.
 <!-- entries below this line are surfaced on the public landing page -->
 
 ## 2026-11-24 - Encrypted off-site backups
-Backups can now be copied to storage at another provider, such as Backblaze B2, Cloudflare R2, AWS S3 or Hetzner, encrypted to a key only you hold: your portal can make the copies but cannot read them. You make the key on your own computer and keep it with its passphrase; lose both and the copies cannot be opened by anyone. A new Test latest backup button checks that the newest backup really restores, and a script brings a portal back on a new server from the off-site copy and your key.
+Backups can now be copied to storage at another provider, such as Backblaze B2, Cloudflare R2, AWS S3 or Hetzner, encrypted to a key only you hold: your portal can make the copies but cannot read them. You make the key on your own computer and keep it with its passphrase; lose both and the copies cannot be opened by anyone. A new Test latest backup button checks that the newest backup really restores, and a script brings a portal back on a new server from the off-site copy and your key, showing which copy it will use and asking before it changes anything. If the key is ever changed, every admin who runs the portal is told.
 
 ## [1.7.0] - 2026-11-23
 
