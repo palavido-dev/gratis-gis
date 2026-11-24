@@ -4,7 +4,9 @@ import { BadRequestException } from '@nestjs/common';
 import {
   addedReferenceIds,
   assertAddedReferencesReadable,
+  mapLayerElevationHintIds,
   referencedItemIds,
+  withoutMapLayerElevationHints,
   withoutReferences,
 } from './item-references.js';
 
@@ -143,7 +145,9 @@ describe('assertAddedReferencesReadable', () => {
   });
 
   it('keeps a stored reference the author can no longer read', async () => {
-    await expect(assertAddedReferencesReadable(lookup, 'u', [C], [C, A])).resolves.toBeUndefined();
+    await expect(assertAddedReferencesReadable(lookup, 'u', [C], [C, A])).resolves.toEqual(
+      new Set(),
+    );
     expect(lookup).toHaveBeenCalledTimes(1);
     expect(lookup).toHaveBeenCalledWith('u', [A]);
   });
@@ -163,5 +167,71 @@ describe('withoutReferences', () => {
       new Set([A]),
     );
     expect(out).toEqual({ childItemIds: [B], nested: { keep: A } });
+  });
+});
+
+describe('map layer elevation hints', () => {
+  const map = {
+    layers: [
+      { id: 't1', source: { kind: 'tile', itemId: A, preferredElevationItemId: B } },
+      { id: 't2', source: { kind: 'tile', itemId: C, preferredElevationItemId: D } },
+    ],
+  };
+
+  it('are not references a save refuses', () => {
+    expect(new Set(referencedItemIds({ type: 'map', data: map }))).toEqual(new Set([A, C]));
+    expect(new Set(mapLayerElevationHintIds(map))).toEqual(new Set([B, D]));
+  });
+
+  it('still count on a tile layer or point cloud item itself', () => {
+    expect(
+      referencedItemIds({ type: 'tile_layer', data: { preferredElevationItemId: B } }),
+    ).toEqual([B]);
+  });
+
+  it('are removed for the ids given, and only those', () => {
+    const out = withoutMapLayerElevationHints(map, new Set([B])) as typeof map;
+    expect(out.layers[0]!.source).toEqual({ kind: 'tile', itemId: A });
+    expect(out.layers[1]!.source.preferredElevationItemId).toBe(D);
+  });
+
+  it('share the one lookup and are dropped, not refused', async () => {
+    const lookup = jest.fn(
+      async (_u: string, ids: string[]) => new Set(ids.filter((id) => id === B)),
+    );
+    const drop = await assertAddedReferencesReadable(lookup, 'u', [], [A], [B, D]);
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(lookup).toHaveBeenCalledWith('u', [A, B, D]);
+    expect([...drop]).toEqual([B]);
+  });
+
+  it('are not looked up again when already stored', async () => {
+    const lookup = jest.fn(async () => new Set<string>([B]));
+    const drop = await assertAddedReferencesReadable(lookup, 'u', [B], [], [B]);
+    expect(lookup).not.toHaveBeenCalled();
+    expect(drop.size).toBe(0);
+  });
+});
+
+describe('withoutReferences on an app', () => {
+  it('drops targets and sources of a dropped layer whole', () => {
+    const out = withoutReferences(
+      {
+        config: {
+          custom: {
+            mapId: A,
+            targets: [
+              { dataLayerId: A, layerKey: 'k' },
+              { dataLayerId: B, layerKey: 'k' },
+            ],
+            sources: [{ id: 's1', layer: { dataLayerId: A, layerKey: 'k' } }],
+          },
+        },
+      },
+      new Set([A]),
+    );
+    expect(out).toEqual({
+      config: { custom: { targets: [{ dataLayerId: B, layerKey: 'k' }], sources: [] } },
+    });
   });
 });

@@ -112,6 +112,10 @@ class CreateItemDto {
   // create means "not recorded"; DCAT consumers treat absence as
   // "rights reserved".
   @IsOptional() @IsString() @MaxLength(500) license?: string | null;
+  // Set by the new-item wizard when the data was copied from a saved
+  // app template: references from that template the caller cannot
+  // read are left out with a warning instead of refused.
+  @IsOptional() @IsUUID('loose') fromTemplateId?: string;
 }
 
 class CopyItemDto {
@@ -1000,7 +1004,11 @@ export class ItemsController {
 
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateItemDto) {
-    return this.items.create(user, dto, { clientKeys: true });
+    const { fromTemplateId, ...input } = dto;
+    if (fromTemplateId !== undefined) {
+      return this.items.createFromTemplate(user, input, fromTemplateId, { clientKeys: true });
+    }
+    return this.items.create(user, input, { clientKeys: true });
   }
 
   /**

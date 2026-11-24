@@ -222,6 +222,8 @@ export const de: Partial<CatalogShape> = {
   },
 
   newItem: {
+    templateOmitted:
+      'App erstellt. Diese Elemente aus der Vorlage wurden nicht gefunden, daher fehlen sie in der App: {ids}',
     pageTitle: 'Neues Element erstellen',
     pageIntro:
       'Wählen Sie aus, was Sie erstellen, und füllen Sie dann die Details aus. Für Dienste und Uploads sammeln wir auf dem nächsten Bildschirm, was wir benötigen, damit das Element einsatzbereit ist.',

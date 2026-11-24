@@ -163,7 +163,11 @@ import { isUuidShape } from '../common/uuid-shape.js';
 import {
   assertAddedReferencesReadable,
   mapLayerBackingItemId,
+  mapLayerElevationHintIds,
   referencedItemIds,
+  referenceNotFoundMessage,
+  withoutMapLayerElevationHints,
+  withoutReferences,
   type ReferenceSource,
 } from './item-references.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -1770,13 +1774,17 @@ export class ItemsService {
     // shared observation table (version 3), never in a per-item table.
     assertCurrentDataLayerVersion(input.type, input.data);
     // Every item the new data refers to must be readable by its author.
-    await this.assertNewReferencesReadable(
+    // A map layer elevation hint they cannot read is left out instead.
+    const checkedData = await this.assertNewReferencesReadable(
       user,
       null,
       { type: input.type, data: input.data },
       input.id,
       opts.checkedReferenceIds,
     );
+    if (checkedData !== input.data) {
+      input = { ...input, data: checkedData as Prisma.InputJsonValue };
+    }
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
@@ -2249,13 +2257,22 @@ export class ItemsService {
     // must be readable by the person saving it. Rather than refuse the
     // whole copy, leave out what they cannot read and say which ids,
     // nothing more about those items, as the web map import does.
+    // Layer elevation hints share the lookup and, like on any map save,
+    // are left out silently when unreadable.
     const refs = referencedItemIds({ type: 'map', data: copied });
-    const hidden = refs.length > 0 ? await this.unreadableItemIds(user, refs) : new Set<string>();
+    const hints = mapLayerElevationHintIds(copied).filter((id) => !refs.includes(id));
+    const lookup = [...refs, ...hints];
+    const hidden =
+      lookup.length > 0 ? await this.unreadableItemIds(user, lookup) : new Set<string>();
     const omittedItemIds = refs.filter((ref) => hidden.has(ref));
-    const data =
+    const hiddenHints = new Set(hints.filter((id) => hidden.has(id)));
+    let data: Record<string, unknown> =
       omittedItemIds.length > 0
         ? mapDataWithoutReferences(copied, new Set(omittedItemIds))
         : copied;
+    if (hiddenHints.size > 0) {
+      data = withoutMapLayerElevationHints(data, hiddenHints) as Record<string, unknown>;
+    }
     const created = await this.create(
       user,
       {
@@ -2271,8 +2288,56 @@ export class ItemsService {
       },
       {
         clientKeys: true,
-        checkedReferenceIds: refs.filter((ref) => !hidden.has(ref)),
+        checkedReferenceIds: lookup.filter((ref) => !hidden.has(ref)),
       },
+    );
+    return {
+      ...created,
+      omittedItemIds,
+      warnings: omittedItemIds.map(
+        (ref) => `A reference to item ${ref} was left out: the item was not found.`,
+      ),
+    };
+  }
+
+  /**
+   * Create an app from a saved app template. The wizard copies the
+   * template's blueprint into the new app, so the app can name items
+   * the template's author could read and the person creating the app
+   * cannot. Those references are left out and their ids returned, as
+   * Save as does for maps. Only ids that are in the template itself
+   * get that treatment, and only from a template the caller can read:
+   * any other new reference in the payload is refused as on create().
+   */
+  async createFromTemplate(
+    user: AuthUser,
+    input: CreateItemInput,
+    templateId: string,
+    opts: ClientWriteOptions = {},
+  ) {
+    const template = await this.get(user, templateId);
+    if (template.type !== 'app_template') {
+      throw new BadRequestException('fromTemplateId must name an app template.');
+    }
+    const fromTemplate = new Set(
+      referencedItemIds({ type: template.type, data: template.data }),
+    );
+    const refs = referencedItemIds({ type: input.type, data: input.data });
+    const hidden =
+      refs.length > 0 ? await this.unreadableItemIds(user, refs) : new Set<string>();
+    const refused = refs.find((ref) => hidden.has(ref) && !fromTemplate.has(ref));
+    if (refused !== undefined) {
+      throw new BadRequestException(referenceNotFoundMessage(refused));
+    }
+    const omittedItemIds = refs.filter((ref) => hidden.has(ref));
+    const data =
+      omittedItemIds.length > 0
+        ? withoutReferences(input.data, new Set(omittedItemIds))
+        : input.data;
+    const created = await this.create(
+      user,
+      { ...input, data: data as Prisma.InputJsonValue },
+      { ...opts, checkedReferenceIds: refs.filter((ref) => !hidden.has(ref)) },
     );
     return {
       ...created,
@@ -2465,14 +2530,26 @@ export class ItemsService {
     incoming: ReferenceSource,
     selfId?: string,
     alreadyChecked: readonly string[] = [],
-  ): Promise<void> {
+  ): Promise<unknown> {
     const self = selfId?.toLowerCase();
-    await assertAddedReferencesReadable(
+    const isMap = incoming.type === 'map';
+    const storedHints = isMap && stored ? mapLayerElevationHintIds(stored.data) : [];
+    const dropHints = await assertAddedReferencesReadable(
       (author: AuthUser, ids: string[]) => this.unreadableItemIds(author, ids),
       user,
-      [...referencedItemIds(stored), ...alreadyChecked.map((id) => id.toLowerCase())],
+      [
+        ...referencedItemIds(stored),
+        ...storedHints,
+        ...alreadyChecked.map((id) => id.toLowerCase()),
+      ],
       referencedItemIds(incoming).filter((id) => id !== self),
+      isMap ? mapLayerElevationHintIds(incoming.data) : [],
     );
+    // A map layer's elevation hint the author cannot read is left out
+    // of the saved layer, as if the layer had no preference.
+    return dropHints.size > 0
+      ? withoutMapLayerElevationHints(incoming.data, dropHints)
+      : incoming.data;
   }
 
   /** Save and preview form of derivedInputScopeLimit: refuse. */
@@ -3010,7 +3087,7 @@ export class ItemsService {
       input.publicGeoBoundaryId !== undefined ||
       input.orgGeoBoundaryId !== undefined
     ) {
-      await this.assertNewReferencesReadable(
+      const checkedData = await this.assertNewReferencesReadable(
         user,
         tierFields,
         {
@@ -3027,6 +3104,9 @@ export class ItemsService {
         },
         id,
       );
+      if (input.data !== undefined && checkedData !== input.data) {
+        input = { ...input, data: checkedData as Prisma.InputJsonValue };
+      }
     }
     const prevLayers =
       item.type === 'data_layer' ? readV3Layers(item.data) : null;

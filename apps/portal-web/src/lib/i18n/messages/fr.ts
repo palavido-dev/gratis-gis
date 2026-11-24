@@ -222,6 +222,8 @@ export const fr: Partial<CatalogShape> = {
   },
 
   newItem: {
+    templateOmitted:
+      'Application créée. Ces éléments du modèle sont introuvables, l’application ne les inclut donc pas : {ids}',
     pageTitle: 'Créer un nouvel élément',
     pageIntro:
       "Choisissez ce que vous créez, puis remplissez les détails. Pour les services et les fichiers téléversés, nous rassemblerons les informations nécessaires sur l'écran suivant pour que l'élément soit prêt à l'emploi.",

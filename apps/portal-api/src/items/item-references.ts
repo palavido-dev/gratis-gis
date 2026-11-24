@@ -154,8 +154,11 @@ function collectKeyedReferences(data: unknown, out: Set<string>): void {
 export function referencedItemIds(row: ReferenceSource | null | undefined): string[] {
   if (!row) return [];
   const out = new Set<string>();
-  // Map expression dataRefs are server-owned (see SERVER_OWNED_KEYS).
-  const data = row.type === 'map' ? stripDataRefs(row.data) : row.data;
+  // Map expression dataRefs are server-owned (see SERVER_OWNED_KEYS),
+  // and a map layer's elevation hint is an optional reference
+  // (mapLayerElevationHintIds), not one the author chose.
+  const data =
+    row.type === 'map' ? withoutMapLayerElevationHints(stripDataRefs(row.data)) : row.data;
   const typed = extractDependencies({
     type: row.type as ItemType,
     data,
@@ -170,6 +173,45 @@ export function referencedItemIds(row: ReferenceSource | null | undefined): stri
     }
   }
   return [...out];
+}
+
+/**
+ * The elevation hints of a map's layers: `source.preferredElevationItemId`,
+ * copied from the tile or point cloud item when the layer is added. The
+ * author did not choose it, so a save does not refuse it: a new hint the
+ * author cannot read is left out of the saved layer instead.
+ */
+export function mapLayerElevationHintIds(data: unknown): string[] {
+  const layers = (data as { layers?: unknown } | null | undefined)?.layers;
+  if (!Array.isArray(layers)) return [];
+  const out = new Set<string>();
+  for (const l of layers as Array<{ source?: { preferredElevationItemId?: unknown } } | null>) {
+    const id = l?.source?.preferredElevationItemId;
+    if (isUuidShape(id)) out.add(id.toLowerCase());
+  }
+  return [...out];
+}
+
+/**
+ * Map data without the layer elevation hints in `drop`, or without any
+ * when `drop` is not given.
+ */
+export function withoutMapLayerElevationHints(data: unknown, drop?: ReadonlySet<string>): unknown {
+  const d = data as { layers?: unknown } | null | undefined;
+  if (!d || !Array.isArray(d.layers)) return data;
+  let changed = false;
+  const layers = (d.layers as unknown[]).map((l) => {
+    const layer = l as { source?: Record<string, unknown> } | null;
+    const src = layer?.source;
+    if (!src || typeof src !== 'object' || !('preferredElevationItemId' in src)) return l;
+    const id = src.preferredElevationItemId;
+    if (drop && !(typeof id === 'string' && drop.has(referenceKey(id)))) return l;
+    const { preferredElevationItemId: _hint, ...rest } = src;
+    void _hint;
+    changed = true;
+    return { ...(layer as object), source: rest };
+  });
+  return changed ? { ...(d as object), layers } : data;
 }
 
 function stripDataRefs(data: unknown): unknown {
@@ -223,14 +265,31 @@ export async function assertAddedReferencesReadable<U>(
   author: U,
   stored: Iterable<string>,
   incoming: Iterable<string>,
-): Promise<void> {
-  const added = addedReferenceIds(stored, incoming);
-  if (added.length === 0) return;
-  const hidden = await unreadable(author, added);
-  const first = added.find((id) => hidden.has(id) || hidden.has(id.toLowerCase()));
+  /** References that are dropped rather than refused when the author
+   *  cannot read them (a map layer's elevation hint). New ones share
+   *  the one lookup. */
+  optional: Iterable<string> = [],
+): Promise<Set<string>> {
+  const storedList = [...stored];
+  const added = addedReferenceIds(storedList, incoming);
+  const addedOptional = addedReferenceIds([...storedList, ...added], optional);
+  if (added.length === 0 && addedOptional.length === 0) return new Set();
+  const hidden = await unreadable(author, [...added, ...addedOptional]);
+  const isHidden = (id: string) => hidden.has(id) || hidden.has(id.toLowerCase());
+  const first = added.find(isHidden);
   if (first !== undefined) {
     throw new BadRequestException(referenceNotFoundMessage(first));
   }
+  return new Set(addedOptional.filter(isHidden).map(referenceKey));
+}
+
+/** An app target ({ dataLayerId }) or source ({ layer: { dataLayerId } }) of a dropped layer. */
+function namesDroppedLayer(v: unknown, drop: ReadonlySet<string>): boolean {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as { dataLayerId?: unknown; layer?: { dataLayerId?: unknown } | null };
+  const id =
+    o.dataLayerId ?? (o.layer && typeof o.layer === 'object' ? o.layer.dataLayerId : undefined);
+  return typeof id === 'string' && drop.has(referenceKey(id));
 }
 
 /** The form ids take in reference sets: uuids lowercased, anything else as is. */
@@ -247,7 +306,11 @@ export function referenceKey(id: string): string {
 export function withoutReferences(data: unknown, drop: ReadonlySet<string>): unknown {
   const visit = (value: unknown, depth: number): unknown => {
     if (depth > MAX_WALK_DEPTH || !value || typeof value !== 'object') return value;
-    if (Array.isArray(value)) return value.map((v) => visit(v, depth + 1));
+    if (Array.isArray(value)) {
+      // A layer target or source entry is meaningless without its
+      // layer, so an entry naming a dropped layer is left out whole.
+      return value.filter((v) => !namesDroppedLayer(v, drop)).map((v) => visit(v, depth + 1));
+    }
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
       if (REFERENCE_KEYS.has(key) && typeof v === 'string' && drop.has(referenceKey(v))) {
