@@ -78,9 +78,20 @@ export function resolveRef(ref: Ref, victim: OrgFixture, caller: OrgFixture): st
 }
 
 /** The same ref for the org's public twin (public item, public feature). */
+/** The same ref for the org's `org` access twin (visible to its own members). */
+function orgTwin(ref: Ref): Ref {
+  return ref.replace(/:private$/, ':org');
+}
+
 function publicTwin(ref: Ref): Ref {
   if (ref === 'feature') return 'publicFeature';
   return ref.replace(/:private$/, ':public');
+}
+
+function twinOf(ref: Ref, opts: { publicTwin?: boolean; orgTwin?: boolean }): Ref {
+  if (opts.publicTwin) return publicTwin(ref);
+  if (opts.orgTwin) return orgTwin(ref);
+  return ref;
 }
 
 export type BuiltRequest = { method: string; path: string; body: unknown };
@@ -90,12 +101,12 @@ export function buildRequest(
   entry: RouteEntry,
   victim: OrgFixture,
   caller: OrgFixture,
-  opts: { publicTwin?: boolean } = {},
+  opts: { publicTwin?: boolean; orgTwin?: boolean } = {},
 ): BuiltRequest {
   const [method, template] = key.split(' ') as [string, string];
   const refFor = (name: string): Ref => {
     const ref = entry.params?.[name] ?? DEFAULT_PARAMS[name] ?? `=${name}`;
-    return opts.publicTwin ? publicTwin(ref) : ref;
+    return twinOf(ref, opts);
   };
   let path = template
     .replace(/\/\*$/, '/x')
@@ -104,7 +115,7 @@ export function buildRequest(
     );
   const q = new URLSearchParams();
   for (const [k, ref] of Object.entries(entry.query ?? {})) {
-    q.set(k, resolveRef(opts.publicTwin ? publicTwin(ref) : ref, victim, caller));
+    q.set(k, resolveRef(twinOf(ref, opts), victim, caller));
   }
   if ([...q.keys()].length > 0) path += `?${q.toString()}`;
   const body = entry.body
@@ -155,6 +166,7 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
       const leaks = leakedSecrets(r, req, A);
       if (leaks.length) problems.push(`B saw A's data: ${leaks.join(', ')}`);
       await controlCall(state, entry, req, problems);
+      await orgTwinProbe(state, key, entry, req, problems);
       break;
     }
     case 'write': {
@@ -168,6 +180,7 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
       if (changed.length) problems.push(`A's rows changed: ${changed.join(', ')}`);
       const leaks = leakedSecrets(r, req, A);
       if (leaks.length) problems.push(`B saw A's data: ${leaks.join(', ')}`);
+      await orgTwinProbe(state, key, entry, req, problems);
       break;
     }
     case 'list':
@@ -256,21 +269,27 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
         const r = await call(state, who, req);
         if (r.status !== 403) problems.push(`${who.username}: expected 403, got ${short(r)}`);
       }
+      // The operator's own call is made for reads only: a write would
+      // really run (a backup, maintenance mode).
       if (req.method === 'GET') {
         const operator = mode === 'multi' ? fx.OP.users.admin : A.users.admin;
         const r = await call(state, operator, req);
-        if (r.status === 401 || r.status === 403)
+        if (r.status === 401 || r.status === 403) {
           problems.push(`operator admin was refused: ${short(r)}`);
-        if (mode === 'multi') {
-          const saved = process.env.GRATIS_OPERATOR_ORG_ID;
-          delete process.env.GRATIS_OPERATOR_ORG_ID;
-          try {
-            const unset = await call(state, fx.OP.users.admin, req);
-            if (unset.status !== 403)
-              problems.push(`operator id unset: expected 403 for everyone, got ${short(unset)}`);
-          } finally {
-            process.env.GRATIS_OPERATOR_ORG_ID = saved ?? opId;
+        }
+      }
+      // With no operator named, the guard refuses everyone before the
+      // handler runs, so writes are safe to try here.
+      if (mode === 'multi') {
+        const saved = process.env.GRATIS_OPERATOR_ORG_ID;
+        delete process.env.GRATIS_OPERATOR_ORG_ID;
+        try {
+          const unset = await call(state, fx.OP.users.admin, req);
+          if (unset.status !== 403) {
+            problems.push(`operator id unset: expected 403 for everyone, got ${short(unset)}`);
           }
+        } finally {
+          process.env.GRATIS_OPERATOR_ORG_ID = saved ?? opId;
         }
       }
       break;
@@ -295,6 +314,40 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
       break;
   }
   return { ok: problems.length === 0, problems };
+}
+
+/**
+ * The same probe against A's `org` access item, which every member of
+ * A may read: org-wide visibility must not reach another org.
+ */
+async function orgTwinProbe(
+  state: SuiteState,
+  key: string,
+  entry: RouteEntry,
+  req: BuiltRequest,
+  problems: string[],
+): Promise<void> {
+  const { A, B } = state.fx;
+  let twin: BuiltRequest;
+  try {
+    twin = buildRequest(key, entry, A, B, { orgTwin: true });
+  } catch {
+    return; // no org-access twin of this fixture
+  }
+  if (twin.path === req.path) return;
+  const before = req.method === 'GET' ? undefined : await snapshot(state);
+  const r = await call(state, B.users.admin, twin);
+  const expect = entry.expect ?? [404];
+  if (!expect.includes(r.status)) {
+    problems.push(`B with A's org-access ids: expected ${expect.join('/')}, got ${short(r)}`);
+  }
+  const leaks = leakedSecrets(r, twin, A);
+  if (leaks.length) problems.push(`B saw A's data through an org-access item: ${leaks.join(', ')}`);
+  if (before) {
+    const changed = changedTables(before, await snapshot(state));
+    if (changed.length)
+      problems.push(`A's rows changed through an org-access item: ${changed.join(', ')}`);
+  }
 }
 
 async function controlCall(
