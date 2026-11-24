@@ -381,6 +381,15 @@ const TYPE_VARIABLES: { [K in NotificationType]?: TemplateVariableDescriptor[] }
   ],
   backup_failed: [
     { name: 'runId', label: 'Backup run ID' },
+    {
+      name: 'kind',
+      label: 'Kind',
+      description: 'Empty for a failed backup; offsite_failed or offsite_stale for an off-site copy.',
+    },
+    { name: 'days', label: 'Days since the last good off-site copy' },
+    { name: 'from', label: 'Fingerprint of the replaced off-site key' },
+    { name: 'to', label: 'Fingerprint of the new off-site key' },
+    { name: 'name', label: 'Off-site copy set aside' },
   ],
 };
 
@@ -645,8 +654,105 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
     return { subject, text, html };
   }) as Renderer<unknown>,
 
-  backup_failed: ((payload: { runId?: string }, ctx) => {
+  backup_failed: ((
+    payload: {
+      runId?: string;
+      kind?: string;
+      days?: number | null;
+      from?: string | null;
+      to?: string | null;
+      name?: string;
+      count?: number;
+      badSignature?: number;
+      dated?: number;
+      automatic?: boolean;
+      oldKeyKept?: boolean;
+    },
+    ctx,
+  ) => {
     const runId = typeof payload.runId === 'string' ? payload.runId : '';
+    if (payload.kind === 'offsite_key_changed') {
+      const from = typeof payload.from === 'string' ? payload.from : 'none';
+      const to = typeof payload.to === 'string' ? payload.to : 'none';
+      const subject = `The off-site backup key was changed on ${ctx.orgLabel}`;
+      const line =
+        `The public key that off-site backup copies are encrypted to was changed. ` +
+        `If you did not expect this, check Admin, Backup now.`;
+      const text = `${line}\nOld fingerprint: ${from}\nNew fingerprint: ${to}\n`;
+      const html =
+        `<p>${escapeHtml(line)}</p>` +
+        `<p>Old fingerprint: ${escapeHtml(from)}<br>New fingerprint: ${escapeHtml(to)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_signing_key_changed') {
+      const from = typeof payload.from === 'string' ? payload.from : 'none';
+      const to = typeof payload.to === 'string' ? payload.to : 'none';
+      const subject = `The off-site backup signing key was changed on ${ctx.orgLabel}`;
+      const kept =
+        payload.oldKeyKept === false
+          ? `The old verify key did not match the stored key, so it is no longer trusted: copies signed with it are set aside (kept, not deleted) by this server.`
+          : `Copies signed with the old key still count as good, because its verify key is kept as one of this portal's earlier keys.`;
+      const how =
+        payload.automatic === true
+          ? `The server replaced it by itself because the stored key could not be opened or did not match its verify key. ${kept}`
+          : `An admin replaced it on Admin, Backup.`;
+      const line =
+        `The key this portal signs off-site backup copies with was replaced. ${how} ` +
+        `Add the new verify key to your key file (Admin, Backup shows it). ` +
+        `If you did not expect this, check Admin, Backup now.`;
+      const text = `${line}\nOld verify key fingerprint: ${from}\nNew verify key fingerprint: ${to}\n`;
+      const html =
+        `<p>${escapeHtml(line)}</p>` +
+        `<p>Old verify key fingerprint: ${escapeHtml(from)}<br>New verify key fingerprint: ${escapeHtml(to)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_set_aside') {
+      const name = typeof payload.name === 'string' ? payload.name : '';
+      const count = typeof payload.count === 'number' ? payload.count : 0;
+      const bad = typeof payload.badSignature === 'number' ? payload.badSignature : 0;
+      const dated = typeof payload.dated === 'number' ? payload.dated : 0;
+      const subject = `Off-site backup copies were set aside on ${ctx.orgLabel}`;
+      const line =
+        `${count} off-site copies in the bucket were set aside: ${bad} not signed by this portal or not matching their signature, ` +
+        `${dated} dated in the future or after the provider recorded them. ` +
+        `They are kept: retention does not delete them or count them as the newest copy. Check who can write to the bucket.`;
+      const text = `${line}\nCopies: ${name}\n`;
+      const html = `<p>${escapeHtml(line)}</p><p>Copies: ${escapeHtml(name)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_retention_stopped') {
+      const name = typeof payload.name === 'string' ? payload.name : '';
+      const subject = `Off-site backup clean-up stopped on ${ctx.orgLabel}`;
+      const line =
+        `The record of an off-site copy could not be read, so this server deleted nothing from the bucket. ` +
+        `Check the bucket and who can write to it.`;
+      const text = `${line}\nCopy: ${name}\n`;
+      const html = `<p>${escapeHtml(line)}</p><p>Copy: ${escapeHtml(name)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_failed') {
+      const subject = `An off-site backup copy failed on ${ctx.orgLabel}`;
+      const text =
+        `The backup finished on this server, but its off-site copy did not upload. ` +
+        `Open Admin, Backup, and read that run.\n` +
+        `Run id: ${runId}\n`;
+      const html =
+        `<p>The backup finished on ${escapeHtml(ctx.orgLabel)}, but its off-site copy did not upload. ` +
+        `Open Admin, Backup, and read that run.</p>` +
+        `<p>Run id: ${escapeHtml(runId)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_stale') {
+      const days = typeof payload.days === 'number' ? payload.days : null;
+      const when =
+        days === null ? 'No off-site backup copy has succeeded yet.' : `The last good off-site backup copy is ${days} days old.`;
+      const subject = `No recent off-site backup on ${ctx.orgLabel}`;
+      const text = `${when} Open Admin, Backup, and check the off-site settings.\n`;
+      const html =
+        `<p>${escapeHtml(when)} Open Admin, Backup, and check the off-site settings on ` +
+        `${escapeHtml(ctx.orgLabel)}.</p>`;
+      return { subject, text, html };
+    }
     const subject = `A backup did not finish on ${ctx.orgLabel}`;
     const text =
       `A backup did not finish. Open Admin, Backup, and read that run.\n` +

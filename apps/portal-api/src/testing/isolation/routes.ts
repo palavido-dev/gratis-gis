@@ -146,6 +146,19 @@ export const ROUTES: Record<string, RouteEntry> = {
   'POST /api/admin/backup/runs/:id/restore': op({
     params: { id: '=00000000-0000-4000-8000-000000000001' },
   }),
+  'GET /api/admin/backup/offsite': op(),
+  'PATCH /api/admin/backup/offsite': op(),
+  'POST /api/admin/backup/offsite/test': op(),
+  'POST /api/admin/backup/offsite/check-key': op(),
+  'POST /api/admin/backup/offsite/take-over': op(),
+  'POST /api/admin/backup/offsite/signing-key': op(),
+  'POST /api/admin/backup/offsite/check-verify-key': op(),
+  'POST /api/admin/backup/runs/:id/offsite': op({
+    params: { id: '=00000000-0000-4000-8000-000000000001' },
+  }),
+  'GET /api/admin/backup/restore-tests/preflight': op(),
+  'GET /api/admin/backup/restore-tests': op(),
+  'POST /api/admin/backup/restore-tests': op(),
   'DELETE /api/admin/feedback/:id': op({ params: { id: '=00000000-0000-4000-8000-000000000001' } }),
   'GET /api/admin/feedback': op(),
   'GET /api/admin/feedback/:id/screenshot': op({

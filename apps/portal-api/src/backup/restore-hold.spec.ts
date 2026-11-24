@@ -169,6 +169,21 @@ describe('runRestore', () => {
         createMany: jest.fn((a: unknown) => ({ createRestores: a })),
         create: jest.fn(async () => ({ id: 'audit-1' })),
       },
+      // Off-site state the restore keeps from the live server.
+      backupOffsiteNotice: {
+        findMany: jest.fn(async () => []),
+        deleteMany: jest.fn(() => 'deleteOffsiteNotices'),
+        createMany: jest.fn((a: unknown) => ({ createOffsiteNotices: a })),
+      },
+      backupRestoreTest: {
+        findMany: jest.fn(async () => []),
+        deleteMany: jest.fn(() => 'deleteRestoreTests'),
+        createMany: jest.fn((a: unknown) => ({ createRestoreTests: a })),
+      },
+      backupConfig: {
+        findFirst: jest.fn(async () => ({ offsitePublicKey: 'ggpub1:live' })),
+        updateMany: jest.fn((a: unknown) => ({ updateConfig: a })),
+      },
       $transaction: tx,
     };
     const file = archive(
@@ -246,6 +261,10 @@ describe('runRestore', () => {
     expect(t.prisma.backupFailureNotice.createMany).toHaveBeenCalledWith({
       data: [{ runId: 'run-old' }],
     });
+    // The live off-site settings win over the archive's.
+    expect(t.prisma.backupConfig.updateMany).toHaveBeenCalledWith({
+      data: { offsitePublicKey: 'ggpub1:live' },
+    });
     // Snapshot is taken before pg_restore replaces the tables.
     const snapOrder = t.prisma.backupRun.findMany.mock.invocationCallOrder[0]!;
     const restoreOrder = t.pgRestore.mock.invocationCallOrder[0]!;
@@ -266,6 +285,31 @@ describe('runRestore', () => {
     const restarted = replica(t.prisma);
     await refresh(restarted);
     expect(restarted.isActive()).toBe(true);
+  });
+
+  it('a pg_restore failure puts the live off-site settings back', async () => {
+    const t = setup();
+    await t.mode.activate('restore');
+    t.pgRestore.mockRejectedValue(new Error('pg_restore exited with code 1'));
+    await expect(t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toThrow(
+      /pg_restore exited/,
+    );
+    expect(t.tx).toHaveBeenCalledTimes(1);
+    expect(t.tx).toHaveBeenCalledWith([
+      { updateConfig: { data: { offsitePublicKey: 'ggpub1:live' } } },
+    ]);
+    expect(existsSync(restoreMarkerPath())).toBe(true);
+  });
+
+  it('a failed off-site reset after a failed restore still keeps the marker and the first error', async () => {
+    const t = setup();
+    await t.mode.activate('restore');
+    t.pgRestore.mockRejectedValue(new Error('pg_restore exited with code 1'));
+    t.tx.mockRejectedValue(new Error('database gone'));
+    await expect(t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toThrow(
+      /pg_restore exited/,
+    );
+    expect(existsSync(restoreMarkerPath())).toBe(true);
   });
 
   it('refuses an archive with a different schema before touching anything (API-OPS-05)', async () => {

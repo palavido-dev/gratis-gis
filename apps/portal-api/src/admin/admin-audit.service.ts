@@ -31,6 +31,8 @@ export const AUDIT_ACTIONS = [
   'backup.restore',
   'backup.cancel',
   'backup.delete',
+  'backup.offsite',
+  'backup.test',
   'admin.security',
   'admin.branding',
   'admin.diagnostics',

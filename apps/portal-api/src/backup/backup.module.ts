@@ -18,6 +18,8 @@ import { BackupRestoreService } from './backup-restore.service.js';
 import { BackupService } from './backup.service.js';
 import { MaintenanceModeMiddleware } from './maintenance-mode.middleware.js';
 import { MaintenanceModeService } from './maintenance-mode.service.js';
+import { OffsiteService } from './offsite.service.js';
+import { RestoreTestService } from './restore-test.service.js';
 
 /**
  * Bundles backup creation + scheduled run registration + restore.
@@ -39,6 +41,8 @@ import { MaintenanceModeService } from './maintenance-mode.service.js';
     BackupRestoreService,
     MaintenanceModeService,
     BackupFailureNotice,
+    OffsiteService,
+    RestoreTestService,
     AdminGuard,
     OperatorOrgGuard,
   ],

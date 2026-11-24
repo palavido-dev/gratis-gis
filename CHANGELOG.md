@@ -16,6 +16,108 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
 - `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
+- **Off-site backups.** Each backup can be copied to an S3-compatible
+  bucket at another provider (Backblaze B2, Cloudflare R2, AWS S3,
+  Hetzner Object Storage and others), encrypted on the server to the
+  admin's X25519 public key. The portal holds only the public key and
+  cannot read its own copies; the admin makes the key pair and keeps the
+  passphrase-sealed private key with `infra/recovery/offsite-key.mjs`,
+  which also decrypts a copy with nothing but Node.js. Every key is
+  shown with its fingerprint, recorded on each run, and can be checked
+  on the page. Uploads stream in parts, are checked by size and
+  checksum, run one at a time per install, and keep the newest good
+  copy whatever the retention. Each portal claims its own folder in the
+  bucket. One upload may take at most "Longest upload" (20 hours by
+  default, 1 to 72, `BACKUP_OFFSITE_MAX_UPLOAD_HOURS`). Each upload,
+  finished or stopped for time, records the speed the provider
+  confirmed; a copy found already complete records none. Once a speed
+  is measured (the slowest of the last three), a backup whose estimated
+  upload time is longer than the limit is not sent and its off-site
+  copy fails with a message that says so. Any other backup, and every
+  backup before a speed is measured, is tried and stopped when the
+  time runs out. These two failures send one notice until a good copy
+  or a changed limit. The page shows the limit and the measured speed
+  ("not measured yet" before one), with the newest backup's estimated
+  upload time once there is a speed. A
+  backup that finishes while another upload runs is marked as skipped,
+  with "Upload again". Uploading a backup again reuses an earlier
+  upload that is complete, signed and encrypted to the current public
+  key, and otherwise uploads under a new name, so an object a signed
+  record may describe is never replaced. A failed copy, or no good copy
+  for a set number of days, raises a notice. Set it on Admin,
+  Backup (operator admins) or with `BACKUP_OFFSITE_*` variables, which
+  are checked the same way. Plain http endpoints need
+  `BACKUP_OFFSITE_ALLOW_HTTP` and this server's loopback address needs
+  `BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT`, each with a warning on every
+  run; link-local and cloud metadata addresses are always refused, on
+  every connection. Every
+  request to the bucket has time limits and each upload an overall one,
+  so a provider that stops answering ends the upload as failed. The
+  folder can never be the whole bucket, its name uses the same letters,
+  digits, `.`, `_`, `-` and `/` on the page, in the environment and in
+  the restore tool, and the environment's secret
+  goes only with the environment's endpoint. Changing the public key
+  notifies the operator admins and is shown on the page with who changed
+  it and when. Copies dated in the future are kept, reported, and never
+  treated as the newest. A restore inside the portal keeps the live
+  off-site settings.
+- **Signed off-site copies.** Each off-site copy is signed with
+  Ed25519 by a signing key the server makes for itself and stores
+  under `CREDENTIAL_ENCRYPTION_KEY`. The signature covers a short
+  manifest: the copy's name, folder, install id, exact size, SHA-256 of
+  the encrypted bytes, encryption key fingerprint and time. The page shows the verify key
+  (`ggver1:...`) with its fingerprint, a "Check my verify key" step and
+  a "Make a new signing key" action (operator admins, audited, with a
+  notice). `offsite-key.mjs trust` adds verify keys to the key file
+  (written to a new file, same passphrase), `verify` checks a copy, and
+  `decrypt --sidecar` checks before it decrypts. The restore checks the
+  signature against the key file before it downloads or changes
+  anything, and checks the copy's size and SHA-256 against the signed
+  record before decrypting. With no verified copy it offers, in order,
+  one signed for another portal install (checked against its signed
+  record), one naming a verify key the file does not hold (shown as an
+  unchecked claim), then an unsigned one, each used only with its own
+  option (`--allow-foreign-install`, `--allow-untrusted-signer`,
+  `--allow-unsigned-copy`) or its own typed word, and says which kind it
+  is and what was and was not checked.
+  Retention reads every copy's record before it deletes anything and
+  stops, deleting nothing, if one cannot be read. It never counts a
+  badly signed copy as the newest good one; it keeps it and sends one
+  summary notice per pass, reading at most 100 such copies per pass.
+  When the stored signing key can no longer be opened, the page says
+  so, and the next upload (never a page load or a check) makes a new
+  one and keeps the old verify key as an earlier key, so copies it
+  signed still count; only a stored key that opens to another key than
+  its verify key loses that trust. The notice says whether the server
+  or an admin made the change. A restored server makes a new signing
+  key and keeps the verify key that checked the restored copy as an
+  earlier key, and the backup's own verify keys too when that was the
+  backup's key.
+  New routes: `POST /api/admin/backup/offsite/signing-key` and
+  `POST /api/admin/backup/offsite/check-verify-key`, both operator only.
+- The help page and `docs/operations/offsite-backup-format.md` say
+  plainly what signing protects (a leak of the bucket keys) and what it
+  does not (a server that is taken over, deleted copies, an older
+  genuine copy put back), and how to protect a bucket: a key used only
+  by the portal, versioning or object lock, and restoring a copy from
+  before an incident.
+- **Test latest backup** on Admin, Backup restores the newest
+  backup's database into a scratch database, counts the main tables
+  and drops it, with a free-space check (or a size confirmation) first
+  and a reminder when no test passed in 30 days. One test runs at a
+  time.
+- `infra/restore-from-offsite.sh` brings a portal back on a new server
+  from the bucket, the key file and its passphrase. It shows the copy
+  it will use (name, date, size, key fingerprint) and what it will
+  replace, asks for the database name before anything changes, refuses
+  a database in use without `--replace-existing`, and saves the current
+  database first, checking the saved file reads back. The restored
+  server gets a new off-site install id; "Take over this folder" on
+  Admin, Backup makes it the folder's owner when it replaces the old
+  server. `infra/recovery/restore.sh` now leaves the restored portal's
+  off-site copies off the same way, with a new install id and no
+  signing key from the bundle. `install.sh --check` says whether
+  off-site backups are set up.
 - Save as for maps: make your own copy of any map you can open, from
   the map builder or the map's page, with unsaved changes and,
   optionally, its markup. The copy starts private. `POST

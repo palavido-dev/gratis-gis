@@ -18,6 +18,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -231,6 +232,34 @@ function formatGb(bytes: number): string {
  *     an existing BackupRun row on the same deployment).
  *   - Selective restore (subset of tables, single MinIO object).
  */
+/** Off-site settings that stay as they are on the live server through a restore. */
+const OFFSITE_CONFIG_COLUMNS = {
+  offsiteEnabled: true,
+  offsiteEndpoint: true,
+  offsiteRegion: true,
+  offsiteBucket: true,
+  offsitePrefix: true,
+  offsitePathStyle: true,
+  offsiteAccessKeyId: true,
+  offsiteSecretEncrypted: true,
+  offsiteSecretIv: true,
+  offsitePublicKey: true,
+  offsiteInstallId: true,
+  offsiteRetentionDays: true,
+  offsiteAlertDays: true,
+  offsiteKeyChangedAt: true,
+  offsiteKeyChangedBy: true,
+  offsitePreviousFingerprint: true,
+  // The live signing key, never the archive's: a restore must not bring
+  // back a signing key from the dump.
+  offsiteSigningKeyEncrypted: true,
+  offsiteSigningKeyIv: true,
+  offsiteVerifyKey: true,
+  offsitePreviousVerifyKeys: true,
+  offsiteSigningKeyChangedAt: true,
+  offsiteSigningKeyChangedBy: true,
+} as const;
+
 @Injectable()
 export class BackupRestoreService {
   private readonly log = new Logger(BackupRestoreService.name);
@@ -335,6 +364,7 @@ export class BackupRestoreService {
     let started = false;
     const notStarted = (msg: string) => new RestoreNotStartedError(msg);
     let stageDir: string | null = null;
+    let history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>> | null = null;
     let filename = '';
 
     try {
@@ -412,7 +442,7 @@ export class BackupRestoreService {
 
       // 3. Backup history lives in the database the restore replaces.
       //    Keep the live rows: they describe the archives on disk.
-      const history = await this.snapshotBackupHistory();
+      history = await this.snapshotBackupHistory();
 
       // 4. Hold maintenance through the whole restore. The local hold
       //    covers this replica, the marker file covers the other one
@@ -476,6 +506,21 @@ export class BackupRestoreService {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.error(`RESTORE FAILED: ${msg}`);
       if (started) {
+        // The database may hold the archive's off-site settings. Put the
+        // live ones back, so off-site clean-up never works from the
+        // archive's folder, install id or signing key.
+        if (history) {
+          const kept = history;
+          await this.prisma
+            .$transaction(this.keptOffsiteOps(kept))
+            .catch((err: unknown) => {
+              this.log.error(
+                `Could not put the off-site settings back after the failed restore: ${
+                  err instanceof Error ? err.message : err
+                }`,
+              );
+            });
+        }
         // Keep the marker: the database may be half restored.
         await this.mode.endRestoreHold(false);
         throw new Error(msg);
@@ -520,14 +565,22 @@ export class BackupRestoreService {
     }
   }
 
-  /** Live backup history, read before pg_restore replaces it. */
+  /**
+   * Live backup history, read before pg_restore replaces it. Also the
+   * live off-site settings: the archive's copy may name an older public
+   * key, a cleared secret or another folder, and none of that should
+   * come back with the data.
+   */
   async snapshotBackupHistory() {
-    const [runs, notices, restores] = await Promise.all([
+    const [runs, notices, restores, offsiteNotices, restoreTests, config] = await Promise.all([
       this.prisma.backupRun.findMany(),
       this.prisma.backupFailureNotice.findMany(),
       this.prisma.backupRestore.findMany(),
+      this.prisma.backupOffsiteNotice.findMany(),
+      this.prisma.backupRestoreTest.findMany(),
+      this.prisma.backupConfig.findFirst({ select: OFFSITE_CONFIG_COLUMNS }),
     ]);
-    return { runs, notices, restores };
+    return { runs, notices, restores, offsiteNotices, restoreTests, offsite: config };
   }
 
   /**
@@ -547,7 +600,24 @@ export class BackupRestoreService {
       this.prisma.backupFailureNotice.createMany({ data: history.notices }),
       this.prisma.backupRestore.deleteMany({}),
       this.prisma.backupRestore.createMany({ data: history.restores }),
+      this.prisma.backupOffsiteNotice.deleteMany({}),
+      this.prisma.backupOffsiteNotice.createMany({ data: history.offsiteNotices }),
+      this.prisma.backupRestoreTest.deleteMany({}),
+      this.prisma.backupRestoreTest.createMany({
+        data: history.restoreTests.map((t) => ({
+          ...t,
+          summary: t.summary === null ? Prisma.DbNull : (t.summary as Prisma.InputJsonValue),
+        })),
+      }),
+      ...this.keptOffsiteOps(history),
     ]);
+  }
+
+  /** The live off-site settings, written back over the archive's. */
+  private keptOffsiteOps(
+    history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>>,
+  ) {
+    return history.offsite ? [this.prisma.backupConfig.updateMany({ data: history.offsite })] : [];
   }
 
   private async assertSchemaMatches(

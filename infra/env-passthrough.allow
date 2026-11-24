@@ -40,6 +40,7 @@ BFF_TIMING both development timing log
 ITEMS_LIST_TIMING both development timing log
 GRATIS_UX_FIXTURE both development page, always off in production
 BACKUP_PGDUMP_DOCKER_CONTAINER both development: runs pg_dump through docker exec from a host checkout
+BACKUP_PG_DATA_DIR both host installs only: in Compose the database files are in another container
 COOKIE_SECURE both development override; NODE_ENV=production already sets Secure
 OIDC_ISSUER both portal-info derives it from KEYCLOAK_URL and KEYCLOAK_REALM
 PORTAL_API_BASE_URL both portal-info derives it from the request

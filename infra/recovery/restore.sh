@@ -19,10 +19,13 @@
 # Only after that safety bundle is written are the Keycloak database,
 # the portal database, and the MinIO data directory replaced. Each
 # database is restored in one transaction that stops on the first
-# error. A failure before the first database write starts the stopped
-# writers again and removes the maintenance file. A failure after it is
-# a partial restore: writers stay stopped, maintenance stays, and the
-# safety bundle path is printed.
+# error. The restored portal database then has its off-site copies
+# turned off, a new install id and no signing key from the backup,
+# until an admin reviews them on Admin, Backup. A failure before the
+# first database write starts the stopped writers again and removes the
+# maintenance file. A failure after it is a partial restore: writers
+# stay stopped, maintenance stays, and the safety bundle path is
+# printed.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -346,6 +349,26 @@ while read -r extra; do
 done < <(comm -13 <(printf '%s\n' "$DUMP_TABLES") <(printf '%s\n' "$LIVE_FS_TABLES"))
 if ! restore_db "$PORTAL_DB" "$STAGE/portal.dump"; then
   fail 'portal database restore failed after keycloak was replaced'
+fi
+# The restored database may be running on another server than the one
+# it was captured on. Leave its off-site backups off, with a new
+# install id and no signing key from the backup, as the other restore
+# paths do, so it never cleans up or signs for the old server's folder
+# until an admin turns off-site copies on again and takes the folder
+# over. A backup from before off-site copies has nothing to reset.
+HAS_OFFSITE="$(recovery_compose exec -T postgres psql -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" -Atc \
+  "SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'backup_config' AND column_name = 'offsite_signing_key_encrypted'")" \
+  || fail 'could not check the off-site settings after the portal restore'
+if [[ "$HAS_OFFSITE" == 1 ]]; then
+  KEEP_PREFIX=1
+  for f in "${ENV_FILES[@]}"; do
+    grep -Eq '^[[:space:]]*BACKUP_OFFSITE_PREFIX=[^[:space:]]' "$f" 2>/dev/null && KEEP_PREFIX=0
+  done
+  recovery_offsite_reset_sql | recovery_compose exec -T postgres psql -U "${POSTGRES_USER:-gratisgis}" -d "$PORTAL_DB" \
+    -v ON_ERROR_STOP=1 -v keep_prefix="$KEEP_PREFIX" -q -f - >/dev/null \
+    || fail 'could not turn off-site copies off after the portal restore'
+  printf 'recovery: off-site copies are off, with a new install id and no signing key from the backup.\n'
+  printf 'recovery: on Admin, Backup, turn them on again and use "Take over this folder" if this server replaces the old one.\n'
 fi
 
 # The MinIO image has no shell, so a separate image extracts the tar.

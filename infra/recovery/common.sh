@@ -207,3 +207,43 @@ recovery_start_stopped() {
   RECOVERY_STOPPED_IDS=()
   RECOVERY_STOPPED_NAMES=()
 }
+
+# SQL that leaves a restored portal database's off-site backup state
+# safe: off-site copies off, a new install id (the portal makes one on
+# next use, so it does not own the bucket folder until an admin takes
+# it over), and no signing key from the backup (the portal makes its
+# own). The backup's verify key is kept as one of the portal's earlier
+# keys, deduplicated and capped at 20, so copies it signed still count
+# once the folder is taken over. With keep_prefix=1 the folder named
+# by the old install id is kept as the setting, since the default
+# folder comes from the install id. Run with psql -v keep_prefix=0|1
+# on a database that has the off-site columns.
+recovery_offsite_reset_sql() {
+  cat <<'SQL'
+UPDATE backup_config SET
+  offsite_enabled = false,
+  offsite_prefix = CASE
+    WHEN :'keep_prefix' = '1' AND offsite_prefix IS NULL AND offsite_install_id IS NOT NULL
+      THEN 'gratisgis-' || left(replace(offsite_install_id, '-', ''), 8) || '/'
+    ELSE offsite_prefix
+  END,
+  offsite_install_id = NULL,
+  offsite_previous_verify_keys = (
+    SELECT COALESCE(array_agg(kept.k ORDER BY kept.n), ARRAY[]::text[])
+    FROM (
+      SELECT u.k, max(u.n) AS n
+      FROM unnest(COALESCE(offsite_previous_verify_keys, ARRAY[]::text[]) || offsite_verify_key)
+        WITH ORDINALITY AS u(k, n)
+      WHERE u.k IS NOT NULL
+      GROUP BY u.k
+      ORDER BY max(u.n) DESC
+      LIMIT 20
+    ) kept
+  ),
+  offsite_signing_key_encrypted = NULL,
+  offsite_signing_key_iv = NULL,
+  offsite_verify_key = NULL,
+  offsite_signing_key_changed_at = NULL,
+  offsite_signing_key_changed_by = NULL;
+SQL
+}

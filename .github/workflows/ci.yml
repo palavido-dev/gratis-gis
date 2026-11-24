@@ -242,6 +242,7 @@ jobs:
           bash infra/publish-gate.test.sh
           bash infra/lib-deploy.test.sh
           bash infra/install.test.sh
+          bash infra/restore-from-offsite.test.sh
 
   recovery-integration:
     name: Keycloak reset and maintenance gate

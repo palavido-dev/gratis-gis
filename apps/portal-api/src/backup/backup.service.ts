@@ -178,10 +178,9 @@ interface BackupManifest {
  *     stable to snapshot. Prod deployments with a JDBC Keycloak need
  *     a separate strategy; we surface this limitation clearly in the
  *     admin UI so nobody expects Keycloak users to survive a restore.
- *   - Encryption at rest: archives are plain .tar.gz. Operators that
- *     need encrypted offsite copies should wrap them with their own
- *     tooling (age, gpg, S3 SSE). We don't want to ship key material
- *     inside the app.
+ *   - Encryption at rest: local archives are plain .tar.gz. Off-site
+ *     copies (offsite.service.ts) are encrypted to the admin's public
+ *     key; the private key is never on this server.
  *   - Incremental / differential backups: out of scope. Full dump
  *     every run keeps restore simple; retention handles the space.
  */
@@ -205,6 +204,40 @@ export function isNoSuchKey(err: unknown): boolean {
     e.Code === 'NoSuchKey' ||
     e.$metadata?.httpStatusCode === 404
   );
+}
+
+/** Work that follows a published archive; see BackupService.onRunSucceeded. */
+export type RunSucceededListener = (info: {
+  runId: string;
+}) => Promise<{ done: Promise<void> } | undefined | void>;
+
+/**
+ * Call each listener. A scheduled run waits for the work each one
+ * hands back; a manual run returns as soon as every listener has
+ * claimed its part, so the browser is answered before an upload ends.
+ * Errors are logged, never thrown.
+ */
+export async function dispatchRunSucceeded(
+  listeners: readonly RunSucceededListener[],
+  info: { runId: string },
+  trigger: 'manual' | 'scheduled',
+  warn: (msg: string) => void,
+): Promise<void> {
+  for (const fn of listeners) {
+    try {
+      const handle = await fn(info);
+      if (!handle) continue;
+      if (trigger === 'scheduled') {
+        await handle.done;
+      } else {
+        handle.done.catch((e: unknown) =>
+          warn(`Post-backup step failed: ${e instanceof Error ? e.message : e}`),
+        );
+      }
+    } catch (e) {
+      warn(`Post-backup step failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
 }
 
 @Injectable()
@@ -262,6 +295,18 @@ export class BackupService implements OnModuleInit {
     [];
   onConfigChange(fn: (cfg: BackupConfig) => void | Promise<void>) {
     this.configListeners.push(fn);
+  }
+
+  /**
+   * Hook for work that follows a published archive (the off-site
+   * copy). The listener resolves once it has claimed the run, and may
+   * hand back `{ done }` for the rest of its work: a scheduled run
+   * waits for it, a manual run answers the browser first. A listener
+   * that throws never changes the outcome of the local backup.
+   */
+  private runSucceededListeners: RunSucceededListener[] = [];
+  onRunSucceeded(fn: RunSucceededListener) {
+    this.runSucceededListeners.push(fn);
   }
 
   /**
@@ -440,6 +485,11 @@ export class BackupService implements OnModuleInit {
       }
     }
     return effective;
+  }
+
+  /** The singleton backup_config row, created on first use. */
+  configRow() {
+    return this.ensureConfigRow();
   }
 
   /**
@@ -951,6 +1001,9 @@ export class BackupService implements OnModuleInit {
     // keeps it out of directory listings an operator scans by eye.
     const partialPath = path.join(backupDir, `.partial-${run.id}.tar.gz`);
 
+    /** Set once the archive is published and recorded. */
+    let published = false;
+
     // Retention BEFORE the payload, reserving room for this run.
     //
     // This is the fix for the ratchet that turned one bad night into
@@ -1058,6 +1111,7 @@ export class BackupService implements OnModuleInit {
           sizeBytes: BigInt(stat.size),
         },
       });
+      published = true;
       this.log.log(
         `Backup ${run.id} finished: ${filename} (${stat.size} bytes, ` +
           `${plan.count} objects)`,
@@ -1120,6 +1174,17 @@ export class BackupService implements OnModuleInit {
       if (cancelPoll) clearInterval(cancelPoll);
       await fs.rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
       await fs.rm(partialPath, { force: true }).catch(() => undefined);
+    }
+
+    // Off-site copy, outside the try for the same reason as retention
+    // below: nothing that happens to the copy may fail the local run.
+    if (published) {
+      await dispatchRunSucceeded(
+        this.runSucceededListeners,
+        { runId: run.id },
+        trigger,
+        (msg) => this.log.warn(msg),
+      );
     }
 
     // Deliberately outside the try: a sealed, recorded, successful

@@ -22,6 +22,7 @@ import { useT } from '@/lib/i18n/locale-context';
 import { useFormat } from '@/lib/i18n/format';
 import { formatBytes } from '@/lib/format-bytes';
 import { RestoreDialog } from './restore-dialog';
+import { OffsiteRunBadge, OffsiteSection, RestoreTestSection } from './offsite-section';
 
 /**
  * Effective config as returned by /admin/backup/config. Matches the
@@ -60,6 +61,11 @@ export interface BackupRun {
    * means unknown, which must keep the buttons rather than hide them.
    */
   archiveOnDisk: boolean | null;
+  /** Off-site copy: null when off-site was not set up for this run. */
+  offsiteStatus?: 'running' | 'succeeded' | 'failed' | null;
+  offsiteError?: string | null;
+  /** Fingerprint of the public key the off-site copy was encrypted to. */
+  offsiteKeyFingerprint?: string | null;
 }
 
 /**
@@ -133,7 +139,9 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
   // flight so an idle page isn't hitting the API every few seconds.
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
-    const anyRunning = runs.some((r) => r.status === 'running');
+    const anyRunning = runs.some(
+      (r) => r.status === 'running' || r.offsiteStatus === 'running',
+    );
     if (anyRunning && !pollRef.current) {
       pollRef.current = setInterval(reloadRuns, 3000);
     }
@@ -239,6 +247,7 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
         config={config}
         onSaved={(next) => setConfig(next)}
       />
+      <OffsiteSection />
 
       <section className="rounded-lg border border-border bg-surface-1">
         <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
@@ -311,6 +320,7 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
                   onDelete={() => handleDelete(r.id)}
                   onStop={() => handleStop(r.id)}
                   onRestore={() => setRestoringRun(r)}
+                  onReload={reloadRuns}
                 />
               ))}
             </tbody>
@@ -318,6 +328,7 @@ export function BackupView({ initialConfig, initialRuns, orgName }: Props) {
         )}
       </section>
 
+      <RestoreTestSection />
       <WhatsIncluded />
       {restoringRun ? (
         <RestoreDialog
@@ -673,6 +684,7 @@ function RunRow({
   onDelete,
   onStop,
   onRestore,
+  onReload,
 }: {
   run: BackupRun;
   confirming: boolean;
@@ -683,6 +695,7 @@ function RunRow({
   onDelete: () => void;
   onStop: () => void;
   onRestore: () => void;
+  onReload: () => void;
 }) {
   const t = useT();
   const fmt = useFormat();
@@ -710,6 +723,7 @@ function RunRow({
       <td className="px-4 py-2 text-muted">{triggeredBy}</td>
       <td className="px-4 py-2">
         <StatusBadge status={run.status} error={run.error} />
+        <OffsiteRunBadge run={run} onChanged={onReload} />
       </td>
       <td className="px-4 py-2 text-muted">{size}</td>
       <td className="px-4 py-2 text-right">

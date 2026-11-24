@@ -10,6 +10,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Optional,
   Param,
   Patch,
@@ -19,6 +20,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsOptional,
@@ -54,6 +56,8 @@ import {
   shouldAnnounceRecovery,
 } from './recovery-status.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { OffsiteService } from './offsite.service.js';
+import { RestoreTestService } from './restore-test.service.js';
 
 /**
  * Admin-only surface for the backup system. Scope: read config,
@@ -116,6 +120,83 @@ class UpdateConfigDto {
   retentionCount?: number | null;
 }
 
+/**
+ * Off-site settings patch. Secrets are write-only: the response never
+ * echoes them, and an omitted secret keeps the saved one.
+ */
+export class UpdateOffsiteDto {
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsBoolean()
+  enabled?: boolean | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(300)
+  endpoint?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(60)
+  region?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(63)
+  bucket?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  prefix?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsBoolean()
+  pathStyle?: boolean | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(256)
+  accessKeyId?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(512)
+  secretAccessKey?: string | null;
+
+  /** The admin's public key (ggpub1:...). Never a private key. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  publicKey?: string | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(3650)
+  retentionDays?: number | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(90)
+  alertDays?: number | null;
+
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(72)
+  maxUploadHours?: number | null;
+}
+
+/** "Take over this folder": the start of the install id that owns it now. */
+export class TakeOverOffsiteDto {
+  @IsString() @MaxLength(40)
+  owner!: string;
+}
+
+/** "Check my key": a public key or its fingerprint, pasted again. */
+export class CheckOffsiteKeyDto {
+  @IsString() @MaxLength(200)
+  value!: string;
+}
+
+/** "Check my verify key": a verify key or its fingerprint, pasted again. */
+export class CheckOffsiteVerifyKeyDto {
+  @IsString() @MaxLength(400)
+  value!: string;
+}
+
+/** Start a backup test; confirmBytes when free space cannot be measured. */
+export class StartRestoreTestDto {
+  @IsOptional() @IsInt() @Min(0)
+  confirmBytes?: number;
+}
+
+/** BigInt columns of a run as strings, for JSON. */
+function serializeRun<T extends { sizeBytes: bigint | null; offsiteBytes?: bigint | null }>(r: T) {
+  return {
+    ...r,
+    sizeBytes: r.sizeBytes === null ? null : r.sizeBytes.toString(),
+    offsiteBytes:
+      r.offsiteBytes === null || r.offsiteBytes === undefined ? null : r.offsiteBytes.toString(),
+  };
+}
+
 @ApiTags('admin', 'backup')
 @ApiBearerAuth()
 // GRATIS_DISABLE_BACKUP_UI closes every route here except the
@@ -130,15 +211,37 @@ export class BackupController {
     private readonly prisma: PrismaService,
     private readonly mail: EmailTransport,
     @Optional() private readonly audit?: AdminAuditService,
+    // Optional only so older specs can build the controller without
+    // them; the module always provides both.
+    @Optional() private readonly offsiteService?: OffsiteService,
+    @Optional() private readonly restoreTestService?: RestoreTestService,
   ) {}
+
+  private offsite(): OffsiteService {
+    if (!this.offsiteService) throw new Error('Off-site backups are not available.');
+    return this.offsiteService;
+  }
+
+  private restoreTest(): RestoreTestService {
+    if (!this.restoreTestService) throw new Error('Backup tests are not available.');
+    return this.restoreTestService;
+  }
 
   private readonly recoveryAnnounced = new Set<string>();
 
   private note(
     user: AuthUser,
-    action: 'backup.config' | 'backup.run' | 'backup.restore' | 'backup.cancel' | 'backup.delete',
+    action:
+      | 'backup.config'
+      | 'backup.run'
+      | 'backup.restore'
+      | 'backup.cancel'
+      | 'backup.delete'
+      | 'backup.offsite'
+      | 'backup.test',
     targetId: string,
     outcome: 'succeeded' | 'failed',
+    detail?: Record<string, string | number | boolean | null>,
   ): void {
     if (!this.audit) return;
     void this.audit.record({
@@ -148,6 +251,7 @@ export class BackupController {
       targetType: 'backup',
       targetId,
       outcome,
+      ...(detail ? { detail } : {}),
     });
   }
 
@@ -186,10 +290,7 @@ export class BackupController {
     // archiveOnDisk rides along so the page only offers Download /
     // Restore for archives that still exist.
     const runs = await this.backup.listRunsWithArchiveState();
-    return runs.map((r) => ({
-      ...r,
-      sizeBytes: r.sizeBytes === null ? null : r.sizeBytes.toString(),
-    }));
+    return runs.map((r) => serializeRun(r));
   }
 
   @Post('runs')
@@ -197,11 +298,129 @@ export class BackupController {
     const run = await this.backup.runBackup('manual', user.id);
     // runBackup returns a failed or cancelled run instead of throwing.
     this.note(user, 'backup.run', run.id, run.status === 'succeeded' ? 'succeeded' : 'failed');
-    return {
-      ...run,
-      sizeBytes:
-        run.sizeBytes === null ? null : (run.sizeBytes as bigint).toString(),
-    };
+    return serializeRun(run);
+  }
+
+  // ---------------------------------------------------------------
+  // Off-site copies
+  // ---------------------------------------------------------------
+
+  /** Settings and status. Secrets appear only as "set" flags. */
+  @Get('offsite')
+  getOffsite() {
+    return this.offsite().getPublicConfig();
+  }
+
+  @Patch('offsite')
+  async updateOffsite(@CurrentUser() user: AuthUser, @Body() dto: UpdateOffsiteDto) {
+    const updated = await this.offsite().updateConfig(dto, user.id);
+    const change = updated.savedKeyChange;
+    // A changed public key is written to the audit log with both
+    // fingerprints (they are not secret).
+    this.note(
+      user,
+      'backup.offsite',
+      user.orgId,
+      'succeeded',
+      change
+        ? {
+            keyChanged: true,
+            oldKeyFingerprint: change.from ?? 'none',
+            newKeyFingerprint: change.to ?? 'none',
+          }
+        : undefined,
+    );
+    return updated;
+  }
+
+  /**
+   * After a restore on a new server: make this portal the owner of the
+   * bucket folder the old one wrote to. The admin types the start of
+   * the old install id, which the refusal message shows.
+   */
+  @Post('offsite/take-over')
+  @HttpCode(200)
+  async takeOverOffsite(@CurrentUser() user: AuthUser, @Body() dto: TakeOverOffsiteDto) {
+    const res = await this.offsite().takeOverFolder(dto.owner);
+    this.note(user, 'backup.offsite', user.orgId, 'succeeded', {
+      folderTakenOverFrom: res.previousOwner,
+    });
+    return res;
+  }
+
+  /** Write, list and delete one small file in the bucket. */
+  @Post('offsite/test')
+  testOffsite() {
+    return this.offsite().testConnection();
+  }
+
+  /**
+   * Compare a pasted public key or fingerprint with the key off-site
+   * copies are encrypted to. The pasted text is not stored or logged.
+   */
+  @Post('offsite/check-key')
+  @HttpCode(200)
+  checkOffsiteKey(@Body() dto: CheckOffsiteKeyDto) {
+    return this.offsite().checkKey(dto.value);
+  }
+
+  /**
+   * Make a new signing key for off-site copies. The old verify key stays
+   * trusted for the copies it signed. Audited with both fingerprints
+   * (they are not secret); the operator admins get a notice. The
+   * private half is never in the answer.
+   */
+  @Post('offsite/signing-key')
+  @HttpCode(200)
+  async replaceOffsiteSigningKey(@CurrentUser() user: AuthUser) {
+    const res = await this.offsite().replaceSigningKey(user.id, 'admin');
+    this.note(user, 'backup.offsite', user.orgId, 'succeeded', {
+      signingKeyChanged: true,
+      oldVerifyKeyFingerprint: res.from ?? 'none',
+      newVerifyKeyFingerprint: res.to,
+    });
+    return { signing: await this.offsite().signingInfo() };
+  }
+
+  /**
+   * Compare a pasted verify key or fingerprint with the key off-site
+   * copies are signed with. The pasted text is not stored or logged.
+   */
+  @Post('offsite/check-verify-key')
+  @HttpCode(200)
+  checkOffsiteVerifyKey(@Body() dto: CheckOffsiteVerifyKeyDto) {
+    return this.offsite().checkVerifyKey(dto.value);
+  }
+
+  /** Upload one finished backup again. Answers once it has started. */
+  @Post('runs/:id/offsite')
+  async retryOffsite(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.offsite().retry(id);
+    this.note(user, 'backup.offsite', id, 'succeeded');
+    return { started: true };
+  }
+
+  // ---------------------------------------------------------------
+  // Test latest backup (scratch restore)
+  // ---------------------------------------------------------------
+
+  /** Database size and free space, so the page can warn before a test. */
+  @Get('restore-tests/preflight')
+  restoreTestPreflight() {
+    return this.restoreTest().preflight();
+  }
+
+  /** Restore the newest archive's database into a scratch database. */
+  @Post('restore-tests')
+  async startRestoreTest(@CurrentUser() user: AuthUser, @Body() dto: StartRestoreTestDto) {
+    const test = await this.restoreTest().start(user.id, dto.confirmBytes ?? null);
+    this.note(user, 'backup.test', test.id, 'succeeded');
+    return test;
+  }
+
+  @Get('restore-tests')
+  listRestoreTests() {
+    return this.restoreTest().recent(10);
   }
 
   /**
