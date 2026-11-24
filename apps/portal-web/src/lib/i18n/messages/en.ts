@@ -1054,6 +1054,7 @@ export const en = {
     uploadEmpty: 'That file has no shapes in it.',
     uploadTooMany: 'That file has more than {max} shapes. Upload just the area you want to check.',
     uploadFailed: 'Could not read that file',
+    downloadArea: 'Download the area (GeoJSON)',
     report: {
       button: 'PDF',
       title: "What's here report",

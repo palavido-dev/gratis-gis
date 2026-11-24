@@ -1004,6 +1004,7 @@ export const ptBR: Partial<CatalogShape> = {
     uploadEmpty: 'Esse arquivo não tem formas.',
     uploadTooMany: 'Esse arquivo tem mais de {max} formas. Envie só a área que quer verificar.',
     uploadFailed: 'Não foi possível ler esse arquivo',
+    downloadArea: 'Baixar a área (GeoJSON)',
     report: {
       button: 'PDF',
       title: 'Relatório O que há aqui',

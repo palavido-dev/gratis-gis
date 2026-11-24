@@ -1006,6 +1006,7 @@ export const fr: Partial<CatalogShape> = {
     uploadEmpty: 'Ce fichier ne contient aucune forme.',
     uploadTooMany: 'Ce fichier contient plus de {max} formes. Importez seulement la zone à vérifier.',
     uploadFailed: 'Impossible de lire ce fichier',
+    downloadArea: 'Télécharger la zone (GeoJSON)',
     report: {
       button: 'PDF',
       title: 'Rapport Ce qui est ici',

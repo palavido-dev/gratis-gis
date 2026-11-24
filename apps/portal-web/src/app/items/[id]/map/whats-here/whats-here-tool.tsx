@@ -943,6 +943,33 @@ export function WhatsHereTool({
     }
   }
 
+  /** The area as screened (distance included), as GeoJSON to keep, to
+   *  open in desktop GIS, or to upload here again later. */
+  function downloadArea() {
+    if (!area) return;
+    const fc: GeoJSON.FeatureCollection = {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: area.geometry,
+          properties: {
+            distance_m: distanceMeters,
+            area_m2: Math.round(area.squareMeters * 100) / 100,
+            ...((mode === 'address' || mode === 'link') && placeLabel ? { place: placeLabel } : {}),
+          },
+        },
+      ],
+    };
+    const blob = new Blob([JSON.stringify(fc)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${t('whatsHere.fileName')}-area.geojson`;
+    a.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function zoomToArea() {
     if (!map || !area) return;
     const [w, s, e, n] = area.bbox;
@@ -1247,6 +1274,16 @@ export function WhatsHereTool({
                   </p>
                 </div>
                 {resolving ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : null}
+                <button
+                  type="button"
+                  onClick={downloadArea}
+                  disabled={!area}
+                  aria-label={t('whatsHere.downloadArea')}
+                  title={t('whatsHere.downloadArea')}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </button>
               </div>
               {/* Both units in one place: they apply to every card and to
                   the spreadsheet, and each user's choice is remembered. */}
