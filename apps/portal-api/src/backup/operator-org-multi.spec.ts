@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import 'reflect-metadata';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { GUARDS_METADATA, PATH_METADATA } from '@nestjs/common/constants';
@@ -60,9 +60,10 @@ type Ctor = { new (...args: never[]): unknown; prototype: Record<string, unknown
 function guardedControllers(): Array<{ file: string; cls: Ctor }> {
   const out: Array<{ file: string; cls: Ctor }> = [];
   const walk = (dir: string): void => {
-    for (const name of readdirSync(dir)) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const name = entry.name;
       const full = join(dir, name);
-      if (statSync(full).isDirectory()) {
+      if (entry.isDirectory()) {
         walk(full);
         continue;
       }
