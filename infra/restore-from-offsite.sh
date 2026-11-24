@@ -2,45 +2,60 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Bring a portal back from an off-site backup copy on a new server.
 #
-#   infra/restore-from-offsite.sh --env-file infra/.env.prod \
-#     --passphrase-file /root/offsite.pass --list
+#   infra/restore-from-offsite.sh --env-file infra/.env.prod --list
 #
 #   infra/restore-from-offsite.sh --env-file infra/.env.prod \
-#     --passphrase-file /root/offsite.pass \
-#     --confirm-project gratis-gis-prod [--archive NAME | --mirror-run NAME]
+#     --key-file /root/portal.ggkey --passphrase-file /root/portal.ggkey.pass \
+#     [--archive NAME | --mirror-run NAME] [--replace-existing] \
+#     [--confirm-database NAME]
 #
 # Before you run it: install GratisGIS on the new server with the
 # installer (same release as the backup, or newer), and add the
 # BACKUP_OFFSITE_* bucket settings to the env file. Put back the
 # original CREDENTIAL_ENCRYPTION_KEY if you have it, or stored
-# credentials for external services cannot be decrypted.
+# credentials for external services cannot be decrypted. Copy your
+# private key file (made by infra/recovery/offsite-key.mjs) to this
+# server, and its passphrase into a file only root can read.
 #
 # What it does, in order:
-#   1. Download the newest complete copy (or the one named) into the
+#   1. Open the key file with the passphrase, before anything else.
+#   2. Show what will be replaced (project, database, row counts) and
+#      ask you to type the database name. A database that is in use
+#      (it has users) is refused unless you pass --replace-existing.
+#   3. Download the newest complete copy (or the one named) into the
 #      backups volume, check its checksum and decrypt it. The work runs
 #      in the portal-api image, which already has the tools.
-#   2. Stop the portal's own services (not the database or MinIO).
-#   3. Replace the portal database: drop it, create it empty, and
-#      restore the dump in one transaction that stops on the first error.
-#   4. Run the database migrations, so an older backup matches this code.
-#   5. Put the stored files back into MinIO.
-#   6. Start everything and print counts next to the backup's own.
+#   4. Stop the portal's own services (not the database or MinIO).
+#   5. Save the current database with pg_dump into the backups volume,
+#      then replace it: drop it, create it empty, and restore the dump
+#      in one transaction that stops on the first error.
+#   6. Run the database migrations, so an older backup matches this code.
+#   7. Empty this server's index of mirrored files and turn off-site
+#      copies off, so the new server never cleans up the bucket by
+#      mistake. Turn them on again on Admin, Backup.
+#   8. Put the stored files back into MinIO.
+#   9. Start everything and print counts next to the backup's own.
 #
-# The passphrase is read from a file and passed on standard input. It
-# is never an argument, never in the environment of a child process
-# and never printed. The download and the unpacked files need about
-# twice the archive size of free disk in the backups volume.
+# The passphrase file is given to the restore helper on standard input.
+# Its text is never an argument, never in an environment variable and
+# never printed. One trailing line break (LF or CRLF) is ignored, and
+# the text is normalised to Unicode NFC, as offsite-key.mjs does. The
+# download and the unpacked files need about twice the archive size of
+# free disk in the backups volume.
 set -euo pipefail
 
 ENV_FILE=""
+KEY_FILE=""
 PASS_FILE=""
 COMPOSE_FILE=""
 PROJECT="${GRATIS_RESTORE_PROJECT:-gratis-gis-prod}"
-CONFIRM=""
+CONFIRM_DB=""
+REPLACE_EXISTING=0
 ARCHIVE=""
 MIRROR_RUN=""
 LIST_ONLY=0
 OUT_DIR="/app/backups/offsite-restore"
+KEY_IN_CONTAINER="/run/gratisgis/offsite.ggkey"
 # Services this script stops and starts. The database, MinIO and the
 # proxy keep running.
 WRITERS="portal-api portal-worker script-runner script-executor pointcloud-worker portal-web"
@@ -74,7 +89,7 @@ ggo_valid_mirror_run() {
   [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9-]+-[0-9a-f]{8}$ ]]
 }
 
-# A database or role name safe to put inside double quotes in SQL.
+# A database or role name safe to put inside double or single quotes in SQL.
 ggo_valid_identifier() {
   [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]]
 }
@@ -110,23 +125,38 @@ ggo_cli() {
     portal-api dist/backup/offsite-cli.js "$@"
 }
 
-# The same, with the passphrase on standard input.
-ggo_cli_pass() {
-  printf '%s' "$PASSPHRASE" | ggo_cli "$@" --passphrase-stdin
+# The same, with the key file mounted read-only and the passphrase
+# file on standard input.
+ggo_cli_key() {
+  local cmd="$1"
+  shift
+  ggo_compose run --rm -T --no-deps --entrypoint node \
+    -e MINIO_ENDPOINT=http://minio:9000 \
+    -v "${KEY_FILE}:${KEY_IN_CONTAINER}:ro" \
+    portal-api dist/backup/offsite-cli.js "$cmd" --key-file "$KEY_IN_CONTAINER" --passphrase-stdin "$@" \
+    <"$PASS_FILE"
+}
+
+ggo_psql() {
+  local db="$1"
+  shift
+  ggo_compose exec -T postgres psql -X -A -t -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$db" "$@"
 }
 
 ggo_usage() {
-  sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 ggo_parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --env-file) ENV_FILE="${2:-}"; shift 2 ;;
+      --key-file) KEY_FILE="${2:-}"; shift 2 ;;
       --passphrase-file) PASS_FILE="${2:-}"; shift 2 ;;
       --compose-file) COMPOSE_FILE="${2:-}"; shift 2 ;;
       --project) PROJECT="${2:-}"; shift 2 ;;
-      --confirm-project) CONFIRM="${2:-}"; shift 2 ;;
+      --confirm-database) CONFIRM_DB="${2:-}"; shift 2 ;;
+      --replace-existing) REPLACE_EXISTING=1; shift ;;
       --archive) ARCHIVE="${2:-}"; shift 2 ;;
       --mirror-run) MIRROR_RUN="${2:-}"; shift 2 ;;
       --list) LIST_ONLY=1; shift ;;
@@ -135,7 +165,6 @@ ggo_parse_args() {
     esac
   done
   [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]] || ggo_die "--env-file must name an existing file"
-  [[ -n "$PASS_FILE" && -f "$PASS_FILE" ]] || ggo_die "--passphrase-file must name an existing file"
   if [[ -z "$COMPOSE_FILE" ]]; then
     COMPOSE_FILE="$(cd "$(dirname "$0")" && pwd)/docker-compose.prod.yml"
   fi
@@ -147,22 +176,22 @@ ggo_parse_args() {
   if [[ -n "$MIRROR_RUN" ]] && ! ggo_valid_mirror_run "$MIRROR_RUN"; then
     ggo_die "--mirror-run must be a run name as --list prints it (without mirror:)"
   fi
-  if [[ "$LIST_ONLY" != "1" && "$CONFIRM" != "$PROJECT" ]]; then
-    ggo_die "this replaces the portal database; pass --confirm-project $PROJECT to go ahead"
+  if [[ "$LIST_ONLY" != "1" ]]; then
+    [[ -n "$KEY_FILE" && -f "$KEY_FILE" ]] || ggo_die "--key-file must name your private key file (made by infra/recovery/offsite-key.mjs)"
+    [[ -n "$PASS_FILE" && -f "$PASS_FILE" ]] || ggo_die "--passphrase-file must name a file holding the key file's passphrase"
+    KEY_FILE="$(cd "$(dirname "$KEY_FILE")" && pwd)/$(basename "$KEY_FILE")"
   fi
   return 0
 }
 
-ggo_read_passphrase() {
-  local mode
-  mode="$(stat -c '%a' "$PASS_FILE" 2>/dev/null || echo 600)"
-  if [[ "${mode: -1}" != "0" ]]; then
-    echo "Note: $PASS_FILE can be read by other users of this server (mode $mode). chmod 600 it." >&2
-  fi
-  # Command substitution drops trailing newlines; a portal passphrase
-  # never ends in one.
-  PASSPHRASE="$(cat "$PASS_FILE")"
-  [[ ${#PASSPHRASE} -ge 16 ]] || ggo_die "the passphrase file holds fewer than 16 characters"
+ggo_check_secret_files() {
+  local f mode
+  for f in "$KEY_FILE" "$PASS_FILE"; do
+    mode="$(stat -c '%a' "$f" 2>/dev/null || echo 600)"
+    if [[ "${mode: -1}" != "0" ]]; then
+      echo "Note: $f can be read by other users of this server (mode $mode). chmod 600 it." >&2
+    fi
+  done
 }
 
 ggo_step() {
@@ -170,26 +199,64 @@ ggo_step() {
   echo "== $* =="
 }
 
+# "orgs users items" of the target database, "absent" when it does not
+# exist, or "empty" when it has no portal tables.
+ggo_target_state() {
+  local exists tables
+  exists="$(ggo_psql postgres -c "SELECT count(*) FROM pg_database WHERE datname = '$PG_DB'" | tr -d '[:space:]')"
+  if [[ "$exists" != "1" ]]; then
+    echo absent
+    return 0
+  fi
+  tables="$(ggo_psql "$PG_DB" -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('organization', 'user', 'item')" | tr -d '[:space:]')"
+  if [[ "$tables" != "3" ]]; then
+    echo empty
+    return 0
+  fi
+  ggo_psql "$PG_DB" -c "SELECT (SELECT count(*) FROM organization) || ' ' || (SELECT count(*) FROM \"user\") || ' ' || (SELECT count(*) FROM item) AS counts" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'
+}
+
+# Typed confirmation: --confirm-database, or the name typed on the terminal.
+ggo_confirm() {
+  if [[ -n "$CONFIRM_DB" ]]; then
+    [[ "$CONFIRM_DB" == "$PG_DB" ]] || ggo_die "--confirm-database $CONFIRM_DB does not match the database $PG_DB"
+    return 0
+  fi
+  if [[ ! -t 0 ]] || [[ ! -r /dev/tty ]]; then
+    ggo_die "type the database name to confirm: run this in a terminal, or pass --confirm-database $PG_DB"
+  fi
+  local typed
+  printf 'Type the database name (%s) to replace it: ' "$PG_DB" >/dev/tty
+  IFS= read -r typed </dev/tty || true
+  [[ "$typed" == "$PG_DB" ]] || ggo_die "not confirmed; nothing was changed"
+}
+
 ggo_main() {
   ggo_parse_args "$@"
   command -v docker >/dev/null 2>&1 || ggo_die "docker is required"
-  ggo_read_passphrase
 
   if [[ "$LIST_ONLY" == "1" ]]; then
     ggo_cli list
     return 0
   fi
+  ggo_check_secret_files
 
-  local pg_user pg_db running
-  pg_user="$(ggo_env_value "$ENV_FILE" POSTGRES_USER)"
-  pg_user="${pg_user:-gratisgis}"
-  pg_db="$(ggo_env_value "$ENV_FILE" POSTGRES_DB)"
-  pg_db="${pg_db:-gratisgis}"
-  ggo_valid_identifier "$pg_user" || ggo_die "POSTGRES_USER has unexpected characters"
-  ggo_valid_identifier "$pg_db" || ggo_die "POSTGRES_DB has unexpected characters"
+  PG_USER="$(ggo_env_value "$ENV_FILE" POSTGRES_USER)"
+  PG_USER="${PG_USER:-gratisgis}"
+  PG_DB="$(ggo_env_value "$ENV_FILE" POSTGRES_DB)"
+  PG_DB="${PG_DB:-gratisgis}"
+  ggo_valid_identifier "$PG_USER" || ggo_die "POSTGRES_USER has unexpected characters"
+  ggo_valid_identifier "$PG_DB" || ggo_die "POSTGRES_DB has unexpected characters"
 
+  local running
   running="$(ggo_compose ps --status running --services 2>/dev/null || true)"
   grep -qx postgres <<<"$running" || ggo_die "the postgres service of project $PROJECT is not running; install and start the stack first"
+
+  ggo_step "1. Open the key file"
+  local fingerprint
+  fingerprint="$(ggo_cli_key check-key | ggo_kv fingerprint)" || fingerprint=""
+  [[ -n "$fingerprint" ]] || ggo_die "the key file did not open; check the key file and its passphrase"
+  echo "Key fingerprint: $fingerprint"
 
   # Which copy: the one named, or the newest of either kind.
   local mode="archive"
@@ -209,17 +276,40 @@ ggo_main() {
     fi
   fi
 
-  ggo_step "1. Download and decrypt"
-  local fetched dump_cmd database objects
+  ggo_step "2. Check what will be replaced"
+  local state orgs users items
+  state="$(ggo_target_state)"
+  echo "Project:   $PROJECT"
+  echo "Compose:   $COMPOSE_FILE"
+  echo "Database:  $PG_DB (user $PG_USER)"
+  case "$state" in
+    absent) echo "It does not exist yet." ;;
+    empty) echo "It exists and holds no portal tables." ;;
+    *)
+      read -r orgs users items <<<"$state"
+      echo "It holds ${orgs:-?} organization(s), ${users:-?} user(s) and ${items:-?} item(s)."
+      if [[ "${users:-0}" != "0" && "$REPLACE_EXISTING" != "1" ]]; then
+        ggo_die "this database is in use (it has users). Pass --replace-existing to replace it; a copy is saved first."
+      fi
+      ;;
+  esac
   if [[ "$mode" == "mirror" ]]; then
-    fetched="$(ggo_cli_pass fetch-mirror --out "$OUT_DIR" --run "$MIRROR_RUN")"
+    echo "Restore:   mirrored run $MIRROR_RUN"
+  else
+    echo "Restore:   ${ARCHIVE:-the newest archive}"
+  fi
+  ggo_confirm
+
+  ggo_step "3. Download and decrypt"
+  local fetched dump_cmd database objects archive_path=""
+  if [[ "$mode" == "mirror" ]]; then
+    fetched="$(ggo_cli_key fetch-mirror --out "$OUT_DIR" --run "$MIRROR_RUN")"
     local dump
     dump="$(ggo_kv dump <<<"$fetched")"
     [[ "$dump" == "$OUT_DIR/"* ]] || ggo_die "unexpected dump path"
     dump_cmd=(cat "$dump")
   else
-    fetched="$(ggo_cli_pass fetch --out "$OUT_DIR" ${ARCHIVE:+--name "$ARCHIVE"})"
-    local archive_path
+    fetched="$(ggo_cli_key fetch --out "$OUT_DIR" ${ARCHIVE:+--name "$ARCHIVE"})"
     archive_path="$(ggo_kv archive <<<"$fetched")"
     [[ "$archive_path" == "$OUT_DIR/"* ]] || ggo_die "unexpected archive path"
     database="$(ggo_kv database <<<"$fetched")"
@@ -229,7 +319,7 @@ ggo_main() {
   objects="$(ggo_kv objects <<<"$fetched")"
   echo "$fetched"
 
-  ggo_step "2. Stop the portal services"
+  ggo_step "4. Stop the portal services"
   local services stop=()
   services="$(ggo_compose config --services)"
   for s in $WRITERS; do
@@ -239,35 +329,51 @@ ggo_main() {
 
   echo "If a later step fails, the portal stays stopped. Read the error, fix it, and run this script again."
 
-  ggo_step "3. Replace the portal database ($pg_db)"
-  ggo_compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U "$pg_user" -d postgres \
-    -c "DROP DATABASE IF EXISTS \"$pg_db\" WITH (FORCE)" \
-    -c "CREATE DATABASE \"$pg_db\" OWNER \"$pg_user\""
+  ggo_step "5. Save, then replace the portal database ($PG_DB)"
+  if [[ "$state" != "absent" ]]; then
+    local safety
+    safety="$OUT_DIR/pre-restore-${PG_DB}-$(date -u +%Y%m%dT%H%M%SZ).dump"
+    # The inner script takes the path as $1; it is meant not to expand here.
+    # shellcheck disable=SC2016
+    ggo_compose exec -T postgres pg_dump -Fc -U "$PG_USER" -d "$PG_DB" |
+      ggo_compose run --rm -T --no-deps --entrypoint sh portal-api \
+        -c 'umask 077; mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$safety" ||
+      ggo_die "could not save the current database; nothing was dropped"
+    echo "The database as it was is saved in the backups volume: $safety"
+  fi
+  ggo_psql postgres \
+    -c "DROP DATABASE IF EXISTS \"$PG_DB\" WITH (FORCE)" \
+    -c "CREATE DATABASE \"$PG_DB\" OWNER \"$PG_USER\""
   ggo_compose run --rm -T --no-deps --entrypoint "${dump_cmd[0]}" portal-api "${dump_cmd[@]:1}" |
     ggo_compose exec -T postgres pg_restore --no-owner --no-privileges --exit-on-error \
-      --single-transaction -U "$pg_user" -d "$pg_db"
+      --single-transaction -U "$PG_USER" -d "$PG_DB"
 
-  ggo_step "4. Run the database migrations"
+  ggo_step "6. Run the database migrations"
   ggo_compose run --rm portal-migrate
 
-  ggo_step "5. Put the stored files back"
+  ggo_step "7. Reset the off-site index"
+  ggo_psql "$PG_DB" \
+    -c "TRUNCATE backup_offsite_object" \
+    -c "UPDATE backup_config SET offsite_enabled = false"
+  echo "Off-site copies are off on this server. Turn them on again on Admin, Backup once this server is the one in use."
+
+  ggo_step "8. Put the stored files back"
   ggo_compose up -d minio
   local put
   if [[ "$mode" == "mirror" ]]; then
-    put="$(ggo_cli_pass put-mirror-objects --run "$MIRROR_RUN")"
+    put="$(ggo_cli_key put-mirror-objects --run "$MIRROR_RUN")"
   else
     put="$(ggo_cli put-objects --archive "$archive_path")"
   fi
   echo "$put"
 
-  ggo_step "6. Start the portal"
+  ggo_step "9. Start the portal"
   ggo_compose up -d
 
   ggo_step "Check"
   local q count
   for q in organization user item _prisma_migrations; do
-    count="$(ggo_compose exec -T postgres psql -X -A -t -U "$pg_user" -d "$pg_db" \
-      -c "SELECT count(*) FROM \"$q\"" 2>/dev/null || echo '?')"
+    count="$(ggo_psql "$PG_DB" -c "SELECT count(*) FROM \"$q\"" 2>/dev/null || echo '?')"
     printf '  %-20s %s\n' "$q" "$count"
   done
   local in_bucket
@@ -275,7 +381,7 @@ ggo_main() {
   printf '  %-20s %s (the backup recorded %s)\n' "stored files" "${in_bucket:-?}" "${objects:-?}"
   echo ""
   echo "Done. Sign in and check the portal. The downloaded copy is in $OUT_DIR in the"
-  echo "backups volume; delete it once you are satisfied."
+  echo "backups volume; delete it, and any pre-restore dump, once you are satisfied."
   echo "User accounts and passwords are not part of a portal backup: they come from this"
   echo "server's own sign-in service."
 }
