@@ -4711,7 +4711,7 @@ function WidgetConfigForm({
             <input
               type="checkbox"
               disabled={!canEdit}
-              checked={widget.config.showLabel ?? false}
+              checked={widget.config.showLabel !== false}
               onChange={(e) => onChangeConfig({ showLabel: e.target.checked })}
             />
             Show label next to the icon

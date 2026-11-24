@@ -69,9 +69,10 @@ does not drive the Measure overlay.
 
 ## Notes
 
-- **Measurements aren't saved.** They are ephemeral overlays;
-  closing the tool clears them. For a permanent measured polygon,
-  draw it as a feature in a data layer instead.
+- **Keep a measurement with Save to markup.** Otherwise a
+  measurement is a temporary overlay that goes away when the tool
+  closes. Saved shapes go into your [markup](/help/map-editing/markup)
+  and keep their length and area labels.
 - **Not Experience Builder parity.** Do not expect a Custom Web
   App Measure widget, secondary dual-unit config panel, or
   coordinate / MGRS / UTM modes that some other builders advertise.
