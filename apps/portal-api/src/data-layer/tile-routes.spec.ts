@@ -139,6 +139,7 @@ function makeAuthed(opts: {
     {} as Ctor[3],
     {} as Ctor[4],
     {} as Ctor[5],
+    {} as Ctor[6],
   );
   return { controller, mvtTile, items };
 }
@@ -263,6 +264,7 @@ describe('anonymous portal tile route and TileJSON', () => {
       { item: { findFirst } } as unknown as PrismaService,
       { mvtTile } as never,
       {} as never, // itemsService, not used by the tile routes
+      {} as never, // areas, not used by the tile routes
     );
     return { controller, findFirst, mvtTile };
   }
@@ -421,6 +423,7 @@ describe('label points through the routes', () => {
       { item: { findFirst } } as unknown as PrismaService,
       { mvtTile } as never,
       {} as never, // itemsService, not used by the tile routes
+      {} as never, // areas, not used by the tile routes
     );
     await expect(
       controller.layerTile(

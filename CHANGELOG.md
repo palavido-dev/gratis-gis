@@ -20,6 +20,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   the map builder or the map's page, with unsaved changes and,
   optionally, its markup. The copy starts private. `POST
   /api/items/:id/copy` does the same over the API (#797).
+- Aggregates can measure shapes: `?agg=area` and `?agg=length` give
+  ground area in square meters and length in meters. With `?area=<id>` from the new
+  `POST /api/areas-of-interest`, only features touching that area
+  count and the measures cover just the part inside it. This is the
+  server half of What's Here (#796).
+- Migration `area_of_interest`: a new, empty table. Nothing to do on
+  upgrade.
 
 ### Security
 

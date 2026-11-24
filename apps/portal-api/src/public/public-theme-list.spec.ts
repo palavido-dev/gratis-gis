@@ -18,6 +18,7 @@ describe('PublicController.items theme rows', () => {
       prisma as unknown as PrismaService,
       {} as never,
       {} as never,
+      {} as never,
     );
     const res = { setHeader: jest.fn() };
     return { controller, findMany, count, res };

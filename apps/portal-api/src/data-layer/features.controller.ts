@@ -88,6 +88,7 @@ import {
   type EngineVia,
 } from './features.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
+import { AreaOfInterestService } from '../area-of-interest/area-of-interest.service.js';
 import {
   csvColumnPlan,
   csvFeatureRow,
@@ -247,6 +248,7 @@ export class DataLayerFeaturesController {
     private readonly prisma: PrismaService,
     private readonly editorPolicy: EditorPolicyService,
     private readonly notifications: NotificationsService,
+    private readonly areas: AreaOfInterestService,
     @Optional() private readonly expressions?: ExpressionsService,
   ) {}
 
@@ -1029,12 +1031,14 @@ export class DataLayerFeaturesController {
     }
 
     const via = await this.resolveVia(user, parsed.via);
+    const areaOfInterestId = await this.areas.touch(parsed.areaId);
     const opts: {
       groupBy?: string[];
       aggs: typeof parsed.aggs;
       bbox?: [number, number, number, number];
       geoLimit?: unknown;
       boundaryClip?: unknown;
+      areaOfInterestId?: string;
       ownRowsOnly?: { userId: string };
       where?: typeof parsed.where;
       via?: EngineVia;
@@ -1050,6 +1054,7 @@ export class DataLayerFeaturesController {
     if (parsed.bin) opts.bin = parsed.bin;
     if (parsed.limit !== undefined) opts.limit = parsed.limit;
     if (parsed.asOf !== undefined) opts.asOf = parsed.asOf;
+    if (areaOfInterestId) opts.areaOfInterestId = areaOfInterestId;
     if (geoLimit) opts.geoLimit = geoLimit;
     if (rowScope === 'own') opts.ownRowsOnly = { userId: user.id };
     if (clip) {

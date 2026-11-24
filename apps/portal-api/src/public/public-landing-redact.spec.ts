@@ -75,6 +75,7 @@ describe('PublicController.landing item data', () => {
       prisma as unknown as PrismaService,
       {} as never,
       {} as never,
+      {} as never,
     );
     const out = await controller.landing('org');
     const body = JSON.stringify(out);
@@ -112,6 +113,7 @@ describe('PublicController.landing item data', () => {
     };
     const controller = new PublicController(
       prisma as unknown as PrismaService,
+      {} as never,
       {} as never,
       {} as never,
     );

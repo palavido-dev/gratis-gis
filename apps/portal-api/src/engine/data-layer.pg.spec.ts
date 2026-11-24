@@ -28,6 +28,9 @@
 //     because later migrations (20260510180000, 20260618120000)
 //     dropped them; the live index set is what prod has.
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { GoneException } from '@nestjs/common';
 import { Client as PgClient, Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
@@ -35,6 +38,7 @@ import type { Item } from '@prisma/client';
 import { uuidv7, type GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { DataLayerEngine, dataLayerScope } from './data-layer.js';
+import { AreaOfInterestService } from '../area-of-interest/area-of-interest.service.js';
 import { EngineService } from './engine.service.js';
 import { FEATURE_WRITE_LOCK_BUCKETS, featureWriteLocksSql } from './feature-locks.js';
 import { TileCacheService } from './tile-cache.service.js';
@@ -3530,6 +3534,219 @@ d('observation-log read paths against real PostGIS', () => {
         [dataLayerScope(itemId, layerId), globalId],
       );
       expect(rows.rows[0].n).toBe(1);
+    });
+  });
+  // What's Here (#796): a site screen measures how much of each layer
+  // lies inside an area, cut to the area, grouped by a category. The
+  // numbers checked here are the ones a habitat fee or a permit
+  // review is computed from, so they have to be the latest live
+  // shapes, cut exactly, with invalid stored shapes surviving.
+  describe('scenario 21: area of interest measures (#796)', () => {
+    const itemId = uuidv7();
+    const polyLayer = 'layer-landcover';
+    const lineLayer = 'layer-streams';
+    const polyScope = dataLayerScope(itemId, polyLayer);
+    const lineScope = dataLayerScope(itemId, lineLayer);
+    const halfIn = uuidv7();
+    const allIn = uuidv7();
+    const urbanCut = uuidv7();
+    const urbanOut = uuidv7();
+    const doomed = uuidv7();
+    const moved = uuidv7();
+    const bowtie = uuidv7();
+    const stream = uuidv7();
+    let areas: AreaOfInterestService;
+    let areaId: string;
+
+    const box = (w: number, s: number, e: number, n: number): GeoJsonGeometry => ({
+      type: 'Polygon',
+      coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
+    });
+    const AOI = box(-80.0, 38.9, -79.99, 38.91);
+
+    async function seedShape(
+      scope: string,
+      entity: string,
+      kind: 'create' | 'update' | 'delete',
+      attrs: Record<string, unknown> | null,
+      geom: GeoJsonGeometry | null,
+    ): Promise<void> {
+      const ts = nextTs();
+      await engineSvc.write({
+        scope,
+        entity,
+        kind,
+        validFrom: ts,
+        validTo: null,
+        txTime: ts,
+        attrs,
+        geom,
+        author: PRINCIPAL,
+        source: { kind: 'itest' },
+        parents: [],
+      });
+    }
+
+    /** The cut measured on its own, straight from PostGIS. */
+    async function cutArea(g: GeoJsonGeometry): Promise<number> {
+      const r = await pool.query<{ m2: number }>(
+        `SELECT ST_Area(ST_Intersection(
+           ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)),
+           ST_SetSRID(ST_GeomFromGeoJSON($2), 4326))::geography) AS m2`,
+        [JSON.stringify(g), JSON.stringify(AOI)],
+      );
+      return Number(r.rows[0]!.m2);
+    }
+
+    const HALF_IN = box(-80.005, 38.9, -79.995, 38.91);
+    const ALL_IN = box(-79.994, 38.902, -79.992, 38.904);
+    const URBAN_CUT = box(-79.995, 38.9, -79.985, 38.91);
+    const URBAN_OUT = box(-79.98, 38.9, -79.97, 38.91);
+    // A self-crossing ring. ST_Intersection throws on it as stored.
+    const BOWTIE: GeoJsonGeometry = {
+      type: 'Polygon',
+      coordinates: [[[-79.999, 38.905], [-79.997, 38.907], [-79.997, 38.905], [-79.999, 38.907], [-79.999, 38.905]]],
+    };
+
+    beforeAll(async () => {
+      const ddl = readFileSync(
+        join(__dirname, '..', '..', 'prisma', 'migrations', '20261124130000_area_of_interest', 'migration.sql'),
+        'utf8',
+      );
+      await pool.query('DROP TABLE IF EXISTS area_of_interest');
+      await pool.query(ddl);
+      areas = new AreaOfInterestService(prisma);
+      areaId = (await areas.register({ geometry: AOI })).id;
+
+      await seedShape(polyScope, halfIn, 'create', { CLASS: 'Crop' }, HALF_IN);
+      await seedShape(polyScope, allIn, 'create', { CLASS: 'Crop' }, ALL_IN);
+      await seedShape(polyScope, urbanCut, 'create', { CLASS: 'Urban' }, URBAN_CUT);
+      await seedShape(polyScope, urbanOut, 'create', { CLASS: 'Urban' }, URBAN_OUT);
+      await seedShape(polyScope, doomed, 'create', { CLASS: 'Crop' }, ALL_IN);
+      await seedShape(polyScope, doomed, 'delete', null, null);
+      await seedShape(polyScope, moved, 'create', { CLASS: 'Urban' }, ALL_IN);
+      await seedShape(polyScope, moved, 'update', { CLASS: 'Urban' }, URBAN_OUT);
+      await seedShape(polyScope, bowtie, 'create', { CLASS: 'Wet' }, BOWTIE);
+      await seedShape(lineScope, stream, 'create', { NAME: 'Mill Creek' }, {
+        type: 'LineString',
+        coordinates: [[-80.01, 38.905], [-79.98, 38.905]],
+      });
+    });
+
+    it('register resolves the area and is content addressed', async () => {
+      const again = await areas.register({ geometry: AOI });
+      expect(again.id).toBe(areaId);
+      const r = await pool.query<{ m2: number }>(
+        `SELECT ST_Area(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)::geography) AS m2`,
+        [JSON.stringify(AOI)],
+      );
+      expect(again.squareMeters).toBeCloseTo(Number(r.rows[0]!.m2), 0);
+      expect(again.bbox).toEqual([-80, 38.9, -79.99, 38.91]);
+    });
+
+    it('buffers a point by true meters, and a collection of picked shapes', async () => {
+      const pt = await areas.register({
+        geometry: { type: 'Point', coordinates: [-79.995, 38.905] },
+        distanceMeters: 100,
+      });
+      // A circle of radius 100 m is about 31,416 m². The buffer is a
+      // 64-sided polygon inside that circle, 0.16% smaller.
+      expect(pt.squareMeters / (Math.PI * 100 * 100)).toBeGreaterThan(0.998);
+      expect(pt.squareMeters / (Math.PI * 100 * 100)).toBeLessThan(1.001);
+      const picked = await areas.register({
+        geometry: { type: 'GeometryCollection', geometries: [HALF_IN, URBAN_CUT] },
+        distanceMeters: 10,
+      });
+      expect(picked.geometry.type).toBe('Polygon');
+    });
+
+    it('unions overlapping picked shapes so shared ground counts once', async () => {
+      const one = await areas.register({ geometry: HALF_IN });
+      const twice = await areas.register({
+        geometry: { type: 'GeometryCollection', geometries: [HALF_IN, HALF_IN] },
+      });
+      expect(twice.squareMeters).toBeCloseTo(one.squareMeters, 0);
+    });
+
+    it('touch refuses an id that was never registered', async () => {
+      await expect(areas.touch('ffffffffffffffffffffffffffffffff')).rejects.toBeInstanceOf(
+        GoneException,
+      );
+      await expect(areas.touch(areaId)).resolves.toBe(areaId);
+    });
+
+    it('counts live features touching the area and cuts their area to it', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId: polyLayer,
+        areaOfInterestId: areaId,
+        groupBy: ['CLASS'],
+        aggs: [
+          { op: 'count', as: 'count' },
+          { op: 'area', as: 'area' },
+        ],
+      });
+      const by = Object.fromEntries(out.groups.map((g) => [g.key.CLASS, g.values]));
+      // Crop: halfIn + allIn. The deleted one must not resurrect.
+      // Urban: urbanCut only. urbanOut never touched the area, and
+      // `moved` touched it in an old version only.
+      expect(by.Crop!.count).toBe(2);
+      expect(by.Urban!.count).toBe(1);
+      expect(by.Wet!.count).toBe(1);
+      const crop = (await cutArea(HALF_IN)) + (await cutArea(ALL_IN));
+      expect(by.Crop!.area).toBeCloseTo(crop, 0);
+      expect(by.Urban!.area).toBeCloseTo(await cutArea(URBAN_CUT), 0);
+      // The bowtie was made valid rather than failing the request.
+      expect(by.Wet!.area).toBeGreaterThan(0);
+      expect(by.Wet!.area).toBeCloseTo(await cutArea(BOWTIE), 0);
+    });
+
+    it('without an area, area measures each whole feature', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId: polyLayer,
+        where: { combinator: 'all', clauses: [{ field: 'CLASS', op: '==', value: 'Urban' }] },
+        aggs: [{ op: 'area', as: 'area' }],
+      });
+      const r = await pool.query<{ m2: number }>(
+        `SELECT ST_Area(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326)::geography) AS m2`,
+        [JSON.stringify(URBAN_OUT)],
+      );
+      // urbanCut, urbanOut and moved (now the same shape as urbanOut).
+      expect(out.groups[0]!.values.area).toBeCloseTo(3 * Number(r.rows[0]!.m2), -1);
+    });
+
+    it('length cuts a line to the area, and area of a line is 0', async () => {
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId: lineLayer,
+        areaOfInterestId: areaId,
+        aggs: [
+          { op: 'count', as: 'count' },
+          { op: 'length', as: 'length' },
+          { op: 'area', as: 'area' },
+        ],
+      });
+      const r = await pool.query<{ m: number }>(
+        `SELECT ST_Length(ST_MakeLine(ST_MakePoint(-80.0, 38.905), ST_MakePoint(-79.99, 38.905))::geography) AS m`,
+      );
+      expect(out.groups[0]!.values.count).toBe(1);
+      expect(out.groups[0]!.values.length).toBeCloseTo(Number(r.rows[0]!.m), 0);
+      expect(out.groups[0]!.values.area).toBe(0);
+    });
+
+    it('an area that touches nothing reports zeros, not missing values', async () => {
+      const far = (await areas.register({ geometry: box(10, 10, 10.01, 10.01) })).id;
+      const out = await makeEngine().aggregateFeatures({
+        itemId,
+        layerId: polyLayer,
+        areaOfInterestId: far,
+        aggs: [
+          { op: 'count', as: 'count' },
+          { op: 'area', as: 'area' },
+        ],
+      });
+      expect(out.groups[0]!.values).toEqual({ count: 0, area: 0 });
     });
   });
 });

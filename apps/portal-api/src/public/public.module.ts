@@ -17,6 +17,7 @@ import { PublicProxyController } from './public-proxy.controller.js';
 import { DataLayerFeaturesModule } from '../data-layer/features.module.js';
 import { ExpressionsModule } from '../expressions/expressions.module.js';
 import { ItemsModule } from '../items/items.module.js';
+import { AreaOfInterestModule } from '../area-of-interest/area-of-interest.module.js';
 
 /**
  * Unauthenticated endpoints. Kept in its own module so the audit
@@ -36,7 +37,12 @@ import { ItemsModule } from '../items/items.module.js';
  * so the static `/collections/catalog` path wins over `:id`.
  */
 @Module({
-  imports: [DataLayerFeaturesModule, ItemsModule, ExpressionsModule],
+  imports: [
+    DataLayerFeaturesModule,
+    ItemsModule,
+    ExpressionsModule,
+    AreaOfInterestModule,
+  ],
   controllers: [
     PublicController,
     OgcLandingController,

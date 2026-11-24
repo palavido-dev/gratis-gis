@@ -212,7 +212,7 @@ describe('PublicController.item', () => {
       [PRIVATE_LAYER]: row(PRIVATE_LAYER, { type: 'data_layer', access: 'private' }),
     };
     const { svc, prisma } = makeItems(rows);
-    const controller = new PublicController(prisma as never, {} as never, svc);
+    const controller = new PublicController(prisma as never, {} as never, svc, {} as never);
     const out = (await controller.item(MAP_ID)) as unknown as {
       data: {
         layers: Array<{ id: string; access?: { entries: unknown[] } }>;

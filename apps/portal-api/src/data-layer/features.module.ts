@@ -12,6 +12,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
 import { DerivedLayersModule } from '../derived-layers/derived-layers.module.js';
 import { EngineModule } from '../engine/engine.module.js';
 import { ExpressionsModule } from '../expressions/expressions.module.js';
+import { AreaOfInterestModule } from '../area-of-interest/area-of-interest.module.js';
 
 /**
  * Data-layer feature CRUD + attachments. Depends on ItemsModule
@@ -29,6 +30,7 @@ import { ExpressionsModule } from '../expressions/expressions.module.js';
     DerivedLayersModule,
     EngineModule,
     ExpressionsModule,
+    AreaOfInterestModule,
   ],
   providers: [DataLayerFeaturesService, DataLayerAttachmentsService],
   controllers: [

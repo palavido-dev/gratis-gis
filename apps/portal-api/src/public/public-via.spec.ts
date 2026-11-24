@@ -57,6 +57,7 @@ describe('PublicController.resolvePublicVia', () => {
       // must not.
       {} as never,
       {} as never,
+      {} as never,
     ) as unknown as {
       resolvePublicVia(v: ParsedVia | undefined): Promise<unknown>;
     };
