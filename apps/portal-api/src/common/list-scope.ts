@@ -10,8 +10,9 @@ import { isUuidShape } from './uuid-shape.js';
 /**
  * Which organization's items a list shows.
  *
- * Every list, count, facet and feed of items limits its rows with one
- * of the two functions here, so the rule lives in one place:
+ * Every list, count, facet and feed of items (and every list of
+ * groups) limits its rows with one of the two functions here, so the
+ * rule lives in one place:
  * - a signed-in list uses `ownOrgListScope(user)`;
  * - a signed-out list or feed uses `publicListScope(prisma, lookup)`.
  *
@@ -37,12 +38,17 @@ export function ownOrgListScope(user: { orgId: string }): ItemListScope {
 /**
  * `where` limited by `scope`. With no scope the same object comes
  * back, so a list that is not limited runs exactly the query it ran
- * before.
+ * before. Works for any model with an `orgId` column (items, groups).
  */
 export function scopedWhere(
   where: Prisma.ItemWhereInput,
   scope: ItemListScope,
-): Prisma.ItemWhereInput {
+): Prisma.ItemWhereInput;
+export function scopedWhere(
+  where: Prisma.GroupWhereInput,
+  scope: ItemListScope,
+): Prisma.GroupWhereInput;
+export function scopedWhere(where: object, scope: ItemListScope): object {
   return scope ? { AND: [where, scope] } : where;
 }
 

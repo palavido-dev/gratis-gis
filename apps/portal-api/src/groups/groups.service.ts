@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, ForbiddenException, NotFoundException 
 import type { GroupAccess, GroupRole } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ownOrgListScope, scopedWhere } from '../common/list-scope.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 
 export interface CreateGroupInput {
@@ -38,16 +39,22 @@ export class GroupsService {
    *  group would lose visibility into the group from their own
    *  groups list. */
   listVisible(user: AuthUser) {
+    // Limited like every other list (common/list-scope.ts): where the
+    // install requires it, only the caller's own org's groups. A public
+    // group of another org stays readable by its id (canSee).
     return this.prisma.group.findMany({
-      where: {
-        deletedAt: null,
-        OR: [
-          { ownerId: user.id },
-          { members: { some: { userId: user.id } } },
-          { orgId: user.orgId, access: { in: ['org', 'public'] } },
-          { access: 'public' },
-        ],
-      },
+      where: scopedWhere(
+        {
+          deletedAt: null,
+          OR: [
+            { ownerId: user.id },
+            { members: { some: { userId: user.id } } },
+            { orgId: user.orgId, access: { in: ['org', 'public'] } },
+            { access: 'public' },
+          ],
+        },
+        ownOrgListScope(user),
+      ),
       orderBy: { createdAt: 'desc' },
     });
   }
