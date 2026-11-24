@@ -50,6 +50,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   to keep, open in desktop GIS or upload again later (#796).
 - What's Here saves the checked area to the map's markup, with its size
   shown in the middle (#796).
+- What's Here adds up number fields: tick any number fields on a layer to
+  see their totals for the features in the area, in the panel, the
+  spreadsheet, the PDF and share links (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 

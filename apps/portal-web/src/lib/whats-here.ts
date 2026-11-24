@@ -25,6 +25,8 @@ export interface ScreenLayer {
   geometry: ScreenGeometry | null;
   /** Fields a result can be broken down by. */
   categoryFields: Array<{ name: string; label: string }>;
+  /** Number fields a result can add up. */
+  numberFields: Array<{ name: string; label: string }>;
 }
 
 export interface ResolvedArea {
@@ -41,10 +43,18 @@ export interface ScreenRow {
   count: number;
   /** m² for polygons, m for lines, null for points. */
   measure: number | null;
+  /** Field name to its total over the features that touch the area.
+   *  Whole values: a feature half inside still adds all of its value. */
+  sums?: Record<string, number | null>;
 }
+
+/** Number fields one layer's results add up, at most. */
+export const MAX_SUM_FIELDS = 10;
 
 export interface LayerScreen {
   total: ScreenRow;
+  /** The number fields added up, in the order they were picked. */
+  sumFields?: string[];
   /** Present when a breakdown field was asked for. */
   breakdown?: { field: string; rows: ScreenRow[]; truncated: boolean };
 }
@@ -221,11 +231,15 @@ function rowFrom(
   values: Record<string, number | null>,
   op: 'area' | 'length' | null,
   value: string | null,
+  sumFields: string[],
 ): ScreenRow {
   return {
     value,
     count: values.count ?? 0,
     measure: op ? (values[op] ?? 0) : null,
+    ...(sumFields.length > 0
+      ? { sums: Object.fromEntries(sumFields.map((f) => [f, values[`sum:${f}`] ?? null])) }
+      : {}),
   };
 }
 
@@ -239,11 +253,16 @@ export async function screenLayer(args: {
   layer: ScreenLayer;
   areaId: string;
   breakdownField?: string | null;
+  /** Number fields to add up. Names not on the layer are dropped. */
+  sumFields?: string[];
   signal?: AbortSignal;
 }): Promise<LayerScreen> {
   const op = measureOpFor(args.layer.geometry);
-  const aggs: Array<{ op: 'count' | 'area' | 'length' }> = [{ op: 'count' }];
+  const known = new Set(args.layer.numberFields.map((f) => f.name));
+  const sumFields = (args.sumFields ?? []).filter((f) => known.has(f)).slice(0, MAX_SUM_FIELDS);
+  const aggs: Array<{ op: 'count' | 'area' | 'length' | 'sum'; field?: string }> = [{ op: 'count' }];
   if (op) aggs.push({ op });
+  for (const field of sumFields) aggs.push({ op: 'sum', field });
   const base = {
     itemId: args.layer.itemId,
     layerId: args.layer.layerKey,
@@ -256,15 +275,17 @@ export async function screenLayer(args: {
     fetchAggregate(base),
     field ? fetchAggregate({ ...base, groupBy: [field], limit: 50 }) : null,
   ]);
-  const total = rowFrom(whole.groups[0]?.values ?? {}, op, null);
-  if (!field || !grouped) return { total };
+  const total = rowFrom(whole.groups[0]?.values ?? {}, op, null, sumFields);
+  const sumPart = sumFields.length > 0 ? { sumFields } : {};
+  if (!field || !grouped) return { total, ...sumPart };
   return {
     total,
+    ...sumPart,
     breakdown: {
       field,
       truncated: grouped.truncated,
       rows: grouped.groups
-        .map((g) => rowFrom(g.values, op, g.key[field] ?? null))
+        .map((g) => rowFrom(g.values, op, g.key[field] ?? null, sumFields))
         // Biggest share first: the server orders by count, but for a
         // screen the acreage is the answer.
         .sort((a, b) => (b.measure ?? b.count) - (a.measure ?? a.count)),
@@ -305,10 +326,21 @@ export function screenCsv(args: {
     area: string;
     length: string;
     percent: string;
+    /** "Total {field}" for an added-up field's column. */
+    sum: (label: string) => string;
   };
 }): string {
   const lengthPer = METERS_PER[args.lengthUnit];
   const fmt = (n: number) => Number(n.toFixed(4));
+  // One column per added-up field label, across every layer: layers
+  // that share a field name (acres, population) share a column.
+  const sumLabels: string[] = [];
+  for (const { layer, screen } of args.layers) {
+    for (const f of screen.sumFields ?? []) {
+      const label = layer.numberFields.find((n) => n.name === f)?.label ?? f;
+      if (!sumLabels.includes(label)) sumLabels.push(label);
+    }
+  }
   const lines: string[] = [];
   lines.push(
     [
@@ -318,6 +350,7 @@ export function screenCsv(args: {
       `${args.headers.area} (${args.areaUnit})`,
       `${args.headers.length} (${args.lengthUnit})`,
       args.headers.percent,
+      ...sumLabels.map(args.headers.sum),
     ]
       .map(csvCell)
       .join(','),
@@ -327,8 +360,14 @@ export function screenCsv(args: {
     category: string | null,
     row: ScreenRow,
     geometry: ScreenGeometry | null,
+    layer: ScreenLayer,
   ) => {
     const pct = percentOfArea(row.measure, args.area.squareMeters, geometry);
+    const sumCells = sumLabels.map((label) => {
+      const field = layer.numberFields.find((n) => n.label === label)?.name ?? label;
+      const v = row.sums?.[field];
+      return v === undefined || v === null ? null : fmt(v);
+    });
     return [
       title,
       category,
@@ -338,14 +377,15 @@ export function screenCsv(args: {
         : null,
       geometry === 'line' && row.measure !== null ? fmt(row.measure / lengthPer) : null,
       pct === null ? null : fmt(pct),
+      ...sumCells,
     ]
       .map(csvCell)
       .join(',');
   };
   for (const { layer, screen } of args.layers) {
-    lines.push(rowLine(layer.title, null, screen.total, layer.geometry));
+    lines.push(rowLine(layer.title, null, screen.total, layer.geometry, layer));
     for (const r of screen.breakdown?.rows ?? []) {
-      lines.push(rowLine(layer.title, r.value ?? '', r, layer.geometry));
+      lines.push(rowLine(layer.title, r.value ?? '', r, layer.geometry, layer));
     }
   }
   // CRLF and a BOM: Excel on Windows opens UTF-8 CSV correctly only
@@ -357,7 +397,13 @@ export function screenCsv(args: {
 export interface ReportBody {
   areaId: string;
   distanceMeters: number;
-  layers: Array<{ itemId: string; layerKey: string; title: string; breakdownField?: string }>;
+  layers: Array<{
+    itemId: string;
+    layerKey: string;
+    title: string;
+    breakdownField?: string;
+    sumFields?: string[];
+  }>;
   areaUnit: AreaUnit;
   lengthUnit: DistanceUnit;
   paper: 'letter' | 'a4';
@@ -444,6 +490,8 @@ export interface SharedArea {
   place?: string;
   /** Map layer id to the field its results were broken down by. */
   breakdowns?: Record<string, string>;
+  /** Map layer id to the number fields its results add up. */
+  sums?: Record<string, string[]>;
 }
 
 /** The hash key: `#wh=<code>`. */
@@ -501,6 +549,7 @@ export async function encodeSharedArea(area: SharedArea): Promise<string | null>
       d: Math.round(area.distanceMeters * 100) / 100,
       ...(area.place ? { p: area.place } : {}),
       ...(area.breakdowns && Object.keys(area.breakdowns).length > 0 ? { b: area.breakdowns } : {}),
+      ...(area.sums && Object.keys(area.sums).length > 0 ? { s: area.sums } : {}),
     });
     const bytes = new TextEncoder().encode(json);
     const code = canCompress()
@@ -546,6 +595,17 @@ export async function decodeSharedArea(code: string): Promise<SharedArea | null>
         ),
       );
       if (Object.keys(b).length > 0) out.breakdowns = b;
+    }
+    if (v.s && typeof v.s === 'object' && !Array.isArray(v.s)) {
+      const sums: Record<string, string[]> = {};
+      for (const [k, fields] of Object.entries(v.s as Record<string, unknown>)) {
+        if (!Array.isArray(fields)) continue;
+        const ok = fields
+          .filter((f): f is string => typeof f === 'string' && f.length <= 100)
+          .slice(0, MAX_SUM_FIELDS);
+        if (ok.length > 0) sums[k] = ok;
+      }
+      if (Object.keys(sums).length > 0) out.sums = sums;
     }
     return out;
   } catch {

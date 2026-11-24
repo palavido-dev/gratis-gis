@@ -22,6 +22,10 @@ const landCover: ScreenLayer = {
   layerKey: 'landcover',
   geometry: 'polygon',
   categoryFields: [{ name: 'CLASS', label: 'Class' }],
+  numberFields: [
+    { name: 'POP', label: 'Population' },
+    { name: 'UNITS', label: 'Units' },
+  ],
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -108,6 +112,65 @@ describe('screenLayer', () => {
   });
 });
 
+describe('screenLayer sums', () => {
+  const realFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  it('adds up the picked number fields and drops names not on the layer', async () => {
+    const urls: string[] = [];
+    global.fetch = jest.fn(async (url: RequestInfo | URL) => {
+      urls.push(String(url));
+      return jsonResponse({
+        truncated: false,
+        groups: [{ key: {}, values: { count: 2, area: 10, 'sum:POP': 1500 } }],
+      });
+    }) as typeof fetch;
+    const out = await screenLayer({
+      layer: landCover,
+      areaId: '0123456789abcdef0123456789abcdef',
+      sumFields: ['POP', 'NOT_A_FIELD'],
+    });
+    expect(new URL(urls[0]!, 'http://x').searchParams.getAll('agg')).toEqual([
+      'count',
+      'area',
+      'sum:POP',
+    ]);
+    expect(out.sumFields).toEqual(['POP']);
+    expect(out.total.sums).toEqual({ POP: 1500 });
+  });
+});
+
+describe('screenCsv sums', () => {
+  it('adds a column per added-up field', () => {
+    const csv = screenCsv({
+      area: { squareMeters: SQM_PER_ACRE, distanceMeters: 0 },
+      layers: [
+        {
+          layer: landCover,
+          screen: { total: { value: null, count: 2, measure: 10, sums: { POP: 1500.5 } }, sumFields: ['POP'] },
+        },
+      ],
+      areaUnit: 'acres',
+      lengthUnit: 'feet',
+      areaPerUnit: SQM_PER_ACRE,
+      headers: {
+        layer: 'Layer',
+        category: 'Category',
+        count: 'Count',
+        area: 'Area',
+        length: 'Length',
+        percent: 'Percent of area',
+        sum: (label) => `Total ${label}`,
+      },
+    });
+    const [head, row] = csv.slice(1).split('\r\n');
+    expect(head!.endsWith(',Total Population')).toBe(true);
+    expect(row!.endsWith(',1500.5')).toBe(true);
+  });
+});
+
 describe('screenCsv', () => {
   it('writes layers and their breakdowns in the units on screen', () => {
     const csv = screenCsv({
@@ -135,6 +198,7 @@ describe('screenCsv', () => {
         area: 'Area',
         length: 'Length',
         percent: 'Percent of area',
+        sum: (label) => `Total ${label}`,
       },
     });
     expect(csv.startsWith('\uFEFF')).toBe(true);

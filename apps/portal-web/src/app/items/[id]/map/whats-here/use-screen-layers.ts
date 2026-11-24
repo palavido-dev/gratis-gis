@@ -56,6 +56,13 @@ function pickLabelField(l: MapLayer, fields: FeatureField[]): string | null {
  * the categories a land cover class or a fee zone is stored as. Not
  * numbers or dates, where every row is its own group.
  */
+/** Plain number fields: a coded number is a category, not an amount. */
+function numberFields(fields: FeatureField[]): Array<{ name: string; label: string }> {
+  return fields
+    .filter((f) => f.type === 'number' && f.domain?.type !== 'coded-value' && f.domain?.type !== 'coded-value-ref')
+    .map((f) => ({ name: f.name, label: f.label?.trim() || f.name }));
+}
+
 function categoryFields(fields: FeatureField[]): Array<{ name: string; label: string }> {
   return fields
     .filter((f) => f.type === 'string' || f.type === 'boolean' || f.domain?.type === 'coded-value' || f.domain?.type === 'coded-value-ref')
@@ -168,6 +175,7 @@ export function useScreenLayers(mapLayers: MapLayer[], enabled: boolean): {
           layerKey: src.layerKey,
           geometry: gt as ScreenGeometry,
           categoryFields: categoryFields(fields),
+          numberFields: numberFields(fields),
           labelField,
           codeLabels,
         });

@@ -2,7 +2,7 @@
 id: map-editing-whats-here
 title: What's Here
 seoTitle: "What's Here: see what every layer has inside an area"
-summary: "Pick an area on a map and see what every visible layer has inside it: counts, acres, lengths and breakdowns. Export a spreadsheet or a PDF report."
+summary: "Pick an area on a map and see what every visible layer has inside it: counts, acres, lengths, totals and breakdowns. Export a spreadsheet or a PDF report."
 category: map-editing
 order: 45
 complexity: basic
@@ -85,13 +85,25 @@ or land cover, to split that layer's results by its values, largest
 first. Coded values show their labels. A breakdown shows up to 50
 values.
 
+## Add up number fields
+
+Open **Add up number fields** on a layer card and tick the number
+fields you want totals for, such as assessed value or housing units.
+Each one shows as a total under the layer, and as a column in its
+breakdown, the spreadsheet and the PDF. Up to 10 fields per layer.
+
+Totals add the full value of every feature that touches the area,
+including features only partly inside. A parcel half inside the area
+adds its whole assessed value, while its acres count only the half
+inside.
+
 ## Keep or share the results
 
 - **Spreadsheet** downloads a CSV with every layer and breakdown.
 - **PDF** makes a report: the area, the distance, a map picture, a
   summary table, the shapes you picked and each breakdown.
 - **Link** copies an address that opens the same map with the same
-  area, distance and breakdowns. The area travels in the link, so it
+  area, distance, breakdowns and totals. The area travels in the link, so it
   does not expire.
 - The download icon next to **Area** saves the area itself as
   GeoJSON, to keep or to upload again later.

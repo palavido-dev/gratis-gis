@@ -68,6 +68,7 @@ import {
   readShareHash,
   shareUrl,
   MAX_DISTANCE_METERS,
+  MAX_SUM_FIELDS,
   POINT_DEFAULT_METERS,
   initialUnits,
   profileUnitSystem,
@@ -225,6 +226,8 @@ export function WhatsHereTool({
   const [resolving, setResolving] = useState(false);
   const [results, setResults] = useState<Record<string, LayerState>>({});
   const [breakdowns, setBreakdowns] = useState<Record<string, string>>({});
+  // Map layer id to the number fields its results add up.
+  const [sums, setSums] = useState<Record<string, string[]>>({});
   const [units, setUnits] = useState(() =>
     initialUnits({
       system,
@@ -442,6 +445,8 @@ export function WhatsHereTool({
   const areaRef = useRef<ResolvedArea | null>(null);
   const breakdownsRef = useRef(breakdowns);
   breakdownsRef.current = breakdowns;
+  const sumsRef = useRef(sums);
+  sumsRef.current = sums;
 
   const screenAll = useCallback(
     async (resolved: ResolvedArea, run: number, signal: AbortSignal) => {
@@ -464,6 +469,7 @@ export function WhatsHereTool({
               layer,
               areaId: resolved.id,
               breakdownField: breakdownsRef.current[layer.mapLayerId] ?? null,
+              sumFields: sumsRef.current[layer.mapLayerId] ?? [],
               signal,
             });
             state = { status: 'done', screen };
@@ -544,19 +550,14 @@ export function WhatsHereTool({
   }, [open, map, source, distanceMeters, layers, screenAll, t]);
 
   // Changing one layer's breakdown reruns that layer only.
-  const setBreakdown = useCallback(
-    (layer: ScreenLayerInfo, field: string) => {
-      setBreakdowns((cur) => {
-        const next = { ...cur };
-        if (field) next[layer.mapLayerId] = field;
-        else delete next[layer.mapLayerId];
-        return next;
-      });
+  // Rerun one layer after its breakdown or its added-up fields change.
+  const rescreenLayer = useCallback(
+    (layer: ScreenLayerInfo, breakdownField: string | null, sumFields: string[]) => {
       const resolved = areaRef.current;
       if (!resolved) return;
       const run = runRef.current;
       setResults((cur) => ({ ...cur, [layer.mapLayerId]: { status: 'loading' } }));
-      screenLayer({ layer, areaId: resolved.id, breakdownField: field || null })
+      screenLayer({ layer, areaId: resolved.id, breakdownField, sumFields })
         .then((screen) => {
           if (runRef.current === run) {
             setResults((cur) => ({ ...cur, [layer.mapLayerId]: { status: 'done', screen } }));
@@ -579,6 +580,32 @@ export function WhatsHereTool({
         });
     },
     [t],
+  );
+
+  const setBreakdown = useCallback(
+    (layer: ScreenLayerInfo, field: string) => {
+      setBreakdowns((cur) => {
+        const next = { ...cur };
+        if (field) next[layer.mapLayerId] = field;
+        else delete next[layer.mapLayerId];
+        return next;
+      });
+      rescreenLayer(layer, field || null, sumsRef.current[layer.mapLayerId] ?? []);
+    },
+    [rescreenLayer],
+  );
+
+  const setSumFields = useCallback(
+    (layer: ScreenLayerInfo, fields: string[]) => {
+      setSums((cur) => {
+        const next = { ...cur };
+        if (fields.length > 0) next[layer.mapLayerId] = fields;
+        else delete next[layer.mapLayerId];
+        return next;
+      });
+      rescreenLayer(layer, breakdownsRef.current[layer.mapLayerId] ?? null, fields);
+    },
+    [rescreenLayer],
   );
 
   // ---- Map overlay ----------------------------------------------------
@@ -765,6 +792,7 @@ export function WhatsHereTool({
     setPlaceLabel(shared.place ?? null);
     setGivenNote(t('whatsHere.linkArea'));
     setBreakdowns(shared.breakdowns ?? {});
+    setSums(shared.sums ?? {});
     // The receiver's map opens wherever it was saved: show the area.
     flyOnResolveRef.current = true;
     setSource(shared.geometry);
@@ -809,6 +837,7 @@ export function WhatsHereTool({
       distanceMeters,
       ...((mode === 'address' || mode === 'link') && placeLabel ? { place: placeLabel } : {}),
       breakdowns,
+      sums,
     });
     if (!code) {
       setLinkNote(t('whatsHere.linkTooBig'));
@@ -885,6 +914,7 @@ export function WhatsHereTool({
         area: t('whatsHere.csvArea'),
         length: t('whatsHere.csvLength'),
         percent: t('whatsHere.csvPercent'),
+        sum: (label) => t('whatsHere.csvSum', { label }),
       },
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -907,11 +937,13 @@ export function WhatsHereTool({
         distanceMeters,
         layers: layers.slice(0, 30).map((l) => {
           const field = breakdowns[l.mapLayerId];
+          const added = sums[l.mapLayerId] ?? [];
           return {
             itemId: l.itemId,
             layerKey: l.layerKey,
             title: l.title,
             ...(field ? { breakdownField: field } : {}),
+            ...(added.length > 0 ? { sumFields: added } : {}),
           };
         }),
         areaUnit,
@@ -938,6 +970,8 @@ export function WhatsHereTool({
           noValue: t('whatsHere.noValue'),
           unavailable: t('whatsHere.report.unavailable'),
           truncated: t('whatsHere.breakdownTruncated'),
+          totalOf: t('whatsHere.report.totalOf'),
+          sumNote: t('whatsHere.report.sumNote'),
         },
         ...((mode === 'address' || mode === 'link') && placeLabel ? { place: placeLabel } : {}),
         picked: mode === 'features' ? picked.slice(0, 200).map((p) => `${p.label} (${p.layerTitle})`) : [],
@@ -1416,6 +1450,8 @@ export function WhatsHereTool({
                     lengthUnit={lengthUnit}
                     breakdown={breakdowns[layer.mapLayerId] ?? ''}
                     onBreakdown={(f) => setBreakdown(layer, f)}
+                    sumFields={sums[layer.mapLayerId] ?? []}
+                    onSumFields={(f) => setSumFields(layer, f)}
                   />
                 ))}
                 {pending.map((layer) => (
@@ -1553,6 +1589,8 @@ function LayerCard({
   lengthUnit,
   breakdown,
   onBreakdown,
+  sumFields,
+  onSumFields,
 }: {
   layer: ScreenLayerInfo;
   screen: LayerScreen;
@@ -1561,8 +1599,27 @@ function LayerCard({
   lengthUnit: DistanceUnit;
   breakdown: string;
   onBreakdown: (field: string) => void;
+  sumFields: string[];
+  onSumFields: (fields: string[]) => void;
 }) {
   const t = useT();
+  const locale = useLocale();
+  const amount = (v: number | null | undefined) =>
+    v === null || v === undefined
+      ? '–'
+      : new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(v);
+  // Shown sums follow the last answer, not the checkboxes, so a
+  // number never sits beside a field it was not computed for.
+  const shownSums = (screen.sumFields ?? []).map((name) => ({
+    name,
+    label: layer.numberFields.find((f) => f.name === name)?.label ?? name,
+  }));
+  const toggleSum = (name: string, on: boolean) => {
+    const next = on
+      ? [...sumFields.filter((f) => f !== name), name].slice(0, MAX_SUM_FIELDS)
+      : sumFields.filter((f) => f !== name);
+    onSumFields(next);
+  };
   const measure = (m: number | null) =>
     m === null
       ? null
@@ -1592,6 +1649,16 @@ function LayerCard({
           ) : null}
         </p>
       ) : null}
+      {shownSums.length > 0 ? (
+        <ul className="mt-0.5 space-y-0.5 text-xs text-ink-1">
+          {shownSums.map((f) => (
+            <li key={f.name}>
+              {t('whatsHere.totalOf', { label: f.label })}{' '}
+              <span className="font-mono">{amount(total.sums?.[f.name])}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {layer.categoryFields.length > 0 ? (
         <label className="mt-1.5 flex items-center gap-1 text-2xs text-muted">
@@ -1611,6 +1678,29 @@ function LayerCard({
         </label>
       ) : null}
 
+      {layer.numberFields.length > 0 ? (
+        <details className="mt-1.5 text-2xs text-muted">
+          <summary className="cursor-pointer select-none">
+            {t('whatsHere.addUp')}
+            {sumFields.length > 0 ? ` (${sumFields.length})` : ''}
+          </summary>
+          <p className="mt-1 leading-snug">{t('whatsHere.addUpHint')}</p>
+          <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
+            {layer.numberFields.map((f) => (
+              <label key={f.name} className="flex min-w-0 items-center gap-1 text-ink-1">
+                <input
+                  type="checkbox"
+                  checked={sumFields.includes(f.name)}
+                  disabled={!sumFields.includes(f.name) && sumFields.length >= MAX_SUM_FIELDS}
+                  onChange={(e) => toggleSum(f.name, e.target.checked)}
+                />
+                <span className="truncate">{f.label}</span>
+              </label>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
       {screen.breakdown && screen.breakdown.rows.length > 0 ? (
         <table className="mt-1.5 w-full text-2xs">
           <tbody>
@@ -1626,6 +1716,11 @@ function LayerCard({
                     {pct(r.measure) ? <span className="text-muted"> · {pct(r.measure)}</span> : null}
                   </td>
                 ) : null}
+                {shownSums.map((f) => (
+                  <td key={f.name} className="py-0.5 pl-2 text-right font-mono text-ink-1" title={f.label}>
+                    {amount(r.sums?.[f.name])}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
