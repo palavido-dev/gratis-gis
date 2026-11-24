@@ -13,7 +13,7 @@ import {
   sealedSize,
   sealStream,
   unsealStream,
-} from './offsite-crypto.js';
+} from './offsite-grcv2.js';
 
 const PASS = 'correct horse battery staple';
 const CHUNK = 1024 * 1024;
@@ -29,7 +29,7 @@ async function collect(it: AsyncIterable<Buffer>): Promise<Buffer> {
   return Buffer.concat(out);
 }
 
-describe('off-site encryption (GRCV2 stream)', () => {
+describe('GRCV2 stream (key files)', () => {
   // The lowest cost seal.mjs accepts, to keep the suite quick.
   let key: Awaited<ReturnType<typeof newSealKey>>;
   beforeAll(async () => {
@@ -65,7 +65,7 @@ describe('off-site encryption (GRCV2 stream)', () => {
     const sealed = await collect(sealStream(pieces(Buffer.from('hello')), key));
     await expect(
       collect(unsealStream(pieces(sealed), 'not the passphrase at all')),
-    ).rejects.toThrow(/did not verify/);
+    ).rejects.toThrow(/did not open/);
   });
 
   it('rejects a changed byte anywhere', async () => {
@@ -105,7 +105,7 @@ describe('off-site encryption (GRCV2 stream)', () => {
       r0,
       sealed.subarray(SEAL_HEADER_LEN + 2 * rec),
     ]);
-    await expect(collect(unsealStream(pieces(swapped), PASS))).rejects.toThrow(/did not verify/);
+    await expect(collect(unsealStream(pieces(swapped), PASS))).rejects.toThrow(/did not open/);
   });
 
   it('refuses a header asking for more work than encryption ever does', async () => {
