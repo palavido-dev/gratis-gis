@@ -1221,6 +1221,40 @@ function ownOrgListTopics(): Topic[] {
       },
     },
     {
+      name: "a public map of org A that draws org B's public layer renders for a signed-out viewer",
+      modes: BOTH,
+      async run(state) {
+        const p: string[] = [];
+        const { A, B } = state.fx;
+        const layerB = B.items['data_layer:public']!;
+        const made = await createItem(state, A.users.admin, {
+          type: 'map',
+          title: "A's map over B's layer",
+          access: 'public',
+          data: mapData(layerB),
+        });
+        if (!made.id) return verdict([`A could not save the map: ${short(made.res)}`]);
+        const map = await api(state.app.baseUrl, null, 'GET', `/api/public/items/${made.id}`);
+        if (map.status !== 200) p.push(`signed-out map read: expected 200, got ${short(map)}`);
+        if (!map.text.includes(layerB)) p.push("the signed-out map lost B's layer");
+        for (const path of [
+          `/api/public/items/${layerB}`,
+          `/api/public/items/${layerB}/layers/${LAYER_ID}/features`,
+          `/api/public/items/${layerB}/layers/${LAYER_ID}/tile/0/0/0.mvt`,
+        ]) {
+          const r = await api(state.app.baseUrl, null, 'GET', path);
+          if (r.status < 200 || r.status >= 300) p.push(`signed out ${path}: got ${short(r)}`);
+        }
+        // The map is A's: it shows in A's feeds, never in B's.
+        const feedA = await api(state.app.baseUrl, null, 'GET', `/api/public/catalog.json?org=${A.slug}`);
+        const feedB = await api(state.app.baseUrl, null, 'GET', `/api/public/catalog.json?org=${B.slug}`);
+        if (!feedA.text.includes(made.id)) p.push("A's catalog misses A's new public map");
+        if (feedB.text.includes(made.id)) p.push("B's catalog lists A's map");
+        await api(state.app.baseUrl, A.users.admin, 'DELETE', `/api/items/${made.id}`);
+        return verdict(p);
+      },
+    },
+    {
       name: "a group cannot take a member from another org, so a group share never crosses orgs",
       modes: BOTH,
       async run({ app, fx, pool }) {
