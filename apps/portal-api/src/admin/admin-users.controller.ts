@@ -243,7 +243,12 @@ export class AdminUsersController {
     @CurrentUser() me: AuthUser,
     @Param('id') id: string,
   ): Promise<KeycloakUserRep> {
-    const kcUser = await this.kc.getUser(id);
+    // A missing user answers with the same words as a user of another
+    // org below, so the answer does not tell the two apart.
+    const kcUser = await this.kc.getUser(id).catch((err: unknown) => {
+      if (err instanceof NotFoundException) throw new NotFoundException('User not found');
+      throw err;
+    });
     const local = kcUser.username
       ? await this.prisma.user.findUnique({
           where: { username: kcUser.username },

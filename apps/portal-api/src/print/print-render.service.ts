@@ -28,6 +28,7 @@ import {
 import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
+import { fairShareBucket, OrgSlotCounter } from '../common/org-fair-share.js';
 import { printReadItemIds } from './print-read-scope.js';
 
 export interface RenderJobBundle {
@@ -82,6 +83,8 @@ const MAX_CONCURRENT_RENDERS = 4;
 export class PrintRenderService {
   /** Renders running in this process; see MAX_CONCURRENT_RENDERS. */
   private activeRenders = 0;
+  /** Renders running per organization; see common/org-fair-share.ts. */
+  private readonly rendersByOrg = new OrgSlotCounter();
 
   private readonly log = new Logger(PrintRenderService.name);
 
@@ -277,12 +280,17 @@ export class PrintRenderService {
     // Renders hold a Chromium page for up to 45 s and buffer the
     // page's third-party resources in this process, so a replica runs
     // only a few at once and turns the rest away.
-    if (this.activeRenders >= MAX_CONCURRENT_RENDERS) {
+    const renderBucket = fairShareBucket();
+    if (
+      this.activeRenders >= MAX_CONCURRENT_RENDERS ||
+      !this.rendersByOrg.mayTake(renderBucket, MAX_CONCURRENT_RENDERS)
+    ) {
       throw new ServiceUnavailableException(
         'The print service is busy. Try again in a minute.',
       );
     }
     this.activeRenders += 1;
+    this.rendersByOrg.take(renderBucket);
     const renderDone = new AbortController();
     const budget = createPrintFetchBudget(renderDone.signal);
     const inches = resolvePaperInches(paper);
@@ -291,10 +299,17 @@ export class PrintRenderService {
       browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
     } catch (err) {
       this.activeRenders -= 1;
+      this.rendersByOrg.release(renderBucket);
       throw err;
     }
+    // A context of its own per render: storage (cookies, local and
+    // session storage, the Cache Storage a map library may fill) is
+    // never shared between two renders, which can be for different
+    // people of different organizations.
+    let context: Awaited<ReturnType<typeof browser.createBrowserContext>> | undefined;
     try {
-      const page = await browser.newPage();
+      context = await browser.createBrowserContext();
+      const page = await context.newPage();
       try {
         // Every request the page makes goes through the filter, so a
         // user-authored URL cannot reach an internal host from here.
@@ -356,6 +371,8 @@ export class PrintRenderService {
       }
     } finally {
       this.activeRenders -= 1;
+      this.rendersByOrg.release(renderBucket);
+      await context?.close().catch(() => undefined);
       await browser.disconnect();
     }
   }

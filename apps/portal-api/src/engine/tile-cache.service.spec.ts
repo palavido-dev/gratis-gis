@@ -2,6 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { runAsOrg } from '../common/tenant-context.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import {
   OBSERVATION_WRITTEN_CHANNEL,
   TileCacheAbortedError,
@@ -678,6 +680,99 @@ describe('TileCacheService', () => {
         if (prev !== undefined) process.env.TILE_CACHE_MAX_CONCURRENT = prev;
         else delete process.env.TILE_CACHE_MAX_CONCURRENT;
       }
+    });
+  });
+
+  describe('share of the cap per organization', () => {
+    const before = {
+      tenancy: process.env.GRATIS_TENANCY,
+      cap: process.env.TILE_CACHE_MAX_CONCURRENT,
+    };
+    afterEach(() => {
+      for (const [k, v] of [
+        ['GRATIS_TENANCY', before.tenancy],
+        ['TILE_CACHE_MAX_CONCURRENT', before.cap],
+      ] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      resetTenancyModeForTests();
+    });
+
+    function setup(mode: 'single' | 'multi', cap: number): TileCacheService {
+      if (mode === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      else delete process.env.GRATIS_TENANCY;
+      process.env.TILE_CACHE_MAX_CONCURRENT = String(cap);
+      resetTenancyModeForTests();
+      return new TileCacheService();
+    }
+
+    /** A compute that waits until released. */
+    function held(): { compute: () => Promise<Buffer>; release: () => void } {
+      let done: (b: Buffer) => void = () => undefined;
+      const p = new Promise<Buffer>((r) => {
+        done = r;
+      });
+      return { compute: () => p, release: () => done(Buffer.from('x')) };
+    }
+
+    it('one organization may use the whole cap, as before', async () => {
+      const cache = setup('single', 3);
+      const h = [held(), held(), held()];
+      const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`k${i}`, x.compute)));
+      await expect(
+        runAsOrg('org-a', () => cache.getOrCompute('k3', async () => Buffer.from('y'))),
+      ).rejects.toBeInstanceOf(TileCacheOverloadError);
+      h.forEach((x) => x.release());
+      await Promise.all(ps);
+    });
+
+    it('many organizations: one at its share does not stop another', async () => {
+      const cache = setup('multi', 4);
+      const h = [held(), held()];
+      const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute)));
+      await expect(
+        runAsOrg('org-a', () => cache.getOrCompute('a2', async () => Buffer.from('y'))),
+      ).rejects.toBeInstanceOf(TileCacheOverloadError);
+      const b = await runAsOrg('org-b', () =>
+        cache.getOrCompute('b0', async () => Buffer.from('b')),
+      );
+      expect(b.buf.toString()).toBe('b');
+      h.forEach((x) => x.release());
+      await Promise.all(ps);
+      // Released slots come back to the organization.
+      const again = await runAsOrg('org-a', () =>
+        cache.getOrCompute('a3', async () => Buffer.from('a')),
+      );
+      expect(again.buf.toString()).toBe('a');
+    });
+
+    it('many organizations: a cached answer for an organization still hits', async () => {
+      const cache = setup('multi', 2);
+      const compute = jest.fn(async () => Buffer.from('t'));
+      await runAsOrg('org-a', () => cache.getOrCompute('tile', compute));
+      await runAsOrg('org-a', () => cache.getOrCompute('tile', compute));
+      expect(compute).toHaveBeenCalledTimes(1);
+    });
+
+    it('many organizations: a lane holds one organization to its share of the places', async () => {
+      const cache = setup('multi', 8);
+      const lane = { name: 'agg', limit: 2, maxQueued: 2 };
+      const h = [held(), held()];
+      const ps = h.map((x, i) =>
+        runAsOrg('org-a', () => cache.getOrCompute(`la${i}`, x.compute, { lane })),
+      );
+      await expect(
+        runAsOrg('org-a', () =>
+          cache.getOrCompute('la2', async () => Buffer.from('y'), { lane }),
+        ),
+      ).rejects.toBeInstanceOf(TileCacheOverloadError);
+      const b = runAsOrg('org-b', () =>
+        cache.getOrCompute('lb0', async () => Buffer.from('b'), { lane }),
+      );
+      h.forEach((x) => x.release());
+      expect((await b).buf.toString()).toBe('b');
+      await Promise.all(ps);
     });
   });
 

@@ -93,6 +93,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - The housekeeping extent recompute uses the same rule as the
   background refresh: a map's extent draws on layers from its own
   organization or public ones.
+- A script run, an offline package file and an admin user lookup now
+  answer an id the caller cannot see exactly like an id that does not
+  exist. An offline package file checks the map before the package.
+- Each server-side print renders in a browser context of its own, so
+  two prints never share cookies, storage or cached responses.
 
 ### Fixed
 

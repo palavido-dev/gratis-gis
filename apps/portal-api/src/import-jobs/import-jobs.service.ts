@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { ImportJob, ImportJobStatus } from '@prisma/client';
-import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { nextQueuedJobSql } from '../common/fair-queue.js';
 import { inCallerOrgOrNotFound } from '../common/org-not-found.js';
 import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 
@@ -174,15 +174,10 @@ export class ImportJobsService {
    */
   async claimNext(): Promise<ImportJob | null> {
     return this.prisma.$transaction(async (tx) => {
+      // Oldest first; organizations take turns when there are many
+      // (common/fair-queue.ts).
       const rows = await tx.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`
-          SELECT id
-          FROM import_job
-          WHERE status = 'queued'
-          ORDER BY created_at ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        `,
+        nextQueuedJobSql('import_job'),
       );
       if (rows.length === 0) return null;
       const id = rows[0]!.id;

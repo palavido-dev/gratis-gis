@@ -10,9 +10,10 @@ import type { PrismaService } from '../prisma/prisma.service.js';
  * cost every viewer of every map the full price, and could time out
  * for all of them.
  *
- * Key: a hash of the composed SQL and its parameters (which carry the
- * full recipe chain and the request's bbox, time and boundary), plus
- * the write version of every source layer the SQL reads. A write to
+ * Key: the organization that owns the derived layer, a hash of the
+ * composed SQL and its parameters (which carry the full recipe chain
+ * and the request's bbox, time and boundary), plus the write version
+ * of every source layer the SQL reads. A write to
  * any of them changes the version, so the next read misses and
  * recomputes. The TTL bounds anything the version cannot see, such as
  * a boundary item edited in place.
@@ -55,6 +56,23 @@ export function scopesInSql(sql: string): string[] {
   const re = /'(data_layer:[0-9a-fA-F-]{36}:(?:[^']|'')*)'/g;
   for (const m of sql.matchAll(re)) out.add(m[1]!.replace(/''/g, "'"));
   return [...out].sort();
+}
+
+/**
+ * The cache key of one derived-layer read: the organization that owns
+ * the derived layer, the query and the source versions. The source
+ * layers can belong to another organization (a public layer used as
+ * a source), so the query alone could match the same read made by
+ * another organization; the org part keeps each organization's
+ * entries, and their timing, to itself.
+ */
+export function derivedResultKey(
+  orgId: string,
+  sql: string,
+  params: unknown[],
+  versions: string,
+): string {
+  return `${orgId}|${queryHash(sql, params)}|${versions}`;
 }
 
 export function queryHash(sql: string, params: unknown[]): string {

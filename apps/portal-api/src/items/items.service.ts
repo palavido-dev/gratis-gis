@@ -158,6 +158,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { assertCurrentDataLayerVersion } from '../features/legacy-feature-tables.js';
+import { ownOrgListScope } from '../common/list-scope.js';
 import { isMultiTenant } from '../common/tenancy.js';
 import { isUuidShape } from '../common/uuid-shape.js';
 import {
@@ -1021,7 +1022,17 @@ export class ItemsService {
       // The org / public / shared predicate and the type list are a
       // coarse pre-filter: visibleWhere still decides access below. A
       // whole-world box used to collect ids from every org and bind
-      // them all back into the page query and the count.
+      // them all back into the page query and the count. When the
+      // list is held to the caller's org (common/list-scope.ts), the
+      // pre-filter is too, so it never reads another org's rows.
+      const listScope = ownOrgListScope(user);
+      const reachable = listScope
+        ? Prisma.sql`"org_id" = ${listScope.orgId}::uuid`
+        : Prisma.sql`(
+            "org_id" = ${user.orgId}::uuid
+            OR "access" = 'public'
+            OR EXISTS (SELECT 1 FROM "item_share" s WHERE s."item_id" = "item"."id")
+          )`;
       const ids = await this.prisma.$queryRaw<Array<{ id: string }>>`
         SELECT id FROM "item"
         WHERE "bbox_geom" IS NOT NULL
@@ -1030,11 +1041,7 @@ export class ItemsService {
             'map', 'data-layer', 'arcgis-service',
             'wms-service', 'wfs-service', 'geo-boundary'
           )
-          AND (
-            "org_id" = ${user.orgId}::uuid
-            OR "access" = 'public'
-            OR EXISTS (SELECT 1 FROM "item_share" s WHERE s."item_id" = "item"."id")
-          )
+          AND ${reachable}
           AND (${inArea})
       `;
       const idSet = ids.map((r) => r.id);

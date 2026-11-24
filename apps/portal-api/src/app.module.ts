@@ -2,7 +2,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 import { HealthController } from './health.controller.js';
 import { PortalInfoController } from './portal-info.controller.js';
@@ -52,6 +52,8 @@ import { LeaderElectionModule } from './cron/leader-election.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { TenantContextInterceptor } from './common/tenant-context.interceptor.js';
+import { PrivateCacheInterceptor } from './common/private-cache.interceptor.js';
+import { AddressThrottlerGuard, OrgThrottlerGuard } from './common/tenant-throttler.guard.js';
 
 @Module({
   imports: [
@@ -124,12 +126,19 @@ import { TenantContextInterceptor } from './common/tenant-context.interceptor.js
     // anonymous flood gets bounced without paying the cost of token
     // validation.  APP_GUARDs run in declaration order, so list the
     // throttler first.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // With one organization it is the stock ThrottlerGuard; see
+    // common/tenant-throttler.guard.ts for many.
+    { provide: APP_GUARD, useClass: AddressThrottlerGuard },
     // Global auth guard; opt out per-route with @Public()
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Per person and per organization limits, after sign-in. Only on
+    // an install that serves many organizations; skipped otherwise.
+    { provide: APP_GUARD, useClass: OrgThrottlerGuard },
     // Which org each request is for (common/tenant-context.ts).
     // Interceptors run after the guards, so req.user is set by then.
     { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
+    // Signed-in answers are private to shared caches (many orgs only).
+    { provide: APP_INTERCEPTOR, useClass: PrivateCacheInterceptor },
   ],
 })
 export class AppModule {}

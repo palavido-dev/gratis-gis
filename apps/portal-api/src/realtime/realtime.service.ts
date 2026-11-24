@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { refuseAccess } from '../common/org-not-found.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
 /**
@@ -58,9 +59,14 @@ export interface PresenceTicketIssue {
 
 interface RoomState {
   members: Map<string, PresenceMember>; // keyed by connectionId
+  /** Each member's organization, by connectionId. Never sent. */
+  memberOrgs: Map<string, string>;
   /** WS subscribers that want a roster push after each mutation. */
   subscribers: Set<(members: PresenceMember[]) => void>;
 }
+
+/** How a member of another organization appears in a roster. */
+export const OTHER_ORG_DISPLAY_NAME = 'Guest';
 
 interface TicketRecord {
   user: AuthUser;
@@ -204,10 +210,11 @@ export class RealtimeService {
         lastSeenAt: Date.now(),
       };
       room.members.set(connectionId, member);
+      room.memberOrgs.set(connectionId, user.orgId);
     }
     const members = Array.from(room.members.values());
     this.notifyRoom(room, members);
-    return { me: member, members };
+    return { me: member, members: this.rosterFor(room, user.orgId, members) };
   }
 
   /**
@@ -226,6 +233,7 @@ export class RealtimeService {
     const existing = room.members.get(connectionId);
     if (existing && existing.userId !== user.id) return; // can only drop your own
     room.members.delete(connectionId);
+    room.memberOrgs.delete(connectionId);
     const members = Array.from(room.members.values());
     this.notifyRoom(room, members);
     if (room.members.size === 0 && room.subscribers.size === 0) {
@@ -245,18 +253,24 @@ export class RealtimeService {
     const room = this.rooms.get(mapId);
     if (!room) return [];
     this.prune(room);
-    return Array.from(room.members.values());
+    return this.rosterFor(room, user.orgId, Array.from(room.members.values()));
   }
 
-  /** Subscribe a WS client to roster pushes for a map room. */
+  /**
+   * Subscribe a WS client to roster pushes for a map room. `viewerOrgId`
+   * is the organization of the person on the socket; see rosterFor.
+   */
   subscribe(
     mapId: string,
     listener: (members: PresenceMember[]) => void,
+    viewerOrgId?: string,
   ): () => void {
     const room = this.getOrCreate(mapId);
-    room.subscribers.add(listener);
+    const push = (members: PresenceMember[]): void =>
+      listener(this.rosterFor(room, viewerOrgId, members));
+    room.subscribers.add(push);
     return () => {
-      room.subscribers.delete(listener);
+      room.subscribers.delete(push);
       if (room.members.size === 0 && room.subscribers.size === 0) {
         this.rooms.delete(mapId);
       }
@@ -265,10 +279,36 @@ export class RealtimeService {
 
   // ---- helpers ----------------------------------------------------------
 
+  /**
+   * The roster as one viewer may see it. With one organization, every
+   * member as they are. With many, a member of another organization
+   * (two organizations viewing a public map) is counted but not named:
+   * no name, no user id and no cursor.
+   */
+  private rosterFor(
+    room: RoomState,
+    viewerOrgId: string | undefined,
+    members: PresenceMember[],
+  ): PresenceMember[] {
+    if (!isMultiTenant()) return members;
+    return members.map((m) =>
+      viewerOrgId !== undefined && room.memberOrgs.get(m.connectionId) === viewerOrgId
+        ? m
+        : {
+            connectionId: m.connectionId,
+            userId: '',
+            displayName: OTHER_ORG_DISPLAY_NAME,
+            color: m.color,
+            cursor: null,
+            lastSeenAt: m.lastSeenAt,
+          },
+    );
+  }
+
   private getOrCreate(mapId: string): RoomState {
     let room = this.rooms.get(mapId);
     if (!room) {
-      room = { members: new Map(), subscribers: new Set() };
+      room = { members: new Map(), memberOrgs: new Map(), subscribers: new Set() };
       this.rooms.set(mapId, room);
     }
     return room;
@@ -277,7 +317,10 @@ export class RealtimeService {
   private prune(room: RoomState): void {
     const cutoff = Date.now() - HEARTBEAT_TTL_MS;
     for (const [id, m] of room.members) {
-      if (m.lastSeenAt < cutoff) room.members.delete(id);
+      if (m.lastSeenAt < cutoff) {
+        room.members.delete(id);
+        room.memberOrgs.delete(id);
+      }
     }
   }
 

@@ -5,6 +5,7 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
 import { parseIntEnv, textEnv } from '../common/env.js';
+import { fairShareBucket, orgShareOf, OrgSlotCounter } from '../common/org-fair-share.js';
 
 import { TileDiskCache, type TileDiskStats } from './tile-disk-cache.js';
 
@@ -143,6 +144,16 @@ export class TileCacheService implements OnModuleDestroy {
   private rejectedOverload = 0;
   private abandoned = 0;
   private activeComputes = 0;
+  /**
+   * The same slots per organization. On an install that serves many,
+   * one organization may hold only its share of the cap (see
+   * common/org-fair-share.ts), so a busy map of one cannot answer
+   * every other organization's tiles with 503. One organization:
+   * the whole cap, as before.
+   */
+  private readonly computesByOrg = new OrgSlotCounter();
+  /** Lane places (running plus queued) per organization, per lane. */
+  private readonly laneByOrg = new Map<string, OrgSlotCounter>();
   private invalidations = 0;
 
   /**
@@ -573,13 +584,8 @@ export class TileCacheService implements OnModuleDestroy {
     // of answering most of its tiles with 503 while eight compute.
     const disk = opts.persist && this.disk?.enabled ? this.disk : null;
     const capNow = counted && !disk;
-    if (capNow && this.activeComputes >= this.maxConcurrentComputes) {
-      this.rejectedOverload += 1;
-      throw new TileCacheOverloadError(
-        this.activeComputes,
-        this.maxConcurrentComputes,
-      );
-    }
+    const bucket = fairShareBucket();
+    if (capNow) this.assertComputeSlot(bucket);
 
     this.ensureListener();
 
@@ -589,7 +595,7 @@ export class TileCacheService implements OnModuleDestroy {
     // onto it instead of queueing their own copy.
     // A laned compute is bounded by its lane, not by the tile cap, so
     // queued aggregates never make the map's tiles 503.
-    if (capNow) this.activeComputes += 1;
+    if (capNow) this.takeComputeSlot(bucket);
     let holdsSlot = capNow;
     const seqAtStart = this.invalidationSeq;
     const entry: InFlightEntry = {
@@ -615,21 +621,15 @@ export class TileCacheService implements OnModuleDestroy {
           return { buf: stored, etag };
         }
         if (counted) {
-          if (this.activeComputes >= this.maxConcurrentComputes) {
-            this.rejectedOverload += 1;
-            throw new TileCacheOverloadError(
-              this.activeComputes,
-              this.maxConcurrentComputes,
-            );
-          }
-          this.activeComputes += 1;
+          this.assertComputeSlot(bucket);
+          this.takeComputeSlot(bucket);
           holdsSlot = true;
         }
       }
       // Acquiring the lane is the only step that can be withdrawn
       // (see `awaitEntry`), and a withdrawn acquire never held a slot,
       // so it sits outside the try whose finally releases one.
-      if (lane) await this.acquireLane(lane, entry);
+      if (lane) await this.acquireLane(lane, entry, bucket);
       try {
         // Wall-clock timeout safety net. Without this, a Prisma
         // query that never resolves AND never rejects (observed
@@ -686,8 +686,11 @@ export class TileCacheService implements OnModuleDestroy {
         if (disk && material !== null) disk.write(material, buf);
         return { buf, etag };
       } finally {
-        if (lane) this.releaseLane(lane.name);
-        else if (holdsSlot) this.activeComputes -= 1;
+        if (lane) this.releaseLane(lane.name, bucket);
+        else if (holdsSlot) {
+          this.activeComputes -= 1;
+          this.computesByOrg.release(bucket);
+        }
       }
     })().finally(() => {
       this.inFlight.delete(key);
@@ -840,6 +843,7 @@ export class TileCacheService implements OnModuleDestroy {
   private acquireLane(
     spec: { name: string; limit: number; maxQueued?: number },
     entry: InFlightEntry,
+    bucket: string,
   ): Promise<void> {
     let lane = this.lanes.get(spec.name);
     if (!lane) {
@@ -848,8 +852,26 @@ export class TileCacheService implements OnModuleDestroy {
     }
     lane.limit = spec.limit;
     lane.maxQueued = spec.maxQueued ?? Infinity;
+    let byOrg = this.laneByOrg.get(spec.name);
+    if (!byOrg) {
+      byOrg = new OrgSlotCounter();
+      this.laneByOrg.set(spec.name, byOrg);
+    }
+    // An organization's share counts its running and queued places
+    // together, so it cannot fill the queue either.
+    const places =
+      lane.limit + (Number.isFinite(lane.maxQueued) ? lane.maxQueued : 0);
+    if (!byOrg.mayTake(bucket, places)) {
+      this.rejectedOverload += 1;
+      throw new TileCacheOverloadError(
+        byOrg.heldBy(bucket),
+        orgShareOf(places),
+        `lane "${spec.name}" places for one organization`,
+      );
+    }
     if (lane.active < lane.limit) {
       lane.active += 1;
+      byOrg.take(bucket);
       return Promise.resolve();
     }
     if (lane.waiters.length >= lane.maxQueued) {
@@ -860,7 +882,9 @@ export class TileCacheService implements OnModuleDestroy {
         `lane "${spec.name}" running plus queued`,
       );
     }
+    byOrg.take(bucket);
     const held = lane;
+    const heldByOrg = byOrg;
     return new Promise<void>((resolve, reject) => {
       const waiter = () => {
         entry.withdraw = null;
@@ -872,17 +896,41 @@ export class TileCacheService implements OnModuleDestroy {
         const at = held.waiters.indexOf(waiter);
         if (at >= 0) held.waiters.splice(at, 1);
         entry.withdraw = null;
+        heldByOrg.release(bucket);
         reject(new TileCacheAbortedError());
       };
     });
   }
 
-  private releaseLane(name: string): void {
+  private releaseLane(name: string, bucket: string): void {
     const lane = this.lanes.get(name);
     if (!lane) return;
     lane.active -= 1;
+    this.laneByOrg.get(name)?.release(bucket);
     const next = lane.waiters.shift();
     if (next) next();
+  }
+
+  /** Throw the overload error when the cap, or the caller's share of it, is used up. */
+  private assertComputeSlot(bucket: string): void {
+    const max = this.maxConcurrentComputes;
+    if (this.activeComputes >= max) {
+      this.rejectedOverload += 1;
+      throw new TileCacheOverloadError(this.activeComputes, max);
+    }
+    if (!this.computesByOrg.mayTake(bucket, max)) {
+      this.rejectedOverload += 1;
+      throw new TileCacheOverloadError(
+        this.computesByOrg.heldBy(bucket),
+        orgShareOf(max),
+        'concurrent computes for one organization',
+      );
+    }
+  }
+
+  private takeComputeSlot(bucket: string): void {
+    this.activeComputes += 1;
+    this.computesByOrg.take(bucket);
   }
 
   /**

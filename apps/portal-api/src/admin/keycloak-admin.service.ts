@@ -10,6 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 
+import { isMultiTenant } from '../common/tenancy.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { SystemSettingsService } from '../notifications/system-settings.service.js';
 import {
@@ -485,8 +486,13 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       // is a client conflict, not an upstream failure, so the web UI can
       // tell it apart from a Keycloak outage (502).
       if (res.status === 409) {
+        // Accounts are install-wide. With many organizations the
+        // address may belong to another organization, so the answer
+        // says only that this address cannot be invited.
         throw new ConflictException(
-          'A user with that username or email already exists.',
+          isMultiTenant()
+            ? 'Could not invite this address.'
+            : 'A user with that username or email already exists.',
         );
       }
       throw new BadGatewayException(

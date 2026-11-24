@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { EngineService } from '../engine/engine.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { OverpassClient } from './overpass-client.js';
 import {
   buildOverpassQl,
@@ -664,6 +665,10 @@ function hashQuery(
     // A miss stores only the first maxFeatures rows, so a call with a
     // larger limit must not hit a smaller call's row.
     m: maxFeatures,
+    // On an install that serves many organizations each keeps its own
+    // rows, so a hit never tells one organization what area another
+    // looked up. One organization: the key is as it always was.
+    ...(isMultiTenant() ? { o: input.orgId ?? null } : {}),
   });
   return createHash('sha256').update(tuple).digest('hex').slice(0, 32);
 }

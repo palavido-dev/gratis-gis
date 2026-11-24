@@ -2,6 +2,7 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import type { LeaderElectionService } from '../cron/leader-election.service.js';
 import type { SystemSettingsService } from '../notifications/system-settings.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 
 describe('KeycloakAdminService.createUser error mapping', () => {
@@ -45,6 +46,20 @@ describe('KeycloakAdminService.createUser error mapping', () => {
     expect((err as ConflictException).getStatus()).toBe(409);
     // The Keycloak body can echo the address; it must not leak.
     expect((err as Error).message).not.toContain('ana@example.org');
+  });
+
+  it('with many organizations, says only that the address cannot be invited', async () => {
+    process.env.GRATIS_TENANCY = 'multi';
+    resetTenancyModeForTests();
+    try {
+      respondWith(409, 'Conflict');
+      const err = await svc.createUser(input).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as Error).message).toBe('Could not invite this address.');
+    } finally {
+      delete process.env.GRATIS_TENANCY;
+      resetTenancyModeForTests();
+    }
   });
 
   it('keeps other Keycloak failures as BadGatewayException (HTTP 502)', async () => {

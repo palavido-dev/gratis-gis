@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import type { ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { ThrottlerException, ThrottlerStorageService } from '@nestjs/throttler';
+
+import { resetTenancyModeForTests } from './tenancy.js';
+import {
+  AddressThrottlerGuard,
+  CREDENTIALED_ADDRESS_FACTOR,
+  ORG_CEILING_FACTOR,
+  OrgThrottlerGuard,
+} from './tenant-throttler.guard.js';
+
+const LIMIT = 3;
+const ORG_A = '00000000-0000-4000-8000-00000000000a';
+const ORG_B = '00000000-0000-4000-8000-00000000000b';
+
+class SomeController {
+  handler(): void {}
+}
+
+type Caller = { ip: string; token?: string; user?: { id: string; orgId: string } | null };
+
+function contextFor(caller: Caller): ExecutionContext {
+  const req = {
+    ip: caller.ip,
+    headers: caller.token ? { authorization: `Bearer ${caller.token}` } : {},
+    user: caller.user ?? null,
+  };
+  const res = { header: () => undefined };
+  return {
+    getType: () => 'http',
+    getClass: () => SomeController,
+    getHandler: () => SomeController.prototype.handler,
+    switchToHttp: () => ({ getRequest: () => req, getResponse: () => res }),
+  } as unknown as ExecutionContext;
+}
+
+function mode(m: 'single' | 'multi'): void {
+  if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+  else delete process.env.GRATIS_TENANCY;
+  resetTenancyModeForTests();
+}
+
+describe('request limits by caller', () => {
+  const before = process.env.GRATIS_TENANCY;
+  let storage: ThrottlerStorageService;
+  let address: AddressThrottlerGuard;
+  let org: OrgThrottlerGuard;
+
+  beforeEach(async () => {
+    storage = new ThrottlerStorageService();
+    const options = [{ name: 'default', ttl: 60_000, limit: LIMIT }];
+    address = new AddressThrottlerGuard(options, storage, new Reflector());
+    org = new OrgThrottlerGuard(options, storage, new Reflector());
+    await address.onModuleInit();
+    await org.onModuleInit();
+  });
+
+  afterEach(() => {
+    storage.onApplicationShutdown();
+    if (before === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = before;
+    resetTenancyModeForTests();
+  });
+
+  /** Both guards in the order the app runs them. */
+  async function call(caller: Caller): Promise<'ok' | 'limited'> {
+    const ctx = contextFor(caller);
+    try {
+      await address.canActivate(ctx);
+      await org.canActivate(ctx);
+      return 'ok';
+    } catch (err) {
+      if (err instanceof ThrottlerException) return 'limited';
+      throw err;
+    }
+  }
+
+  async function spend(caller: Caller, n: number): Promise<void> {
+    for (let i = 0; i < n; i++) expect(await call(caller)).toBe('ok');
+  }
+
+  const a1 = { ip: '10.0.0.1', token: 't', user: { id: 'a1', orgId: ORG_A } };
+  const a2 = { ip: '10.0.0.1', token: 't', user: { id: 'a2', orgId: ORG_A } };
+  const b1 = { ip: '10.0.0.1', token: 't', user: { id: 'b1', orgId: ORG_B } };
+
+  it('one organization: everyone behind one address shares its budget, as before', async () => {
+    mode('single');
+    await spend(a1, LIMIT);
+    expect(await call(a1)).toBe('limited');
+    expect(await call(b1)).toBe('limited');
+    expect(await call({ ip: '10.0.0.2', token: 't', user: a1.user })).toBe('ok');
+  });
+
+  it('many organizations: a person at their limit does not stop another organization behind the same address', async () => {
+    mode('multi');
+    await spend(a1, LIMIT);
+    expect(await call(a1)).toBe('limited');
+    expect(await call(b1)).toBe('ok');
+    expect(await call(a2)).toBe('ok');
+  });
+
+  it('many organizations: an organization at its ceiling does not stop another', async () => {
+    mode('multi');
+    const ceiling = LIMIT * ORG_CEILING_FACTOR;
+    // Many people of org A, each under their own limit, on many addresses.
+    let sent = 0;
+    for (let p = 0; sent < ceiling; p++) {
+      const caller = { ip: `10.1.0.${p}`, token: 't', user: { id: `a-${p}`, orgId: ORG_A } };
+      for (let i = 0; i < LIMIT && sent < ceiling; i++, sent++) {
+        expect(await call(caller)).toBe('ok');
+      }
+    }
+    const fresh = { ip: '10.2.0.1', token: 't', user: { id: 'a-new', orgId: ORG_A } };
+    expect(await call(fresh)).toBe('limited');
+    expect(await call({ ip: '10.2.0.2', token: 't', user: b1.user })).toBe('ok');
+  });
+
+  it('many organizations: signed-out requests still count by address', async () => {
+    mode('multi');
+    const anon = { ip: '10.0.0.9' };
+    await spend(anon, LIMIT);
+    expect(await call(anon)).toBe('limited');
+    expect(await call({ ip: '10.0.0.10' })).toBe('ok');
+  });
+
+  it('many organizations: a credential that signs nobody in shares the signed-out budget', async () => {
+    mode('multi');
+    const anon = { ip: '10.0.0.11' };
+    await spend(anon, LIMIT);
+    expect(await call({ ip: '10.0.0.11', token: 'bogus', user: null })).toBe('limited');
+  });
+
+  it('many organizations: credentials from one address are held to a wider address budget', async () => {
+    mode('multi');
+    const budget = LIMIT * CREDENTIALED_ADDRESS_FACTOR;
+    for (let i = 0; i < budget; i++) {
+      // A different person each time, so only the address count grows.
+      const caller = { ip: '10.0.0.12', token: 't', user: { id: `p-${i}`, orgId: `org-${i}` } };
+      expect(await call(caller)).toBe('ok');
+    }
+    const next = { ip: '10.0.0.12', token: 't', user: { id: 'p-last', orgId: 'org-last' } };
+    expect(await call(next)).toBe('limited');
+  });
+});

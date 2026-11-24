@@ -7,6 +7,8 @@
 // listed in known-gaps.ts for the mode must still fail (so the list
 // shrinks when a gap is fixed); every other route must pass.
 
+import { randomUUID } from 'node:crypto';
+
 import { Pool } from 'pg';
 
 import type { TenancyMode } from '../../common/tenancy.js';
@@ -170,6 +172,7 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
         problems.push(`B with A's ids: expected ${expect.join('/')}, got ${short(r)}`);
       const leaks = leakedSecrets(r, req, A);
       if (leaks.length) problems.push(`B saw A's data: ${leaks.join(', ')}`);
+      await missingTwinProbe(state, req, r, problems);
       await controlCall(state, entry, req, problems);
       await orgTwinProbe(state, key, entry, req, problems);
       break;
@@ -185,6 +188,7 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
       if (changed.length) problems.push(`A's rows changed: ${changed.join(', ')}`);
       const leaks = leakedSecrets(r, req, A);
       if (leaks.length) problems.push(`B saw A's data: ${leaks.join(', ')}`);
+      await missingTwinProbe(state, req, r, problems);
       await orgTwinProbe(state, key, entry, req, problems);
       break;
     }
@@ -334,6 +338,42 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
  * The same probe against A's `org` access item, which every member of
  * A may read: org-wide visibility must not reach another org.
  */
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/** A body with ids and the request id taken out, for comparing two answers. */
+function normalizedBody(text: string): string {
+  return text.replace(/"requestId":"[^"]*"/g, '"requestId":""').replace(UUID_IN_TEXT, '<id>');
+}
+
+/**
+ * 404 parity: B's answer for A's id must be the answer for an id
+ * that does not exist (same status, same body once ids are taken
+ * out), so the answer does not tell B that the id is in use. For
+ * reads and writes whose path names an id; B's own ids stay.
+ */
+async function missingTwinProbe(
+  state: SuiteState,
+  req: BuiltRequest,
+  got: ApiResult,
+  problems: string[],
+): Promise<void> {
+  if (got.status !== 404) return;
+  const own = new Set<string>([
+    ...Object.values(state.fx.B.items),
+    state.fx.B.groupId,
+    state.fx.B.orgId,
+    ...Object.values(state.fx.B.users).map((u) => u.id),
+  ]);
+  const [pathPart, query] = req.path.split('?', 2) as [string, string | undefined];
+  const twinPath = pathPart.replace(UUID_IN_TEXT, (id) => (own.has(id) ? id : randomUUID()));
+  if (twinPath === pathPart) return;
+  const twin = { ...req, path: query === undefined ? twinPath : `${twinPath}?${query}` };
+  const r = await call(state, state.fx.B.users.admin, twin);
+  if (r.status !== got.status || normalizedBody(r.text) !== normalizedBody(got.text)) {
+    problems.push(`B with A's id answered differently from a missing id: ${short(got)} vs ${short(r)}`);
+  }
+}
+
 async function orgTwinProbe(
   state: SuiteState,
   key: string,

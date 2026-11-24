@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type SearchIndexBuild } from '@prisma/client';
 
+import { nextQueuedJobSql } from '../common/fair-queue.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerSearchIndexService } from './search-index.service.js';
 
@@ -103,13 +104,7 @@ export class SearchIndexJobsService {
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE search_index_build
       SET status = 'running', started_at = now()
-      WHERE id = (
-        SELECT id FROM search_index_build
-        WHERE status = 'queued'
-        ORDER BY created_at
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      )
+      WHERE id = (${nextQueuedJobSql('search_index_build')})
       RETURNING id
     `;
     const id = rows[0]?.id;

@@ -21,7 +21,7 @@ import {
 import { getGeneratorForStep } from './tools/registry.js';
 import {
   DerivedResultCache,
-  queryHash,
+  derivedResultKey,
   scopeVersions,
   scopesInSql,
   type DerivedRow,
@@ -594,7 +594,7 @@ export class DerivedLayersService {
     let cacheKey: string | null = null;
     try {
       const versions = await scopeVersions(this.prisma, scopesInSql(sql));
-      cacheKey = `${queryHash(sql, queryParams)}|${versions}`;
+      cacheKey = derivedResultKey(item.orgId, sql, queryParams, versions);
     } catch (err) {
       this.log.debug(
         `derived-layer cache: version probe failed, reading uncached: ${

@@ -24,6 +24,7 @@ jest.mock('./preset-catalog.js', () => {
   };
 });
 
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import { OsmService } from './osm.service.js';
 import { OverpassClient } from './overpass-client.js';
 import { buildRelationalOverpassQl } from './overpass-ql.js';
@@ -114,6 +115,48 @@ describe('OsmService.resolve cache', () => {
     expect(ql.timeoutMs).toBeGreaterThan(qlSeconds * 1000);
     // maxsize is a memory budget, not the feature limit times 1 KiB.
     expect(ql.ql).not.toMatch(/\[maxsize:10240\]/);
+  });
+});
+
+describe('OsmService.resolve cache and organizations', () => {
+  const ORG_A = '00000000-0000-4000-8000-00000000000a';
+  const ORG_B = '00000000-0000-4000-8000-00000000000b';
+  const before = process.env.GRATIS_TENANCY;
+
+  afterEach(() => {
+    if (before === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = before;
+    resetTenancyModeForTests();
+  });
+
+  function mode(m: 'single' | 'multi'): void {
+    if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+    else delete process.env.GRATIS_TENANCY;
+    resetTenancyModeForTests();
+  }
+
+  it('many organizations: B does not hit the row A filled, and A still hits its own', async () => {
+    mode('multi');
+    const { svc, client } = makeService();
+    const a1 = await svc.resolve({ presetIds: ['cafe'], bbox: BBOX, orgId: ORG_A });
+    expect(a1.cacheHit).toBe(false);
+    const b = await svc.resolve({ presetIds: ['cafe'], bbox: BBOX, orgId: ORG_B });
+    expect(b.cacheHit).toBe(false);
+    expect(b.scope).not.toBe(a1.scope);
+    const a2 = await svc.resolve({ presetIds: ['cafe'], bbox: BBOX, orgId: ORG_A });
+    expect(a2.cacheHit).toBe(true);
+    expect(a2.scope).toBe(a1.scope);
+    expect(client.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('one organization: the key does not depend on the org, as before', async () => {
+    mode('single');
+    const { svc, client } = makeService();
+    const a = await svc.resolve({ presetIds: ['cafe'], bbox: BBOX, orgId: ORG_A });
+    const again = await svc.resolve({ presetIds: ['cafe'], bbox: BBOX });
+    expect(again.cacheHit).toBe(true);
+    expect(again.scope).toBe(a.scope);
+    expect(client.run).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -89,9 +89,13 @@ export class RealtimeGateway
       return;
     }
 
-    const unsubscribe = this.realtime.subscribe(mapId, (members) => {
-      this.send(client, { type: 'roster', members });
-    });
+    const unsubscribe = this.realtime.subscribe(
+      mapId,
+      (members) => {
+        this.send(client, { type: 'roster', members });
+      },
+      user.orgId,
+    );
     this.state.set(client, {
       mapId,
       user,

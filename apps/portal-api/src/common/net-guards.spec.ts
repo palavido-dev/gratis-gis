@@ -107,6 +107,13 @@ describe('isPrivateOrLoopbackHost', () => {
     },
   );
 
+  it.each(['http://169.254.169.254/latest/meta-data/', 'http://postgres:5432/'])(
+    'refuses an outbound request to %s',
+    async (url) => {
+      await expect(assertSafeOutboundUrl(url)).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+    },
+  );
+
   it('allows a public FQDN', () => {
     expect(isPrivateOrLoopbackHost('tiles.example.com')).toBe(false);
   });
