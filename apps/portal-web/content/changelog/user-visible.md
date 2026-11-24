@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-24 - Save as works on maps with items you cannot open
+Saving a copy of a map no longer fails when the map uses items you cannot open. The copy is made without them, and the dialog lists what was left out before you open it.
+
 ## [1.7.0] - 2026-11-23
 
 ## 2026-11-23 - Reports for each feature or form submission
