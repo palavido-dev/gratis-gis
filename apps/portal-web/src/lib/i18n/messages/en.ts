@@ -1048,6 +1048,12 @@ export const en = {
     linkCopyByHand: 'Copy this link:',
     linkTooBig: 'This area is too detailed to share as a link. Try fewer shapes.',
     linkArea: 'This area came from a link. Choose Draw, Point, Address or Pick shapes to start a new one.',
+    upload: 'Upload a shape',
+    uploadHint: 'GeoJSON, KML, KMZ, a zipped shapefile or a GeoPackage',
+    uploadedFrom: 'From {name}. Choose Draw, Point, Address or Pick shapes to start a new one.',
+    uploadEmpty: 'That file has no shapes in it.',
+    uploadTooMany: 'That file has more than {max} shapes. Upload just the area you want to check.',
+    uploadFailed: 'Could not read that file',
     report: {
       button: 'PDF',
       title: "What's here report",

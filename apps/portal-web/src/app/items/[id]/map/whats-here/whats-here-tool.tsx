@@ -34,12 +34,14 @@ import {
   ScanSearch,
   Search,
   Square,
+  Upload,
   X,
   ZoomIn,
 } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
 
 import { useLocale, useT } from '@/lib/i18n/locale-context';
+import { importSpatialFile } from '@/lib/spatial-import';
 import {
   AREA_UNIT_LABELS,
   DISTANCE_UNIT_LABELS,
@@ -86,8 +88,9 @@ import {
 } from '../use-terra-draw';
 import { useScreenLayers, type ScreenLayerInfo } from './use-screen-layers';
 
-// 'link' is an area that came in on a share link: shown as is, not
-// in the mode switch. Picking a mode starts over from there.
+// 'link' is an area that came in from outside the panel (a share link
+// or an uploaded file): shown as is, not in the mode switch. Picking a
+// mode starts over from there.
 type AreaMode = 'draw' | 'point' | 'address' | 'features' | 'link';
 type DrawShape = 'polygon' | 'rectangle' | 'circle' | 'freehand';
 
@@ -154,6 +157,15 @@ const AREA_COLOR = '#0284c7';
 const PICK_COLOR = '#f59e0b';
 /** Maps shorter than this get the full-height panel placement. */
 const COMPACT_BELOW_PX = 600;
+/** Shapes one uploaded file may bring in. A site screen is a handful;
+ *  a county's parcels are a data layer, not an area. */
+const MAX_UPLOAD_SHAPES = 2000;
+const UPLOAD_ACCEPT = '.geojson,.json,.kml,.kmz,.zip,.gpkg';
+
+function hasArea(g: GeoJSON.Geometry): boolean {
+  if (g.type === 'GeometryCollection') return g.geometries.some(hasArea);
+  return g.type === 'Polygon' || g.type === 'MultiPolygon';
+}
 /** Wait this long after the last edit before asking the server. */
 const RERUN_DELAY_MS = 350;
 
@@ -215,6 +227,11 @@ export function WhatsHereTool({
   const [reportError, setReportError] = useState<string | null>(null);
   const [linkNote, setLinkNote] = useState<string | null>(null);
   const [linkFallback, setLinkFallback] = useState<string | null>(null);
+  // What the 'link' mode says about where its area came from.
+  const [givenNote, setGivenNote] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const uploadRef = useRef<HTMLInputElement | null>(null);
 
   const { layers, loading: layersLoading } = useScreenLayers(mapLayers, open);
   const layersRef = useRef(layers);
@@ -686,6 +703,8 @@ export function WhatsHereTool({
     setResults({});
     setLinkNote(null);
     setLinkFallback(null);
+    setGivenNote(null);
+    setUploadError(null);
   }, [clearDrawing]);
 
   function switchMode(next: AreaMode) {
@@ -721,12 +740,43 @@ export function WhatsHereTool({
     setMode('link');
     setDistanceMeters(shared.distanceMeters);
     setPlaceLabel(shared.place ?? null);
+    setGivenNote(t('whatsHere.linkArea'));
     setBreakdowns(shared.breakdowns ?? {});
     // The receiver's map opens wherever it was saved: show the area.
     flyOnResolveRef.current = true;
     setSource(shared.geometry);
     clearShareHash();
-  }, [open, shared, startOver]);
+  }, [open, shared, startOver, t]);
+
+  async function uploadShape(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const { geojson } = await importSpatialFile(file);
+      const shapes = geojson.features
+        .map((f) => f.geometry)
+        .filter((g): g is GeoJSON.Geometry => !!g);
+      if (shapes.length === 0) throw new Error(t('whatsHere.uploadEmpty'));
+      if (shapes.length > MAX_UPLOAD_SHAPES) {
+        throw new Error(t('whatsHere.uploadTooMany', { max: MAX_UPLOAD_SHAPES }));
+      }
+      const geometry = pickedAreaGeometry(shapes)!;
+      startOver();
+      setMode('link');
+      setGivenNote(t('whatsHere.uploadedFrom', { name: file.name }));
+      // Points and lines cover no ground on their own: give them the
+      // same first distance a tapped point gets.
+      if (!hasArea(geometry) && distanceMeters === 0) {
+        setDistanceMeters(POINT_DEFAULT_METERS[system]);
+      }
+      flyOnResolveRef.current = true;
+      setSource(geometry);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : t('whatsHere.uploadFailed'));
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function copyLink() {
     if (!source) return;
@@ -979,6 +1029,38 @@ export function WhatsHereTool({
             {modeButton('address', Search, t('whatsHere.modeAddress'))}
             {modeButton('features', MousePointerClick, t('whatsHere.modeFeatures'))}
           </div>
+          <div className="mt-1 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => uploadRef.current?.click()}
+              disabled={uploading}
+              title={t('whatsHere.uploadHint')}
+              className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-xs text-accent hover:bg-surface-2 disabled:opacity-50"
+            >
+              {uploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              {t('whatsHere.upload')}
+            </button>
+            <input
+              ref={uploadRef}
+              type="file"
+              accept={UPLOAD_ACCEPT}
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) void uploadShape(file);
+              }}
+            />
+          </div>
+          {uploadError ? (
+            <p role="alert" className="text-2xs text-danger">
+              {uploadError}
+            </p>
+          ) : null}
 
           {mode === 'draw' ? (
             <div className="mt-2 space-y-1">
@@ -1040,7 +1122,7 @@ export function WhatsHereTool({
           {mode === 'link' ? (
             <p className="mt-2 text-xs text-muted">
               {placeLabel ? `${placeLabel}. ` : ''}
-              {t('whatsHere.linkArea')}
+              {givenNote}
             </p>
           ) : null}
 

@@ -1002,6 +1002,12 @@ export const es: Partial<CatalogShape> = {
     linkCopyByHand: 'Copie este enlace:',
     linkTooBig: 'Esta área es demasiado detallada para compartirla como enlace. Pruebe con menos formas.',
     linkArea: 'Esta área viene de un enlace. Elija Dibujar, Punto, Dirección o Elegir formas para empezar otra.',
+    upload: 'Subir una forma',
+    uploadHint: 'GeoJSON, KML, KMZ, un shapefile comprimido o un GeoPackage',
+    uploadedFrom: 'De {name}. Elija Dibujar, Punto, Dirección o Elegir formas para empezar otra.',
+    uploadEmpty: 'Ese archivo no tiene formas.',
+    uploadTooMany: 'Ese archivo tiene más de {max} formas. Suba solo el área que quiere revisar.',
+    uploadFailed: 'No se pudo leer ese archivo',
     report: {
       button: 'PDF',
       title: 'Informe de qué hay aquí',
