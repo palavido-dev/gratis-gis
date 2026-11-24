@@ -36,6 +36,7 @@ import {
   redactSecrets,
   resolveOffsiteSettings,
   toPublicConfig,
+  trimSlashes,
   validateOffsitePatch,
   type OffsitePatch,
   type OffsitePublicConfig,
@@ -369,7 +370,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     if (patch.enabled !== undefined) data.offsiteEnabled = patch.enabled;
     if (patch.endpoint !== undefined) {
       const e = text(patch.endpoint);
-      data.offsiteEndpoint = e === null ? null : e.replace(/\/+$/, '');
+      data.offsiteEndpoint = e === null ? null : trimSlashes(e, false);
     }
     if (patch.region !== undefined) data.offsiteRegion = text(patch.region);
     if (patch.bucket !== undefined) data.offsiteBucket = text(patch.bucket);

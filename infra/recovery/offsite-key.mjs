@@ -558,6 +558,9 @@ try {
   // Messages are ours, or an fs error naming a path; never key bytes.
   die(
     msg.replace(/\s+/g, ' ').slice(0, 300),
-    err instanceof Fail && /^usage|unknown option/.test(err.message) ? 2 : 1,
+    err instanceof Fail &&
+      (err.message.startsWith('usage') || err.message.includes('unknown option'))
+      ? 2
+      : 1,
   );
 }

@@ -19,7 +19,7 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
       const c = cond as { not?: unknown; lt?: Date; in?: unknown[] };
       if ('not' in c) {
         if (v === null) return false;
-        if (c.not === null ? v === null : v === c.not) return false;
+        if (c.not !== null && v === c.not) return false;
       }
       if (c.lt !== undefined && !(v instanceof Date && v < c.lt)) return false;
       if (c.in !== undefined && !c.in.includes(v)) return false;

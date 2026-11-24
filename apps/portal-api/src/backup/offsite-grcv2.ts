@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { createCipheriv, createDecipheriv, createHash, randomBytes, scrypt } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  randomBytes,
+  scrypt,
+  timingSafeEqual,
+} from 'node:crypto';
 
 /**
  * GRCV2: passphrase encryption, the format `infra/recovery/seal.mjs`
@@ -215,26 +221,26 @@ function parseHeader(head: Buffer): ParsedHeader {
 }
 
 /**
- * Derived keys by salt, so decrypting many objects of one run pays for
- * scrypt once. Keyed by a hash of the passphrase as well, so a wrong
- * passphrase never reuses a right one's key.
+ * Derived keys by salt and cost, so decrypting many objects of one run
+ * pays for scrypt once. An entry is reused only for the same
+ * passphrase bytes, so a wrong passphrase never reuses a right one's
+ * key.
  */
 export class SealKeyCache {
-  private readonly keys = new Map<string, Buffer>();
+  private readonly keys: Array<{ params: Buffer; passphrase: Buffer; key: Buffer }> = [];
   constructor(private readonly max = 8) {}
   async get(passphrase: Buffer, h: ParsedHeader): Promise<Buffer> {
-    const id = createHash('sha256')
-      .update(passphrase)
-      .update(h.head.subarray(SEAL_MAGIC.length, SEAL_MAGIC.length + 20))
-      .digest('hex');
-    const hit = this.keys.get(id);
-    if (hit) return hit;
+    const params = h.head.subarray(SEAL_MAGIC.length, SEAL_MAGIC.length + 20);
+    const hit = this.keys.find(
+      (e) =>
+        e.params.equals(params) &&
+        e.passphrase.length === passphrase.length &&
+        timingSafeEqual(e.passphrase, passphrase),
+    );
+    if (hit) return hit.key;
     const key = await deriveKey(passphrase, h.salt, h.logN, h.r, h.p);
-    if (this.keys.size >= this.max) {
-      const first = this.keys.keys().next().value;
-      if (first !== undefined) this.keys.delete(first);
-    }
-    this.keys.set(id, key);
+    if (this.keys.length >= this.max) this.keys.shift();
+    this.keys.push({ params: Buffer.from(params), passphrase: Buffer.from(passphrase), key });
     return key;
   }
 }

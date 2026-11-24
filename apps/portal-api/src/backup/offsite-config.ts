@@ -150,9 +150,18 @@ export function envSecret(
   }
 }
 
+/** Drop leading and trailing slashes without a regular expression. */
+export function trimSlashes(s: string, leading = true): string {
+  let start = 0;
+  let end = s.length;
+  if (leading) while (start < end && s.charCodeAt(start) === 47) start += 1;
+  while (end > start && s.charCodeAt(end - 1) === 47) end -= 1;
+  return s.slice(start, end);
+}
+
 /** Empty, or ends in exactly one slash, never starts with one. */
 export function normalizePrefix(p: string): string {
-  const trimmed = p.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  const trimmed = trimSlashes(p.trim());
   return trimmed ? `${trimmed}/` : '';
 }
 

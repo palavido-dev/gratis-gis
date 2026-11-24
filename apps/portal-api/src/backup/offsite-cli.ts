@@ -33,7 +33,7 @@
  * is never picked as the newest; it is used only when named.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createWriteStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';

@@ -285,7 +285,9 @@ describe('offsite-cli', () => {
   it('downloads nothing until the copy is confirmed by its name', async () => {
     const outDir = path.join(dir, 'restore');
     expect(await runCli(['fetch', ...withKey('--out', outDir)], io())).toBe(1);
-    expect(errs.join(' ')).toMatch(new RegExp(`--confirm-copy ${NAME.replace(/\./g, '\\.')}`));
+    expect(errs.join(' ')).toMatch(
+      new RegExp(`--confirm-copy ${NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+    );
     expect(out).toContain(`name=${NAME}`);
     expect(fs.existsSync(outDir)).toBe(false);
     errs.length = 0;
@@ -381,11 +383,15 @@ describe('offsite-cli', () => {
       const script = path.resolve(__dirname, '../../../../infra/restore-from-offsite.sh');
       const shellAccepts = (p: string) => {
         try {
-          execFileSync(
-            'bash',
-            ['-c', 'GG_RESTORE_LIB_ONLY=1 source "$0" && ggo_valid_prefix "$1"', script, p],
-            { stdio: 'ignore' },
-          );
+          execFileSync('bash', ['-c', 'source "$GG_SCRIPT" && ggo_valid_prefix "$GG_PREFIX"'], {
+            stdio: 'ignore',
+            env: {
+              PATH: process.env.PATH,
+              GG_RESTORE_LIB_ONLY: '1',
+              GG_SCRIPT: script,
+              GG_PREFIX: p,
+            },
+          });
           return true;
         } catch {
           return false;
