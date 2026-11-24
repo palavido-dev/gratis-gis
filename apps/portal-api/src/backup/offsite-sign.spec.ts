@@ -123,7 +123,7 @@ describe('signed manifests', () => {
     for (const bad of [
       text.slice(0, -1),
       `${text}\n`,
-      text.replace('\n', '\r\n'),
+      text.replaceAll('\n', '\r\n'),
       text.replace('kind=archive\nformat=GROF1', 'format=GROF1\nkind=archive'),
       text.replace('kind=archive', 'kind=other'),
       text.replace('format=GROF1', 'format=GROF2'),
