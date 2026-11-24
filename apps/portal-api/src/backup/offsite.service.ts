@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -36,9 +37,21 @@ import {
   validateOffsitePatch,
   type OffsitePatch,
   type OffsitePublicConfig,
+  type OffsiteRow,
   type OffsiteSettings,
 } from './offsite-config.js';
-import { newSealKey, sealedSize, sealStream, type SealKey } from './offsite-crypto.js';
+import {
+  looksLikePrivateKey,
+  OffsiteCryptoError,
+  OFFSITE_FORMAT,
+  parseFingerprint,
+  parsePublicKey,
+  sealedSize,
+  sealStream,
+  type OffsitePublicKey,
+} from './offsite-crypto.js';
+import { assertEndpointReachable, endpointPolicy, type EndpointPolicy } from './offsite-endpoint.js';
+import { OffsiteMirror, PrismaMirrorIndex, type MirrorIndexStore } from './offsite-mirror.js';
 import {
   archiveArtifacts,
   daysSince,
@@ -50,23 +63,28 @@ import {
   createOffsiteClient,
   deleteObject,
   describeS3Error,
+  getSmall,
   listObjects,
   putSmall,
   uploadStream,
   type S3Like,
 } from './offsite-store.js';
 import { readTarEntry } from './tar-cli.js';
-import { OffsiteMirror } from './offsite-mirror.js';
 
-/** AAD for the two stored secrets; a value cannot move between them. */
+/** AAD prefixes for the stored secrets; a value cannot move between them. */
 const AAD_SECRET = 'backup-offsite:secret-access-key';
-const AAD_PASSPHRASE = 'backup-offsite:passphrase';
+const AAD_NAME_KEY = 'backup-offsite:mirror-name-key';
 
 /** An upload whose beat is older than this belongs to a dead process. */
 const STALE_UPLOAD_MS = 5 * 60 * 1000;
-const BEAT_EVERY_MS = 10_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type OffsiteMode = 'archive' | 'mirror';
+
+/** What the run-succeeded hook gets back: the upload, still running. */
+export interface UploadHandle {
+  done: Promise<void>;
+}
 
 /** What the page shows under the settings. */
 export interface OffsiteStatusSummary {
@@ -75,6 +93,7 @@ export interface OffsiteStatusSummary {
     finishedAt: string;
     mode: string | null;
     bytes: string | null;
+    keyFingerprint: string | null;
   } | null;
   lastFailure: { runId: string; finishedAt: string | null; error: string | null } | null;
   running: { runId: string; startedAt: string | null } | null;
@@ -84,28 +103,44 @@ export interface OffsiteStatusSummary {
 }
 
 /**
+ * The stored secret only opens for the endpoint and access key id it
+ * was saved with, so a changed endpoint cannot take it along.
+ */
+function secretAad(endpoint: string | null, keyId: string | null): string {
+  const bind = createHash('sha256')
+    .update(`${endpoint ?? ''}\n${keyId ?? ''}`)
+    .digest('hex');
+  return `${AAD_SECRET}:${bind}`;
+}
+
+/**
  * Sends each successful backup to an S3-compatible bucket at another
  * provider, encrypted before it leaves this server.
  *
- * Where each secret lives:
- * - Bucket secret access key: backup_config, AES-256-GCM under
- *   CREDENTIAL_ENCRYPTION_KEY, or BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE).
- * - Encryption passphrase: the same, with its own AAD, or
- *   BACKUP_OFFSITE_PASSPHRASE(_FILE). Scheduled runs need it, so it is
- *   kept on this server. It is never written to the bucket, never
- *   returned by the API and never logged. The admin must also keep a
- *   copy somewhere else: if this server is lost, the passphrase in
- *   its database is lost with it, and the off-site copies cannot be
- *   opened without it.
+ * Files are encrypted to the admin's public key (offsite-crypto.ts).
+ * This server holds only that public key: it can make off-site copies
+ * but cannot read any of them, and it never accepts, stores, logs or
+ * returns a private key or its passphrase.
+ *
+ * What it does hold:
+ * - The bucket secret access key: backup_config, AES-256-GCM under
+ *   CREDENTIAL_ENCRYPTION_KEY with the endpoint and key id bound in,
+ *   or BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE).
+ * - The mirror naming key (random, made once): same cipher.
+ * - The local index of mirrored files (backup_offsite_object).
  */
 @Injectable()
 export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy {
   private readonly log = new Logger(OffsiteService.name);
   /** Swapped in tests for a fake store. */
   clientFactory: (s: OffsiteSettings) => S3Like = createOffsiteClient;
-  /** Scrypt cost; tests lower it. */
-  sealCost: number | undefined;
+  /** Swapped in tests: DNS check before connecting. */
+  endpointCheck: (endpoint: string, policy: EndpointPolicy) => Promise<void> =
+    assertEndpointReachable;
+  /** How often a running upload writes its heartbeat. */
+  beatEveryMs = 10_000;
   private readonly mirror: OffsiteMirror;
+  private readonly index: MirrorIndexStore;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -114,6 +149,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     @Optional() private readonly leader?: LeaderElectionService,
   ) {
     this.mirror = new OffsiteMirror(this.log, backup);
+    this.index = new PrismaMirrorIndex(prisma as never);
   }
 
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -157,43 +193,69 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   // Settings
   // ---------------------------------------------------------------
 
-  /** Effective settings with secrets. Never return this to a client. */
-  async settings(): Promise<OffsiteSettings> {
-    const row = await this.backup.configRow();
-    return resolveOffsiteSettings(
-      row,
-      {
-        secretFromDb: this.tryDecrypt(row.offsiteSecretEncrypted, row.offsiteSecretIv, AAD_SECRET),
-        passphraseFromDb: this.tryDecrypt(
-          row.offsitePassphraseEncrypted,
-          row.offsitePassphraseIv,
-          AAD_PASSPHRASE,
-        ),
-      },
-      (name) => process.env[name],
+  private policy(): EndpointPolicy {
+    return endpointPolicy();
+  }
+
+  private env = (name: string) => process.env[name];
+
+  /** Settings for a row, with the stored secret opened if it still fits. */
+  private resolve(row: OffsiteRow & { offsiteSecretEncrypted: string | null; offsiteSecretIv: string | null }) {
+    const policy = this.policy();
+    // The endpoint and key id first: the secret is bound to them.
+    const plain = resolveOffsiteSettings(row, { secretFromDb: null }, this.env, policy);
+    const secretFromDb = this.tryDecrypt(
+      row.offsiteSecretEncrypted,
+      row.offsiteSecretIv,
+      secretAad(plain.endpoint, plain.accessKeyId),
+      'secret access key',
     );
+    return resolveOffsiteSettings(row, { secretFromDb }, this.env, policy);
+  }
+
+  /** Effective settings with the secret. Never return this to a client. */
+  async settings(): Promise<OffsiteSettings> {
+    return this.resolve(await this.ensureInstallId());
+  }
+
+  /**
+   * The random id that marks this portal's folder in the bucket, made
+   * once. Two portals pointed at one folder are stopped before either
+   * cleans up the other's copies.
+   */
+  private async ensureInstallId() {
+    const row = await this.backup.configRow();
+    if (row.offsiteInstallId) return row;
+    await this.prisma.backupConfig.updateMany({
+      where: { id: row.id, offsiteInstallId: null },
+      data: { offsiteInstallId: randomUUID() },
+    });
+    return this.backup.configRow();
   }
 
   async getPublicConfig(): Promise<OffsitePublicConfig & { status: OffsiteStatusSummary }> {
     const s = await this.settings();
-    return { ...toPublicConfig(s), status: await this.statusSummary(s) };
+    return { ...toPublicConfig(s, this.policy()), status: await this.statusSummary(s) };
   }
 
   async updateConfig(patch: OffsitePatch, updatedBy: string | null) {
     try {
-      validateOffsitePatch(patch, { allowHttp: allowHttp() });
+      validateOffsitePatch(patch, this.policy());
     } catch (e) {
       if (e instanceof OffsiteValidationError) throw new BadRequestException(e.message);
       throw e;
     }
-    const row = await this.backup.configRow();
-    const before = await this.settings();
+    const row = await this.ensureInstallId();
+    const before = this.resolve(row);
     const text = (v: string | null): string | null =>
       v === null || v.trim() === '' ? null : v.trim();
 
     const data: Prisma.BackupConfigUpdateInput = {};
     if (patch.enabled !== undefined) data.offsiteEnabled = patch.enabled;
-    if (patch.endpoint !== undefined) data.offsiteEndpoint = text(patch.endpoint);
+    if (patch.endpoint !== undefined) {
+      const e = text(patch.endpoint);
+      data.offsiteEndpoint = e === null ? null : e.replace(/\/+$/, '');
+    }
     if (patch.region !== undefined) data.offsiteRegion = text(patch.region);
     if (patch.bucket !== undefined) data.offsiteBucket = text(patch.bucket);
     if (patch.prefix !== undefined) {
@@ -201,6 +263,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     if (patch.pathStyle !== undefined) data.offsitePathStyle = patch.pathStyle;
     if (patch.accessKeyId !== undefined) data.offsiteAccessKeyId = text(patch.accessKeyId);
+    if (patch.publicKey !== undefined) {
+      const pk = text(patch.publicKey);
+      data.offsitePublicKey = pk === null ? null : parsePublicKey(pk).text;
+    }
     if (patch.retentionDays !== undefined) data.offsiteRetentionDays = patch.retentionDays;
     if (patch.alertDays !== undefined) data.offsiteAlertDays = patch.alertDays;
     if (patch.mirrorThresholdBytes !== undefined) {
@@ -208,119 +274,142 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         patch.mirrorThresholdBytes === null ? null : BigInt(patch.mirrorThresholdBytes);
     }
 
-    // A saved secret only goes with the endpoint and key id it was
-    // entered for, as the SMTP password does. Otherwise an admin could
-    // point the saved key at a server they run.
-    const nextEndpoint =
-      patch.endpoint !== undefined ? text(patch.endpoint ?? null) : row.offsiteEndpoint;
-    const nextKeyId =
-      patch.accessKeyId !== undefined ? text(patch.accessKeyId ?? null) : row.offsiteAccessKeyId;
+    // Where the bucket secret would be sent after this save. Whatever
+    // its source (saved here or set in the environment), the secret
+    // only goes with the endpoint and key id it was entered for, as
+    // the SMTP password does: a new endpoint or key id needs it typed
+    // again. Clearing the saved secret does not count as typing one.
+    const merged = { ...row } as Record<string, unknown>;
+    for (const [k, v] of Object.entries(data)) merged[k] = v;
+    const next = merged as typeof row;
+    const policy = this.policy();
+    const after = resolveOffsiteSettings(next, { secretFromDb: null }, this.env, policy);
+    const typedSecret =
+      typeof patch.secretAccessKey === 'string' && patch.secretAccessKey.length > 0;
+    const clearing = patch.secretAccessKey !== undefined && !typedSecret;
     const targetChanged =
-      (nextEndpoint ?? null) !== (row.offsiteEndpoint ?? null) ||
-      (nextKeyId ?? null) !== (row.offsiteAccessKeyId ?? null);
-    if (
-      targetChanged &&
-      row.offsiteSecretEncrypted &&
-      (patch.secretAccessKey === undefined || patch.secretAccessKey === null)
-    ) {
+      (after.endpoint ?? null) !== (before.endpoint ?? null) ||
+      (after.accessKeyId ?? null) !== (before.accessKeyId ?? null);
+    const hadSecret = before.secretAccessKey !== null || after.secretAccessKey !== null;
+    if (targetChanged && hadSecret && !typedSecret) {
       throw new BadRequestException(
         'Enter the secret access key again when you change the endpoint or the access key id.',
       );
     }
 
-    const wantsSecretWrite =
-      (typeof patch.secretAccessKey === 'string' && patch.secretAccessKey.length > 0) ||
-      (typeof patch.passphrase === 'string' && patch.passphrase.length > 0);
-    if (wantsSecretWrite) {
+    if (typedSecret) {
       try {
         assertCredentialKeyConfigured();
       } catch {
         throw new BadRequestException(
-          'This server has no CREDENTIAL_ENCRYPTION_KEY, so it cannot store secrets. Set the secrets with BACKUP_OFFSITE_* environment variables instead, or ask whoever runs the server to set the key.',
+          'This server has no CREDENTIAL_ENCRYPTION_KEY, so it cannot store secrets. Set the secret with BACKUP_OFFSITE_SECRET_ACCESS_KEY instead, or ask whoever runs the server to set the key.',
         );
       }
-    }
-    if (patch.secretAccessKey !== undefined) {
-      if (patch.secretAccessKey === null || patch.secretAccessKey === '') {
-        data.offsiteSecretEncrypted = null;
-        data.offsiteSecretIv = null;
-      } else {
-        const enc = encryptCredential(patch.secretAccessKey, AAD_SECRET);
-        data.offsiteSecretEncrypted = enc.ciphertext;
-        data.offsiteSecretIv = enc.iv;
-      }
-    }
-    if (patch.passphrase !== undefined) {
-      if (patch.passphrase === null || patch.passphrase === '') {
-        data.offsitePassphraseEncrypted = null;
-        data.offsitePassphraseIv = null;
-      } else {
-        const enc = encryptCredential(patch.passphrase, AAD_PASSPHRASE);
-        data.offsitePassphraseEncrypted = enc.ciphertext;
-        data.offsitePassphraseIv = enc.iv;
-      }
+      const enc = encryptCredential(
+        patch.secretAccessKey as string,
+        secretAad(after.endpoint, after.accessKeyId),
+      );
+      data.offsiteSecretEncrypted = enc.ciphertext;
+      data.offsiteSecretIv = enc.iv;
+    } else if (clearing) {
+      data.offsiteSecretEncrypted = null;
+      data.offsiteSecretIv = null;
     }
     if (updatedBy) data.updatedBy = updatedBy;
 
     // Turning it on with something missing would only fail every night.
     const turningOn = patch.enabled === true || (patch.enabled === undefined && before.enabled);
     if (turningOn) {
-      const preview = await this.previewSettings(row, data);
+      const dbSecret = typedSecret
+        ? (patch.secretAccessKey as string)
+        : clearing || before.secretSource !== 'database'
+          ? null
+          : before.secretAccessKey;
+      const preview = resolveOffsiteSettings(next, { secretFromDb: dbSecret }, this.env, policy);
       const missing = missingSettings(preview);
       if (missing.length > 0) {
         throw new BadRequestException(
           `Fill in these before turning off-site backups on: ${missing.map(fieldLabel).join(', ')}.`,
         );
       }
+      if (preview.problems.length > 0) {
+        throw new BadRequestException(
+          `Fix these before turning off-site backups on: ${preview.problems.join(' ')}`,
+        );
+      }
     }
 
     await this.prisma.backupConfig.update({ where: { id: row.id }, data });
-    const after = await this.settings();
-    if (before.passphrase && after.passphrase && before.passphrase !== after.passphrase) {
+    const saved = await this.settings();
+    if (
+      before.publicKey &&
+      saved.publicKey &&
+      before.publicKey.fingerprintText !== saved.publicKey.fingerprintText
+    ) {
       this.log.warn(
-        'The off-site passphrase was changed. Copies made before this need the old passphrase to open.',
+        `The off-site public key was replaced (fingerprint ${before.publicKey.fingerprintText} is now ${saved.publicKey.fingerprintText}). New copies use the new key; older copies still open only with the old private key.`,
       );
     }
     this.log.log(
-      `Off-site backup settings saved (enabled=${after.enabled}, complete=${missingSettings(after).length === 0}).`,
+      `Off-site backup settings saved (enabled=${saved.enabled}, complete=${missingSettings(saved).length === 0}${saved.publicKey ? `, key ${saved.publicKey.fingerprintText}` : ''}).`,
     );
     return this.getPublicConfig();
   }
 
-  /** What settings() would return once `data` is written. */
-  private async previewSettings(
-    row: Awaited<ReturnType<BackupService['configRow']>>,
-    data: Prisma.BackupConfigUpdateInput,
-  ): Promise<OffsiteSettings> {
-    const merged = { ...row } as Record<string, unknown>;
-    for (const [k, v] of Object.entries(data)) merged[k] = v;
-    const m = merged as typeof row;
-    return resolveOffsiteSettings(
-      m,
-      {
-        secretFromDb: this.tryDecrypt(m.offsiteSecretEncrypted, m.offsiteSecretIv, AAD_SECRET),
-        passphraseFromDb: this.tryDecrypt(
-          m.offsitePassphraseEncrypted,
-          m.offsitePassphraseIv,
-          AAD_PASSPHRASE,
-        ),
-      },
-      (name) => process.env[name],
-    );
-  }
-
-  private tryDecrypt(ct: string | null, iv: string | null, aad: string): string | null {
+  private tryDecrypt(
+    ct: string | null,
+    iv: string | null,
+    aad: string,
+    what: string,
+  ): string | null {
     if (!ct || !iv) return null;
     try {
       return decryptCredential(ct, iv, aad);
     } catch {
-      // The value is unusable (key changed or row edited by hand). Say
-      // which setting, never the bytes.
+      // Unusable: the endpoint or key id changed outside this page, the
+      // server key changed, or the row was edited by hand. Say which
+      // setting, never the bytes.
       this.log.warn(
-        `A stored off-site secret (${aad.split(':')[1]}) could not be decrypted; treating it as not set.`,
+        `The stored off-site ${what} could not be opened (it is bound to the endpoint and key id it was saved with); treating it as not set.`,
       );
       return null;
     }
+  }
+
+  /**
+   * "Check my key": does what the admin pastes (a public key or its
+   * fingerprint) match the key this server encrypts to? Never takes a
+   * private key or passphrase, and never logs what was pasted.
+   */
+  async checkKey(value: string): Promise<{
+    matches: boolean;
+    serverFingerprint: string | null;
+    checkedFingerprint: string;
+  }> {
+    if (looksLikePrivateKey(value)) {
+      throw new BadRequestException(
+        'That is a private key. Never paste it into the portal. Paste the public key or its fingerprint.',
+      );
+    }
+    let fp: Buffer | null = parseFingerprint(value);
+    if (!fp) {
+      try {
+        fp = parsePublicKey(value).fingerprint;
+      } catch (e) {
+        throw new BadRequestException(
+          e instanceof OffsiteCryptoError
+            ? e.message
+            : 'Paste a public key (ggpub1:...) or a fingerprint (32 hex digits).',
+        );
+      }
+    }
+    const s = await this.settings();
+    const server = s.publicKey?.fingerprint ?? null;
+    return {
+      matches: server !== null && server.equals(fp),
+      serverFingerprint: s.publicKey?.fingerprintText ?? null,
+      checkedFingerprint: (fp.toString('hex').match(/.{4}/g) ?? []).join('-'),
+    };
   }
 
   // ---------------------------------------------------------------
@@ -334,13 +423,26 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
    */
   async testConnection(): Promise<{ ok: boolean; message: string }> {
     const s = await this.settings();
-    const missing = missingSettings(s).filter((m) => m !== 'passphrase');
-    if (missing.length > 0) {
-      return { ok: false, message: `Fill in: ${missing.map(fieldLabel).join(', ')}.` };
+    const missing = missingSettings(s).filter((m) => m !== 'publicKey');
+    if (missing.length > 0 || s.problems.length > 0) {
+      return {
+        ok: false,
+        message: [
+          missing.length ? `Fill in: ${missing.map(fieldLabel).join(', ')}.` : '',
+          ...s.problems,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      };
     }
-    const s3 = this.clientFactory(s);
-    const key = `${s.prefix}.gratisgis-connection-test-${Date.now().toString(36)}`;
     try {
+      await this.endpointCheck(s.endpoint!, this.policy());
+      const s3 = this.clientFactory(s);
+      const owner = await this.readInstallMarker(s3, s);
+      if (owner && owner !== s.installId) {
+        return { ok: false, message: foreignFolderMessage(owner) };
+      }
+      const key = `${s.prefix}.gratisgis-connection-test-${Date.now().toString(36)}`;
       await putSmall(s3, s.bucket!, key, Buffer.from('GratisGIS connection test\n'), 'text/plain');
       let found = false;
       for await (const o of listObjects(s3, s.bucket!, key)) if (o.key === key) found = true;
@@ -354,9 +456,9 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       }
       return {
         ok: true,
-        message: s.passphrase
+        message: s.publicKey
           ? 'Connected. A test file was written, listed and deleted.'
-          : 'Connected. Set an encryption passphrase before turning off-site backups on.',
+          : 'Connected. Add your public key before turning off-site backups on.',
       };
     } catch (e) {
       const msg = this.safeMessage(e, s);
@@ -366,30 +468,80 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   // ---------------------------------------------------------------
+  // Folder ownership
+  // ---------------------------------------------------------------
+
+  private markerKey(s: OffsiteSettings) {
+    return `${s.prefix}${OFFSITE_LAYOUT.installMarker}`;
+  }
+
+  /** The install id written under the prefix, or null when there is none. */
+  private async readInstallMarker(s3: S3Like, s: OffsiteSettings): Promise<string | null> {
+    let buf: Buffer;
+    try {
+      buf = await getSmall(s3, s.bucket!, this.markerKey(s));
+    } catch (e) {
+      const err = e as { name?: string; $metadata?: { httpStatusCode?: number } };
+      if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) return null;
+      throw e;
+    }
+    try {
+      const j = JSON.parse(buf.toString('utf8')) as { installId?: unknown };
+      return typeof j.installId === 'string' ? j.installId : 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /** Claim the folder for this portal, or stop when another one has it. */
+  private async ensureInstallMarker(s3: S3Like, s: OffsiteSettings): Promise<void> {
+    if (!s.installId) throw new Error('This portal has no install id yet.');
+    const owner = await this.readInstallMarker(s3, s);
+    if (owner === s.installId) return;
+    if (owner !== null) throw new Error(foreignFolderMessage(owner));
+    await putSmall(
+      s3,
+      s.bucket!,
+      this.markerKey(s),
+      Buffer.from(
+        JSON.stringify(
+          { kind: 'gratisgis-offsite-folder', installId: s.installId, createdAt: new Date().toISOString() },
+          null,
+          2,
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------
   // Upload
   // ---------------------------------------------------------------
 
   /**
-   * Called when a local backup has been published. Resolves once the
-   * run is claimed (or skipped) and returns the upload itself as a
-   * second promise, so a manual run can answer the browser while the
-   * upload carries on and a scheduled run can wait for it.
+   * Called when a local backup has been published. Resolves as soon
+   * as the run is claimed (or skipped), with the upload still running
+   * in `done`. A scheduled run waits for `done`; a manual run answers
+   * the browser without it. Never a bare promise: an async function
+   * returning one would be flattened into a single wait.
    */
-  async startUpload(runId: string, objectBytes: number | null): Promise<Promise<void> | void> {
+  async startUpload(runId: string, objectBytes: number | null): Promise<UploadHandle | undefined> {
     let s: OffsiteSettings;
     try {
       s = await this.settings();
     } catch (e) {
       this.log.warn(`Off-site settings could not be read: ${e instanceof Error ? e.message : e}`);
-      return;
+      return undefined;
     }
-    if (!s.enabled) return;
-    const claimed = await this.claim(runId);
-    if (!claimed) return;
-    return this.upload(runId, s, objectBytes).catch((e: unknown) => {
+    if (!s.enabled) return undefined;
+    if (!(await this.claim(runId))) {
+      this.log.warn(`Off-site copy of backup ${runId} not started: another off-site upload is running.`);
+      return undefined;
+    }
+    const done = this.upload(runId, s, objectBytes).catch((e: unknown) => {
       // upload() records its own failures; this is a last resort.
       this.log.error(`Off-site upload of ${runId} stopped: ${this.safeMessage(e, s)}`);
     });
+    return { done };
   }
 
   /** Admin "Upload again" for one run. */
@@ -407,8 +559,31 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         `Off-site settings are missing: ${missing.map(fieldLabel).join(', ')}.`,
       );
     }
+    // Retention would delete an older copy again straight away.
+    if (run.startedAt.getTime() < Date.now() - s.retentionDays * DAY_MS) {
+      throw new ConflictException(
+        'This backup is older than the off-site retention window, so its copy would be deleted again at once.',
+      );
+    }
+    // A mirror copy always holds the files as they are now, so an older
+    // dump would be paired with newer files.
+    const mode = await this.chooseMode(s, run, null);
+    if (mode === 'mirror') {
+      const newest = await this.prisma.backupRun.findFirst({
+        where: { status: 'succeeded' },
+        orderBy: { startedAt: 'desc' },
+        select: { id: true },
+      });
+      if (newest && newest.id !== run.id) {
+        throw new ConflictException(
+          'Large stores are copied file by file as they are now, so only the newest backup can be uploaded again.',
+        );
+      }
+    }
     if (!(await this.claim(runId))) {
-      throw new ConflictException('An off-site upload of this backup is already running.');
+      throw new ConflictException(
+        'An off-site upload is already running. Try again when it finishes.',
+      );
     }
     void this.upload(runId, s, null).catch((e: unknown) =>
       this.log.error(`Off-site upload of ${runId} stopped: ${this.safeMessage(e, s)}`),
@@ -416,31 +591,45 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   /**
-   * Mark the run's off-site copy as running, unless a live upload
-   * already holds it. Atomic, so two replicas cannot both upload.
+   * Mark the run's off-site copy as running. One upload at a time for
+   * the whole install: the partial unique index on offsite_status
+   * refuses a second "running" row, so two replicas or two triggers
+   * cannot upload (or clean up) at once. A dead upload is closed out
+   * first.
    */
   private async claim(runId: string): Promise<boolean> {
+    await this.reclaimInterrupted();
     const now = new Date();
-    const stale = new Date(now.getTime() - STALE_UPLOAD_MS);
-    const res = await this.prisma.backupRun.updateMany({
-      where: {
-        id: runId,
-        status: 'succeeded',
-        OR: [
-          { offsiteStatus: null },
-          { offsiteStatus: { not: 'running' } },
-          { offsiteHeartbeatAt: { lt: stale } },
-        ],
-      },
-      data: {
-        offsiteStatus: 'running',
-        offsiteError: null,
-        offsiteStartedAt: now,
-        offsiteHeartbeatAt: now,
-        offsiteFinishedAt: null,
-      },
-    });
-    return res.count === 1;
+    try {
+      const res = await this.prisma.backupRun.updateMany({
+        where: {
+          id: runId,
+          status: 'succeeded',
+          OR: [{ offsiteStatus: null }, { offsiteStatus: { not: 'running' } }],
+        },
+        data: {
+          offsiteStatus: 'running',
+          offsiteError: null,
+          offsiteStartedAt: now,
+          offsiteHeartbeatAt: now,
+          offsiteFinishedAt: null,
+        },
+      });
+      return res.count === 1;
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') return false;
+      throw e;
+    }
+  }
+
+  private async chooseMode(
+    s: OffsiteSettings,
+    run: { archiveDirectory: string | null; filename: string | null },
+    objectBytes: number | null,
+  ): Promise<OffsiteMode> {
+    const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
+    const bytes = objectBytes ?? (await this.objectBytesFromManifest(path.join(dir, run.filename!)));
+    return bytes !== null && bytes > s.mirrorThresholdBytes ? 'mirror' : 'archive';
   }
 
   private async upload(
@@ -449,54 +638,76 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     objectBytes: number | null,
   ): Promise<void> {
     const abort = new AbortController();
-    let lastBeat = Date.now();
-    const beat = async () => {
-      if (Date.now() - lastBeat < BEAT_EVERY_MS) return;
-      lastBeat = Date.now();
-      try {
-        await this.prisma.backupRun.update({
+    // A timer, not calls in each loop: the beat must keep coming while
+    // one long step (a big part, a slow listing) is in progress.
+    const timer = setInterval(() => {
+      this.prisma.backupRun
+        .update({
           where: { id: runId },
           data: { offsiteHeartbeatAt: new Date() },
           select: { id: true },
+        })
+        .catch((e: unknown) => {
+          // The run was deleted underneath the upload: stop sending.
+          if ((e as { code?: string }).code === 'P2025') abort.abort();
         });
-      } catch (e) {
-        // The run was deleted underneath the upload: stop sending.
-        if ((e as { code?: string }).code === 'P2025') abort.abort();
-      }
-    };
+    }, this.beatEveryMs);
+    timer.unref?.();
     let mode: OffsiteMode = 'archive';
     try {
       const missing = missingSettings(s);
       if (missing.length > 0) {
         throw new Error(`Off-site settings are missing: ${missing.map(fieldLabel).join(', ')}.`);
       }
+      if (s.problems.length > 0) throw new Error(s.problems.join(' '));
+      const policy = this.policy();
+      await this.endpointCheck(s.endpoint!, policy);
+      if (s.endpoint!.startsWith('http:')) {
+        this.log.warn(
+          'The off-site endpoint uses plain http (allowed by BACKUP_OFFSITE_ALLOW_HTTP). The files are encrypted, but the bucket keys and names travel unprotected.',
+        );
+      }
       const run = await this.prisma.backupRun.findUniqueOrThrow({ where: { id: runId } });
       const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
       const archivePath = path.join(dir, run.filename!);
       const size = (await fs.stat(archivePath)).size;
-      const bytesOfObjects = objectBytes ?? (await this.objectBytesFromManifest(archivePath));
-      mode =
-        this.mirror.available && bytesOfObjects !== null && bytesOfObjects > s.mirrorThresholdBytes
-          ? 'mirror'
-          : 'archive';
-      await this.prisma.backupRun.update({ where: { id: runId }, data: { offsiteMode: mode } });
+      mode = await this.chooseMode(s, run, objectBytes);
+      await this.prisma.backupRun.update({
+        where: { id: runId },
+        data: { offsiteMode: mode, offsiteKeyFingerprint: s.publicKey!.fingerprintText },
+      });
 
       const s3 = this.clientFactory(s);
-      const key = await newSealKey(s.passphrase!, this.sealCost ? { logN: this.sealCost } : {});
+      await this.ensureInstallMarker(s3, s);
       const result =
         mode === 'mirror'
-          ? await this.mirror.upload({ s3, s, key, run, archivePath, signal: abort.signal, beat })
+          ? await this.mirror.upload({
+              s3,
+              s,
+              publicKey: s.publicKey!,
+              nameKey: await this.nameKey(),
+              index: this.index,
+              run,
+              archivePath,
+              signal: abort.signal,
+            })
           : await this.uploadArchive({
               s3,
               s,
-              key,
+              publicKey: s.publicKey!,
               run,
               archivePath,
               size,
               signal: abort.signal,
-              beat,
             });
 
+      // Clean up while this upload still holds the install-wide claim,
+      // so no other upload can be using what is removed.
+      try {
+        await this.enforceRetention(s, s3, runId);
+      } catch (e) {
+        this.log.warn(`Off-site retention failed: ${this.safeMessage(e, s)}`);
+      }
       await this.prisma.backupRun.update({
         where: { id: runId },
         data: {
@@ -508,12 +719,9 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           offsiteError: null,
         },
       });
-      this.log.log(`Off-site copy of backup ${runId} uploaded (${mode}, ${result.bytes} bytes).`);
-      try {
-        await this.enforceRetention(s, s3);
-      } catch (e) {
-        this.log.warn(`Off-site retention failed: ${this.safeMessage(e, s)}`);
-      }
+      this.log.log(
+        `Off-site copy of backup ${runId} uploaded (${mode}, ${result.bytes} bytes, key ${s.publicKey!.fingerprintText}).`,
+      );
     } catch (e) {
       const msg = abort.signal.aborted
         ? 'Stopped: the backup was deleted while its off-site copy was uploading.'
@@ -531,38 +739,86 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         })
         .catch(() => undefined);
       await this.notice?.announceOffsite(`failed:${runId}`, { runId, kind: 'offsite_failed' });
+    } finally {
+      clearInterval(timer);
     }
     await this.checkStale().catch((e: unknown) =>
       this.log.warn(`Off-site staleness check failed: ${e instanceof Error ? e.message : e}`),
     );
   }
 
+  /**
+   * The key that names mirrored files, made once and stored with the
+   * credential cipher. Mirror mode needs CREDENTIAL_ENCRYPTION_KEY.
+   */
+  private async nameKey(): Promise<Buffer> {
+    try {
+      assertCredentialKeyConfigured();
+    } catch {
+      throw new Error(
+        'Copying a large store file by file needs CREDENTIAL_ENCRYPTION_KEY on this server.',
+      );
+    }
+    const read = async () => {
+      const row = await this.backup.configRow();
+      if (!row.offsiteNameKeyEncrypted || !row.offsiteNameKeyIv) return null;
+      try {
+        return Buffer.from(
+          decryptCredential(row.offsiteNameKeyEncrypted, row.offsiteNameKeyIv, AAD_NAME_KEY),
+          'base64',
+        );
+      } catch {
+        return undefined;
+      }
+    };
+    const have = await read();
+    if (have) return have;
+    const enc = encryptCredential(randomBytes(32).toString('base64'), AAD_NAME_KEY);
+    const row = await this.backup.configRow();
+    if (have === undefined) {
+      // The stored key no longer opens (the server key changed). Files
+      // get new names and are uploaded again; old ones age out.
+      this.log.warn('The off-site naming key could not be opened; making a new one.');
+      await this.prisma.backupConfig.update({
+        where: { id: row.id },
+        data: { offsiteNameKeyEncrypted: enc.ciphertext, offsiteNameKeyIv: enc.iv },
+      });
+    } else {
+      await this.prisma.backupConfig.updateMany({
+        where: { id: row.id, offsiteNameKeyEncrypted: null },
+        data: { offsiteNameKeyEncrypted: enc.ciphertext, offsiteNameKeyIv: enc.iv },
+      });
+    }
+    const made = await read();
+    if (!made) throw new Error('The off-site naming key could not be stored.');
+    return made;
+  }
+
   private async uploadArchive(a: {
     s3: S3Like;
     s: OffsiteSettings;
-    key: SealKey;
+    publicKey: OffsitePublicKey;
     run: { id: string; filename: string | null; startedAt: Date };
     archivePath: string;
     size: number;
     signal: AbortSignal;
-    beat: () => Promise<void>;
   }): Promise<{ key: string; bytes: number; sha256: string }> {
     const name = `${a.run.filename}${OFFSITE_LAYOUT.sealed}`;
     const objectKey = `${a.s.prefix}${OFFSITE_LAYOUT.archives}${name}`;
-    const expected = sealedSize(a.size);
     const up = await uploadStream(a.s3, {
       bucket: a.s.bucket!,
       key: objectKey,
-      body: sealStream(readLazily(a.archivePath), a.key),
-      expectedBytes: expected,
+      body: sealStream(readLazily(a.archivePath), a.publicKey),
+      expectedBytes: sealedSize(a.size),
       signal: a.signal,
-      onPart: a.beat,
     });
     // Written last: its presence is what marks the copy complete.
     const sidecar = {
-      format: 'GRCV2',
+      format: OFFSITE_FORMAT,
       kind: 'archive',
       runId: a.run.id,
+      installId: a.s.installId,
+      keyFingerprint: a.publicKey.fingerprintText,
       archive: a.run.filename,
       createdAt: a.run.startedAt.toISOString(),
       plainBytes: a.size,
@@ -593,13 +849,31 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   // Retention
   // ---------------------------------------------------------------
 
+  /** Another upload than `self` holds the claim and is alive. */
+  private async otherUploadRunning(self: string | null): Promise<boolean> {
+    const other = await this.prisma.backupRun.findFirst({
+      where: {
+        offsiteStatus: 'running',
+        ...(self ? { id: { not: self } } : {}),
+      },
+      select: { id: true },
+    });
+    return other !== null;
+  }
+
   /**
    * Delete off-site copies older than the retention window, never the
-   * newest complete one. Only names this feature writes are touched.
-   * Bucket versioning or object lock at the provider is what protects
-   * history from a compromised server; see the help page.
+   * newest complete one. Only names this feature writes, under this
+   * portal's own folder, are touched. Mirror files are collected only
+   * when no other upload is running. Bucket versioning or object lock
+   * at the provider is what protects history from a compromised
+   * server; see the help page.
    */
-  async enforceRetention(s: OffsiteSettings, s3: S3Like = this.clientFactory(s)): Promise<number> {
+  async enforceRetention(
+    s: OffsiteSettings,
+    s3: S3Like = this.clientFactory(s),
+    self: string | null = null,
+  ): Promise<number> {
     const now = new Date();
     const archivesPrefix = `${s.prefix}${OFFSITE_LAYOUT.archives}`;
     const listing = [];
@@ -617,7 +891,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         removed += 1;
       }
     }
-    removed += await this.mirror.enforceRetention(s, s3, now);
+    const collect = !(await this.otherUploadRunning(self));
+    if (!collect) this.log.log('Another off-site upload is running; mirror files are not collected this time.');
+    const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect);
+    removed += m.removed;
+    if (m.unknownKept > 0) {
+      this.log.log(
+        `${m.unknownKept} mirrored file(s) in the bucket are not in this server's index and were kept. A bucket lifecycle rule can remove them once they are older than your retention window.`,
+      );
+    }
     if (removed > 0) this.log.log(`Off-site retention removed ${removed} object(s).`);
     return removed;
   }
@@ -630,7 +912,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     return this.prisma.backupRun.findFirst({
       where: { offsiteStatus: 'succeeded' },
       orderBy: { offsiteFinishedAt: 'desc' },
-      select: { id: true, offsiteFinishedAt: true, offsiteMode: true, offsiteBytes: true },
+      select: {
+        id: true,
+        offsiteFinishedAt: true,
+        offsiteMode: true,
+        offsiteBytes: true,
+        offsiteKeyFingerprint: true,
+      },
     });
   }
 
@@ -680,6 +968,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             finishedAt: last.offsiteFinishedAt.toISOString(),
             mode: last.offsiteMode,
             bytes: last.offsiteBytes === null ? null : last.offsiteBytes.toString(),
+            keyFingerprint: last.offsiteKeyFingerprint,
           }
         : null,
       lastFailure: failed
@@ -720,8 +1009,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
 
   /** An error message with every secret removed, for logs and rows. */
   private safeMessage(e: unknown, s: OffsiteSettings): string {
-    return redactSecrets(describeS3Error(e), [s.secretAccessKey, s.passphrase]);
+    return redactSecrets(describeS3Error(e), [s.secretAccessKey]);
   }
+}
+
+function foreignFolderMessage(owner: string): string {
+  return `This folder in the bucket belongs to another GratisGIS portal (install ${owner.slice(0, 8)}). Give each portal its own folder.`;
 }
 
 /**
@@ -731,10 +1024,6 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
  */
 async function* readLazily(file: string): AsyncGenerator<Buffer> {
   for await (const chunk of createReadStream(file)) yield chunk as Buffer;
-}
-
-export function allowHttp(): boolean {
-  return (process.env.BACKUP_OFFSITE_ALLOW_HTTP ?? '').toLowerCase() === 'true';
 }
 
 function fieldLabel(f: string): string {
@@ -747,8 +1036,8 @@ function fieldLabel(f: string): string {
       return 'access key id';
     case 'secretAccessKey':
       return 'secret access key';
-    case 'passphrase':
-      return 'encryption passphrase';
+    case 'publicKey':
+      return 'public key';
     default:
       return f;
   }

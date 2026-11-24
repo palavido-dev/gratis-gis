@@ -374,6 +374,27 @@ model BackupOffsiteNotice {
   @@map("backup_offsite_notice")
 }
 
+/// Mirror mode's local index: one row per file this server uploaded
+/// to the off-site bucket. The bucket's contents are encrypted to a
+/// key the server does not hold, so this is how it knows what is
+/// already there. `target` is a hash of endpoint, bucket and prefix.
+/// `lastRunAt` is the newest mirror run that referred to the file;
+/// clean-up removes files no retained run can refer to.
+model BackupOffsiteObject {
+  target         String
+  name           String
+  keyFingerprint String   @map("key_fingerprint")
+  plainBytes     BigInt   @map("plain_bytes")
+  sealedBytes    BigInt   @map("sealed_bytes")
+  contentType    String?  @map("content_type")
+  uploadedAt     DateTime @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+  lastRunAt      DateTime @map("last_run_at") @db.Timestamptz(6)
+
+  @@id([target, name])
+  @@index([target, lastRunAt])
+  @@map("backup_offsite_object")
+}
+
 /// "Test latest backup": the database dump of one run restored into a
 /// scratch database, checked with a few queries and dropped.
 model BackupRestoreTest {
@@ -826,11 +847,17 @@ model BackupConfig {
   /// (the ItemCredential cipher). Never returned by the API.
   offsiteSecretEncrypted String? @map("offsite_secret_encrypted")
   offsiteSecretIv        String? @map("offsite_secret_iv")
-  /// Passphrase the archives are encrypted with before upload. Same
-  /// cipher, its own AAD. Never returned by the API and never written
-  /// to the bucket.
-  offsitePassphraseEncrypted String? @map("offsite_passphrase_encrypted")
-  offsitePassphraseIv        String? @map("offsite_passphrase_iv")
+  /// The admin's X25519 public key, text form (ggpub1:...). Off-site
+  /// files are encrypted to it. Not a secret; the private key is
+  /// never on this server.
+  offsitePublicKey     String? @map("offsite_public_key")
+  /// Random id written under the bucket prefix, so two portals never
+  /// share (and clean up) one folder.
+  offsiteInstallId     String? @map("offsite_install_id")
+  /// HMAC key that names mirrored files in the bucket. Same cipher as
+  /// the secret, its own AAD. Never returned by the API.
+  offsiteNameKeyEncrypted String? @map("offsite_name_key_encrypted")
+  offsiteNameKeyIv        String? @map("offsite_name_key_iv")
   /// Days to keep off-site copies. The newest good copy is always kept.
   offsiteRetentionDays Int? @map("offsite_retention_days")
   /// Raise a notice when no off-site copy succeeded in this many days.
@@ -941,6 +968,8 @@ model BackupRun {
   offsiteBytes      BigInt?   @map("offsite_bytes")
   /// SHA-256 of the main encrypted artifact, hex.
   offsiteSha256     String?   @map("offsite_sha256")
+  /// Fingerprint of the public key the copy was encrypted to.
+  offsiteKeyFingerprint String? @map("offsite_key_fingerprint")
   offsiteError      String?   @map("offsite_error")
   offsiteStartedAt  DateTime? @map("offsite_started_at") @db.Timestamptz(6)
   offsiteFinishedAt DateTime? @map("offsite_finished_at") @db.Timestamptz(6)
@@ -951,7 +980,8 @@ model BackupRun {
   /// Partial unique index `backup_run_one_running_idx` (see migration
   /// 20261026042100): at most one row with status='running'. Enforced
   /// in SQL, not Prisma schema, because Prisma cannot express
-  /// partial uniques. #235.
+  /// partial uniques. #235. Likewise `backup_run_one_offsite_running_idx`
+  /// (migration 20261124130100): at most one off-site upload at a time.
   @@map("backup_run")
 }
 

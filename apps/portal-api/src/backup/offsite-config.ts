@@ -1,17 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { readFileSync } from 'node:fs';
 
+import { OffsiteCryptoError, parsePublicKey, type OffsitePublicKey } from './offsite-crypto.js';
+import { checkEndpoint, EndpointError, type EndpointPolicy } from './offsite-endpoint.js';
+
 /**
  * Off-site backup settings: what the admin page edits, what the
  * environment can supply instead, and the checks both go through.
  *
  * Each setting is the database value when one is saved, otherwise the
- * BACKUP_OFFSITE_* environment variable. The two secrets (the bucket's
- * secret access key and the encryption passphrase) follow the same
- * order, and the environment may name a file with the *_FILE variant.
- * Neither secret ever leaves this process through the API: callers get
- * the public view, which says only whether each one is set and where
- * it came from.
+ * BACKUP_OFFSITE_* environment variable. Values from either source go
+ * through the same checks: a bad one is reported and treated as unset,
+ * so off-site copies cannot run on it.
+ *
+ * The only secret is the bucket's secret access key. Off-site files
+ * are encrypted to the admin's public key; the private key and its
+ * passphrase are never on this server, and nothing here accepts them.
  */
 
 export const OFFSITE_ENV = {
@@ -24,8 +28,7 @@ export const OFFSITE_ENV = {
   accessKeyId: 'BACKUP_OFFSITE_ACCESS_KEY_ID',
   secretAccessKey: 'BACKUP_OFFSITE_SECRET_ACCESS_KEY',
   secretAccessKeyFile: 'BACKUP_OFFSITE_SECRET_ACCESS_KEY_FILE',
-  passphrase: 'BACKUP_OFFSITE_PASSPHRASE',
-  passphraseFile: 'BACKUP_OFFSITE_PASSPHRASE_FILE',
+  publicKey: 'BACKUP_OFFSITE_PUBLIC_KEY',
   retentionDays: 'BACKUP_OFFSITE_RETENTION_DAYS',
   alertDays: 'BACKUP_OFFSITE_ALERT_DAYS',
   mirrorThresholdGb: 'BACKUP_OFFSITE_MIRROR_THRESHOLD_GB',
@@ -33,34 +36,36 @@ export const OFFSITE_ENV = {
 
 export const OFFSITE_DEFAULTS = {
   region: 'us-east-1',
-  prefix: 'gratisgis/',
+  /** The default folder is this plus the first 8 characters of the install id. */
+  prefixBase: 'gratisgis-',
   pathStyle: true,
   retentionDays: 30,
   alertDays: 3,
   mirrorThresholdBytes: 50 * 1024 ** 3,
 } as const;
 
-export const PASSPHRASE_MIN = 16;
-export const PASSPHRASE_MAX = 1024;
+export type SettingSource = 'database' | 'environment' | null;
 
-export type SecretSource = 'database' | 'environment' | null;
-
-/** Effective settings, secrets included. Server side only. */
+/** Effective settings, secret included. Server side only. */
 export interface OffsiteSettings {
   enabled: boolean;
   endpoint: string | null;
+  endpointSource: SettingSource;
   region: string;
   bucket: string | null;
   prefix: string;
   pathStyle: boolean;
   accessKeyId: string | null;
   secretAccessKey: string | null;
-  secretSource: SecretSource;
-  passphrase: string | null;
-  passphraseSource: SecretSource;
+  secretSource: SettingSource;
+  publicKey: OffsitePublicKey | null;
+  publicKeySource: SettingSource;
   retentionDays: number;
   alertDays: number;
   mirrorThresholdBytes: number;
+  installId: string | null;
+  /** Values that were set but refused, in plain words. */
+  problems: string[];
 }
 
 /** What the API returns. No secret values, by construction. */
@@ -73,16 +78,21 @@ export interface OffsitePublicConfig {
   pathStyle: boolean;
   accessKeyId: string | null;
   hasSecretAccessKey: boolean;
-  secretAccessKeySource: SecretSource;
-  hasPassphrase: boolean;
-  passphraseSource: SecretSource;
+  secretAccessKeySource: SettingSource;
+  publicKey: string | null;
+  publicKeyFingerprint: string | null;
+  publicKeySource: SettingSource;
   retentionDays: number;
   alertDays: number;
   mirrorThresholdBytes: number;
+  installId: string | null;
+  /** Plain http endpoints are allowed by the server environment. */
+  httpAllowed: boolean;
   /** Everything needed to upload is present. */
   complete: boolean;
   /** Plain reasons it is not complete, for the page. */
   missing: string[];
+  problems: string[];
 }
 
 /** Columns of backup_config this module reads. */
@@ -94,6 +104,8 @@ export interface OffsiteRow {
   offsitePrefix: string | null;
   offsitePathStyle: boolean | null;
   offsiteAccessKeyId: string | null;
+  offsitePublicKey: string | null;
+  offsiteInstallId: string | null;
   offsiteRetentionDays: number | null;
   offsiteAlertDays: number | null;
   offsiteMirrorThresholdBytes: bigint | null;
@@ -106,25 +118,18 @@ function envText(env: EnvReader, name: string): string | null {
   return v ? v : null;
 }
 
-function envBool(env: EnvReader, name: string): boolean | null {
-  const v = envText(env, name)?.toLowerCase();
-  if (v === undefined || v === null) return null;
-  if (['1', 'true', 'yes', 'on'].includes(v)) return true;
-  if (['0', 'false', 'no', 'off'].includes(v)) return false;
-  return null;
-}
-
-function envInt(env: EnvReader, name: string): number | null {
-  const v = envText(env, name);
-  if (v === null) return null;
-  const n = Number(v);
-  return Number.isInteger(n) && n > 0 ? n : null;
+/** Thrown for a value the page or the environment gave that cannot be used. */
+export class OffsiteValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OffsiteValidationError';
+  }
 }
 
 /**
  * A secret from the environment: the variable itself, or the file the
- * *_FILE variable names. One trailing newline is dropped from a file,
- * since editors add one; anything else is kept as written.
+ * *_FILE variable names. One trailing line break (\n or \r\n) is
+ * dropped from a file, since editors add one; anything else is kept.
  */
 export function envSecret(
   env: EnvReader,
@@ -145,117 +150,16 @@ export function envSecret(
   }
 }
 
-/** Merge the saved row over the environment. */
-export function resolveOffsiteSettings(
-  row: OffsiteRow,
-  secrets: {
-    secretFromDb: string | null;
-    passphraseFromDb: string | null;
-  },
-  env: EnvReader,
-  readFile?: (p: string) => string,
-): OffsiteSettings {
-  const secretEnv = envSecret(
-    env,
-    OFFSITE_ENV.secretAccessKey,
-    OFFSITE_ENV.secretAccessKeyFile,
-    readFile,
-  );
-  const passEnv = envSecret(env, OFFSITE_ENV.passphrase, OFFSITE_ENV.passphraseFile, readFile);
-  const gb = envInt(env, OFFSITE_ENV.mirrorThresholdGb);
-  return {
-    enabled: row.offsiteEnabled ?? envBool(env, OFFSITE_ENV.enabled) ?? false,
-    endpoint: row.offsiteEndpoint ?? envText(env, OFFSITE_ENV.endpoint),
-    region: row.offsiteRegion ?? envText(env, OFFSITE_ENV.region) ?? OFFSITE_DEFAULTS.region,
-    bucket: row.offsiteBucket ?? envText(env, OFFSITE_ENV.bucket),
-    prefix: normalizePrefix(
-      row.offsitePrefix ?? envText(env, OFFSITE_ENV.prefix) ?? OFFSITE_DEFAULTS.prefix,
-    ),
-    pathStyle:
-      row.offsitePathStyle ?? envBool(env, OFFSITE_ENV.pathStyle) ?? OFFSITE_DEFAULTS.pathStyle,
-    accessKeyId: row.offsiteAccessKeyId ?? envText(env, OFFSITE_ENV.accessKeyId),
-    secretAccessKey: secrets.secretFromDb ?? secretEnv,
-    secretSource: secrets.secretFromDb ? 'database' : secretEnv ? 'environment' : null,
-    passphrase: secrets.passphraseFromDb ?? passEnv,
-    passphraseSource: secrets.passphraseFromDb ? 'database' : passEnv ? 'environment' : null,
-    retentionDays:
-      row.offsiteRetentionDays ??
-      envInt(env, OFFSITE_ENV.retentionDays) ??
-      OFFSITE_DEFAULTS.retentionDays,
-    alertDays:
-      row.offsiteAlertDays ?? envInt(env, OFFSITE_ENV.alertDays) ?? OFFSITE_DEFAULTS.alertDays,
-    mirrorThresholdBytes:
-      row.offsiteMirrorThresholdBytes !== null
-        ? Number(row.offsiteMirrorThresholdBytes)
-        : gb !== null
-          ? gb * 1024 ** 3
-          : OFFSITE_DEFAULTS.mirrorThresholdBytes,
-  };
-}
-
 /** Empty, or ends in exactly one slash, never starts with one. */
 export function normalizePrefix(p: string): string {
   const trimmed = p.trim().replace(/^\/+/, '').replace(/\/+$/, '');
   return trimmed ? `${trimmed}/` : '';
 }
 
-export function missingSettings(s: OffsiteSettings): string[] {
-  const out: string[] = [];
-  if (!s.endpoint) out.push('endpoint');
-  if (!s.bucket) out.push('bucket');
-  if (!s.accessKeyId) out.push('accessKeyId');
-  if (!s.secretAccessKey) out.push('secretAccessKey');
-  if (!s.passphrase) out.push('passphrase');
-  return out;
-}
-
-export function toPublicConfig(s: OffsiteSettings): OffsitePublicConfig {
-  const missing = missingSettings(s);
-  return {
-    enabled: s.enabled,
-    endpoint: s.endpoint,
-    region: s.region,
-    bucket: s.bucket,
-    prefix: s.prefix,
-    pathStyle: s.pathStyle,
-    accessKeyId: s.accessKeyId,
-    hasSecretAccessKey: s.secretAccessKey !== null,
-    secretAccessKeySource: s.secretSource,
-    hasPassphrase: s.passphrase !== null,
-    passphraseSource: s.passphraseSource,
-    retentionDays: s.retentionDays,
-    alertDays: s.alertDays,
-    mirrorThresholdBytes: s.mirrorThresholdBytes,
-    complete: missing.length === 0,
-    missing,
-  };
-}
-
-/** Patch the admin page sends. Undefined keeps; null clears. */
-export interface OffsitePatch {
-  enabled?: boolean | null;
-  endpoint?: string | null;
-  region?: string | null;
-  bucket?: string | null;
-  prefix?: string | null;
-  pathStyle?: boolean | null;
-  accessKeyId?: string | null;
-  /** New secret. Empty string or null clears the saved one. */
-  secretAccessKey?: string | null;
-  /** New passphrase. Empty string or null clears the saved one. */
-  passphrase?: string | null;
-  /** Must equal `passphrase` when that is set. */
-  passphraseConfirm?: string | null;
-  retentionDays?: number | null;
-  alertDays?: number | null;
-  mirrorThresholdBytes?: number | null;
-}
-
-export class OffsiteValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'OffsiteValidationError';
-  }
+export function defaultPrefix(installId: string | null): string {
+  return installId
+    ? `${OFFSITE_DEFAULTS.prefixBase}${installId.replace(/-/g, '').slice(0, 8)}/`
+    : `${OFFSITE_DEFAULTS.prefixBase.slice(0, -1)}/`;
 }
 
 /** True when the text has a control character (code below 32, or 127). */
@@ -272,114 +176,298 @@ const BUCKET_RE = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const REGION_RE = /^[a-z0-9-]{1,40}$/i;
 const ACCESS_KEY_RE = /^[\x21-\x7e]{3,256}$/;
 
-/**
- * Check a patch before anything is written. Throws a plain sentence
- * the page can show; never includes a secret value in the message.
- */
-export function validateOffsitePatch(patch: OffsitePatch, opts: { allowHttp: boolean }): void {
-  if (typeof patch.endpoint === 'string' && patch.endpoint.trim()) {
-    let u: URL;
-    try {
-      u = new URL(patch.endpoint.trim());
-    } catch {
+/** Each check throws a plain sentence and never repeats a secret. */
+const checks = {
+  bucket(v: string) {
+    if (!BUCKET_RE.test(v)) {
       throw new OffsiteValidationError(
-        'The endpoint must be a full URL, such as https://s3.eu-central-003.backblazeb2.com.',
+        'The bucket name can use lower-case letters, digits, dots and hyphens, 3 to 63 characters.',
       );
     }
-    if (u.protocol !== 'https:' && !(opts.allowHttp && u.protocol === 'http:')) {
-      throw new OffsiteValidationError('The endpoint must use https.');
-    }
-    if (u.username || u.password) {
+  },
+  region(v: string) {
+    if (!REGION_RE.test(v)) {
       throw new OffsiteValidationError(
-        'Put the keys in their own fields, not in the endpoint URL.',
+        "The region looks wrong. Use the provider's region name, such as us-east-1 or auto.",
       );
     }
-    if (u.search || u.hash || (u.pathname && u.pathname !== '/')) {
-      throw new OffsiteValidationError(
-        'The endpoint is the server address only, without a path. Put the bucket name in the bucket field.',
-      );
-    }
-  }
-  if (
-    typeof patch.bucket === 'string' &&
-    patch.bucket.trim() &&
-    !BUCKET_RE.test(patch.bucket.trim())
-  ) {
-    throw new OffsiteValidationError(
-      'The bucket name can use lower-case letters, digits, dots and hyphens, 3 to 63 characters.',
-    );
-  }
-  if (
-    typeof patch.region === 'string' &&
-    patch.region.trim() &&
-    !REGION_RE.test(patch.region.trim())
-  ) {
-    throw new OffsiteValidationError(
-      "The region looks wrong. Use the provider's region name, such as us-east-1 or auto.",
-    );
-  }
-  if (typeof patch.prefix === 'string') {
-    const p = patch.prefix.trim();
+  },
+  prefix(v: string) {
+    const p = v.trim();
     if (p.length > 200 || p.includes('\\') || hasControl(p) || /(^|\/)\.\.?(\/|$)/.test(p)) {
       throw new OffsiteValidationError(
         'The folder prefix can be up to 200 characters, with no backslashes, control characters, or "." or ".." parts.',
       );
     }
-  }
-  if (
-    typeof patch.accessKeyId === 'string' &&
-    patch.accessKeyId.trim() &&
-    !ACCESS_KEY_RE.test(patch.accessKeyId.trim())
-  ) {
-    throw new OffsiteValidationError('The access key id has characters that are not allowed.');
-  }
-  if (typeof patch.secretAccessKey === 'string' && patch.secretAccessKey.length > 0) {
-    if (patch.secretAccessKey.length > 512 || hasControl(patch.secretAccessKey, true)) {
+  },
+  accessKeyId(v: string) {
+    if (!ACCESS_KEY_RE.test(v)) {
+      throw new OffsiteValidationError('The access key id has characters that are not allowed.');
+    }
+  },
+  secretAccessKey(v: string) {
+    if (v.length > 512 || hasControl(v, true)) {
       throw new OffsiteValidationError(
         'The secret access key has spaces or characters that are not allowed.',
       );
     }
-  }
-  if (typeof patch.passphrase === 'string' && patch.passphrase.length > 0) {
-    validatePassphrase(patch.passphrase);
-    if (patch.passphraseConfirm !== patch.passphrase) {
-      throw new OffsiteValidationError('The two passphrases do not match.');
+  },
+  endpoint(v: string, policy: EndpointPolicy): string {
+    try {
+      return checkEndpoint(v, policy);
+    } catch (e) {
+      if (e instanceof EndpointError) throw new OffsiteValidationError(e.message);
+      throw e;
     }
-  }
-  const intRange = (name: string, v: number | null | undefined, lo: number, hi: number) => {
-    if (v === undefined || v === null) return;
+  },
+  publicKey(v: string): OffsitePublicKey {
+    try {
+      return parsePublicKey(v);
+    } catch (e) {
+      if (e instanceof OffsiteCryptoError) throw new OffsiteValidationError(e.message);
+      throw new OffsiteValidationError('The public key could not be read.');
+    }
+  },
+  int(name: string, v: number, lo: number, hi: number) {
     if (!Number.isInteger(v) || v < lo || v > hi) {
       throw new OffsiteValidationError(`${name} must be a whole number from ${lo} to ${hi}.`);
     }
-  };
-  intRange('Days to keep off-site copies', patch.retentionDays, 1, 3650);
-  intRange('Days before a missing off-site copy is reported', patch.alertDays, 1, 90);
-  if (patch.mirrorThresholdBytes !== undefined && patch.mirrorThresholdBytes !== null) {
-    const v = patch.mirrorThresholdBytes;
+  },
+  mirrorThreshold(v: number) {
     if (!Number.isSafeInteger(v) || v < 1024 ** 3 || v > 1024 ** 5) {
       throw new OffsiteValidationError('The mirror threshold must be between 1 GB and 1 PB.');
     }
-  }
+  },
+};
+
+const LIMITS = {
+  retentionDays: ['Days to keep off-site copies', 1, 3650],
+  alertDays: ['Days before a missing off-site copy is reported', 1, 90],
+} as const;
+
+/**
+ * Merge the saved row over the environment, checking every value
+ * whatever its source. A refused value becomes unset and is named in
+ * `problems`, so the copy is not attempted with it.
+ */
+export function resolveOffsiteSettings(
+  row: OffsiteRow,
+  secrets: { secretFromDb: string | null },
+  env: EnvReader,
+  policy: EndpointPolicy,
+  readFile?: (p: string) => string,
+): OffsiteSettings {
+  const problems: string[] = [];
+  const pick = <I, O>(
+    label: string,
+    dbValue: I | null,
+    envValue: I | null,
+    check: (v: I) => O,
+  ): { value: O | null; source: SettingSource } => {
+    const source: SettingSource =
+      dbValue !== null ? 'database' : envValue !== null ? 'environment' : null;
+    const value = dbValue ?? envValue;
+    if (value === null) return { value: null, source: null };
+    try {
+      return { value: check(value), source };
+    } catch (e) {
+      const where =
+        source === 'environment' ? `the ${label} environment variable` : `the saved ${label}`;
+      problems.push(`${e instanceof Error ? e.message : 'Not usable.'} (from ${where})`);
+      return { value: null, source: null };
+    }
+  };
+  const same =
+    (fn: (v: string) => void) =>
+    (v: string): string => {
+      fn(v);
+      return v;
+    };
+  const envBool = (name: string): boolean | null => {
+    const v = envText(env, name)?.toLowerCase();
+    if (v === undefined || v === null) return null;
+    if (['1', 'true', 'yes', 'on'].includes(v)) return true;
+    if (['0', 'false', 'no', 'off'].includes(v)) return false;
+    problems.push(`${name} must be true or false.`);
+    return null;
+  };
+  const envInt = (name: string): number | null => {
+    const v = envText(env, name);
+    if (v === null) return null;
+    const n = Number(v);
+    if (!Number.isSafeInteger(n)) {
+      problems.push(`${name} must be a whole number.`);
+      return null;
+    }
+    return n;
+  };
+  const intIn =
+    (lim: readonly [string, number, number]) =>
+    (v: number): number => {
+      checks.int(lim[0], v, lim[1], lim[2]);
+      return v;
+    };
+
+  const endpoint = pick(
+    'endpoint',
+    row.offsiteEndpoint,
+    envText(env, OFFSITE_ENV.endpoint),
+    (v: string) => checks.endpoint(v, policy),
+  );
+  const region = pick('region', row.offsiteRegion, envText(env, OFFSITE_ENV.region), same(checks.region));
+  const bucket = pick('bucket', row.offsiteBucket, envText(env, OFFSITE_ENV.bucket), same(checks.bucket));
+  const prefix = pick('prefix', row.offsitePrefix, envText(env, OFFSITE_ENV.prefix), same(checks.prefix));
+  const keyId = pick(
+    'access key id',
+    row.offsiteAccessKeyId,
+    envText(env, OFFSITE_ENV.accessKeyId),
+    same(checks.accessKeyId),
+  );
+  const secret = pick(
+    'secret access key',
+    secrets.secretFromDb,
+    envSecret(env, OFFSITE_ENV.secretAccessKey, OFFSITE_ENV.secretAccessKeyFile, readFile),
+    same(checks.secretAccessKey),
+  );
+  const publicKey = pick(
+    'public key',
+    row.offsitePublicKey,
+    envText(env, OFFSITE_ENV.publicKey),
+    checks.publicKey,
+  );
+  const ret = pick(
+    'retention days',
+    row.offsiteRetentionDays,
+    envInt(OFFSITE_ENV.retentionDays),
+    intIn(LIMITS.retentionDays),
+  );
+  const alert = pick('alert days', row.offsiteAlertDays, envInt(OFFSITE_ENV.alertDays), intIn(LIMITS.alertDays));
+  const gb = envInt(OFFSITE_ENV.mirrorThresholdGb);
+  const threshold = pick(
+    'mirror threshold',
+    row.offsiteMirrorThresholdBytes === null ? null : Number(row.offsiteMirrorThresholdBytes),
+    gb === null ? null : gb * 1024 ** 3,
+    (v: number) => {
+      checks.mirrorThreshold(v);
+      return v;
+    },
+  );
+  const enabledEnv = envBool(OFFSITE_ENV.enabled);
+  const pathStyleEnv = envBool(OFFSITE_ENV.pathStyle);
+
+  return {
+    enabled: row.offsiteEnabled ?? enabledEnv ?? false,
+    endpoint: endpoint.value,
+    endpointSource: endpoint.source,
+    region: region.value ?? OFFSITE_DEFAULTS.region,
+    bucket: bucket.value,
+    prefix: normalizePrefix(prefix.value ?? defaultPrefix(row.offsiteInstallId)),
+    pathStyle: row.offsitePathStyle ?? pathStyleEnv ?? OFFSITE_DEFAULTS.pathStyle,
+    accessKeyId: keyId.value,
+    secretAccessKey: secret.value,
+    secretSource: secret.source,
+    publicKey: publicKey.value,
+    publicKeySource: publicKey.source,
+    retentionDays: ret.value ?? OFFSITE_DEFAULTS.retentionDays,
+    alertDays: alert.value ?? OFFSITE_DEFAULTS.alertDays,
+    mirrorThresholdBytes: threshold.value ?? OFFSITE_DEFAULTS.mirrorThresholdBytes,
+    installId: row.offsiteInstallId,
+    problems,
+  };
 }
 
-export function validatePassphrase(p: string): void {
-  if (p.length < PASSPHRASE_MIN) {
-    throw new OffsiteValidationError(
-      `The passphrase must be at least ${PASSPHRASE_MIN} characters.`,
-    );
+export function missingSettings(s: OffsiteSettings): string[] {
+  const out: string[] = [];
+  if (!s.endpoint) out.push('endpoint');
+  if (!s.bucket) out.push('bucket');
+  if (!s.accessKeyId) out.push('accessKeyId');
+  if (!s.secretAccessKey) out.push('secretAccessKey');
+  if (!s.publicKey) out.push('publicKey');
+  return out;
+}
+
+export function toPublicConfig(s: OffsiteSettings, policy: EndpointPolicy): OffsitePublicConfig {
+  const missing = missingSettings(s);
+  return {
+    enabled: s.enabled,
+    endpoint: s.endpoint,
+    region: s.region,
+    bucket: s.bucket,
+    prefix: s.prefix,
+    pathStyle: s.pathStyle,
+    accessKeyId: s.accessKeyId,
+    hasSecretAccessKey: s.secretAccessKey !== null,
+    secretAccessKeySource: s.secretSource,
+    publicKey: s.publicKey?.text ?? null,
+    publicKeyFingerprint: s.publicKey?.fingerprintText ?? null,
+    publicKeySource: s.publicKeySource,
+    retentionDays: s.retentionDays,
+    alertDays: s.alertDays,
+    mirrorThresholdBytes: s.mirrorThresholdBytes,
+    installId: s.installId,
+    httpAllowed: policy.allowHttp,
+    complete: missing.length === 0 && s.problems.length === 0,
+    missing,
+    problems: s.problems,
+  };
+}
+
+/** Patch the admin page sends. Undefined keeps; null clears. */
+export interface OffsitePatch {
+  enabled?: boolean | null;
+  endpoint?: string | null;
+  region?: string | null;
+  bucket?: string | null;
+  prefix?: string | null;
+  pathStyle?: boolean | null;
+  accessKeyId?: string | null;
+  /** New secret. Empty string or null clears the saved one. */
+  secretAccessKey?: string | null;
+  /** The admin's public key, text form. Null clears the saved one. */
+  publicKey?: string | null;
+  retentionDays?: number | null;
+  alertDays?: number | null;
+  mirrorThresholdBytes?: number | null;
+}
+
+/** Names a patch may never carry: the server takes no private key material. */
+const FORBIDDEN_FIELDS = ['passphrase', 'passphraseConfirm', 'privateKey', 'keyFile'];
+
+/**
+ * Check a patch before anything is written. Throws a plain sentence
+ * the page can show; never includes a secret value in the message.
+ */
+export function validateOffsitePatch(patch: OffsitePatch, policy: EndpointPolicy): void {
+  for (const f of FORBIDDEN_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(patch, f)) {
+      throw new OffsiteValidationError(
+        'The portal never takes the private key or its passphrase. Paste only the public key.',
+      );
+    }
   }
-  if (p.length > PASSPHRASE_MAX) {
-    throw new OffsiteValidationError(`The passphrase can be at most ${PASSPHRASE_MAX} characters.`);
+  const str = (v: string | null | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const e = str(patch.endpoint);
+  if (e) checks.endpoint(e, policy);
+  const b = str(patch.bucket);
+  if (b) checks.bucket(b);
+  const r = str(patch.region);
+  if (r) checks.region(r);
+  if (typeof patch.prefix === 'string') checks.prefix(patch.prefix);
+  const k = str(patch.accessKeyId);
+  if (k) checks.accessKeyId(k);
+  if (typeof patch.secretAccessKey === 'string' && patch.secretAccessKey.length > 0) {
+    checks.secretAccessKey(patch.secretAccessKey);
   }
-  if (hasControl(p)) {
-    throw new OffsiteValidationError(
-      'The passphrase cannot contain line breaks or other control characters.',
-    );
+  const pk = str(patch.publicKey);
+  if (pk) checks.publicKey(pk);
+  if (patch.retentionDays !== undefined && patch.retentionDays !== null) {
+    checks.int(LIMITS.retentionDays[0], patch.retentionDays, LIMITS.retentionDays[1], LIMITS.retentionDays[2]);
   }
-  if (p.trim() !== p) {
-    throw new OffsiteValidationError(
-      'The passphrase cannot start or end with a space; it is too easy to lose when you copy it.',
-    );
+  if (patch.alertDays !== undefined && patch.alertDays !== null) {
+    checks.int(LIMITS.alertDays[0], patch.alertDays, LIMITS.alertDays[1], LIMITS.alertDays[2]);
+  }
+  if (patch.mirrorThresholdBytes !== undefined && patch.mirrorThresholdBytes !== null) {
+    checks.mirrorThreshold(patch.mirrorThresholdBytes);
   }
 }
 

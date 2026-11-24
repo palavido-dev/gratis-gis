@@ -1,5 +1,6 @@
 -- Off-site backups, part two: the outcome of each run's off-site copy,
--- off-site notices, and "Test latest backup" results.
+-- the local index of mirrored files, off-site notices, and "Test
+-- latest backup" results.
 -- What happened to the off-site copy of each run.
 ALTER TABLE "backup_run"
   ADD COLUMN "offsite_status" TEXT,
@@ -7,10 +8,37 @@ ALTER TABLE "backup_run"
   ADD COLUMN "offsite_key" TEXT,
   ADD COLUMN "offsite_bytes" BIGINT,
   ADD COLUMN "offsite_sha256" TEXT,
+  ADD COLUMN "offsite_key_fingerprint" TEXT,
   ADD COLUMN "offsite_error" TEXT,
   ADD COLUMN "offsite_started_at" TIMESTAMPTZ(6),
   ADD COLUMN "offsite_finished_at" TIMESTAMPTZ(6),
   ADD COLUMN "offsite_heartbeat_at" TIMESTAMPTZ(6);
+
+-- At most one off-site upload at a time for the whole install, so two
+-- uploads (or an upload and the mirror clean-up) never overlap. Not
+-- expressible in schema.prisma; the drift check ignores partial
+-- indexes, as with backup_run_one_running_idx.
+CREATE UNIQUE INDEX "backup_run_one_offsite_running_idx"
+  ON "backup_run" ("offsite_status")
+  WHERE "offsite_status" = 'running';
+
+-- Mirror mode: what this server has uploaded, so it never needs to
+-- read back (or be able to decrypt) what is in the bucket. A missing
+-- row only means "upload it again".
+CREATE TABLE "backup_offsite_object" (
+    "target" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "key_fingerprint" TEXT NOT NULL,
+    "plain_bytes" BIGINT NOT NULL,
+    "sealed_bytes" BIGINT NOT NULL,
+    "content_type" TEXT,
+    "uploaded_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "last_run_at" TIMESTAMPTZ(6) NOT NULL,
+
+    CONSTRAINT "backup_offsite_object_pkey" PRIMARY KEY ("target","name")
+);
+
+CREATE INDEX "backup_offsite_object_target_last_run_at_idx" ON "backup_offsite_object"("target", "last_run_at");
 
 -- One notice per off-site failure or quiet period.
 CREATE TABLE "backup_offsite_notice" (

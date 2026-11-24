@@ -10,6 +10,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Optional,
   Param,
   Patch,
@@ -148,11 +149,9 @@ class UpdateOffsiteDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(512)
   secretAccessKey?: string | null;
 
-  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(1024)
-  passphrase?: string | null;
-
-  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(1024)
-  passphraseConfirm?: string | null;
+  /** The admin's public key (ggpub1:...). Never a private key. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(200)
+  publicKey?: string | null;
 
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(3650)
   retentionDays?: number | null;
@@ -162,6 +161,18 @@ class UpdateOffsiteDto {
 
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1)
   mirrorThresholdBytes?: number | null;
+}
+
+/** "Check my key": a public key or its fingerprint, pasted again. */
+class CheckOffsiteKeyDto {
+  @IsString() @MaxLength(200)
+  value!: string;
+}
+
+/** Start a backup test; confirmBytes when free space cannot be measured. */
+class StartRestoreTestDto {
+  @IsOptional() @IsInt() @Min(0)
+  confirmBytes?: number;
 }
 
 /** BigInt columns of a run as strings, for JSON. */
@@ -299,6 +310,16 @@ export class BackupController {
     return this.offsite().testConnection();
   }
 
+  /**
+   * Compare a pasted public key or fingerprint with the key off-site
+   * copies are encrypted to. The pasted text is not stored or logged.
+   */
+  @Post('offsite/check-key')
+  @HttpCode(200)
+  checkOffsiteKey(@Body() dto: CheckOffsiteKeyDto) {
+    return this.offsite().checkKey(dto.value);
+  }
+
   /** Upload one finished backup again. Answers once it has started. */
   @Post('runs/:id/offsite')
   async retryOffsite(@CurrentUser() user: AuthUser, @Param('id') id: string) {
@@ -311,10 +332,16 @@ export class BackupController {
   // Test latest backup (scratch restore)
   // ---------------------------------------------------------------
 
+  /** Database size and free space, so the page can warn before a test. */
+  @Get('restore-tests/preflight')
+  restoreTestPreflight() {
+    return this.restoreTest().preflight();
+  }
+
   /** Restore the newest archive's database into a scratch database. */
   @Post('restore-tests')
-  async startRestoreTest(@CurrentUser() user: AuthUser) {
-    const test = await this.restoreTest().start(user.id);
+  async startRestoreTest(@CurrentUser() user: AuthUser, @Body() dto: StartRestoreTestDto) {
+    const test = await this.restoreTest().start(user.id, dto.confirmBytes ?? null);
     this.note(user, 'backup.test', test.id, 'succeeded');
     return test;
   }

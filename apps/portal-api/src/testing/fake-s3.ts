@@ -143,6 +143,21 @@ export class FakeS3 {
       case 'ListObjectsV2Command': {
         const prefix = (input.Prefix as string) ?? '';
         const keys = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
+        if (input.Delimiter === '/') {
+          const prefixes = new Set<string>();
+          const direct: string[] = [];
+          for (const k of keys) {
+            const rest = k.slice(prefix.length);
+            const i = rest.indexOf('/');
+            if (i >= 0) prefixes.add(prefix + rest.slice(0, i + 1));
+            else direct.push(k);
+          }
+          return {
+            Contents: direct.map((k) => ({ Key: k, Size: this.objects.get(k)!.body.length })),
+            CommonPrefixes: [...prefixes].sort().map((p) => ({ Prefix: p })),
+            IsTruncated: false,
+          };
+        }
         return {
           Contents: keys.map((k) => ({
             Key: k,

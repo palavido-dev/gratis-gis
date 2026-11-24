@@ -116,10 +116,32 @@ export async function uploadStream(
   const partSize = args.partSize ?? partSizeFor(args.expectedBytes ?? null);
   const opts = args.signal ? { abortSignal: args.signal } : undefined;
 
+  // The body is pulled by hand below. Whatever happens, it is closed
+  // before this returns, so a file or socket behind it is released even
+  // when the store refuses the upload half way.
+  const iter = args.body[Symbol.asyncIterator]();
+  let drained = false;
+  try {
+    const result = await sendBody(s3, args, iter, partSize, opts, () => {
+      drained = true;
+    });
+    return result;
+  } finally {
+    if (!drained) await iter.return?.(undefined).catch(() => undefined);
+  }
+}
+
+async function sendBody(
+  s3: S3Like,
+  args: Parameters<typeof uploadStream>[1],
+  iter: AsyncIterator<Buffer>,
+  partSize: number,
+  opts: { abortSignal: AbortSignal } | undefined,
+  markDrained: () => void,
+): Promise<UploadResult> {
   // Read up to one part first. A body that ends inside it goes up as
   // one PUT with Content-MD5: one request instead of four, which is
   // what keeps mirror mode usable with many small files.
-  const iter = args.body[Symbol.asyncIterator]();
   const first: Buffer[] = [];
   let firstLen = 0;
   let ended = false;
@@ -127,6 +149,7 @@ export async function uploadStream(
     const next = await iter.next();
     if (next.done) {
       ended = true;
+      markDrained();
       break;
     }
     first.push(next.value);
@@ -163,7 +186,10 @@ export async function uploadStream(
     yield* first;
     for (;;) {
       const next = await iter.next();
-      if (next.done) return;
+      if (next.done) {
+        markDrained();
+        return;
+      }
       yield next.value;
     }
   }
@@ -342,6 +368,31 @@ export async function* listObjects(
         etag: o.ETag ?? null,
       };
     }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+}
+
+/** The "folders" directly under `prefix`, each ending in "/". */
+export async function* listPrefixes(
+  s3: S3Like,
+  bucket: string,
+  prefix: string,
+): AsyncGenerator<string> {
+  let token: string | undefined;
+  do {
+    const page = (await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        Delimiter: '/',
+        ...(token ? { ContinuationToken: token } : {}),
+      }),
+    )) as {
+      CommonPrefixes?: Array<{ Prefix?: string }>;
+      IsTruncated?: boolean;
+      NextContinuationToken?: string;
+    };
+    for (const p of page.CommonPrefixes ?? []) if (p.Prefix) yield p.Prefix;
     token = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (token);
 }

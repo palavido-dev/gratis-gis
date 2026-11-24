@@ -5,14 +5,19 @@
  * inside the portal-api image:
  *
  *   node dist/backup/offsite-cli.js list
- *   node dist/backup/offsite-cli.js fetch --passphrase-stdin --out DIR [--name ARCHIVE]
+ *   node dist/backup/offsite-cli.js check-key --key-file F --passphrase-stdin
+ *   node dist/backup/offsite-cli.js fetch --key-file F --passphrase-stdin --out DIR [--name ARCHIVE]
+ *   node dist/backup/offsite-cli.js fetch-mirror --key-file F --passphrase-stdin --out DIR [--run RUN]
  *   node dist/backup/offsite-cli.js put-objects --archive FILE
+ *   node dist/backup/offsite-cli.js put-mirror-objects --key-file F --passphrase-stdin [--run RUN]
  *   node dist/backup/offsite-cli.js count-objects
  *
  * Bucket settings come from the BACKUP_OFFSITE_* variables; the local
- * object store from MINIO_*. The passphrase is read from standard
- * input, never from an argument. Results are printed as key=value
- * lines on stdout for the script; progress goes to stderr.
+ * object store from MINIO_*. The private key file is the admin's
+ * sealed key file (infra/recovery/offsite-key.mjs); its passphrase is
+ * read from standard input, never from an argument, with one trailing
+ * line break dropped and Unicode NFC applied. Results are printed as
+ * key=value lines on stdout for the script; progress goes to stderr.
  */
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -23,8 +28,14 @@ import { pipeline } from 'node:stream/promises';
 
 import { ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-import { resolveOffsiteSettings, type OffsiteRow, type OffsiteSettings } from './offsite-config.js';
-import { SealKeyCache, unsealStream } from './offsite-crypto.js';
+import {
+  OFFSITE_ENV,
+  resolveOffsiteSettings,
+  type OffsiteRow,
+  type OffsiteSettings,
+} from './offsite-config.js';
+import { openKeyFile, unsealStream, type OffsitePrivateKey } from './offsite-crypto.js';
+import { endpointPolicy } from './offsite-endpoint.js';
 import { archiveArtifacts, OFFSITE_LAYOUT } from './offsite-rules.js';
 import {
   createOffsiteClient,
@@ -32,6 +43,7 @@ import {
   getObjectStream,
   getSmall,
   listObjects,
+  listPrefixes,
   type S3Like,
 } from './offsite-store.js';
 import { extractTarGz, readTarEntry } from './tar-cli.js';
@@ -50,6 +62,8 @@ const EMPTY_ROW: OffsiteRow = {
   offsitePrefix: null,
   offsitePathStyle: null,
   offsiteAccessKeyId: null,
+  offsitePublicKey: null,
+  offsiteInstallId: null,
   offsiteRetentionDays: null,
   offsiteAlertDays: null,
   offsiteMirrorThresholdBytes: null,
@@ -60,6 +74,7 @@ export interface CliIo {
   err: (line: string) => void;
   stdin: () => Promise<string>;
   env: (name: string) => string | undefined;
+  readFile: (p: string) => Promise<Buffer>;
   offsite: (s: OffsiteSettings) => S3Like;
   local: () => { s3: S3Like; bucket: string };
 }
@@ -79,25 +94,64 @@ function arg(args: string[], name: string): string | null {
   return v;
 }
 
-async function settingsFrom(io: CliIo, needPassphrase: boolean): Promise<OffsiteSettings> {
-  let passphrase: string | null = null;
-  if (needPassphrase) {
-    passphrase = (await io.stdin()).replace(/\r?\n$/, '');
-    if (passphrase.length === 0) throw new Error('No passphrase on standard input.');
-  }
-  const s = resolveOffsiteSettings(
-    EMPTY_ROW,
-    { secretFromDb: null, passphraseFromDb: passphrase },
-    io.env,
-  );
+/** Bucket settings from the environment, the folder found when unset. */
+async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
+  const s = resolveOffsiteSettings(EMPTY_ROW, { secretFromDb: null }, io.env, endpointPolicy(io.env));
   const missing = [
-    !s.endpoint && 'BACKUP_OFFSITE_ENDPOINT',
-    !s.bucket && 'BACKUP_OFFSITE_BUCKET',
-    !s.accessKeyId && 'BACKUP_OFFSITE_ACCESS_KEY_ID',
-    !s.secretAccessKey && 'BACKUP_OFFSITE_SECRET_ACCESS_KEY',
+    !s.endpoint && OFFSITE_ENV.endpoint,
+    !s.bucket && OFFSITE_ENV.bucket,
+    !s.accessKeyId && OFFSITE_ENV.accessKeyId,
+    !s.secretAccessKey && OFFSITE_ENV.secretAccessKey,
   ].filter(Boolean);
-  if (missing.length > 0) throw new Error(`Set these in the env file: ${missing.join(', ')}.`);
+  if (missing.length > 0) {
+    throw new Error(
+      [`Set these in the env file: ${missing.join(', ')}.`, ...s.problems].join(' '),
+    );
+  }
+  if (!io.env(OFFSITE_ENV.prefix)?.trim()) {
+    // The default folder carries the portal's install id, which a new
+    // server does not know. Find folders that hold a portal marker.
+    const s3 = io.offsite(s);
+    const found: string[] = [];
+    for await (const p of listPrefixes(s3, s.bucket!, '')) {
+      try {
+        await getSmall(s3, s.bucket!, `${p}${OFFSITE_LAYOUT.installMarker}`);
+        found.push(p);
+      } catch {
+        // Not a portal folder.
+      }
+    }
+    if (found.length === 1) {
+      s.prefix = found[0]!;
+      io.err(`Using the folder ${s.prefix} (set ${OFFSITE_ENV.prefix} to choose another).`);
+    } else if (found.length > 1) {
+      throw new Error(
+        `The bucket has several portal folders (${found.join(', ')}). Set ${OFFSITE_ENV.prefix} to the one to restore.`,
+      );
+    }
+  }
   return s;
+}
+
+/**
+ * The admin's private key: the sealed key file named by --key-file,
+ * opened with the passphrase on standard input.
+ */
+async function privateKeyFrom(io: CliIo, args: string[]): Promise<OffsitePrivateKey> {
+  const file = arg(args, '--key-file');
+  if (!file) throw new Error('--key-file is required.');
+  if (!args.includes('--passphrase-stdin')) {
+    throw new Error('Give the key file passphrase on standard input with --passphrase-stdin.');
+  }
+  const pass = await io.stdin();
+  if (pass.replace(/\r?\n$/, '').length === 0) throw new Error('No passphrase on standard input.');
+  let bytes: Buffer;
+  try {
+    bytes = await io.readFile(file);
+  } catch {
+    throw new Error('The key file could not be read.');
+  }
+  return openKeyFile(bytes, pass);
 }
 
 /** Complete off-site archives, newest first. */
@@ -111,8 +165,9 @@ async function completeArchives(s3: S3Like, s: OffsiteSettings) {
 }
 
 async function cmdList(io: CliIo) {
-  const s = await settingsFrom(io, false);
+  const s = await settingsFrom(io);
   const s3 = io.offsite(s);
+  result(io, 'prefix', s.prefix);
   const archives = await completeArchives(s3, s);
   for (const a of archives) {
     io.err(
@@ -132,13 +187,19 @@ async function cmdList(io: CliIo) {
   if (!newest && !newestMirror) io.err('No complete off-site copy was found under this prefix.');
 }
 
+async function cmdCheckKey(io: CliIo, args: string[]) {
+  const key = await privateKeyFrom(io, args);
+  result(io, 'fingerprint', key.publicKey.fingerprintText);
+}
+
 async function cmdFetch(io: CliIo, args: string[]) {
   const outDir = arg(args, '--out');
   if (!outDir) throw new Error('--out is required.');
   const wanted = arg(args, '--name');
   if (wanted !== null && !ARCHIVE_NAME.test(wanted))
     throw new Error('--name must be an archive name such as backup-...tar.gz');
-  const s = await settingsFrom(io, true);
+  const key = await privateKeyFrom(io, args);
+  const s = await settingsFrom(io);
   const s3 = io.offsite(s);
   const archives = (await completeArchives(s3, s)).filter((a) => a.complete);
   const pick = wanted ? archives.find((a) => a.id === `${wanted}.enc`) : archives[0];
@@ -150,21 +211,31 @@ async function cmdFetch(io: CliIo, args: string[]) {
     );
   }
   const name = pick.id.replace(/\.enc$/, '');
-  const key = `${s.prefix}${OFFSITE_LAYOUT.archives}${pick.id}`;
-  const sidecar = JSON.parse((await getSmall(s3, s.bucket!, `${key}.json`)).toString('utf8')) as {
+  const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${pick.id}`;
+  const sidecar = JSON.parse(
+    (await getSmall(s3, s.bucket!, `${objectKey}.json`)).toString('utf8'),
+  ) as {
     plainBytes?: number;
     sealedBytes?: number;
     sealedSha256?: string;
+    keyFingerprint?: string;
   };
+  if (sidecar.keyFingerprint && sidecar.keyFingerprint !== key.publicKey.fingerprintText) {
+    throw new Error(
+      `This copy was encrypted for the key with fingerprint ${sidecar.keyFingerprint}; the key file given is ${key.publicKey.fingerprintText}. Use the key that was in effect when the copy was made.`,
+    );
+  }
 
   await fs.mkdir(outDir, { recursive: true, mode: 0o700 });
   await assertFree(outDir, Number(sidecar.plainBytes ?? 0));
   const finalPath = path.join(outDir, name);
   const partial = path.join(outDir, `.partial-${name}`);
+  // A run stopped half way leaves this behind; never fail on it.
+  await fs.rm(partial, { force: true });
   io.err(`Downloading and decrypting ${name}...`);
   const hash = createHash('sha256');
   let sealed = 0;
-  const body = await getObjectStream(s3, s.bucket!, key);
+  const body = await getObjectStream(s3, s.bucket!, objectKey);
   async function* tap(): AsyncGenerator<Buffer> {
     for await (const c of body) {
       const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
@@ -175,7 +246,7 @@ async function cmdFetch(io: CliIo, args: string[]) {
   }
   try {
     await pipeline(
-      Readable.from(unsealStream(tap(), s.passphrase!, new SealKeyCache(1))),
+      Readable.from(unsealStream(tap(), key)),
       createWriteStream(partial, { flags: 'wx', mode: 0o600 }),
     );
     const digest = hash.digest('hex');
@@ -269,16 +340,22 @@ async function cmdPutObjects(io: CliIo, args: string[]) {
           await walk(full);
         } else if (e.isFile()) {
           const key = path.relative(root, full).split(path.sep).join('/');
-          const st = await fs.stat(full);
-          await s3.send(
-            new PutObjectCommand({
-              Bucket: bucket,
-              Key: key,
-              Body: createReadStream(full),
-              ContentLength: st.size,
-              ContentType: types[key] ?? 'application/octet-stream',
-            }),
-          );
+          // Size from the open file, not a separate stat of the path.
+          const fh = await fs.open(full, 'r');
+          try {
+            const st = await fh.stat();
+            await s3.send(
+              new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: fh.createReadStream({ autoClose: false }),
+                ContentLength: st.size,
+                ContentType: types[key] ?? 'application/octet-stream',
+              }),
+            );
+          } finally {
+            await fh.close();
+          }
           count += 1;
           if (count % 500 === 0) io.err(`  ${count} files put back...`);
         }
@@ -312,24 +389,31 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
       case 'list':
         await cmdList(io);
         return 0;
+      case 'check-key':
+        await cmdCheckKey(io, args);
+        return 0;
       case 'fetch':
         await cmdFetch(io, args);
         return 0;
-      case 'fetch-mirror':
-        await new OffsiteMirror(null, null).cliFetch(io, args, await settingsFrom(io, true));
+      case 'fetch-mirror': {
+        const key = await privateKeyFrom(io, args);
+        await new OffsiteMirror(null, null).cliFetch(io, args, await settingsFrom(io), key);
         return 0;
+      }
       case 'put-objects':
         await cmdPutObjects(io, args);
         return 0;
-      case 'put-mirror-objects':
-        await new OffsiteMirror(null, null).cliPutObjects(io, args, await settingsFrom(io, true));
+      case 'put-mirror-objects': {
+        const key = await privateKeyFrom(io, args);
+        await new OffsiteMirror(null, null).cliPutObjects(io, args, await settingsFrom(io), key);
         return 0;
+      }
       case 'count-objects':
         await cmdCountObjects(io);
         return 0;
       default:
         io.err(
-          'usage: offsite-cli.js list | fetch | fetch-mirror | put-objects | put-mirror-objects | count-objects',
+          'usage: offsite-cli.js list | check-key | fetch | fetch-mirror | put-objects | put-mirror-objects | count-objects',
         );
         return 2;
     }
@@ -372,6 +456,7 @@ if (require.main === module) {
     err: (l) => process.stderr.write(`${l}\n`),
     stdin: readStdin,
     env: (n) => process.env[n],
+    readFile: (p) => fs.readFile(p),
     offsite: createOffsiteClient,
     local: minio,
   }).then((code) => {

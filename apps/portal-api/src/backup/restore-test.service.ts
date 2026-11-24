@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
@@ -45,20 +46,83 @@ export function judgeSanity(c: SanityCounts): string | null {
   return null;
 }
 
-/** The scratch database URL: the portal's, with another database name. */
-export function scratchUrl(databaseUrl: string, dbName: string): string {
-  if (!SCRATCH_RE.test(dbName)) throw new Error('Refusing an unexpected scratch database name.');
+const LIBPQ_PARAMS: Record<string, string> = {
+  sslmode: 'PGSSLMODE',
+  sslrootcert: 'PGSSLROOTCERT',
+  sslcert: 'PGSSLCERT',
+  sslkey: 'PGSSLKEY',
+  connect_timeout: 'PGCONNECT_TIMEOUT',
+  host: 'PGHOST',
+};
+
+/**
+ * libpq environment for the portal's database URL. The client tools
+ * read the password from PGPASSWORD, so it never appears in a command
+ * line (where other users of the host can see it).
+ */
+export function pgEnvFromUrl(databaseUrl: string): Record<string, string> {
   const u = new URL(databaseUrl);
-  u.pathname = `/${dbName}`;
-  // libpq rejects Prisma's own parameters (schema, connection_limit).
-  const keep = new URLSearchParams();
-  for (const k of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'connect_timeout']) {
-    const v = u.searchParams.get(k);
-    if (v !== null) keep.set(k, v);
+  const env: Record<string, string> = {};
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (host) env.PGHOST = host;
+  if (u.port) env.PGPORT = u.port;
+  if (u.username) env.PGUSER = decodeURIComponent(u.username);
+  if (u.password) env.PGPASSWORD = decodeURIComponent(u.password);
+  for (const [param, name] of Object.entries(LIBPQ_PARAMS)) {
+    const v = u.searchParams.get(param);
+    if (v !== null) env[name] = v;
   }
-  u.search = keep.toString() ? `?${keep.toString()}` : '';
-  return u.toString();
+  return env;
 }
+
+/** The database name in the portal's URL. */
+export function databaseName(databaseUrl: string): string {
+  const name = decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\//, ''));
+  if (!/^[A-Za-z0-9_.-]{1,63}$/.test(name)) throw new Error('DATABASE_URL names an unexpected database.');
+  return name;
+}
+
+/** Room the scratch copy may take: the live size plus a margin. */
+export function spaceNeeded(databaseBytes: number): number {
+  return Math.ceil(databaseBytes * 1.25) + 256 * 1024 * 1024;
+}
+
+export interface RestoreTestPreflight {
+  databaseBytes: number;
+  neededBytes: number;
+  /** Free space where the database keeps its files, null when it cannot be measured. */
+  freeBytes: number | null;
+}
+
+/** Variables a child process may inherit besides the libpq ones. */
+const CHILD_ENV_KEEP = [
+  'PATH',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'TZ',
+  'DOCKER_HOST',
+  'DOCKER_CONFIG',
+  'DOCKER_CONTEXT',
+  'DOCKER_CERT_PATH',
+  'DOCKER_TLS_VERIFY',
+];
+
+/** A minimal environment for a child: nothing of the portal's secrets. */
+export function childEnv(extra: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const k of CHILD_ENV_KEEP) {
+    const v = process.env[k];
+    if (v !== undefined) env[k] = v;
+  }
+  return { ...env, ...extra };
+}
+
+export type CommandRunner = (
+  bin: string,
+  args: string[],
+  opts?: { stdin?: NodeJS.ReadableStream; env?: Record<string, string> },
+) => Promise<string>;
 
 /**
  * "Test latest backup": restore the database dump of the newest
@@ -76,8 +140,7 @@ export function scratchUrl(databaseUrl: string, dbName: string): string {
 export class RestoreTestService {
   private readonly log = new Logger(RestoreTestService.name);
   /** Tests replace this to observe the commands without running them. */
-  runner: (bin: string, args: string[], stdin?: NodeJS.ReadableStream) => Promise<string> =
-    runCommand;
+  runner: CommandRunner = runCommand;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -97,7 +160,7 @@ export class RestoreTestService {
    * Start a test of the newest archive on disk. Answers with the new
    * row at once; the page polls for the result.
    */
-  async start(startedBy: string | null) {
+  async start(startedBy: string | null, confirmedBytes: number | null = null) {
     if (this.maintenance?.isActive()) {
       throw new ConflictException(
         'The portal is in maintenance mode. Test a backup after it ends.',
@@ -119,6 +182,7 @@ export class RestoreTestService {
     );
     if (!run) throw new NotFoundException('There is no finished backup on this server to test.');
     const archive = await this.backup.resolveArchivePath(run.id);
+    await this.checkSpace(confirmedBytes);
     const row = await this.prisma.backupRestoreTest.create({
       data: { runId: run.id, filename: archive.filename, ...(startedBy ? { startedBy } : {}) },
     });
@@ -155,7 +219,8 @@ export class RestoreTestService {
       if (!/^[A-Za-z0-9_.-]{1,63}$/.test(db))
         throw new Error('The archive names an unexpected database.');
 
-      await this.pg('createdb', ['--maintenance-db', adminUrl(dbUrl), dbName]);
+      const env = pgEnvFromUrl(dbUrl);
+      await this.pg('createdb', ['--maintenance-db', 'postgres', dbName], { env });
       created = true;
 
       // Stream the dump straight from the archive into pg_restore.
@@ -163,8 +228,8 @@ export class RestoreTestService {
       try {
         await this.pg(
           'pg_restore',
-          ['--no-owner', '--no-privileges', '--exit-on-error', '-d', scratchUrl(dbUrl, dbName)],
-          tar.stream,
+          ['--no-owner', '--no-privileges', '--exit-on-error', '-d', dbName],
+          { stdin: tar.stream, env },
         );
       } catch (e) {
         // tar's own error (a cut-short archive) says more than
@@ -185,17 +250,11 @@ export class RestoreTestService {
 
       const counts: Record<string, number> = {};
       for (const [name, sql] of Object.entries(SANITY_QUERIES)) {
-        const out = await this.pg('psql', [
-          '-X',
-          '-A',
-          '-t',
-          '-v',
-          'ON_ERROR_STOP=1',
-          '-d',
-          scratchUrl(dbUrl, dbName),
-          '-c',
-          sql,
-        ]);
+        const out = await this.pg(
+          'psql',
+          ['-X', '-A', '-t', '-v', 'ON_ERROR_STOP=1', '-d', dbName, '-c', sql],
+          { env },
+        );
         const n = Number(out.trim());
         if (!Number.isFinite(n))
           throw new Error(`Could not read the ${name} count from the restored copy.`);
@@ -210,13 +269,11 @@ export class RestoreTestService {
       );
     } finally {
       if (created) {
-        await this.pg('dropdb', [
-          '--if-exists',
-          '--force',
-          '--maintenance-db',
-          adminUrl(dbUrl),
-          dbName,
-        ]).catch((e: unknown) => {
+        await this.pg(
+          'dropdb',
+          ['--if-exists', '--force', '--maintenance-db', 'postgres', dbName],
+          { env: pgEnvFromUrl(dbUrl) },
+        ).catch((e: unknown) => {
           const msg = `The scratch database ${dbName} could not be dropped; drop it by hand. ${e instanceof Error ? e.message : ''}`;
           this.log.error(msg.replace(/postgres(ql)?:\/\/[^\s'"]+/g, '[database url]'));
           error = error ? `${error} ${msg}` : msg;
@@ -241,63 +298,178 @@ export class RestoreTestService {
 
   /** Drop scratch databases a crashed test left behind. */
   private async dropLeftovers(dbUrl: string) {
-    const out = await this.pg('psql', [
-      '-X',
-      '-A',
-      '-t',
-      '-v',
-      'ON_ERROR_STOP=1',
-      '-d',
-      adminUrl(dbUrl),
-      '-c',
-      `SELECT datname FROM pg_database WHERE datname LIKE '${SCRATCH_PREFIX}%'`,
-    ]);
+    const env = pgEnvFromUrl(dbUrl);
+    const out = await this.pg(
+      'psql',
+      [
+        '-X',
+        '-A',
+        '-t',
+        '-v',
+        'ON_ERROR_STOP=1',
+        '-d',
+        'postgres',
+        '-c',
+        `SELECT datname FROM pg_database WHERE datname LIKE '${SCRATCH_PREFIX}%'`,
+      ],
+      { env },
+    );
     for (const name of out
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => SCRATCH_RE.test(l))) {
-      await this.pg('dropdb', [
-        '--if-exists',
-        '--force',
-        '--maintenance-db',
-        adminUrl(dbUrl),
-        name,
-      ]);
+      await this.pg('dropdb', ['--if-exists', '--force', '--maintenance-db', 'postgres', name], {
+        env,
+      });
       this.log.warn(`Dropped a scratch database left by an earlier backup test: ${name}`);
+    }
+  }
+
+  /**
+   * How big the portal's database is, how much room a scratch copy
+   * needs, and how much is free where the database keeps its files.
+   * Free space can be measured when the tools run in the database
+   * container (BACKUP_PGDUMP_DOCKER_CONTAINER) or when
+   * BACKUP_PG_DATA_DIR names the data directory on this host;
+   * otherwise it is null and the admin confirms the size instead.
+   */
+  async preflight(): Promise<RestoreTestPreflight> {
+    const dbUrl = this.cfg.get<string>('DATABASE_URL', '');
+    if (!dbUrl) throw new ConflictException('DATABASE_URL is not set.');
+    let databaseBytes: number;
+    try {
+      const out = await this.pg(
+        'psql',
+        [
+          '-X',
+          '-A',
+          '-t',
+          '-v',
+          'ON_ERROR_STOP=1',
+          '-d',
+          databaseName(dbUrl),
+          '-c',
+          'SELECT pg_database_size(current_database())',
+        ],
+        { env: pgEnvFromUrl(dbUrl) },
+      );
+      databaseBytes = Number(out.trim());
+      if (!Number.isFinite(databaseBytes) || databaseBytes < 0) throw new Error('unreadable size');
+    } catch (e) {
+      throw new ConflictException(
+        `Could not read the size of the database: ${scrub(e instanceof Error ? e.message : String(e))}`,
+      );
+    }
+    return {
+      databaseBytes,
+      neededBytes: spaceNeeded(databaseBytes),
+      freeBytes: await this.freeSpace(),
+    };
+  }
+
+  private async freeSpace(): Promise<number | null> {
+    const container = this.cfg.get<string>('BACKUP_PGDUMP_DOCKER_CONTAINER', '');
+    const dataDir = this.cfg.get<string>('BACKUP_PG_DATA_DIR', '');
+    try {
+      if (container) {
+        const out = await this.runner(
+          'docker',
+          ['exec', container, 'df', '-Pk', dataDir || '/var/lib/postgresql/data'],
+          { env: childEnv({}) },
+        );
+        return parseDfAvailable(out);
+      }
+      if (dataDir) {
+        const st = await fs.statfs(dataDir);
+        return Number(st.bavail) * Number(st.bsize);
+      }
+    } catch (e) {
+      this.log.warn(`Could not measure free database space: ${scrub(e instanceof Error ? e.message : String(e))}`);
+    }
+    return null;
+  }
+
+  /**
+   * Refuse a test that would fill the database volume, or, when free
+   * space cannot be measured, one the admin has not confirmed for this
+   * size.
+   */
+  private async checkSpace(confirmedBytes: number | null) {
+    const p = await this.preflight();
+    if (p.freeBytes !== null) {
+      if (p.neededBytes > p.freeBytes) {
+        throw new ConflictException(
+          `Not enough free space for the test: it needs about ${gb(p.neededBytes)} and the database volume has ${gb(p.freeBytes)} free.`,
+        );
+      }
+      return;
+    }
+    if (confirmedBytes === null || confirmedBytes < p.databaseBytes) {
+      throw new ConflictException({
+        message: `Free space in the database volume cannot be measured here. The test makes a second copy of the database, about ${gb(p.databaseBytes)}, while it runs. Confirm there is room for about ${gb(p.neededBytes)}.`,
+        needsConfirmation: true,
+        databaseBytes: p.databaseBytes,
+        neededBytes: p.neededBytes,
+      });
     }
   }
 
   /**
    * Run a PostgreSQL client tool on the host, or inside the database
    * container when BACKUP_PGDUMP_DOCKER_CONTAINER is set (the same
-   * switch pg_dump uses).
+   * switch pg_dump uses). Connection details go in the environment,
+   * never in the arguments; in the container, `docker exec -e NAME`
+   * passes each one through by name.
    */
-  private pg(bin: string, args: string[], stdin?: NodeJS.ReadableStream): Promise<string> {
+  private pg(
+    bin: string,
+    args: string[],
+    opts: { stdin?: NodeJS.ReadableStream; env: Record<string, string> },
+  ): Promise<string> {
     const container = this.cfg.get<string>('BACKUP_PGDUMP_DOCKER_CONTAINER', '');
+    const env = childEnv(opts.env);
     if (container) {
-      return this.runner('docker', ['exec', '-i', container, bin, ...args], stdin);
+      const pass = Object.keys(opts.env).flatMap((k) => ['-e', k]);
+      return this.runner('docker', ['exec', '-i', ...pass, container, bin, ...args], {
+        ...(opts.stdin ? { stdin: opts.stdin } : {}),
+        env,
+      });
     }
-    return this.runner(bin, args, stdin);
+    return this.runner(bin, args, { ...(opts.stdin ? { stdin: opts.stdin } : {}), env });
   }
 }
 
-/** The portal's URL pointed at the `postgres` maintenance database. */
-export function adminUrl(databaseUrl: string): string {
-  const u = new URL(databaseUrl);
-  u.pathname = '/postgres';
-  const keep = new URLSearchParams();
-  for (const k of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'connect_timeout']) {
-    const v = u.searchParams.get(k);
-    if (v !== null) keep.set(k, v);
-  }
-  u.search = keep.toString() ? `?${keep.toString()}` : '';
-  return u.toString();
+function gb(bytes: number): string {
+  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.ceil(bytes / 1024 ** 2)} MB`;
 }
 
-/** Spawn, feed stdin if given, collect stdout, reject on a non-zero exit. */
-function runCommand(bin: string, args: string[], stdin?: NodeJS.ReadableStream): Promise<string> {
+function scrub(text: string): string {
+  return text.replace(/postgres(ql)?:\/\/[^\s'"]+/g, '[database url]');
+}
+
+/** The "Available" column of `df -Pk`, in bytes. */
+export function parseDfAvailable(out: string): number | null {
+  const line = out.trim().split('\n').at(-1) ?? '';
+  const cols = line.trim().split(/\s+/);
+  const kb = Number(cols[3]);
+  return Number.isFinite(kb) && cols.length >= 4 ? kb * 1024 : null;
+}
+
+/**
+ * Spawn, feed stdin if given, collect stdout, reject on a non-zero
+ * exit. The child gets only the environment it is handed.
+ */
+function runCommand(
+  bin: string,
+  args: string[],
+  opts: { stdin?: NodeJS.ReadableStream; env?: Record<string, string> } = {},
+): Promise<string> {
+  const stdin = opts.stdin;
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
+    const child = spawn(bin, args, {
+      stdio: [stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      env: opts.env ?? childEnv({}),
+    });
     const out: Buffer[] = [];
     let err = '';
     child.stdout!.on('data', (c: Buffer) => {

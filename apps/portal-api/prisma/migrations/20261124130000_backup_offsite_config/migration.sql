@@ -1,6 +1,9 @@
 -- Off-site backups. The settings live on the backup_config singleton,
 -- each column nullable so an unset one falls back to its environment
--- variable. Secrets are stored encrypted by the API, never in clear.
+-- variable. The bucket secret and the mirror naming key are stored
+-- encrypted by the API, never in clear. Off-site files are encrypted
+-- to the admin's public key; the matching private key is never on the
+-- server.
 ALTER TABLE "backup_config"
   ADD COLUMN "offsite_enabled" BOOLEAN,
   ADD COLUMN "offsite_endpoint" TEXT,
@@ -11,8 +14,10 @@ ALTER TABLE "backup_config"
   ADD COLUMN "offsite_access_key_id" TEXT,
   ADD COLUMN "offsite_secret_encrypted" TEXT,
   ADD COLUMN "offsite_secret_iv" TEXT,
-  ADD COLUMN "offsite_passphrase_encrypted" TEXT,
-  ADD COLUMN "offsite_passphrase_iv" TEXT,
+  ADD COLUMN "offsite_public_key" TEXT,
+  ADD COLUMN "offsite_install_id" TEXT,
+  ADD COLUMN "offsite_name_key_encrypted" TEXT,
+  ADD COLUMN "offsite_name_key_iv" TEXT,
   ADD COLUMN "offsite_retention_days" INTEGER,
   ADD COLUMN "offsite_alert_days" INTEGER,
   ADD COLUMN "offsite_mirror_threshold_bytes" BIGINT;

@@ -108,6 +108,8 @@ export const OFFSITE_LAYOUT = {
   sidecar: '.enc.json',
   /** Written last in a mirror run folder. */
   doneMarker: 'done.json',
+  /** Names the portal that owns the folder. Plain JSON, no secrets. */
+  installMarker: 'gratisgis-install.json',
 } as const;
 
 const STAMP_RE = /(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})(?:-(\d{3}))?/;
