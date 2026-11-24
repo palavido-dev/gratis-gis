@@ -120,9 +120,13 @@ export function profileUnitSystem(): UnitSystem {
  */
 export function initialUnits(args: {
   system: UnitSystem;
-  author?: Partial<ScreenUnits>;
+  author?: { areaUnit?: AreaUnit | undefined; lengthUnit?: DistanceUnit | undefined };
 }): ScreenUnits {
-  const base = { ...UNIT_DEFAULTS[args.system], ...stripUndefined(args.author ?? {}) };
+  const fallback = UNIT_DEFAULTS[args.system];
+  const base: ScreenUnits = {
+    areaUnit: args.author?.areaUnit ?? fallback.areaUnit,
+    lengthUnit: args.author?.lengthUnit ?? fallback.lengthUnit,
+  };
   try {
     const raw = window.localStorage.getItem(STORED_UNITS_KEY);
     if (!raw) return base;
@@ -146,10 +150,6 @@ export function rememberUnits(units: ScreenUnits): void {
   } catch {
     /* private mode: the choice lasts for this visit only */
   }
-}
-
-function stripUndefined<T extends object>(o: T): Partial<T> {
-  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
 }
 
 const METERS_PER: Record<DistanceUnit, number> = {
