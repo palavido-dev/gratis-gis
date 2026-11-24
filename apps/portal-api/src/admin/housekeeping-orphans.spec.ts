@@ -9,6 +9,7 @@ import type { DataLayerTablesService } from '../data-layer/tables.service.js';
 import type { DataLayerSearchIndexService } from '../data-layer/search-index.service.js';
 import type { CredentialService } from '../items/credential.service.js';
 import type { StorageService } from '../storage/storage.service.js';
+import { storageKey, suffixesOf, type ObjectKind } from '../storage/object-keys.js';
 
 /**
  * Orphaned-upload sweep behavior pins.
@@ -254,5 +255,16 @@ describe('STORAGE_KEY_REF_PATTERN', () => {
   it('adds no suffix to the other prefixes', () => {
     const json = JSON.stringify({ a: `item-file/${uuid}.png`, b: `feature-attachment/${uuid}` });
     expect(scan(json)).toEqual([`item-file/${uuid}`, `feature-attachment/${uuid}`]);
+  });
+
+  it('captures every key a swept kind can be given, whole, with each suffix that kind allows', () => {
+    const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const swept: ObjectKind[] = ['feature-attachment', 'item-file', 'item-tile-layer', 'item-point-cloud', 'map-icon'];
+    for (const kind of swept) {
+      for (const suffix of suffixesOf(kind)) {
+        const key = storageKey(kind, org, suffix);
+        expect({ key, found: scan(JSON.stringify({ k: key })) }).toEqual({ key, found: [key] });
+      }
+    }
   });
 });
