@@ -29,7 +29,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   point, searching an address or picking shapes such as parcels, add a
   distance, and see what every visible layer has inside it: counts,
   acres or length inside the area, share of the area, and a breakdown
-  by any category. Exports a spreadsheet (#796).
+  by any category. Units follow the profile's metric or imperial
+  setting and each user's last choice. Exports a spreadsheet. Also an
+  app widget, where authors can set the starting units (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 
