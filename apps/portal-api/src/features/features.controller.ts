@@ -12,7 +12,9 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
+import { LegacyFeatureTablesGuard } from './legacy-feature-tables.js';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsArray,
@@ -86,6 +88,8 @@ class UpdateFeatureDto {
  */
 @ApiTags('features')
 @ApiBearerAuth()
+// Per-item feature tables: 404 when the install serves many orgs.
+@UseGuards(LegacyFeatureTablesGuard)
 @Controller('items/:id/features')
 export class FeaturesController {
   constructor(

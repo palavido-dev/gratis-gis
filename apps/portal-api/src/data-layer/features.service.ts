@@ -1776,6 +1776,8 @@ export class DataLayerFeaturesService {
    */
   async calculateField(args: {
     itemId: string;
+    /** The org that owns the item; its time zone is used for today(). */
+    orgId: string;
     layerId: string;
     expression: string;
     outputName: string;
@@ -1890,7 +1892,7 @@ export class DataLayerFeaturesService {
       fields: schemaRefs,
       allowUnknownFields: layerFields.length === 0,
     };
-    const timeZone = await expressionTimeZone(this.prisma);
+    const timeZone = await expressionTimeZone(this.prisma, args.orgId);
     // An expression that reads other rows (related tables, other
     // layers, nearby features) runs in SQL, where those rows are; the
     // values are computed up front for every affected row and the

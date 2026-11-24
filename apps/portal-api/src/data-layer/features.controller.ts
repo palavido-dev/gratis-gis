@@ -2027,7 +2027,7 @@ export class DataLayerFeaturesController {
     @Param('layerId') layerId: string,
     @Body() body: CalculateFieldDto,
   ) {
-    const { scope, isTable } = await this.assertV3Layer(
+    const { scope, isTable, item } = await this.assertV3Layer(
       user,
       itemId,
       layerId,
@@ -2035,6 +2035,7 @@ export class DataLayerFeaturesController {
     );
     return this.v3.calculateField({
       itemId,
+      orgId: item.orgId,
       layerId,
       expression: body.expression,
       outputName: body.outputName,

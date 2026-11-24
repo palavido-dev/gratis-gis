@@ -156,6 +156,8 @@ import {
 } from '../data-layer/tables.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
+import { assertCurrentDataLayerVersion } from '../features/legacy-feature-tables.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import {
@@ -1753,6 +1755,9 @@ export class ItemsService {
     if (input.access !== undefined && input.access !== 'private') {
       assertCanShare(user);
     }
+    // An install that serves many orgs keeps every data layer in the
+    // shared observation table (version 3), never in a per-item table.
+    assertCurrentDataLayerVersion(input.type, input.data);
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
@@ -1775,6 +1780,7 @@ export class ItemsService {
       resolvedData = (await this.enrichDerivedLayerData(
         user,
         input.data,
+        user.orgId,
       )) as Prisma.InputJsonValue;
     }
     if (input.type === 'map') {
@@ -2056,6 +2062,8 @@ export class ItemsService {
   private async enrichDerivedLayerData(
     user: AuthUser,
     rawData: Prisma.InputJsonValue,
+    /** The org that owns (or will own) the derived layer. */
+    orgId: string,
   ): Promise<Prisma.JsonValue> {
     if (!rawData || typeof rawData !== 'object') {
       throw new BadRequestException('derived_layer data must be an object');
@@ -2088,7 +2096,7 @@ export class ItemsService {
     const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
       source,
-      expressionData ? { expressionData } : {},
+      expressionData ? { orgId, expressionData } : { orgId },
     );
     return enriched as unknown as Prisma.JsonValue;
   }
@@ -2519,6 +2527,7 @@ export class ItemsService {
       pipeline: args.pipeline,
     });
     return this.derivedLayers.previewRecipe({
+      orgId: user.orgId,
       ...(expressionData ? { expressionData } : {}),
       source: sourceArg,
       pipeline,
@@ -2870,6 +2879,7 @@ export class ItemsService {
     // invalidation here: a setting that changes tile bytes changes the
     // tile cache key (see data-layer/tile-settings.ts).
     if (item.type === 'data_layer' && nextData !== undefined) {
+      assertCurrentDataLayerVersion(item.type, nextData);
       nextData = normalizeTileSettingsInData(nextData) as Prisma.InputJsonValue;
     }
     if (opts.clientKeys && nextData !== undefined) {
@@ -2897,6 +2907,7 @@ export class ItemsService {
       nextData = (await this.enrichDerivedLayerData(
         user,
         input.data,
+        item.orgId,
       )) as Prisma.InputJsonValue;
     }
     if (nextData !== undefined && item.type === 'report_template') {
@@ -4009,6 +4020,11 @@ export class ItemsService {
     // meta.ui advertises that one for v3 items.
     if (data?.version === 3) {
       return { type: 'FeatureCollection', features: [] };
+    }
+    // Older layers read per-item tables, which an install serving many
+    // orgs does not use (see features/legacy-feature-tables.ts).
+    if (isMultiTenant()) {
+      throw new NotFoundException('Item not found');
     }
 
     if (data?.storageType === 'postgis') {

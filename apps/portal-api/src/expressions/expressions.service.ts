@@ -172,7 +172,7 @@ export class ExpressionsService {
       { conditions: ids.length > 0 ? [`entity = ANY(${bind(ids, 'uuid[]')})`] : [] },
       bind,
     );
-    const timeZone = await expressionTimeZone(this.prisma);
+    const timeZone = await expressionTimeZone(this.prisma, args.item.orgId);
     const columns: string[] = [];
     for (let k = 0; k < good.length; k += 1) {
       const g = good[k]!;
@@ -227,7 +227,7 @@ export class ExpressionsService {
         `expression: ${a.issues.map((i) => `${i.message} (at character ${i.pos + 1})`).join('; ')}`,
       );
     }
-    const timeZone = await expressionTimeZone(this.prisma);
+    const timeZone = await expressionTimeZone(this.prisma, args.item.orgId);
     const out = new Map<string, unknown>();
     const outerKey = `${args.item.id}/${args.layerId}`;
     const outerSource = {
@@ -290,7 +290,7 @@ export class ExpressionsService {
     if (exprs.length === 0) return null;
     const layer = this.layerOf(item, layerId);
     const { data } = await this.prepare(viewer, item, layerId, exprs.map((e) => e.expression));
-    const timeZone = await expressionTimeZone(this.prisma);
+    const timeZone = await expressionTimeZone(this.prisma, item.orgId);
     const columns: TileComputed['columns'] = [];
     let reads = false;
     let clock = false;
