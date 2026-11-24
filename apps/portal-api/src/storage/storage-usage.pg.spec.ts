@@ -378,9 +378,9 @@ d('storage usage ledger against Postgres', () => {
     // The later row (org B) is inserted first, so table order alone
     // would not decide.
     await pool.query(
-      `INSERT INTO item (id, org_id, owner_id, type, title, thumbnail_url, created_at, updated_at)
-       VALUES ('5b000000-0000-4000-8000-0000000000f3', $1, $2, 'file', 'copy', $3, now(), now()),
-              ('5a000000-0000-4000-8000-0000000000f3', $4, $5, 'file', 'first', $3, now() - interval '1 day', now())`,
+      `INSERT INTO item (id, org_id, owner_id, type, title, data_json, thumbnail_url, created_at, updated_at)
+       VALUES ('5b000000-0000-4000-8000-0000000000f3', $1, $2, 'file', 'copy', '{}'::jsonb, $3, now(), now()),
+              ('5a000000-0000-4000-8000-0000000000f3', $4, $5, 'file', 'first', '{}'::jsonb, $3, now() - interval '1 day', now())`,
       [ORG_B, USER_B, url, ORG_A, USER_A],
     );
     s3.put(thumb, Buffer.alloc(5));
