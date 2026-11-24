@@ -161,3 +161,47 @@ export async function readTarEntry(
   }
   return Buffer.concat(chunks);
 }
+
+/**
+ * Stream one entry's bytes out of a gzipped archive without writing
+ * anything to disk:
+ *
+ *   tar -xzOf <file> <entry>
+ *
+ * `stream` is tar's stdout. `done` settles when tar exits: it rejects
+ * on a non-zero exit (a truncated or corrupt archive, or a missing
+ * entry), so a consumer must await it as well as reading the stream.
+ * `kill` stops tar early.
+ */
+export function streamTarEntry(
+  file: string,
+  entry: string,
+): { stream: NodeJS.ReadableStream; done: Promise<void>; kill: () => void } {
+  const proc = spawn(TAR_BIN, ['-xzOf', file, entry], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { PATH: process.env.PATH ?? '', LANG: 'C', LC_ALL: 'C' },
+  });
+  let stderr = '';
+  proc.stderr.on('data', (c: Buffer) => {
+    stderr += c.toString('utf8');
+    if (stderr.length > 32 * 1024) stderr = `...${stderr.slice(-16 * 1024)}`;
+  });
+  const done = new Promise<void>((resolve, reject) => {
+    proc.on('error', (err) =>
+      reject(new Error(`Could not spawn tar (${TAR_BIN}): ${err.message}.`)),
+    );
+    proc.on('close', (code, signal) => {
+      if (code === 0) return resolve();
+      const tail = stderr.trim().split('\n').slice(-5).join('\n');
+      reject(
+        new Error(
+          `tar could not read ${entry} from the archive (exit ${code ?? signal})${tail ? `: ${tail}` : ''}`,
+        ),
+      );
+    });
+  });
+  // The caller may stop reading early; a rejection nobody awaited
+  // must not crash the process.
+  done.catch(() => undefined);
+  return { stream: proc.stdout, done, kill: () => proc.kill('SIGTERM') };
+}

@@ -381,6 +381,12 @@ const TYPE_VARIABLES: { [K in NotificationType]?: TemplateVariableDescriptor[] }
   ],
   backup_failed: [
     { name: 'runId', label: 'Backup run ID' },
+    {
+      name: 'kind',
+      label: 'Kind',
+      description: 'Empty for a failed backup; offsite_failed or offsite_stale for an off-site copy.',
+    },
+    { name: 'days', label: 'Days since the last good off-site copy' },
   ],
 };
 
@@ -645,8 +651,31 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
     return { subject, text, html };
   }) as Renderer<unknown>,
 
-  backup_failed: ((payload: { runId?: string }, ctx) => {
+  backup_failed: ((payload: { runId?: string; kind?: string; days?: number | null }, ctx) => {
     const runId = typeof payload.runId === 'string' ? payload.runId : '';
+    if (payload.kind === 'offsite_failed') {
+      const subject = `An off-site backup copy failed on ${ctx.orgLabel}`;
+      const text =
+        `The backup finished on this server, but its off-site copy did not upload. ` +
+        `Open Admin, Backup, and read that run.\n` +
+        `Run id: ${runId}\n`;
+      const html =
+        `<p>The backup finished on ${escapeHtml(ctx.orgLabel)}, but its off-site copy did not upload. ` +
+        `Open Admin, Backup, and read that run.</p>` +
+        `<p>Run id: ${escapeHtml(runId)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_stale') {
+      const days = typeof payload.days === 'number' ? payload.days : null;
+      const when =
+        days === null ? 'No off-site backup copy has succeeded yet.' : `The last good off-site backup copy is ${days} days old.`;
+      const subject = `No recent off-site backup on ${ctx.orgLabel}`;
+      const text = `${when} Open Admin, Backup, and check the off-site settings.\n`;
+      const html =
+        `<p>${escapeHtml(when)} Open Admin, Backup, and check the off-site settings on ` +
+        `${escapeHtml(ctx.orgLabel)}.</p>`;
+      return { subject, text, html };
+    }
     const subject = `A backup did not finish on ${ctx.orgLabel}`;
     const text =
       `A backup did not finish. Open Admin, Backup, and read that run.\n` +

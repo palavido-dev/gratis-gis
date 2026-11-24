@@ -360,6 +360,35 @@ model BackupFailureNotice {
   @@map("backup_failure_notice")
 }
 
+/// One notice per off-site problem. The key says which: "failed:<run
+/// id>" for an upload that failed, "stale:<run id or none>" for no
+/// good off-site copy in the alert window since that run.
+model BackupOffsiteNotice {
+  key       String   @id
+  noticedAt DateTime @default(now()) @map("noticed_at") @db.Timestamptz(6)
+
+  @@map("backup_offsite_notice")
+}
+
+/// "Test latest backup": the database dump of one run restored into a
+/// scratch database, checked with a few queries and dropped.
+model BackupRestoreTest {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId      String?   @map("run_id") @db.Uuid
+  filename   String?
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  /// 'running', 'passed' or 'failed'.
+  status     String    @default("running")
+  startedBy  String?   @map("started_by") @db.Uuid
+  /// Row counts of key tables in the scratch copy.
+  summary    Json?
+  error      String?
+
+  @@index([startedAt(sort: Desc)])
+  @@map("backup_restore_test")
+}
+
 model User {
   id            String    @id @db.Uuid // matches Keycloak sub
   orgId         String    @map("org_id") @db.Uuid
@@ -778,6 +807,34 @@ model BackupConfig {
   /// How many successful backups to keep. Null = fall back to env.
   retentionCount Int? @map("retention_count")
 
+  /// Off-site copy to an S3-compatible bucket at another provider.
+  /// Every column is nullable: null falls back to the matching
+  /// BACKUP_OFFSITE_* environment variable, so an operator can keep
+  /// the whole setting in the env file instead.
+  offsiteEnabled      Boolean? @map("offsite_enabled")
+  offsiteEndpoint     String?  @map("offsite_endpoint")
+  offsiteRegion       String?  @map("offsite_region")
+  offsiteBucket       String?  @map("offsite_bucket")
+  offsitePrefix       String?  @map("offsite_prefix")
+  offsitePathStyle    Boolean? @map("offsite_path_style")
+  offsiteAccessKeyId  String?  @map("offsite_access_key_id")
+  /// Secret access key, AES-256-GCM under CREDENTIAL_ENCRYPTION_KEY
+  /// (the ItemCredential cipher). Never returned by the API.
+  offsiteSecretEncrypted String? @map("offsite_secret_encrypted")
+  offsiteSecretIv        String? @map("offsite_secret_iv")
+  /// Passphrase the archives are encrypted with before upload. Same
+  /// cipher, its own AAD. Never returned by the API and never written
+  /// to the bucket.
+  offsitePassphraseEncrypted String? @map("offsite_passphrase_encrypted")
+  offsitePassphraseIv        String? @map("offsite_passphrase_iv")
+  /// Days to keep off-site copies. The newest good copy is always kept.
+  offsiteRetentionDays Int? @map("offsite_retention_days")
+  /// Raise a notice when no off-site copy succeeded in this many days.
+  offsiteAlertDays     Int? @map("offsite_alert_days")
+  /// Object storage larger than this is mirrored object by object
+  /// instead of uploaded inside the archive.
+  offsiteMirrorThresholdBytes BigInt? @map("offsite_mirror_threshold_bytes")
+
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by") @db.Uuid
 
@@ -866,6 +923,25 @@ model BackupRun {
   /// from before the column existed; liveness falls back to startedAt
   /// for those.
   heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
+
+  /// Off-site copy of this run. Null status: off-site was not set up
+  /// when the run finished. Otherwise 'running', 'succeeded',
+  /// 'failed' or 'skipped'.
+  offsiteStatus     String?   @map("offsite_status")
+  /// 'archive' (the whole archive, encrypted) or 'mirror' (the
+  /// database dump plus new or changed objects, one by one).
+  offsiteMode       String?   @map("offsite_mode")
+  /// Object key of the main artifact in the off-site bucket.
+  offsiteKey        String?   @map("offsite_key")
+  /// Encrypted bytes sent for this run.
+  offsiteBytes      BigInt?   @map("offsite_bytes")
+  /// SHA-256 of the main encrypted artifact, hex.
+  offsiteSha256     String?   @map("offsite_sha256")
+  offsiteError      String?   @map("offsite_error")
+  offsiteStartedAt  DateTime? @map("offsite_started_at") @db.Timestamptz(6)
+  offsiteFinishedAt DateTime? @map("offsite_finished_at") @db.Timestamptz(6)
+  /// Liveness beat while the upload runs, like heartbeatAt.
+  offsiteHeartbeatAt DateTime? @map("offsite_heartbeat_at") @db.Timestamptz(6)
 
   @@index([startedAt(sort: Desc)])
   /// Partial unique index `backup_run_one_running_idx` (see migration

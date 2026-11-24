@@ -265,6 +265,22 @@ export class BackupService implements OnModuleInit {
   }
 
   /**
+   * Hook for work that follows a published archive (the off-site
+   * copy). The listener resolves once it has claimed the run, and may
+   * return a second promise for the rest of its work: a scheduled run
+   * waits for it, a manual run answers the browser first. A listener
+   * that throws never changes the outcome of the local backup.
+   */
+  private runSucceededListeners: Array<
+    (info: { runId: string; objectBytes: number }) => Promise<Promise<void> | void>
+  > = [];
+  onRunSucceeded(
+    fn: (info: { runId: string; objectBytes: number }) => Promise<Promise<void> | void>,
+  ) {
+    this.runSucceededListeners.push(fn);
+  }
+
+  /**
    * Fetch the effective config. Reads the singleton backup_config
    * row (creating it on first call) and merges it over env defaults.
    * Also computes display-only fields (plain-English summary,
@@ -440,6 +456,11 @@ export class BackupService implements OnModuleInit {
       }
     }
     return effective;
+  }
+
+  /** The singleton backup_config row, created on first use. */
+  configRow() {
+    return this.ensureConfigRow();
   }
 
   /**
@@ -951,6 +972,9 @@ export class BackupService implements OnModuleInit {
     // keeps it out of directory listings an operator scans by eye.
     const partialPath = path.join(backupDir, `.partial-${run.id}.tar.gz`);
 
+    /** Set once the archive is published and recorded. */
+    let published: { objectBytes: number } | null = null;
+
     // Retention BEFORE the payload, reserving room for this run.
     //
     // This is the fix for the ratchet that turned one bad night into
@@ -1058,6 +1082,7 @@ export class BackupService implements OnModuleInit {
           sizeBytes: BigInt(stat.size),
         },
       });
+      published = { objectBytes: plan.totalBytes };
       this.log.log(
         `Backup ${run.id} finished: ${filename} (${stat.size} bytes, ` +
           `${plan.count} objects)`,
@@ -1120,6 +1145,21 @@ export class BackupService implements OnModuleInit {
       if (cancelPoll) clearInterval(cancelPoll);
       await fs.rm(stageDir, { recursive: true, force: true }).catch(() => undefined);
       await fs.rm(partialPath, { force: true }).catch(() => undefined);
+    }
+
+    // Off-site copy, outside the try for the same reason as retention
+    // below: nothing that happens to the copy may fail the local run.
+    if (published) {
+      for (const fn of this.runSucceededListeners) {
+        try {
+          const pending: unknown = await fn({ runId: run.id, objectBytes: published.objectBytes });
+          if (pending instanceof Promise && trigger === 'scheduled') await pending;
+        } catch (e) {
+          this.log.warn(
+            `Post-backup step failed: ${e instanceof Error ? e.message : e}`,
+          );
+        }
+      }
     }
 
     // Deliberately outside the try: a sealed, recorded, successful
