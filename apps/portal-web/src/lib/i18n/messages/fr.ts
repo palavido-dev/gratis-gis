@@ -1000,6 +1000,13 @@ export const fr: Partial<CatalogShape> = {
     linkCopyByHand: 'Copiez ce lien :',
     linkTooBig: 'Cette zone est trop détaillée pour être partagée par un lien. Essayez avec moins de formes.',
     linkArea: 'Cette zone vient d’un lien. Choisissez Dessiner, Point, Adresse ou Choisir des formes pour en commencer une autre.',
+    upload: 'Importer une forme',
+    uploadHint: 'GeoJSON, KML, KMZ, un shapefile compressé ou un GeoPackage',
+    uploadedFrom: 'Depuis {name}. Choisissez Dessiner, Point, Adresse ou Choisir des formes pour en commencer une autre.',
+    uploadEmpty: 'Ce fichier ne contient aucune forme.',
+    uploadTooMany: 'Ce fichier contient plus de {max} formes. Importez seulement la zone à vérifier.',
+    uploadFailed: 'Impossible de lire ce fichier',
+    downloadArea: 'Télécharger la zone (GeoJSON)',
     report: {
       button: 'PDF',
       title: 'Rapport Ce qui est ici',

@@ -40,6 +40,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - What's Here share links: Link copies an address that opens the same map
   with the same area, distance and breakdowns, in the map viewer or an
   app. The area travels in the link itself, so it never expires (#796).
+- What's Here can check an uploaded shape: GeoJSON, KML, KMZ, a zipped
+  shapefile or a GeoPackage, up to 2,000 shapes (#796).
+- What's Here downloads the area it checked as GeoJSON, distance included,
+  to keep, open in desktop GIS or upload again later (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 
