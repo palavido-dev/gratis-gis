@@ -241,6 +241,11 @@
       "pg": 0,
       "raw": 0
     },
+    "apps/portal-api/src/storage/feature-usage.ts": {
+      "prisma": 10,
+      "pg": 0,
+      "raw": 0
+    },
     "apps/portal-api/src/storage/key-ownership.ts": {
       "prisma": 1,
       "pg": 0,

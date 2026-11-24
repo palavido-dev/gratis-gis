@@ -3,6 +3,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { ImportJob, ImportJobStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
+import { measureLayer } from '../storage/feature-usage.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { inCallerOrgOrNotFound } from '../common/org-not-found.js';
@@ -252,6 +253,19 @@ export class ImportJobsService {
     this.log.log(
       `Import job ${jobId} succeeded with ${insertedFeatures} features.`,
     );
+    // A bulk write: measure the layer's feature data now rather than
+    // waiting for the nightly pass. Best effort; the pass catches up.
+    if (done) {
+      await measureLayer(this.prisma, {
+        itemId: done.itemId,
+        layerKey: done.layerId,
+        orgId: done.orgId,
+      }).catch((err: unknown) =>
+        this.log.warn(
+          `Feature usage for ${done.itemId} not measured: ${err instanceof Error ? err.message : err}`,
+        ),
+      );
+    }
   }
 
   /** Failure path. Stores the diagnostic message on the row so the

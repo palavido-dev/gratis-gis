@@ -171,6 +171,7 @@ import {
   type ReferenceSource,
 } from './item-references.js';
 import { orgOwner } from '../storage/object-keys.js';
+import { forgetItemFeatureUsage } from '../storage/feature-usage.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import {
@@ -4033,6 +4034,8 @@ export class ItemsService {
           },
           { maxWait: 10_000, timeout: PURGE_TX_TIMEOUT_MS },
         );
+        // The rows are gone: take the layers off the org's feature usage.
+        if (ownerOrg) await forgetItemFeatureUsage(this.prisma, itemId, ownerOrg);
       } else if (data?.storageType === 'postgis') {
         // v2 legacy: per-item table. Drop it so the storage shrinks
         // immediately (DROP TABLE returns disk faster than DELETE).

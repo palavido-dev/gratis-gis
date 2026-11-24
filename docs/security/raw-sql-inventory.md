@@ -16,20 +16,20 @@ builds on it.
 
 ## Totals
 
-**232 sites** in 54 files. The guard counts the same 232.
+**242 sites** in 55 files. The guard counts the same 242.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
-| `prisma` | 178 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
+| `prisma` | 188 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
 | `pg` | 37 | node-postgres calls on connections outside Prisma (`client.query`, `admin.query`, `writer.query`, the CopyWriter `this.query<>` passthrough) |
 | `raw` | 17 | `Prisma.raw(...)` fragments, which put text into SQL unescaped |
 
 | Class | Sites |
 | --- | ---: |
-| item-scoped | 124 |
-| system | 91 |
+| item-scoped | 130 |
+| system | 95 |
 | external | 9 |
-| org-scoped | 8 |
+| org-scoped | 9 |
 | user-scoped | 0 |
 | UNVERIFIED | 0 |
 | GAP | 0 |
@@ -492,6 +492,16 @@ the statement they set up.
 | 230 | `storage/storage-usage-reconcile.service.ts:300` | prisma | `attribute` | storage_object | keys listed from the bucket | **system** | Reconcile: owner of an older key from a deleted ledger row. |
 | 231 | `storage/storage-usage-reconcile.service.ts:303` | prisma | `attribute` | feature_attachment, item | keys listed from the bucket | **system** | Reconcile: owner of an older attachment key, served by feature_attachment_storage_key_idx. |
 | 232 | `storage/storage-usage-reconcile.service.ts:314` | prisma | `attribute` | item | keys listed from the bucket | **system** | Reconcile: owner of an older file key, one containment probe per key (item_data_gin, storage_ref index). |
+| 233 | `storage/feature-usage.ts:57` | prisma | `measureLayer` | observation | `data_layer:` scope of one layer, built from an item id and layer key the server read | **item-scoped** | Live feature count of one layer through the scope index. Called by the import job after a bulk write and by the nightly pass; returns a number only. |
+| 234 | `storage/feature-usage.ts:66` | prisma | `measureLayer` | layer_storage_usage | item id and layer key | **item-scoped** | Previous sample for the same layer. |
+| 235 | `storage/feature-usage.ts:80` | prisma | `measureLayer` | observation | same scope | **item-scoped** | Average row size over at most 2000 rows of the layer (`LIMIT` bound as a parameter). |
+| 236 | `storage/feature-usage.ts:87` | prisma | `measureLayer` | layer_storage_usage (INSERT ... ON CONFLICT DO UPDATE) | item id, layer key, the item's org | **item-scoped** | Stores the measure under the item's own org. |
+| 237 | `storage/feature-usage.ts:109` | prisma | `refreshOrgFeatureTotals` | org_storage_usage, layer_storage_usage | org id of the layer just measured | **org-scoped** | Sum of one org's layer rows. |
+| 238 | `storage/feature-usage.ts:121` | prisma | `forgetItemFeatureUsage` | layer_storage_usage | purged item id and its org | **item-scoped** | Purge path, after the item's observation rows are deleted. |
+| 239 | `storage/feature-usage.ts:133` | prisma | `queueLayers` | layer_storage_usage, item | none (all data layer items) | **system** | Nightly pass, `runAsSystem`: adds a row per layer. Reads the item table only. |
+| 240 | `storage/feature-usage.ts:142` | prisma | `queueLayers` | layer_storage_usage, item | none (rows whose item is gone) | **system** | Nightly pass: drops rows of purged items. |
+| 241 | `storage/feature-usage.ts:165` | prisma | `runFeatureUsagePass` | layer_storage_usage | none (oldest measured first) | **system** | Nightly pass work list, 20 rows at a time. |
+| 242 | `storage/feature-usage.ts:180` | prisma | `runFeatureUsagePass` | layer_storage_usage | none | **system** | Count of layers left for the next run. |
 
 ## Keeping this up to date
 

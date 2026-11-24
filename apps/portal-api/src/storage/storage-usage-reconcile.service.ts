@@ -6,6 +6,7 @@ import { Prisma } from '@prisma/client';
 import { RunAsSystem } from '../common/tenant-context.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { runFeatureUsagePass } from './feature-usage.js';
 import { parseObjectKey, systemOwner } from './object-keys.js';
 import { StorageLedgerService, isCountedKind } from './storage-ledger.service.js';
 import { StorageService } from './storage.service.js';
@@ -83,6 +84,22 @@ export class StorageUsageReconcileService {
       await this.reconcile({ dryRun: false });
     } catch (err) {
       this.log.error(`Storage usage reconcile failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /**
+   * Nightly feature data pass: measure layers oldest first for at most
+   * fifteen minutes. See feature-usage.ts for what is counted.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'feature-usage-measure' })
+  @RunAsSystem('cron:feature-usage-measure')
+  async scheduledFeaturePass(): Promise<void> {
+    if (this.leader && !this.leader.shouldRun()) return;
+    try {
+      const r = await runFeatureUsagePass(this.prisma, { budgetMs: 15 * 60 * 1000 });
+      this.log.log(`feature usage: ${r.measured} layers measured, ${r.remaining} left for next time`);
+    } catch (err) {
+      this.log.error(`Feature usage pass failed: ${err instanceof Error ? err.message : err}`);
     }
   }
 
