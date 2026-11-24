@@ -483,15 +483,17 @@ export class PostgisLiveService_ {
       },
     });
     if (!item) throw new NotFoundException('Service item not found');
-    const data = item.data as { protocol?: string } | null;
-    if (data?.protocol !== 'postgis_live') {
-      throw new BadRequestException('This endpoint is only valid for postgis_live service items');
-    }
+    // Visibility first: an item the caller cannot read answers like a
+    // missing one, whatever its type.
     const shares = await this.prisma.itemShare.findMany({
       where: { itemId: serviceItemId },
     });
     if (!this.sharing.canRead(user, item, shares)) {
       throw new NotFoundException('Service item not found');
+    }
+    const data = item.data as { protocol?: string } | null;
+    if (data?.protocol !== 'postgis_live') {
+      throw new BadRequestException('This endpoint is only valid for postgis_live service items');
     }
     if (opts.edit && !this.sharing.canEdit(user, item, shares)) {
       throw new ForbiddenException('Only editors of this service can probe its database');
