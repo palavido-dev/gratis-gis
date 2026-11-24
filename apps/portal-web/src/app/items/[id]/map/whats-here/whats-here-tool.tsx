@@ -328,8 +328,13 @@ export function WhatsHereTool({
     };
   }, [mode, query]);
 
+  // An address is usually somewhere off screen; show it once its area
+  // has resolved. Drawn and picked areas are already in view.
+  const flyOnResolveRef = useRef(false);
+
   function choosePlace(p: SearchResult) {
     if (!p.center) return;
+    flyOnResolveRef.current = true;
     setPlaceLabel(p.label);
     setPlaces([]);
     setQuery(p.label);
@@ -420,6 +425,17 @@ export function WhatsHereTool({
           if (runRef.current !== run) return;
           areaRef.current = resolved;
           setArea(resolved);
+          if (flyOnResolveRef.current && map) {
+            flyOnResolveRef.current = false;
+            const [w, s, e, n] = resolved.bbox;
+            map.fitBounds(
+              [
+                [w, s],
+                [e, n],
+              ],
+              { padding: 80, maxZoom: 17, duration: 800 },
+            );
+          }
           try {
             await screenAll(resolved, run, controller.signal);
           } catch (err) {
@@ -442,7 +458,7 @@ export function WhatsHereTool({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [open, source, distanceMeters, layers, screenAll, t]);
+  }, [open, map, source, distanceMeters, layers, screenAll, t]);
 
   // Changing one layer's breakdown reruns that layer only.
   const setBreakdown = useCallback(
