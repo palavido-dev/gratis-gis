@@ -76,6 +76,56 @@ file is uploaded again, once.
 Never paste a private key or a passphrase into the portal. It refuses
 them.
 
+## Signed copies: add the verify key to your key file
+
+Your public key is not secret, so anyone who can write to the bucket
+could add a copy that opens with your key file. To tell your portal's
+copies from any others, the portal signs every copy with a **signing
+key** that only it holds. It makes that key itself the first time
+off-site copies are set up, and stores it encrypted with the server's
+`CREDENTIAL_ENCRYPTION_KEY`; it is never shown, logged or uploaded.
+
+The page shows the matching **verify key** (`ggver1:...`) and its
+fingerprint. Add it to your key file, on your own computer:
+
+```bash
+node offsite-key.mjs trust my-portal.ggkey my-portal-new.ggkey ggver1:...
+```
+
+It asks for the key file's passphrase and writes a **new** key file,
+sealed with the same passphrase, that also holds the verify key; it
+never replaces an existing file. Check that the new file opens
+(`node offsite-key.mjs public my-portal-new.ggkey` lists its verify
+keys), then keep it in place of the old one, in every place you keep
+the key file. Then use **Check my verify key** on the page: paste the
+newest verify key that `public` lists, or its fingerprint.
+
+Do this after setting off-site copies up, and again whenever the page
+shows a new signing key. Older verify keys stay in the key file, so
+copies signed with them still check.
+
+**What signing protects.** A restore checks each copy's signature
+against the verify keys in your key file before it downloads, decrypts
+or changes anything, and refuses a copy that was changed, renamed,
+moved from another folder or portal, or made by someone else. This
+protects you when the bucket keys leak. It does not help if the portal
+server itself is taken over: whoever controls the server also controls
+its signing key. It also does not stop someone with the bucket keys
+from deleting copies, or from putting an older genuine copy back under
+its own name; bucket versioning or object lock (below) and the date the
+restore shows you cover those.
+
+**A new signing key.** Use **Make a new signing key** only when you
+think the old one was exposed. The operator admins get a notice and the
+change goes into the audit log. Copies signed with the old key stay
+valid. A server restored from an off-site copy makes its own new
+signing key; add that one too.
+
+Copies made before signing existed, and every copy while your key file
+has no verify key yet, cannot be checked. The restore uses such a copy
+only when you ask for it explicitly (see
+[Restore on a new server](#restore-on-a-new-server)).
+
 You can also set the public key, and every other setting, with
 environment variables in `infra/.env.prod` (see
 [Settings by environment](#settings-by-environment)). A value saved on
@@ -161,14 +211,17 @@ Only files named the way the portal names them count as copies. A copy
 whose name is dated in the future, or more than an hour after the
 provider recorded it, is kept but set aside: it is never treated as the
 newest copy and never deleted by retention, and the operator admins get
-a notice.
+a notice. The same happens to a copy whose signature does not check
+with this portal's verify keys. Retention counts a signed copy as the
+newest good one; copies made before signing existed count until the
+first signed copy is there, then age out as usual.
 
 | Path | What it is |
 | --- | --- |
 | `gratisgis-install.json` | Which portal owns this folder |
 | `archives/backup-<time>-<id>.tar.gz.enc` | The whole backup archive, encrypted |
-| `archives/backup-<time>-<id>.tar.gz.enc.json` | Size and SHA-256 of the file above |
-| `mirror/runs/<time>-<id>/` | Database dump, file index and manifest of one mirrored run, encrypted |
+| `archives/backup-<time>-<id>.tar.gz.enc.json` | Size and SHA-256 of the file above, signed by the portal |
+| `mirror/runs/<time>-<id>/` | Database dump, file index and manifest of one mirrored run, encrypted; `done.json` holds their sizes and SHA-256, signed by the portal |
 | `mirror/objects/<name>.enc` | One stored file, encrypted |
 
 File names inside `mirror/objects/` are made with a key only the portal
@@ -177,10 +230,10 @@ content of your uploads.
 
 ## Protect the copies
 
-The checksums stored next to each copy in the bucket catch damage, such
-as a cut-short download. They do not prove who made a copy: anyone who
-can write to the bucket can add a copy that looks complete and opens
-with your key, because the public key is not secret. So:
+Signatures (above) let a restore tell your portal's copies from copies
+someone else put in the bucket. They cannot stop copies from being
+deleted, and they do not help once the portal server itself is taken
+over. So:
 
 - Use a bucket key made for this portal and this bucket only, and keep
   it nowhere else.
@@ -191,8 +244,9 @@ with your key, because the public key is not secret. So:
   over the server has that permission too. Add a lifecycle rule that
   removes old versions after that period, or storage keeps growing.
 - When you restore after a break-in or other incident, pick a copy made
-  **before** it. The restore script shows each copy's date and the key
-  it was made for, and asks before it changes anything.
+  **before** it. The restore script shows each copy's date, the key it
+  was made for and the verify key that signed it, and asks before it
+  changes anything.
 - The restore runs the database dump as the database's owner, which in
   the default install has full rights. If you are not sure where a copy
   came from, restore it on a spare server first, or look through it
@@ -311,10 +365,12 @@ working, the original `CREDENTIAL_ENCRYPTION_KEY`.
      --key-file /root/my-portal.ggkey --passphrase-file /root/my-portal.pass
    ```
 
-The script opens the key file first and stops if it does not open. It
-then shows the copy it will use (its name, the date in its name, when
-the provider received it, its size and the fingerprint of the key it
-was made for) and the project, the database and how many organizations,
+The script opens the key file first and stops if it does not open, and
+lists the verify keys the key file holds. It checks the signature of
+each copy against them and uses the newest copy that verifies. It then
+shows the copy it will use (its name, the date it was made, when the
+provider received it, its size, the fingerprint of the key it was made
+for and the verify key that signed it) and the project, the database and how many organizations,
 users and items it holds, and asks you to type the database name.
 Nothing is downloaded or changed before that. It stops if the copy was
 made for another key. It refuses a database that is in use (it has
@@ -322,8 +378,16 @@ users) unless you add `--replace-existing`. In a script,
 `--confirm-database NAME` replaces the typing, and then the copy must be
 named with `--archive` or `--mirror-run`.
 
-It then downloads the copy into the backups volume, checks and decrypts
-it, stops the portal, **saves the current database with `pg_dump`** in
+A copy that is not signed (made before signing existed), or signed by a
+verify key your key file does not hold, is used only when you add
+`--allow-unverified-copy`, or, in a terminal, type `UNVERIFIED` when
+asked. Nothing then proves your portal made that copy. A copy whose
+signature does not verify, or that was signed for another name, folder
+or portal, is never restored.
+
+It then downloads the copy into the backups volume, checks its size and
+SHA-256 against the signed record, and only then decrypts it. It stops
+the portal, **saves the current database with `pg_dump`** in
 the backups volume and checks that the saved file reads back, replaces
 the portal database, runs the database migrations, empties the new
 server's record of mirrored files, puts the stored files back, starts
@@ -331,8 +395,9 @@ the portal, and prints the number of organizations, users, items and
 stored files next to the numbers recorded in the backup.
 
 Off-site copies are **turned off** on the restored server, and it gets a
-new install id, so a test restore can never clean up the real portal's
-copies. Once the new server is the one in use, turn off-site copies on
+new install id and a new signing key, so a test restore can never clean
+up the real portal's copies, and the old server's signing key is not
+reused. Add the new verify key to your key file. Once the new server is the one in use, turn off-site copies on
 again on Admin, Backup. The first copy stops because the folder still
 belongs to the old install: open **Take over this folder**, type the
 start of the old install id that the message shows, and the next copy
@@ -340,7 +405,7 @@ goes ahead. Nothing in the folder is deleted when you take it over.
 
 A restore inside the portal (Admin, Backup, Restore) keeps the off-site
 settings the portal has now, not the ones in the archive, so an older
-backup never brings back an older key or bucket.
+backup never brings back an older key, signing key or bucket.
 
 The download and the unpacked files need free disk of about twice the
 archive size. Identity (Keycloak users and passwords) is not in a
@@ -354,6 +419,12 @@ The key tool opens any copy with only Node.js:
 node offsite-key.mjs decrypt my-portal.ggkey \
   backup-2026-11-24T02-00-00-000-abcdef12.tar.gz.enc backup.tar.gz
 ```
+
+Add `--sidecar FILE` with the copy's `.json` file to check its
+signature first: the tool then decrypts only a copy signed by a verify
+key in your key file, with the exact size and SHA-256 that were signed.
+`node offsite-key.mjs verify my-portal.ggkey COPY.enc.json COPY.enc`
+checks a copy without decrypting it.
 
 It asks for the passphrase, or reads it from `--passphrase-file FILE`.
 Save the passphrase in the file without a trailing line break, for

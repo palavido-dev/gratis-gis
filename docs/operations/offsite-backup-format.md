@@ -8,8 +8,8 @@ the portal is gone, so the formats are written down here in full, and
 other dependencies) reads and writes all of them.
 
 Code: `apps/portal-api/src/backup/offsite-crypto.ts` (backup files and
-keys) and `apps/portal-api/src/backup/offsite-grcv2.ts` (the sealed key
-file).
+keys), `apps/portal-api/src/backup/offsite-sign.ts` (signatures) and
+`apps/portal-api/src/backup/offsite-grcv2.ts` (the sealed key file).
 
 ## Keys
 
@@ -57,7 +57,8 @@ with the admin's passphrase, around this JSON:
   "version": 1,
   "privateKey": "ggsec1:<base64url( d[32] | check[4] )>",
   "publicKey": "ggpub1:...",
-  "fingerprint": "xxxx-xxxx-..."
+  "fingerprint": "xxxx-xxxx-...",
+  "verifyKeys": ["ggver1:...", "ggver1:..."]
 }
 ```
 
@@ -65,6 +66,15 @@ with the admin's passphrase, around this JSON:
 `SHA-256("gratisgis-offsite-private-key-v1" 0x00 | d)`. A reader derives
 the public key from `d` and refuses the file when it differs from
 `publicKey`.
+
+`verifyKeys` (optional, at most 64) lists the verify keys of the
+portals whose signed copies this key file accepts (see Signatures
+below). `offsite-key.mjs trust KEYFILE NEWFILE ggver1:...` adds to it:
+it opens the file, keeps the keys already there, adds the new ones,
+and seals the result with the same passphrase into a new file, created
+with an exclusive create so it never replaces one. A file without the
+field trusts no verify key. A reader refuses the file when the list or
+any entry in it is not valid.
 
 **Passphrase rules.** One trailing line break (`\n` or `\r\n`) is
 dropped, then the text is normalised to Unicode NFC, then its UTF-8
@@ -147,33 +157,161 @@ header, the wrapped key or any record; records swapped or dropped; a
 file cut anywhere, including exactly at a record boundary (the last
 record left was sealed as not final); and bytes after the final record.
 
-**What the format does not prove.** It does not say who made a file.
-Anyone with the public key can write a valid file, and the public key
-is not secret. The sidecar and `done.json` are plain JSON in the same
-bucket, and the run row that also records the checksum is not on a new
-server at restore time. So the checksums catch damage (a cut-short or
-corrupted download), not a deliberate change: anyone who can write to
-the bucket can add a copy that looks complete and decrypts with your
-key. What protects the copies is who can write to the bucket:
+**What the format alone does not prove.** It does not say who made a
+file: anyone with the public key, which is not secret, can write a
+valid file. The signature below does.
+
+## Signatures
+
+Each copy is signed by the portal with Ed25519 (RFC 8032, Node's
+built-in `crypto`). The signing key is made on the portal server the
+first time off-site copies are set up, or when an operator admin asks
+for a new one, and is stored there only (see "Where key material and
+secrets live"). Its public half, the **verify key**, goes into the
+admin's key file. What is signed is a short manifest that names the
+copy, not the copy itself; the manifest holds the SHA-256 of the
+encrypted bytes, so the copy is bound through it.
+
+### Verify key text form and fingerprint
+
+```
+ggver1:<base64url( pub[32] | check[4] )>
+check = first 4 bytes of SHA-256("gratisgis-offsite-verify-key-v1" 0x00 | pub)
+fp    = first 16 bytes of SHA-256("gratisgis-offsite-verify-key-fingerprint-v1" 0x00 | pub)
+```
+
+`pub` is the raw 32-byte Ed25519 public key. The fingerprint is shown
+like the public key's. Test vector: the seed of 32 bytes of `0x07`
+gives `ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX`,
+fingerprint `058d-7940-89ab-a15b-eb25-76ac-2168-1b43`.
+
+### Manifest bytes
+
+ASCII, one field per line, every line ending in `0x0a` (including the
+last), no other white space, no `0x0d`:
+
+```
+gratisgis-offsite-signed-v1
+<field>=<value>
+...
+```
+
+The fields of each kind, in exactly this order:
+
+| Archive | Mirror run |
+| --- | --- |
+| `kind=archive` | `kind=mirror` |
+| `format=GROF1` | `format=GROF1` |
+| `install=<install id>` | `install=<install id>` |
+| `prefix=<folder>` | `prefix=<folder>` |
+| `name=archives/<archive>.enc` | `run=<time>-<id>` |
+| `bytes=<encrypted size>` | `created=<time>` |
+| `sha256=<SHA-256 of the encrypted bytes>` | `key=<public key fingerprint>` |
+| `key=<public key fingerprint>` | `dump.name`, `dump.bytes`, `dump.sha256` |
+| `created=<time>` | `manifest.name`, `manifest.bytes`, `manifest.sha256` |
+| | `index.name`, `index.bytes`, `index.sha256`, `index.files` |
+
+Value rules, checked when signing and when reading:
+
+- `install`: a UUID, lower case, 36 characters.
+- `prefix`: the portal folder, 2 to 200 characters, ending in `/`;
+  parts of `A-Z a-z 0-9 . _ -` other than `.` and `..`.
+- `name` and `*.name`: the object name under the folder, at most 300
+  characters, parts as above joined by `/`. In a mirror run they must
+  be `mirror/runs/<run>/database.dump.enc`, `.../manifest.json.enc` and
+  `.../objects.jsonl.enc` of the same run.
+- `run`: `<YYYY-MM-DD>T<HH-MM-SS-mmm>-<8 hex>`.
+- `bytes`, `*.bytes`, `index.files`: decimal, no leading zero, at most
+  2^53 - 1.
+- `sha256`, `*.sha256`: 64 lower-case hex digits.
+- `key`: the public key fingerprint as shown (`xxxx-xxxx-...`).
+- `created`: `YYYY-MM-DDTHH:MM:SS.mmmZ` exactly (24 characters), the
+  time the backup run started.
+
+A reader parses the text, rebuilds it from the parsed fields and
+refuses it unless the two are byte for byte equal, so each manifest has
+exactly one byte form. Test vector: the archive manifest with
+`install=0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0`,
+`prefix=gratisgis-0f1e2d3c/`,
+`name=archives/backup-2026-11-24T02-00-00-000-abcdef12.tar.gz.enc`,
+`bytes=254`, `sha256=abab...ab` (32 times `ab`),
+`key=8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184`,
+`created=2026-11-24T02:00:00.000Z` is 350 bytes with SHA-256
+`400691dacd7403981b1b42c00c80bfaeb63c31a8478ebd0bd247d71ae462b17c`;
+signed with the seed above it gives
+`f_gviI8Mdohf0m-2-Urp_UsRKJrbpOlgok_WrMQyUJKZcpTOX6GJxj7CndoU_h3shqctW4u8DMlQ7LzwIC4ACg`.
+
+### Signature block
+
+The sidecar (`archives/<archive>.enc.json`) and a mirror run's
+`done.json` carry:
+
+```json
+"signature": {
+  "version": 1,
+  "manifest": "<the manifest text, exactly the signed bytes>",
+  "value": "<Ed25519 signature of those bytes, base64url, 86 characters>",
+  "verifyKey": "<fingerprint of the verify key>"
+}
+```
+
+Only the signed manifest is trusted. The other fields of the sidecar
+(`sealedSha256` and so on) are informational and are not used once a
+signature verified.
+
+### Checking a copy
+
+A copy is **verified** when its signature block is present and
+well formed, `verifyKey` names a verify key the reader trusts, the
+signature verifies over the manifest bytes, and the manifest matches
+where the copy was found: same kind, same folder, and the archive
+name and listed size (or the run name and its object names). The
+restore also expects `install` to be the folder marker's install id,
+its `takenOverFrom` or one of its `previousInstallIds`; a copy signed
+for another install is reported as such.
+
+Then, before decrypting, every object is downloaded and its size and
+SHA-256 compared with the signed values: the archive with `bytes` and
+`sha256`; a mirror run's dump, manifest and file index with theirs; and
+each mirrored file with the `z` and `h` of its line in the file index,
+which is itself bound by `index.sha256`. The checked bytes are the ones
+decrypted (the helper reads them back through the same open file).
+
+Readers tell apart: **verified**; **unsigned** (no block, as copies
+made before signing); **untrusted** (signed by a verify key the reader
+does not hold); **foreign** (verified, but for another install); and
+**bad** (anything else). The restore uses only verified copies unless
+`--allow-unverified-copy` is given (or `UNVERIFIED` typed in a
+terminal), which allows unsigned, untrusted and foreign copies. A bad
+copy is never used.
+
+**What signing covers.** Binding the name, folder, install id, size,
+checksum and time stops a copy from being changed, renamed, moved to
+another folder or portal, or presented as newer than it is. It does not
+stop someone with the bucket keys from deleting copies (use bucket
+versioning or object lock), or from putting back an older genuine copy
+under its own name: the restore shows each copy's date and asks for
+confirmation. It protects when only the bucket credentials leak. When
+the portal server itself is taken over, the signing key is taken with
+it, and copies signed from then on prove nothing.
+
+Other rules that still apply:
 
 - Use a bucket key that only this portal has, made for this bucket
   alone and not kept or reused anywhere else.
 - Turn on versioning or object lock at the provider, so a copy that was
   replaced or deleted can still be got back.
 - Restore a copy dated before any suspected break-in. The restore tool
-  shows the chosen copy's name, date, size and key fingerprint and asks
-  for confirmation before it changes anything. It never picks a copy
-  whose name is dated in the future (or more than an hour after the
-  provider recorded the upload) as the newest; such a copy is used only
-  when named, with a warning.
+  shows the chosen copy's name, date, size, key fingerprint and the
+  verify key that signed it, and asks for confirmation before it
+  changes anything. It never picks a copy whose name is dated in the
+  future (or more than an hour after the provider recorded the upload)
+  as the newest; such a copy is used only when named, with a warning.
 - The dump is restored by the database's owner role, which in the
   default install is a superuser, and a dump can hold any SQL that role
   may run. If a copy's origin is in doubt, list it first
   (`pg_restore -l`), restore it on a spare server, or restore with a
   role that is not a superuser where your setup allows it.
-
-**Planned.** A later format version may add a signature, so a restore
-can tell a copy this portal made from one it did not.
 
 ### Decrypt by hand
 
@@ -184,6 +322,14 @@ node offsite-key.mjs decrypt my-portal.ggkey \
   backup-2026-11-24T02-00-00-000-abcdef12.tar.gz.enc backup.tar.gz
 ```
 
+With `--sidecar backup-....tar.gz.enc.json` it first checks the
+signature against the verify keys in the key file and the sidecar's
+name against the signed name, then checks the size and SHA-256 while
+it reads the copy once; the output file appears only when all of that
+matched and every record verified. `verify KEYFILE SIDECAR [COPY]` does
+the checks without decrypting; for a mirror run give its `done.json`
+and one of its three files.
+
 It asks for the passphrase on the terminal, or takes
 `--passphrase-file FILE`, or reads it from standard input when that is
 not the data. `IN` and `OUT` may be `-` for standard input and output;
@@ -192,8 +338,10 @@ the output appears only after every record verified. Written to
 standard output, bytes come out as they verify: if the command fails,
 discard what it wrote.
 
-Other commands: `public KEYFILE` (prints the public key and fingerprint,
-after asking for the passphrase), `fingerprint PUBLICKEY`, and
+Other commands: `public KEYFILE` (prints the public key, its
+fingerprint and the trusted verify keys, after asking for the
+passphrase), `fingerprint PUBLICKEY|VERIFYKEY`,
+`trust KEYFILE NEWFILE VERIFYKEY...` (see above), and
 `encrypt PUBLICKEY IN OUT` (writes GROF1, for testing a key).
 
 ## Bucket layout
@@ -206,11 +354,11 @@ whole bucket):
 | --- | --- |
 | `gratisgis-install.json` | Which portal owns the folder: `{"kind": "gratisgis-offsite-folder", "installId": "...", "createdAt": "..."}`, plus `takenOverFrom` when an admin took the folder over after a restore. A portal stops, without deleting anything, when the folder belongs to another install id. |
 | `archives/<archive>.enc` | The local backup archive (`backup-<time>-<id>.tar.gz`), GROF1 |
-| `archives/<archive>.enc.json` | Sidecar, plain JSON, written last |
+| `archives/<archive>.enc.json` | Sidecar, plain JSON with the signature, written last |
 | `mirror/runs/<time>-<id>/database.dump.enc` | Mirror mode: the `pg_dump` custom-format dump, GROF1 |
 | `mirror/runs/<time>-<id>/manifest.json.enc` | Mirror mode: the archive's `manifest.json`, GROF1 |
 | `mirror/runs/<time>-<id>/objects.jsonl.enc` | Mirror mode: one JSON line per stored file, GROF1 |
-| `mirror/runs/<time>-<id>/done.json` | Mirror mode: sidecar, plain JSON, written last |
+| `mirror/runs/<time>-<id>/done.json` | Mirror mode: sidecar, plain JSON with the signature, written last |
 | `mirror/objects/<name>.enc` | Mirror mode: one stored file, GROF1 |
 
 A copy without its sidecar is unfinished and is never used for a
@@ -234,19 +382,23 @@ The archive sidecar:
   "createdAt": "2026-11-24T02:00:00.000Z",
   "plainBytes": 123,
   "sealedBytes": 254,
-  "sealedSha256": "<hex>"
+  "sealedSha256": "<hex>",
+  "signature": { "version": 1, "manifest": "...", "value": "...", "verifyKey": "..." }
 }
 ```
 
 The mirror `done.json` has the same `format`, `runId`, `installId` and
 `keyFingerprint`, plus `database` (`name`, `sealedBytes`,
-`sealedSha256`), `index` (`files`, `sealedSha256`), `uploaded` and
-`reused`.
+`sealedSha256`), `index` (`files`, `sealedSha256`), `uploaded`,
+`reused` and `signature`. Copies made before signing have no
+`signature`.
 
 ### Mirror file names and the local index
 
 Each line of `objects.jsonl` is
-`{"k": "<object key>", "o": "<name>.enc", "s": <bytes>, "t": "<content type>"}`.
+`{"k": "<object key>", "o": "<name>.enc", "s": <bytes>, "t": "<content type>", "z": <encrypted bytes>, "h": "<SHA-256 of the encrypted file>"}`.
+In a signed run every line has `z` and `h`; the restore refuses a line
+without them.
 
 The name of a mirrored file is
 
@@ -263,10 +415,11 @@ nothing is overwritten with a file encrypted to another key.
 
 The server cannot read the bucket back, so it keeps its own record of
 what it uploaded: the `backup_offsite_object` table (one row per file:
-folder hash, name, key fingerprint, sizes, content type, and the newest
-run that referred to it). A file is reused only when its row matches
-the current key and size and the bucket listing shows it with the
-recorded encrypted size. A missing or emptied table means "upload
+folder hash, name, key fingerprint, sizes, SHA-256 of the encrypted
+file, content type, and the newest run that referred to it). A file is
+reused only when its row matches the current key and size, has its
+SHA-256 recorded, and the bucket listing shows it with the recorded
+encrypted size. A missing or emptied table means "upload
 everything again", never a failure. Clean-up works from the bucket
 listing and this table only: a file is removed when its newest run is
 older than every retained complete run, and the row goes before the
@@ -284,9 +437,8 @@ kept and counted in the log; a bucket lifecycle rule can expire them.
   bytes sent, which must equal the predicted encrypted size (for
   mirrored files too).
 - The SHA-256 of the encrypted bytes is recorded on the run and in the
-  sidecar. The restore helper checks it after download. This catches
-  damage, not a deliberate change: see "What the format does not
-  prove" above.
+  signed manifest. The restore helper checks it after download and
+  before decrypting (see Signatures above).
 
 Every request to the bucket has time limits: 30 seconds to connect, 2
 minutes without a byte in either direction, and 15 minutes (longer for
@@ -304,18 +456,33 @@ lookup the connection itself uses.
 | Public key | `backup_config.offsite_public_key` or `BACKUP_OFFSITE_PUBLIC_KEY` | Treated as a secret |
 | Bucket secret access key | `backup_config.offsite_secret_encrypted`, AES-256-GCM under `CREDENTIAL_ENCRYPTION_KEY`, with a hash of the endpoint and access key id bound in as AAD; or `BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE)` | Returned by the API, logged, written to the bucket |
 | Mirror naming key | `backup_config.offsite_name_key_encrypted`, same cipher, AAD `backup-offsite:mirror-name-key` | Returned by the API, logged, written to the bucket |
+| Signing key (Ed25519 seed) | `backup_config.offsite_signing_key_encrypted` and `_iv`, same cipher, AAD `backup-offsite:signing-key`; checked on every load against the stored verify key | Returned by the API, logged, in a notice or audit row, written to the bucket as such |
+| Verify key (public) | `backup_config.offsite_verify_key`; earlier ones in `offsite_previous_verify_keys`; the admin's key file (`verifyKeys`); the fingerprint on each run (`backup_run.offsite_verify_fingerprint`) and in each signature block | Treated as a secret |
 
 The database dump inside each copy contains the `backup_config` row, so
-it holds the bucket secret and the naming key, encrypted under
-`CREDENTIAL_ENCRYPTION_KEY`, which is not in the copy.
+it holds the bucket secret, the naming key and the signing key,
+encrypted under `CREDENTIAL_ENCRYPTION_KEY`, which is not in the copy.
+The copy itself is encrypted to the admin's key on top of that.
+
+A stored signing key that no longer opens (the server key changed) or
+does not match its verify key is replaced by a new one, and the
+operator admins are told, as for a new key made on request. Old verify
+keys are kept (the last 20) so the server's retention still counts the
+copies they signed.
 
 A restore inside the portal keeps the live server's off-site settings
-(public key, bucket settings, install id, naming key) instead of the
-archive's, and empties `backup_offsite_object`, since the archive's copy
-of it is older than the bucket. `restore-from-offsite.sh` also empties
-it, turns off-site copies off and clears the install id, so the
-restored server makes a new one and does not own the folder until an
-admin takes it over on Admin, Backup.
+(public key, bucket settings, install id, naming key, signing key and
+verify keys) instead of the archive's, and empties
+`backup_offsite_object`, since the archive's copy of it is older than
+the bucket. A signing key from an archive is never kept: when the live
+server had none, the columns stay empty and it makes a new one.
+`restore-from-offsite.sh` also empties it, turns off-site copies off,
+clears the install id, and removes the signing key that came with the
+dump (moving its verify key to the earlier keys), so the restored
+server makes its own signing key and a new install id, and does not
+own the folder until an admin takes it over on Admin, Backup. Taking a
+folder over records the previous owner in the marker's `takenOverFrom`
+and `previousInstallIds`.
 
 The bucket secret from `BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE)` is
 used only with the endpoint and access key id from the environment
@@ -346,9 +513,13 @@ copies with a new provider, run this once against a real bucket:
 8. On a fresh server, with only the env file, the key file and its
    passphrase: `restore-from-offsite.sh --list`, then a full restore.
    The printed counts match the original portal.
-9. Replace the public key: the next copy carries the new fingerprint;
+9. Add the verify key from the page with `offsite-key.mjs trust`, then
+   `offsite-key.mjs verify` the downloaded copy and its sidecar.
+   **Make a new signing key**: the next copy is signed with it; a
+   restore refuses it as untrusted until the new verify key is added.
+10. Replace the public key: the next copy carries the new fingerprint;
    the older copy still decrypts with the old key file. The operator
    admins get a notice, and the page says who changed the key and when.
-10. After step 8, turn off-site copies on on the restored server: the
+11. After step 8, turn off-site copies on on the restored server: the
     first copy is refused because the folder belongs to the old install.
     Take the folder over on the page; the next copy succeeds.

@@ -46,11 +46,32 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   it and when. Copies dated in the future are kept, reported, and never
   treated as the newest. A restore inside the portal keeps the live
   off-site settings.
+- **Signed off-site copies.** Each off-site copy is signed with
+  Ed25519 by a signing key the server makes for itself and stores
+  under `CREDENTIAL_ENCRYPTION_KEY`. The signature covers a short
+  manifest: the copy's name, folder, install id, exact size, SHA-256 of
+  the encrypted bytes, encryption key fingerprint and time; mirror runs
+  sign their `done.json`, and the file index now records the size and
+  SHA-256 of every mirrored file. The page shows the verify key
+  (`ggver1:...`) with its fingerprint, a "Check my verify key" step and
+  a "Make a new signing key" action (operator admins, audited, with a
+  notice). `offsite-key.mjs trust` adds verify keys to the key file
+  (written to a new file, same passphrase), `verify` checks a copy, and
+  `decrypt --sidecar` checks before it decrypts. The restore checks the
+  signature against the key file before it downloads or changes
+  anything, checks every object's size and SHA-256 against the signed
+  record before decrypting, and uses an unsigned copy, or one signed by
+  a key the file does not hold, only with `--allow-unverified-copy`.
+  Retention never counts a badly signed copy as the newest good one; it
+  keeps and reports it. A restored server makes a new signing key.
+  New routes: `POST /api/admin/backup/offsite/signing-key` and
+  `POST /api/admin/backup/offsite/check-verify-key`, both operator only.
 - The help page and `docs/operations/offsite-backup-format.md` say
-  plainly what the copies' checksums prove (damage, not who made a
-  copy) and how to protect a bucket: a key used only by the portal,
-  versioning or object lock, and restoring a copy from before an
-  incident.
+  plainly what signing protects (a leak of the bucket keys) and what it
+  does not (a server that is taken over, deleted copies, an older
+  genuine copy put back), and how to protect a bucket: a key used only
+  by the portal, versioning or object lock, and restoring a copy from
+  before an incident.
 - **Test latest backup** on Admin, Backup restores the newest
   backup's database into a scratch database, counts the main tables
   and drops it, with a free-space check (or a size confirmation) first
