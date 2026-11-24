@@ -2,6 +2,7 @@
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { DataLayerTablesService } from '../data-layer/tables.service.js';
 import { ItemBboxRefreshService } from './item-bbox-refresh.service.js';
+import { ORG_A, ORG_B } from '../testing/org-fixtures.js';
 
 /**
  * The write path bbox refresh. What matters here is WHICH path a
@@ -19,6 +20,8 @@ interface Row {
   data: unknown;
   bbox: unknown;
   deletedAt?: Date | null;
+  orgId?: string;
+  access?: string;
 }
 
 const LAYER = '11111111-1111-4111-8111-111111111111';
@@ -464,5 +467,83 @@ describe('ItemBboxRefreshService: writes', () => {
     await w.service.onApplicationShutdown();
     expect(w.service.hasPending(LAYER)).toBe(false);
     expect(w.bboxOf(LAYER)).toEqual([0, 0, 40, 10]);
+  });
+});
+
+describe('ItemBboxRefreshService: organizations', () => {
+  const MAP_B = '66666666-6666-4666-8666-666666666666';
+  const LAYER_B = '77777777-7777-4777-8777-777777777777';
+
+  /** LAYER and OTHER in org A, a map and a layer in org B. */
+  function twoOrgRows(layerAccess: string): Row[] {
+    return [
+      {
+        id: LAYER,
+        type: 'data_layer',
+        data: { version: 3, layers: [{ id: 'a', geometryType: 'point', fields: [] }] },
+        bbox: [0, 0, 10, 10],
+        orgId: ORG_A,
+        access: layerAccess,
+      },
+      {
+        id: MAP,
+        type: 'map',
+        data: { layers: [{ source: { kind: 'data-layer', itemId: LAYER } }] },
+        bbox: [0, 0, 10, 10],
+        orgId: ORG_A,
+        access: 'private',
+      },
+      {
+        id: LAYER_B,
+        type: 'data_layer',
+        data: { version: 3, layers: [] },
+        bbox: [100, 100, 101, 101],
+        orgId: ORG_B,
+        access: 'private',
+      },
+      {
+        id: MAP_B,
+        type: 'map',
+        data: {
+          layers: [
+            { source: { kind: 'data-layer', itemId: LAYER } },
+            { source: { kind: 'data-layer', itemId: LAYER_B } },
+          ],
+        },
+        bbox: [100, 100, 101, 101],
+        orgId: ORG_B,
+        access: 'private',
+      },
+    ];
+  }
+
+  it('a layer write refreshes maps in its own org but not in another org', async () => {
+    const w = makeWorld(twoOrgRows('private'), { [LAYER]: [MAP, MAP_B] });
+    w.service.noteFeatureWrite(LAYER, { kind: 'insert', geometries: [point(20, 5)] });
+    await w.service.flushPending(LAYER);
+
+    expect(w.bboxOf(MAP)).toEqual([0, 0, 20, 10]);
+    expect(w.bboxOf(MAP_B)).toEqual([100, 100, 101, 101]);
+    expect(w.updatesFor(MAP_B)).toBe(0);
+  });
+
+  it('a map extent only includes referenced layers from its own org', async () => {
+    const w = makeWorld(twoOrgRows('private'), {});
+    w.service.refreshItemBbox(MAP_B);
+    await w.service.flushPending(MAP_B);
+
+    expect(w.bboxOf(MAP_B)).toEqual([100, 100, 101, 101]);
+  });
+
+  it('a public layer from another org still feeds a map extent and its refresh', async () => {
+    const w = makeWorld(twoOrgRows('public'), { [LAYER]: [MAP, MAP_B] });
+    w.service.refreshItemBbox(MAP_B);
+    await w.service.flushPending(MAP_B);
+    expect(w.bboxOf(MAP_B)).toEqual([0, 0, 101, 101]);
+
+    w.service.noteFeatureWrite(LAYER, { kind: 'insert', geometries: [point(200, 5)] });
+    await w.service.flushPending(LAYER);
+    expect(w.bboxOf(MAP)).toEqual([0, 0, 200, 10]);
+    expect(w.bboxOf(MAP_B)).toEqual([0, 0, 200, 101]);
   });
 });

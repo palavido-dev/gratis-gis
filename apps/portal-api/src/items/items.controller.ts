@@ -866,8 +866,9 @@ export class ItemsController {
     if (at) opts.at = at;
     // Layer-level boundary clip (#34). Same semantics as the v3
     // controller's ?clip=: the map author's per-layer content
-    // scope. Bypasses per-user authz on the boundary item; missing
-    // / wrong-type / no-geometry is treated as no clip.
+    // scope. The boundary applies when the caller can read it or it
+    // is in the layer's org; anything else, and a missing /
+    // wrong-type / no-geometry boundary, is treated as no clip.
     if (clip) opts.boundaryClipId = clip;
     return this.items.getGeoJson(user, id, opts);
   }

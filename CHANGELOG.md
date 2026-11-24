@@ -17,6 +17,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   does not. `install.sh --check` only checks.
 - `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
 
+### Security
+
+- Installs with more than one organization: a layer's boundary clip on
+  the item GeoJSON read now follows the same rule as the feature
+  routes, and a map's or editor's stored extent only draws on layers
+  from its own organization or public ones.
+
 ## [1.7.0] - 2026-11-23
 
 Minor release: a full expression language with data access, Field

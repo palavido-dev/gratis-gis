@@ -66,7 +66,7 @@ import {
   type FeatureRecord,
   type MapLayerFilter,
 } from '@gratis-gis/shared-types';
-import { isUuid, type GeoJsonGeometry } from '@gratis-gis/engine';
+import type { GeoJsonGeometry } from '@gratis-gis/engine';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ExpressionsService } from '../expressions/expressions.service.js';
@@ -82,6 +82,7 @@ import {
 } from '../items/sharing.service.js';
 import { EditorPolicyService } from '../items/editor-policy.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { resolveClipBoundaryGeometry } from '../items/clip-boundary.js';
 import {
   DataLayerFeaturesService,
   type EngineVia,
@@ -1646,45 +1647,23 @@ export class DataLayerFeaturesController {
 
   /**
    * Look up a geo_boundary item by id and return its geometry. Used
-   * by the layer-level clip path (#34). Bypasses per-user authz
-   * because the clip is layer-content scope, not access (see the
-   * docstring on MapLayer.boundaryFilterItemId in shared-types).
-   * Returns null when the item is missing, soft-deleted, the wrong
-   * type, or has no geometry yet -- all of which the caller treats
-   * as "no clip applied" rather than an error so a stale layer
-   * config never blocks the map from rendering.
+   * by the layer-level clip path (#34). The clip is layer content
+   * scope, not access (see the docstring on
+   * MapLayer.boundaryFilterItemId in shared-types). The rule for which
+   * boundaries apply lives in resolveClipBoundaryGeometry, shared with
+   * the item-level GeoJSON read. Null means "no clip applied".
    */
   private async resolveBoundaryGeometry(
     user: AuthUser,
     layerItemId: string,
     boundaryItemId: string,
   ): Promise<unknown | null> {
-    // A non-UUID id would make Prisma throw (a 500); it can never match.
-    if (!boundaryItemId || !isUuid(boundaryItemId)) return null;
-    const row = await this.prisma.item.findFirst({
-      where: {
-        id: boundaryItemId,
-        type: 'geo_boundary',
-        deletedAt: null,
-      },
-      include: { shares: true },
-    });
-    if (!row) return null;
-    // The clip skips the caller's own access to the boundary on
-    // purpose (a map author picks it for the layer). It must still
-    // belong with the layer: in the layer's org, or readable by the
-    // caller. Otherwise any id from another org works as a geometry
-    // oracle: fill a layer with a point grid and see which survive.
-    if (!this.sharing.canRead(user, row, row.shares)) {
-      const layerItem = await this.prisma.item.findUnique({
-        where: { id: layerItemId },
-        select: { orgId: true },
-      });
-      if (!layerItem || layerItem.orgId !== row.orgId) return null;
-    }
-    const geom = (row.data as { geometry?: unknown } | null)?.geometry;
-    if (!geom || typeof geom !== 'object') return null;
-    return geom;
+    return resolveClipBoundaryGeometry(
+      { prisma: this.prisma, sharing: this.sharing },
+      user,
+      { id: layerItemId },
+      boundaryItemId,
+    );
   }
 
   /**

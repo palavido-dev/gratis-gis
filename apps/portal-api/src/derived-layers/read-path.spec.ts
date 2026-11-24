@@ -55,7 +55,7 @@ function svcWith(items: Record<string, unknown>) {
       return [{ max_value: 40 }];
     }),
   };
-  return { svc: new DerivedLayersService(prisma as never), sql, params };
+  return { svc: new DerivedLayersService(prisma as never), sql, params, prisma };
 }
 
 describe('enrich sees the step input', () => {
@@ -119,6 +119,35 @@ describe('bbox on a read', () => {
     const [minX, minY] = params[0]! as number[];
     expect(minY).toBeCloseTo(-0.1, 5);
     expect(minX).toBeLessThan(-0.1);
+  });
+});
+
+describe('boundary clip on a read', () => {
+  const POLY = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] };
+  const item = {
+    id: 'x',
+    data: {
+      version: 1,
+      source: { kind: 'data_layer', itemId: LEAF, layerKey: 'pts' },
+      pipeline: [],
+      featureLimit: 10,
+      outputSchema: [],
+      bbox: [],
+    },
+  } as unknown as Item;
+
+  it('applies the geometry the caller resolved, without loading a boundary item', async () => {
+    const { svc, sql, params, prisma } = svcWith({ [LEAF]: v3(LEAF, ['pts']) });
+    await svc.getGeoJson(item, v3(LEAF, ['pts']) as never, { boundaryGeometry: POLY });
+    expect(sql[0]).toContain('ST_GeomFromGeoJSON');
+    expect(params[0]).toContain(JSON.stringify(POLY));
+    expect(prisma.item.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('reads unclipped when no geometry is passed', async () => {
+    const { svc, sql } = svcWith({ [LEAF]: v3(LEAF, ['pts']) });
+    await svc.getGeoJson(item, v3(LEAF, ['pts']) as never, {});
+    expect(sql[0]).not.toContain('ST_GeomFromGeoJSON');
   });
 });
 
