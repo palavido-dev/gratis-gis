@@ -16,20 +16,20 @@ builds on it.
 
 ## Totals
 
-**213 sites** in 52 files. The guard counts the same 213.
+**232 sites** in 54 files. The guard counts the same 232.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
-| `prisma` | 159 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
+| `prisma` | 178 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
 | `pg` | 37 | node-postgres calls on connections outside Prisma (`client.query`, `admin.query`, `writer.query`, the CopyWriter `this.query<>` passthrough) |
 | `raw` | 17 | `Prisma.raw(...)` fragments, which put text into SQL unescaped |
 
 | Class | Sites |
 | --- | ---: |
 | item-scoped | 124 |
-| system | 77 |
+| system | 91 |
 | external | 9 |
-| org-scoped | 3 |
+| org-scoped | 8 |
 | user-scoped | 0 |
 | UNVERIFIED | 0 |
 | GAP | 0 |
@@ -473,6 +473,25 @@ the statement they set up.
 | 211 | `tools/recipe-runner.service.ts:1352` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
 | 212 | `area-of-interest/area-of-interest.service.ts:62` | prisma | `register` | none (PostGIS on bound values) | none | **system** | What's Here area resolve (#796): union, make valid, buffer the caller's own shape. Reads no table. Public endpoint; input size checked first. |
 | 213 | `area-of-interest/area-of-interest.service.ts:103` | prisma | `register` | area_of_interest (INSERT ... ON CONFLICT) | hash of the resolved shape | **system** | Stores a shape only, no org and no feature data. Shared across orgs by design: the row reveals nothing, and every read that names it runs under the caller's own layer access. |
+| 214 | `storage/storage-ledger.service.ts:66` | prisma | `orgOfKey` | storage_object | object key | **system** | Owner check for keys in the older layout: the org found is only compared with the org that authorised the call, never returned. Needs every org's rows under RB-06 (system pool). |
+| 215 | `storage/storage-ledger.service.ts:97` | prisma | `usage` | org_storage_usage | caller's org (`user.orgId`) | **org-scoped** | Storage usage read. The admin route reads only the caller's own org. |
+| 216 | `storage/storage-ledger.service.ts:109` | prisma | `usage` | storage_object | caller's org (`user.orgId`) | **org-scoped** | Usage by kind for the same org, grouped. |
+| 217 | `storage/storage-ledger.service.ts:149` | prisma | `recountOrg` | org_storage_usage (INSERT ... ON CONFLICT DO NOTHING) | org id from the reconcile | **system** | Daily reconcile, `runAsSystem`. One org per call. |
+| 218 | `storage/storage-ledger.service.ts:152` | prisma | `recountOrg` | org_storage_usage (FOR UPDATE) | org id from the reconcile | **system** | Locks the totals row first so a concurrent upload is counted once. |
+| 219 | `storage/storage-ledger.service.ts:154` | prisma | `recountOrg` | storage_object | org id from the reconcile | **system** | Sum of the org's live rows. |
+| 220 | `storage/storage-ledger.service.ts:162` | prisma | `recountOrg` | org_storage_usage | org id from the reconcile | **system** | Sets the totals and the drift. All values bound. |
+| 221 | `storage/storage-ledger.service.ts:181` | prisma | `liveRows` | storage_object | keys listed from the bucket | **system** | Reconcile page lookup, keys bound as one text array. |
+| 222 | `storage/storage-ledger.service.ts:194` | prisma | `orgsWithUsage` | org_storage_usage, storage_object | none (all orgs) | **system** | Reconcile: which orgs to recount. |
+| 223 | `storage/storage-ledger.service.ts:212` | prisma | `liveKeysOfOrg` | storage_object | org id from the reconcile | **system** | Reconcile: one org's live keys, paged by key. |
+| 224 | `storage/storage-ledger.service.ts:224` | prisma | `recordInTx` | storage_object (INSERT ... ON CONFLICT DO NOTHING) | object key and its owner org | **org-scoped** | The owner org comes from the key's org segment or the item that authorised the upload, after the storage owner check. |
+| 225 | `storage/storage-ledger.service.ts:236` | prisma | `recordInTx` | storage_object (UPDATE ... FROM a FOR UPDATE subquery) | object key and its owner org | **org-scoped** | Filtered by key and org, so another org's row is never changed. |
+| 226 | `storage/storage-ledger.service.ts:256` | prisma | `markDeletedInTx` | storage_object | object key, plus the owner org unless the caller is system work | **system** | Delete hook. Filtered by org for org callers; sweeps filter by key only. |
+| 227 | `storage/storage-ledger.service.ts:274` | prisma | `addToTotals` | org_storage_usage (INSERT ... ON CONFLICT DO UPDATE) | owner org of the row just changed | **org-scoped** | Increment in the same transaction as the object row. |
+| 228 | `storage/storage-usage-reconcile.service.ts:231` | prisma | `findMissing` | storage_object | org id from the reconcile | **system** | Count of the org's live rows older than the walk. |
+| 229 | `storage/storage-usage-reconcile.service.ts:268` | prisma | `loadSmallReferenceMaps` | item, group, user, organization | none (URL pattern bound as a parameter) | **system** | Reconcile: which org owns each older public image key. Read once per run; nothing is returned to a user. |
+| 230 | `storage/storage-usage-reconcile.service.ts:300` | prisma | `attribute` | storage_object | keys listed from the bucket | **system** | Reconcile: owner of an older key from a deleted ledger row. |
+| 231 | `storage/storage-usage-reconcile.service.ts:303` | prisma | `attribute` | feature_attachment, item | keys listed from the bucket | **system** | Reconcile: owner of an older attachment key, served by feature_attachment_storage_key_idx. |
+| 232 | `storage/storage-usage-reconcile.service.ts:314` | prisma | `attribute` | item | keys listed from the bucket | **system** | Reconcile: owner of an older file key, one containment probe per key (item_data_gin, storage_ref index). |
 
 ## Keeping this up to date
 

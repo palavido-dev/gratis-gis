@@ -135,13 +135,15 @@ export class StorageLedgerService {
 
   /**
    * Set one org's object totals to the sum of its live ledger rows and
-   * return what changed. The totals row is locked first, so an upload
+   * return what changed. The stored drift is `repaired` (what the
+   * reconcile changed in the rows) plus any gap between the totals and
+   * the rows. The totals row is locked first, so an upload
    * that commits during the recount is either inside the sum or adds
    * itself after it, never both and never neither.
    */
   async recountOrg(
     orgId: string,
-    drift: { bytes: number; objects: number } = { bytes: 0, objects: 0 },
+    repaired: { bytes: number; objects: number } = { bytes: 0, objects: 0 },
   ): Promise<{ bytesBefore: number; bytesAfter: number; objectsBefore: number; objectsAfter: number }> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw(Prisma.sql`
@@ -153,11 +155,15 @@ export class StorageLedgerService {
         SELECT COALESCE(SUM(bytes), 0)::bigint AS bytes, COUNT(*)::bigint AS objects
           FROM storage_object WHERE org_id = ${orgId}::uuid AND deleted_at IS NULL`);
       const after = sum[0] ?? { bytes: 0n, objects: 0n };
+      const driftBytes =
+        BigInt(Math.trunc(repaired.bytes)) + after.bytes - (before[0]?.bytes ?? 0n);
+      const driftObjects =
+        Math.trunc(repaired.objects) + Number(after.objects - (before[0]?.objects ?? 0n));
       await tx.$executeRaw(Prisma.sql`
         UPDATE org_storage_usage
            SET bytes = ${after.bytes}, objects = ${after.objects},
-               reconciled_at = now(), drift_bytes = ${BigInt(Math.trunc(drift.bytes))},
-               drift_objects = ${Math.trunc(drift.objects)}, updated_at = now()
+               reconciled_at = now(), drift_bytes = ${driftBytes},
+               drift_objects = ${driftObjects}, updated_at = now()
          WHERE org_id = ${orgId}::uuid`);
       return {
         bytesBefore: Number(before[0]?.bytes ?? 0n),

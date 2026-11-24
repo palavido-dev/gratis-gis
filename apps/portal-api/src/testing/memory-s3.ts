@@ -98,7 +98,12 @@ export class MemoryS3 {
         return {};
       case 'ListObjectsV2Command': {
         const prefix = typeof i.Prefix === 'string' ? i.Prefix : '';
-        const after = typeof i.ContinuationToken === 'string' ? i.ContinuationToken : '';
+        const after =
+          typeof i.ContinuationToken === 'string'
+            ? i.ContinuationToken
+            : typeof i.StartAfter === 'string'
+              ? i.StartAfter
+              : '';
         const keys = [...this.objects.keys()]
           .filter((k) => k.startsWith(prefix) && k > after)
           .sort();

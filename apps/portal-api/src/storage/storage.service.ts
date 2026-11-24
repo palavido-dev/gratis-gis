@@ -1007,6 +1007,7 @@ export class StorageService implements OnModuleInit {
   async *listObjectPages(
     prefix: string,
     owner: ObjectOwner,
+    startAfter?: string,
   ): AsyncGenerator<Array<{ key: string; sizeBytes: number; lastModified: Date | null }>> {
     StorageService.checkListPrefix(prefix, owner);
     await this.ensureReady();
@@ -1016,7 +1017,11 @@ export class StorageService implements OnModuleInit {
         new ListObjectsV2Command({
           Bucket: this.bucket,
           Prefix: prefix,
-          ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+          ...(continuationToken
+            ? { ContinuationToken: continuationToken }
+            : startAfter
+              ? { StartAfter: startAfter }
+              : {}),
         }),
       );
       const page: Array<{ key: string; sizeBytes: number; lastModified: Date | null }> = [];
