@@ -133,7 +133,7 @@ export function leakedSecrets(res: ApiResult, req: BuiltRequest, victim: OrgFixt
 }
 
 const short = (r: ApiResult): string =>
-  `${r.status} ${r.text.slice(0, Number(process.env.ISO_DETAIL ?? 160)).replace(/\s+/g, ' ')}`;
+  `${r.status} ${r.text.slice(0, 160).replace(/\s+/g, ' ')}`;
 
 // ---------------------------------------------------------------- checks
 
