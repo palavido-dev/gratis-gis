@@ -159,7 +159,7 @@ import {
   type MapCanvasHandle,
 } from '../map/map-canvas';
 import { ElevationProfileTool } from '../map/elevation-profile';
-import { WhatsHereTool } from '../map/whats-here/whats-here-tool';
+import { useSharedWhatsHere, WhatsHereTool } from '../map/whats-here/whats-here-tool';
 import { resolveDemForBbox } from '@/lib/dem-resolver';
 import {
   geolocationBlock,
@@ -8061,6 +8061,11 @@ function WhatsHereWidgetRender({ widget }: { widget: CustomWidget }) {
   const map = ctx?.maps[mapWidgetId] ?? null;
   const layers = ctx?.states[mapWidgetId]?.mapData.layers ?? NO_LAYERS;
   const [active, setActive] = useState(false);
+  // A share link (#wh=) opens the panel on its area once the map is up.
+  const shared = useSharedWhatsHere();
+  useEffect(() => {
+    if (shared && map) setActive(true);
+  }, [shared, map]);
 
   const setSuppressed = ctx?.setPopupSuppressed;
   useEffect(() => {
@@ -8090,6 +8095,7 @@ function WhatsHereWidgetRender({ widget }: { widget: CustomWidget }) {
         open={active}
         onClose={() => setActive(false)}
         mapLayers={layers}
+        shared={shared}
         {...(areaUnit ? { defaultAreaUnit: areaUnit } : {})}
         {...(lengthUnit ? { defaultLengthUnit: lengthUnit } : {})}
       />

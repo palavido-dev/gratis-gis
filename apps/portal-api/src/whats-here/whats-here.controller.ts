@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
@@ -25,6 +25,7 @@ export class WhatsHereController {
    */
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @HttpCode(200)
   @Post('report')
   async report(
     @Req() req: Request & { user?: AuthUser },

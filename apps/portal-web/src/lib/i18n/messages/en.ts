@@ -1042,6 +1042,12 @@ export const en = {
     csvArea: 'Area',
     csvLength: 'Length',
     csvPercent: 'Percent of area',
+    copyLink: 'Link',
+    copyLinkHint: 'Copy a link that opens this area',
+    linkCopied: 'Link copied. Anyone who can open this map sees the same area.',
+    linkCopyByHand: 'Copy this link:',
+    linkTooBig: 'This area is too detailed to share as a link. Try fewer shapes.',
+    linkArea: 'This area came from a link. Choose Draw, Point, Address or Pick shapes to start a new one.',
     report: {
       button: 'PDF',
       title: "What's here report",
