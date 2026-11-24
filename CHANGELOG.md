@@ -27,9 +27,14 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   on the page. Uploads stream in parts, are checked by size and
   checksum, run one at a time per install, and keep the newest good
   copy whatever the retention. Each portal claims its own folder in the
-  bucket. Large object stores are mirrored file by file, tracked in a
-  local index, instead of re-uploaded nightly. A failed copy, or no good
-  copy for a set number of days, raises a notice. Set it on Admin,
+  bucket. A backup whose upload time limit would be more than the 24
+  hours between nightly backups (about 19 GB) is not sent: its off-site
+  copy fails with a message that says so, and the page shows the newest
+  backup's size and upload time limit. Uploading a backup again reuses
+  an earlier upload that is complete and signed, and otherwise uploads
+  under a new name, so an object a signed record may describe is never
+  replaced. A failed copy, or no good copy for a set number of days,
+  raises a notice. Set it on Admin,
   Backup (operator admins) or with `BACKUP_OFFSITE_*` variables, which
   are checked the same way. Plain http endpoints need
   `BACKUP_OFFSITE_ALLOW_HTTP` and this server's loopback address needs
@@ -50,36 +55,32 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   Ed25519 by a signing key the server makes for itself and stores
   under `CREDENTIAL_ENCRYPTION_KEY`. The signature covers a short
   manifest: the copy's name, folder, install id, exact size, SHA-256 of
-  the encrypted bytes, encryption key fingerprint and time; mirror runs
-  sign their `done.json`, and the file index now records the size and
-  SHA-256 of every mirrored file. The page shows the verify key
+  the encrypted bytes, encryption key fingerprint and time. The page shows the verify key
   (`ggver1:...`) with its fingerprint, a "Check my verify key" step and
   a "Make a new signing key" action (operator admins, audited, with a
   notice). `offsite-key.mjs trust` adds verify keys to the key file
   (written to a new file, same passphrase), `verify` checks a copy, and
   `decrypt --sidecar` checks before it decrypts. The restore checks the
   signature against the key file before it downloads or changes
-  anything, checks every object's size and SHA-256 against the signed
+  anything, and checks the copy's size and SHA-256 against the signed
   record before decrypting. With no verified copy it offers, in order,
   one signed for another portal install (checked against its signed
   record), one naming a verify key the file does not hold (shown as an
   unchecked claim), then an unsigned one, each used only with its own
   option (`--allow-foreign-install`, `--allow-untrusted-signer`,
   `--allow-unsigned-copy`) or its own typed word, and says which kind it
-  is and what was and was not checked. A mirror restore checks that
-  every file of the run is in the bucket with its size before it
-  changes anything. Mirrored files get a new random name on every
-  upload and are never replaced, so a lost local index never breaks an
-  older run; files the index does not know are removed once every run
-  in the bucket was started by this server, at most 1000 per pass.
+  is and what was and was not checked.
   Retention reads every copy's record before it deletes anything and
   stops, deleting nothing, if one cannot be read. It never counts a
   badly signed copy as the newest good one; it keeps it and sends one
-  summary notice per pass, reading at most 100 such copies of each kind
-  per pass. A signing key the server replaces by itself does not keep
-  the old verify key as trusted, and the notice says whether the server
+  summary notice per pass, reading at most 100 such copies per pass.
+  When the stored signing key can no longer be opened, the server makes
+  a new one and keeps the old verify key as an earlier key, so copies it
+  signed still count; only a stored key that opens to another key than
+  its verify key loses that trust. The notice says whether the server
   or an admin made the change. A restored server makes a new signing
-  key.
+  key, and keeps the backup's verify key as an earlier key only when
+  the restored copy's signature was checked with it.
   New routes: `POST /api/admin/backup/offsite/signing-key` and
   `POST /api/admin/backup/offsite/check-verify-key`, both operator only.
 - The help page and `docs/operations/offsite-backup-format.md` say
@@ -101,7 +102,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   database first, checking the saved file reads back. The restored
   server gets a new off-site install id; "Take over this folder" on
   Admin, Backup makes it the folder's owner when it replaces the old
-  server. `install.sh --check` says whether off-site backups are set up.
+  server. `infra/recovery/restore.sh` now leaves the restored portal's
+  off-site copies off the same way, with a new install id and no
+  signing key from the bundle. `install.sh --check` says whether
+  off-site backups are set up.
 - Save as for maps: make your own copy of any map you can open, from
   the map builder or the map's page, with unsaved changes and,
   optionally, its markup. The copy starts private. `POST

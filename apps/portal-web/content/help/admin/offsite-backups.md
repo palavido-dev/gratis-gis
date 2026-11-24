@@ -70,8 +70,7 @@ from then on open only with the new key's file.
 A replaced key affects only new copies. Copies made before still
 open only with the old key file and its passphrase: keep both until
 those copies have aged out of the retention window. The portal never
-re-reads or re-encrypts old copies. In mirror mode, a new key means every
-file is uploaded again, once.
+re-reads or re-encrypts old copies.
 
 Never paste a private key or a passphrase into the portal. It refuses
 them.
@@ -126,10 +125,12 @@ signing key; add that one too.
 
 If the stored signing key can no longer be opened (for example because
 `CREDENTIAL_ENCRYPTION_KEY` changed), the portal makes a new one by
-itself and the notice says so. The portal then no longer counts copies
-signed with the old key as its own good copies; they are set aside and
-kept, not deleted. A restore with a key file that holds the old verify
-key still checks them.
+itself and the notice says so. The old verify key stays one of the
+portal's earlier keys, so copies signed with it still count as good and
+age out as usual. Only if the stored signing key opens but does not
+match its verify key is that verify key no longer trusted: copies
+signed with it are then set aside, kept and not deleted. A restore with
+a key file that holds the old verify key still checks them.
 
 Copies made before signing existed, and every copy while your key file
 has no verify key yet, cannot be checked. The restore uses such a copy
@@ -161,8 +162,17 @@ the fingerprint of the key it was encrypted to. A failed copy has an
 **Upload again** button. A failed copy never changes the local backup:
 it stays on the server as usual. **Upload again** is refused for a
 backup older than the retention window (it would be deleted again at
-once), and in mirror mode for anything but the newest backup, because a
-mirrored copy always holds the files as they are now.
+once).
+
+When a backup is uploaded again, the portal first looks for an earlier
+upload of it. If one is complete, signed by this portal for this
+folder, and the stored size is the signed size, it is used as it is and
+nothing is sent. Otherwise the copy goes up under a new name, with
+`-r2`, `-r3` and so on before `.tar.gz`, so a file that a signed record
+may describe is never replaced. Pieces of an earlier upload that did
+not finish are removed only after the new copy and its `.json` file are
+both in the bucket. An earlier copy that is complete but does not
+check is left as it is; retention sets it aside.
 
 One off-site upload runs at a time for the whole portal. A backup that
 finishes while another copy is uploading is not copied off-site; use
@@ -176,39 +186,16 @@ marked failed, a notice goes out, and the next upload can start.
 A notice goes to the operator admins when a copy fails, and when no
 copy has succeeded for the number of days you set (3 by default).
 
-### Large object stores
+### Very large backups
 
-Object storage over the **mirror threshold** (50 GB by default) is not
-re-uploaded inside the archive every night. Instead the database dump
-is uploaded on its own, and files are copied one by one, only when they
-are new or changed since the last copy. Files deleted on the portal
-stay in the bucket until no copy inside the retention window refers to
-them. The backup history says which mode ran.
-
-The portal cannot read its own copies, so it keeps a record of what it
-uploaded in its database. Every file it uploads gets a new random name,
-and no file in the bucket is ever replaced. If the record is lost (for
-example after a restore), the next run uploads every file again under
-new names, and the older copies keep the files they refer to. Files the
-record does not know are kept while any copy made before the record was
-lost is still in the bucket. Once those copies have aged out of the
-retention window, retention removes such files by itself, up to 1000 a
-pass, and only files more than 7 days old. Do not add a lifecycle rule
-that deletes files in `mirror/objects/` by age: a file can stay in use
-by new copies long after it was uploaded.
-
-Mirror mode needs `CREDENTIAL_ENCRYPTION_KEY` (set by the installer):
-it keeps the key that names the files in the bucket with it.
-
-**Limits.** While a mirrored copy runs, the server holds about 40 bytes
-of memory per file in the bucket (40 MB per million files). The list of
-files in each run is written to a temporary file next to the local
-archive and removed afterwards; it may grow to 2 GB, about 13 million
-files. A store with more files than that cannot be mirrored.
-
-A very large database (an `observation` table of tens of gigabytes) is
-slow to dump every night. Large installs may prefer continuous database
-archiving once it is available.
+A backup is copied off-site only when its upload time limit (above)
+fits in the 24 hours between nightly backups, which is a backup of
+about 19 GB. The off-site copy of a larger backup fails with a message
+that says so, and the usual notice goes out; the local backup is not
+affected. The page shows the size of the newest backup and its upload
+time limit, so you can see a backup growing towards that size. Very
+large installs whose backup cannot be uploaded each night are not
+covered by this feature yet.
 
 ## What is in the bucket
 
@@ -230,8 +217,8 @@ newest copy and never deleted by retention. The same happens to a copy
 whose signature does not check with this portal's verify keys. The
 operator admins get one notice per retention pass with how many copies
 were set aside and why; the same copies are not announced twice. Each
-pass reads at most 100 badly signed copies of each kind; older copies
-then wait for a later pass, and nothing older is deleted in that pass.
+pass reads at most 100 badly signed copies; older copies then wait for
+a later pass, and nothing older is deleted in that pass.
 Retention counts a signed copy as the newest good one; copies made
 before signing existed count until the first signed copy is there, then
 age out as usual.
@@ -245,11 +232,7 @@ admins get a notice (at most once a day).
 | `gratisgis-install.json` | Which portal owns this folder |
 | `archives/backup-<time>-<id>.tar.gz.enc` | The whole backup archive, encrypted |
 | `archives/backup-<time>-<id>.tar.gz.enc.json` | Size and SHA-256 of the file above, signed by the portal |
-| `mirror/runs/<time>-<id>/` | Database dump, file index and manifest of one mirrored run, encrypted; `done.json` holds their sizes and SHA-256, signed by the portal |
-| `mirror/objects/<name>.enc` | One stored file, encrypted |
-
-File names inside `mirror/objects/` are random, so the bucket shows
-neither the names nor anything about the content of your uploads.
+| `archives/backup-<time>-<id>-r<n>.tar.gz.enc` | The same backup, uploaded again under a new name, with its own `.json` file |
 
 ## Protect the copies
 
@@ -380,8 +363,8 @@ working, the original `CREDENTIAL_ENCRYPTION_KEY`.
    sudo infra/restore-from-offsite.sh --env-file infra/.env.prod --list
    ```
 
-5. Restore the newest copy (or name one with `--archive`, or a mirrored
-   run with `--mirror-run`, as `--list` prints them):
+5. Restore the newest copy (or name one with `--archive`, as `--list`
+   prints them):
 
    ```bash
    sudo infra/restore-from-offsite.sh --env-file infra/.env.prod \
@@ -400,7 +383,7 @@ Nothing is downloaded or changed before that. It stops if the copy was
 made for another key. It refuses a database that is in use (it has
 users) unless you add `--replace-existing`. In a script,
 `--confirm-database NAME` replaces the typing, and then the copy must be
-named with `--archive` or `--mirror-run`.
+named with `--archive`.
 
 When no copy verifies, the script offers the best one left, in this
 order, and uses it only with that kind's own option, or when you type
@@ -408,39 +391,43 @@ its word in a terminal. Each option allows only its own kind:
 
 | The copy | Option | Word | What is checked |
 | --- | --- | --- | --- |
-| Signed with a verify key in your key file, but for another portal install | `--allow-foreign-install` | `FOREIGN` | The signature, and the size and SHA-256 of every file against the signed record. Not checked: that this folder's portal made it. |
-| Names a verify key your key file does not hold | `--allow-untrusted-signer` | `UNTRUSTED` | Not who made it: the named verify key is only a claim. Sizes and SHA-256 only against plain records in the bucket, which catches damage but not a deliberate change. |
-| Not signed (made before signing existed) | `--allow-unsigned-copy` | `UNSIGNED` | Not who made it. Sizes and SHA-256 only against plain records in the bucket, where there are any. |
+| Signed with a verify key in your key file, but for another portal install | `--allow-foreign-install` | `FOREIGN` | The signature, and the size and SHA-256 of the copy against the signed record. Not checked: that this folder's portal made it. |
+| Names a verify key your key file does not hold | `--allow-untrusted-signer` | `UNTRUSTED` | Not who made it: the named verify key is only a claim. Size and SHA-256 only against the plain `.json` file in the bucket, which catches damage but not a deliberate change. |
+| Not signed (made before signing existed) | `--allow-unsigned-copy` | `UNSIGNED` | Not who made it. Size and SHA-256 only against the plain `.json` file in the bucket, when it records them. |
 
 The script shows which kind the chosen copy is and what was and was
 not checked. A copy whose signature does not verify, or that was signed
 for another name or folder, is never restored.
 
 It then downloads the copy into the backups volume, checks its size and
-SHA-256 against the signed record, and only then decrypts it. For a
-mirrored run it also checks that every file the run lists is in the
-bucket with the recorded size; if one is missing, it stops before
-anything is changed. It stops
-the portal, **saves the current database with `pg_dump`** in
-the backups volume and checks that the saved file reads back, replaces
-the portal database, runs the database migrations, empties the new
-server's record of mirrored files, puts the stored files back (checking
-each one's SHA-256 again), starts
-the portal, and prints the number of organizations, users, items and
-stored files next to the numbers recorded in the backup.
+SHA-256 against the signed record (for a copy that is not verified,
+against its plain `.json` file), and only then decrypts it. It stops
+the portal, **saves the current database with `pg_dump`** in the
+backups volume and checks that the saved file reads back, replaces the
+portal database, runs the database migrations, puts the stored files
+back from the decrypted archive, starts the portal, and prints the
+number of organizations, users, items and stored files next to the
+numbers recorded in the backup.
 
 Off-site copies are **turned off** on the restored server, and it gets a
 new install id and a new signing key, so a test restore can never clean
 up the real portal's copies, and the old server's signing key is not
-reused. Add the new verify key to your key file. Once the new server is the one in use, turn off-site copies on
-again on Admin, Backup. The first copy stops because the folder still
+reused. The backup's verify key is kept as one of the portal's earlier
+keys only when the copy's signature was checked with it, so copies the
+old server signed still count once this server takes the folder over.
+Add the new verify key to your key file. Once the new server is the one
+in use, turn off-site copies on again on Admin, Backup. The first copy stops because the folder still
 belongs to the old install: open **Take over this folder**, type the
 start of the old install id that the message shows, and the next copy
 goes ahead. Nothing in the folder is deleted when you take it over.
 
 A restore inside the portal (Admin, Backup, Restore) keeps the off-site
 settings the portal has now, not the ones in the archive, so an older
-backup never brings back an older key, signing key or bucket.
+backup never brings back an older key, signing key or bucket. A host
+recovery bundle restored with `infra/recovery/restore.sh` is treated
+like a restore on a new server: off-site copies are turned off, with a
+new install id and no signing key from the bundle, until you turn them
+on again on Admin, Backup.
 
 The download and the unpacked files need free disk of about twice the
 archive size. Identity (Keycloak users and passwords) is not in a
@@ -486,7 +473,6 @@ format is described in `docs/operations/offsite-backup-format.md`.
 | `BACKUP_OFFSITE_PUBLIC_KEY` | Your public key (`ggpub1:...`) |
 | `BACKUP_OFFSITE_RETENTION_DAYS` | Days to keep copies (30) |
 | `BACKUP_OFFSITE_ALERT_DAYS` | Days without a good copy before a notice (3) |
-| `BACKUP_OFFSITE_MIRROR_THRESHOLD_GB` | Copy files one by one above this (50) |
 
 Docker Compose reads `$` in `infra/.env.prod` as the start of a
 variable. If the secret access key contains a `$`, put it in a file
