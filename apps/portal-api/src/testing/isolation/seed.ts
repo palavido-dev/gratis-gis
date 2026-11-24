@@ -142,6 +142,16 @@ function must<T>(r: ApiResult, what: string): T {
   return r.body as T;
 }
 
+/** A map layer that shows one sublayer of a v3 data layer. */
+export function mapLayer(id: string, itemId: string): Record<string, unknown> {
+  return {
+    id,
+    name: 'Sites',
+    visible: true,
+    source: { kind: 'data-layer', itemId, layerKey: LAYER_ID },
+  };
+}
+
 /** Minimal item data per type. Types missing here get `{}`. */
 function itemData(type: string, layerItemId: string | undefined): Record<string, unknown> {
   switch (type) {
@@ -152,7 +162,7 @@ function itemData(type: string, layerItemId: string | undefined): Record<string,
           {
             id: LAYER_ID,
             name: 'Sites',
-            geometryType: 'Point',
+            geometryType: 'point',
             fields: [
               { name: 'status', type: 'string', label: 'Status', nullable: true },
               { name: 'note', type: 'string', label: 'Note', nullable: true },
@@ -161,9 +171,7 @@ function itemData(type: string, layerItemId: string | undefined): Record<string,
         ],
       };
     case 'map':
-      return layerItemId
-        ? { layers: [{ id: 'l1', itemId: layerItemId, layerId: LAYER_ID, visible: true }] }
-        : {};
+      return layerItemId ? { layers: [mapLayer('l1', layerItemId)] } : {};
     default:
       return {};
   }
@@ -284,11 +292,11 @@ async function seedOrg(pool: Pool, baseUrl: string, key: OrgKey): Promise<OrgFix
       await api(baseUrl, admin, 'POST', `/api/items/${layer}/layers/${LAYER_ID}/features`, {
         features: [
           {
-            geometry: { type: 'Point', coordinates: [-117.0 + (key === 'A' ? 0 : 0.5), 34.0] },
+            geometry: { type: 'Point', coordinates: pointFor(key, access, 0) },
             properties: { status: 'open', note: access === 'public' ? 'public row' : marker(key) },
           },
           {
-            geometry: { type: 'Point', coordinates: [-117.1 + (key === 'A' ? 0 : 0.5), 34.1] },
+            geometry: { type: 'Point', coordinates: pointFor(key, access, 0.1) },
             properties: {
               status: 'closed',
               note: access === 'public' ? 'public row' : marker(key),
@@ -432,6 +440,21 @@ async function seedOrg(pool: Pool, baseUrl: string, key: OrgKey): Promise<OrgFix
   );
   fx.secrets.push(fx.notificationId);
   return fx;
+}
+
+/**
+ * Where each layer's features sit. The private layers of A and B are
+ * far apart and far from the public ones, so an extent or a clip that
+ * used another org's private layer shows up in a bbox.
+ */
+export const AREAS = {
+  A: { private: [10, 50], public: [-117, 34] },
+  B: { private: [140, -35], public: [-116.5, 34] },
+} as const;
+
+function pointFor(key: OrgKey, access: 'private' | 'public', offset: number): [number, number] {
+  const [x, y] = AREAS[key === 'B' ? 'B' : 'A'][access];
+  return [x + offset, y + offset];
 }
 
 function featureIdsOf(body: unknown): string[] {

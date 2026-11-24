@@ -13,6 +13,7 @@ import {
   stopSuite,
   type SuiteState,
 } from './suite.js';
+import { topicsFor } from './topics.js';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 
@@ -37,6 +38,10 @@ d(
 
     afterAll(async () => {
       await stopSuite(state, TEST_URL!, 'multi');
+    });
+
+    it.each(topicsFor('multi'))('%s', async (name, topic) => {
+      expectVerdict('multi', `topic: ${name}`, await topic.run(state));
     });
 
     it.each(probeOrder())('%s', async (key, entry) => {

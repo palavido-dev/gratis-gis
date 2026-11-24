@@ -25,6 +25,16 @@ const existence = (what: string): KnownGap => ({
 });
 
 export const KNOWN_GAPS: Record<string, KnownGap> = {
+  "topic: map extent refresh and housekeeping recompute agree on another org's public layer": {
+    modes: BOTH,
+    area: 'map extents',
+    note: 'the background refresh counts a public layer of another org in a map extent; the housekeeping recompute does not',
+  },
+  'topic: map save refuses a layer the author cannot read': {
+    modes: BOTH,
+    area: 'item references',
+    note: 'a map can be saved with a layer id its author cannot read; reads through the map stay blocked',
+  },
   'GET /api/analysis-jobs/:jobId': existence('an analysis job'),
   'POST /api/analysis-jobs/:jobId/cancel': existence('an analysis job'),
   'GET /api/import-jobs/:jobId': existence('an import job'),
