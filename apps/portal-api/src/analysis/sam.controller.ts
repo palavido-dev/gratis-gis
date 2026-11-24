@@ -21,7 +21,12 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
-import { ObjectKeyRefusedError, orgOwner, samEmbedKeys } from '../storage/object-keys.js';
+import {
+  ObjectKeyRefusedError,
+  assertKeysMayBelongToOrg,
+  orgOwner,
+  samEmbedKeys,
+} from '../storage/object-keys.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
 
 /**
@@ -89,6 +94,8 @@ export class SamController {
         'The outline tool needs an imagery layer with its original image file.',
       );
     }
+    // The worker reads this file with the server's credentials.
+    assertKeysMayBelongToOrg([data.cogStorageKey], item.orgId);
     return item;
   }
 
@@ -236,6 +243,8 @@ export class SamController {
       }
       throw err;
     }
+    // Served: the per-item cap removes the least recently used first.
+    void this.storage.noteRead(key);
     res.status(200);
     res.setHeader('Content-Type', 'application/octet-stream');
     if (obj.contentLength !== undefined) {

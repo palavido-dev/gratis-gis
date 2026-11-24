@@ -14,8 +14,9 @@ import { isPointCloudData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { featureScopeFilter } from '../items/sharing.service.js';
-import { ItemsService } from '../items/items.service.js';
+import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { assertKeysMayBelongToOrg } from '../storage/object-keys.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { inCallerOrgOrNotFound } from '../common/org-not-found.js';
@@ -89,6 +90,17 @@ export class AnalysisService {
   }
 
   /**
+   * An item a job will read files from, after the read check. The
+   * worker reads those files with the server's credentials, so a key
+   * that names an organization must name this item's.
+   */
+  private async readJobSource(user: AuthUser, itemId: string) {
+    const item = await this.items.get(user, itemId);
+    assertKeysMayBelongToOrg(itemDataStorageKeys(item.data), item.orgId);
+    return item;
+  }
+
+  /**
    * Every analysis kind shares one FIFO queue across all orgs, and a
    * heavy job may run for hours. Without a cap one user could queue
    * hundreds and make every other org wait behind them. Same shape as
@@ -126,7 +138,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'point_cloud') {
       throw new BadRequestException('Hillshade runs on point cloud items.');
     }
@@ -225,7 +237,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'point_cloud') {
       throw new BadRequestException(
         'Elevation layers run on point cloud items.',
@@ -312,7 +324,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'tile_layer') {
       throw new BadRequestException(
         'Visibility runs on an elevation layer.',
@@ -412,7 +424,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'tile_layer') {
       throw new BadRequestException(
         'Contour lines run on an elevation layer.',
@@ -490,7 +502,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'tile_layer') {
       throw new BadRequestException(
         'Steepness runs on an elevation layer.',
@@ -556,7 +568,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'point_cloud') {
       throw new BadRequestException(
         'Height above ground runs on point cloud items.',
@@ -635,7 +647,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'point_cloud') {
       throw new BadRequestException(
         'Colorize runs on point cloud items.',
@@ -668,7 +680,7 @@ export class AnalysisService {
     }
     // ACL on the imagery item too: the worker downloads its COG under
     // the same org credentials the user can already read.
-    const raster = await this.items.get(user, rasterItemId);
+    const raster = await this.readJobSource(user, rasterItemId);
     if (raster.type !== 'tile_layer') {
       throw new BadRequestException(
         'Colorize needs an imagery layer (a map picture of the same area).',
@@ -792,7 +804,7 @@ export class AnalysisService {
         'Deriving layers requires the contributor or admin role.',
       );
     }
-    const source = await this.items.get(user, sourceItemId);
+    const source = await this.readJobSource(user, sourceItemId);
     if (source.type !== 'tile_layer') {
       throw new BadRequestException(
         'Zonal statistics run on a raster tile layer.',
