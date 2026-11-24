@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import type { OrgRole } from '@prisma/client';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import type { Organization, OrgRole } from '@prisma/client';
 import {
   BUILTIN_BASEMAP_SEEDS,
   PRINT_TEMPLATE_STARTERS,
@@ -9,6 +9,7 @@ import {
 } from '@gratis-gis/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { parseIntEnv } from '../common/env.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
 import {
   effectiveCapabilities,
@@ -134,9 +135,26 @@ export function isMasterAdminAccount(
   return master !== '' && orgRole === 'admin' && username === master;
 }
 
+/**
+ * The one refusal for a token whose org cannot be used in `multi`
+ * mode: the org is unknown, or the user already belongs to another
+ * org. Both cases get the same words, so the answer never tells the
+ * caller that some other org exists.
+ */
+export const NOT_ATTACHED_MESSAGE = 'This account is not attached to an organization.';
+
 @Injectable()
 export class AuthSyncService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private readonly log = new Logger(AuthSyncService.name);
+
+  /** At most one unknown-org warning per slug in this window. */
+  private static readonly UNKNOWN_ORG_LOG_INTERVAL_MS = 60_000;
+  /** Bound on the slugs remembered for that throttle. */
+  private static readonly UNKNOWN_ORG_LOG_MAX = 1_000;
+  /** Slug to the last time its unknown-org warning was written. */
+  private readonly unknownOrgLoggedAt = new Map<string, number>();
 
   private static readonly USER_CACHE_TTL_MS = parseIntEnv(
     'AUTH_USER_CACHE_TTL_MS',
@@ -371,9 +389,22 @@ export class AuthSyncService {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         orgSlug,
       );
+    const multi = isMultiTenant();
     let org = looksLikeUuid
       ? await this.prisma.organization.findUnique({ where: { id: orgSlug } })
       : null;
+    if (!org && multi) {
+      // Multi mode: a sign-in never creates an organization. Orgs are
+      // made by provisioning. An unknown slug (or an id that matches
+      // no org) is refused, with nothing written.
+      org = await this.prisma.organization.findUnique({
+        where: { slug: orgSlug },
+      });
+      if (!org) {
+        this.warnUnknownOrg(orgSlug);
+        throw new UnauthorizedException(NOT_ATTACHED_MESSAGE);
+      }
+    }
     if (!org) {
       // Read first, create only on a miss. This used to be an upsert
       // with an empty update, which Prisma still issues as a write
@@ -391,6 +422,7 @@ export class AuthSyncService {
           create: { slug: orgSlug, name: initialOrgName(orgSlug) },
         }));
     }
+    if (multi) this.assertOrgUsable(org);
 
     // We key on `username` rather than Keycloak's `sub`. The local user.id is
     // our own stable identifier (possibly seeded or provisioned before the user
@@ -455,6 +487,15 @@ export class AuthSyncService {
         'This account is disabled. Contact your organization admin.',
       );
     }
+    // Multi mode: a token never moves a user to another org. A row
+    // that already belongs to a different org is refused and left as
+    // it is. Moving a user is an operator action.
+    if (multi && existing !== null && existing.orgId !== org.id) {
+      this.log.error(
+        `Refused sign-in: user ${existing.id} (${JSON.stringify(existing.username)}) belongs to org ${existing.orgId} but the token names org ${JSON.stringify(orgSlug)} (${org.id})`,
+      );
+      throw new UnauthorizedException(NOT_ATTACHED_MESSAGE);
+    }
     // fullName only counts as changed when the token carries a name:
     // Prisma skips undefined fields, so the old upsert also left
     // fullName untouched for tokens without a `name` claim.
@@ -490,7 +531,10 @@ export class AuthSyncService {
                     email,
                     fullName: claims.name,
                     orgRole: normalisedRole,
-                    orgId: org.id,
+                    // Multi mode never writes orgId on an update: the
+                    // check above refuses a mismatch, and this keeps a
+                    // row created by a racing request where it is.
+                    ...(multi ? {} : { orgId: org.id }),
                   }
                 : {}),
               ...(protectNow ? { isProtected: true } : {}),
@@ -524,6 +568,15 @@ export class AuthSyncService {
         'This account is deleted. Contact your organization admin.',
       );
     }
+    // Multi mode, defense in depth: a request that raced this one may
+    // have created the row in another org between the read and the
+    // upsert. The update above did not move it; refuse the request.
+    if (multi && user.orgId !== org.id) {
+      this.log.error(
+        `Refused sign-in: user ${user.id} (${JSON.stringify(user.username)}) belongs to org ${user.orgId} but the token names org ${JSON.stringify(orgSlug)} (${org.id})`,
+      );
+      throw new UnauthorizedException(NOT_ATTACHED_MESSAGE);
+    }
 
     // Auto-disable enforcement (#85). When auto_disable_at is in
     // the past, refuse the request immediately so even a delayed
@@ -550,7 +603,10 @@ export class AuthSyncService {
     // Promise. Once it settles we mark the org as checked and drop the
     // in-flight entry so a transient failure doesn't permanently
     // disable seeding.
-    if (!this.basemapSeedChecked.has(org.id)) {
+    //
+    // Multi mode skips all four seeders below: a new org gets its
+    // built-ins when it is provisioned, not on a sign-in.
+    if (!multi && !this.basemapSeedChecked.has(org.id)) {
       let inFlight = this.basemapSeedInFlight.get(org.id);
       if (!inFlight) {
         inFlight = (async () => {
@@ -570,7 +626,7 @@ export class AuthSyncService {
     // app_template items.  Idempotent (skipped per-process once
     // an org is confirmed; idempotent against the DB via the
     // seed_kind unique check inside the seeder).
-    if (!this.appTemplateSeedChecked.has(org.id)) {
+    if (!multi && !this.appTemplateSeedChecked.has(org.id)) {
       let inFlight = this.appTemplateSeedInFlight.get(org.id);
       if (!inFlight) {
         inFlight = (async () => {
@@ -587,7 +643,7 @@ export class AuthSyncService {
     }
 
     // #22: the same dance for the five starter theme items.
-    if (!this.themeSeedChecked.has(org.id)) {
+    if (!multi && !this.themeSeedChecked.has(org.id)) {
       let inFlight = this.themeSeedInFlight.get(org.id);
       if (!inFlight) {
         inFlight = (async () => {
@@ -605,7 +661,7 @@ export class AuthSyncService {
 
     // #101: the same dance for the five starter print template
     // items.
-    if (!this.printTemplateSeedChecked.has(org.id)) {
+    if (!multi && !this.printTemplateSeedChecked.has(org.id)) {
       let inFlight = this.printTemplateSeedInFlight.get(org.id);
       if (!inFlight) {
         inFlight = (async () => {
@@ -632,6 +688,37 @@ export class AuthSyncService {
       org.slug,
     );
     return { user: principal, autoDisableAt: user.autoDisableAt };
+  }
+
+  /**
+   * Multi mode only: refuse a sign-in to an org that may not be used.
+   * Empty for now; the check for a suspended org goes here. Called on
+   * the uncached build path, so a cached principal keeps working until
+   * its entry expires or is invalidated.
+   */
+  private assertOrgUsable(_org: Organization): void {}
+
+  /**
+   * Warn that a token named an org this install does not have. At most
+   * once per slug per UNKNOWN_ORG_LOG_INTERVAL_MS, so one bad account
+   * retrying cannot flood the log.
+   */
+  private warnUnknownOrg(orgSlug: string): void {
+    const now = Date.now();
+    const last = this.unknownOrgLoggedAt.get(orgSlug);
+    if (
+      last !== undefined &&
+      now - last < AuthSyncService.UNKNOWN_ORG_LOG_INTERVAL_MS
+    ) {
+      return;
+    }
+    if (this.unknownOrgLoggedAt.size >= AuthSyncService.UNKNOWN_ORG_LOG_MAX) {
+      this.unknownOrgLoggedAt.clear();
+    }
+    this.unknownOrgLoggedAt.set(orgSlug, now);
+    this.log.warn(
+      `Refused sign-in: the token names org ${JSON.stringify(orgSlug)}, which does not exist`,
+    );
   }
 
   /**

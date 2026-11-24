@@ -6,6 +6,7 @@ import { AuthSyncService } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { KeycloakAdminService, type KeycloakUserRep } from './keycloak-admin.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
+import { isMultiTenant } from '../common/tenancy.js';
 
 /**
  * Eager Keycloak -> Prisma user mirror.
@@ -112,7 +113,13 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     softDeleted: number;
     skippedNoOrgAttr: number;
     skippedUnknownOrg: number;
+    /**
+     * Multi mode only: realm users whose local row belongs to another
+     * org than their `org` attribute names. Left as they are.
+     */
+    skippedOrgMismatch?: number;
   }> {
+    const multi = isMultiTenant();
     if (!this.kc.isConfigured()) {
       this.log.warn('reconcileAll skipped: Keycloak admin client is not configured');
       return {
@@ -124,6 +131,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         softDeleted: 0,
         skippedNoOrgAttr: 0,
         skippedUnknownOrg: 0,
+        ...(multi ? { skippedOrgMismatch: 0 } : {}),
       };
     }
 
@@ -132,6 +140,7 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
     let realmUsersSeen = 0;
     let skippedNoOrgAttr = 0;
     let skippedUnknownOrg = 0;
+    let skippedOrgMismatch = 0;
     let inserted = 0;
     let updated = 0;
 
@@ -189,12 +198,18 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
           softDeleted: 0,
           skippedNoOrgAttr,
           skippedUnknownOrg,
+          ...(multi ? { skippedOrgMismatch } : {}),
         };
       }
       pagesScanned++;
       pageCount++;
       if (page.length === 0) break;
       realmUsersSeen += page.length;
+
+      // Multi mode: the org each page user's local row is in now, read
+      // once per page, so a realm attribute never moves a user to
+      // another org (see the check before the upsert below).
+      const localByUsername = multi ? await this.localRowsFor(page) : null;
 
       for (const kcUser of page) {
         seenInRealm.add(kcUser.username.toLowerCase());
@@ -218,7 +233,8 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
           // Skipping is correct: we can't reconcile a user against
           // an org we don't have a row for. Auth-sync will create
           // the org on the user's first real sign-in and the next
-          // reconcile run will pick them up.
+          // reconcile run will pick them up. In multi mode neither
+          // path creates an org; provisioning does.
           skippedUnknownOrg++;
           continue;
         }
@@ -241,6 +257,21 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
         // Counted as seen before the write: a user whose row fails to
         // write below must not be tombstoned by the soft-delete pass.
         seenByOrg.get(orgId)?.add(kcUser.username.toLowerCase());
+        // Multi mode: a row that already belongs to another org is not
+        // moved and not updated. A disable made in Keycloak still
+        // reaches it, so the mismatch cannot keep a user enabled.
+        const local = localByUsername?.get(kcUser.username);
+        if (local && local.orgId !== orgId) {
+          skippedOrgMismatch++;
+          this.log.error(
+            `reconcileAll: not moving user ${local.id} (${JSON.stringify(kcUser.username)}) from org ${local.orgId} to org ${orgId} named by its Keycloak attribute`,
+          );
+          if (kcUser.enabled === false && local.disabledAt === null) {
+            await disableLocalAccount(this.prisma, local.id);
+            this.authSync.invalidate(local.id);
+          }
+          continue;
+        }
         let result: Awaited<ReturnType<typeof this.prisma.user.upsert>>;
         try {
           result = await this.prisma.user.upsert({
@@ -249,7 +280,9 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
               email,
               fullName,
               orgRole: role,
-              orgId,
+              // Multi mode never writes orgId on an update; the check
+              // above skips a mismatch read on this page.
+              ...(multi ? {} : { orgId }),
               // Clear tombstone if previously soft-deleted: the user
               // is back in the realm so they should be visible again.
               // Don't touch lastSeenAt here: this is a sync from
@@ -276,6 +309,15 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
           // so later users and the soft-delete pass never ran.
           this.log.warn(
             `Keycloak sync skipped user ${kcUser.username}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          continue;
+        }
+        // Multi mode, defense in depth: the row was created in another
+        // org after this page's read. The update did not move it.
+        if (multi && result.orgId !== orgId) {
+          skippedOrgMismatch++;
+          this.log.error(
+            `reconcileAll: not moving user ${result.id} (${JSON.stringify(kcUser.username)}) from org ${result.orgId} to org ${orgId} named by its Keycloak attribute`,
           );
           continue;
         }
@@ -370,7 +412,9 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
 
     const elapsed = Date.now() - tStart;
     this.log.log(
-      `reconcileAll done in ${elapsed}ms: pages=${pagesScanned} realmUsers=${realmUsersSeen} inserted=${inserted} updated=${updated} softDeleted=${softDeleted} skipped(noOrg)=${skippedNoOrgAttr} skipped(unknownOrg)=${skippedUnknownOrg}`,
+      `reconcileAll done in ${elapsed}ms: pages=${pagesScanned} realmUsers=${realmUsersSeen} inserted=${inserted} updated=${updated} softDeleted=${softDeleted} skipped(noOrg)=${skippedNoOrgAttr} skipped(unknownOrg)=${skippedUnknownOrg}${
+        multi ? ` skipped(orgMismatch)=${skippedOrgMismatch}` : ''
+      }`,
     );
 
     return {
@@ -382,7 +426,22 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
       softDeleted,
       skippedNoOrgAttr,
       skippedUnknownOrg,
+      ...(multi ? { skippedOrgMismatch } : {}),
     };
+  }
+
+  /**
+   * The local rows for one page of realm users, by exact username (the
+   * same match the upsert uses). Multi mode only.
+   */
+  private async localRowsFor(
+    page: KeycloakUserRep[],
+  ): Promise<Map<string, { id: string; orgId: string; disabledAt: Date | null }>> {
+    const rows = await this.prisma.user.findMany({
+      where: { username: { in: page.map((u) => u.username) } },
+      select: { id: true, username: true, orgId: true, disabledAt: true },
+    });
+    return new Map(rows.map((r) => [r.username, r]));
   }
 }
 

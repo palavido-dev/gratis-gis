@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import {
   BUILTIN_BASEMAP_SEEDS,
   PRINT_TEMPLATE_STARTERS,
@@ -7,7 +7,12 @@ import {
   THEME_STARTERS,
 } from '@gratis-gis/shared-types';
 
-import { AuthSyncService, isMasterAdminAccount } from './auth-sync.service.js';
+import {
+  AuthSyncService,
+  isMasterAdminAccount,
+  NOT_ATTACHED_MESSAGE,
+} from './auth-sync.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import type { KeycloakClaims } from './jwt.strategy.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 
@@ -435,5 +440,260 @@ describe('master admin protection on sign-in', () => {
     expect(isMasterAdminAccount('admin', 'contributor', {})).toBe(false);
     expect(isMasterAdminAccount('admin', 'admin', { PORTAL_MASTER_ADMIN: '' })).toBe(false);
     expect(isMasterAdminAccount('root', 'admin', { PORTAL_MASTER_ADMIN: 'root' })).toBe(true);
+  });
+});
+
+/**
+ * In `multi` mode a sign-in never creates an organization and
+ * never moves an existing user to another one. `single` mode keeps the
+ * old behaviour, which the specs above and the last block here cover.
+ */
+describe('org creation and user moves by tenancy mode', () => {
+  const SAVED_TENANCY = process.env.GRATIS_TENANCY;
+  const ORG_B = { id: 'org-2', slug: 'tucker', name: 'Tucker' };
+  const ORG_UUID = '30000000-0000-4000-8000-000000000001';
+  let now = T0;
+  let nowSpy: jest.SpiedFunction<typeof Date.now>;
+  let warnSpy: jest.SpiedFunction<Logger['warn']>;
+  let errorSpy: jest.SpiedFunction<Logger['error']>;
+
+  function setMode(mode: 'single' | 'multi' | undefined) {
+    if (mode === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = mode;
+    resetTenancyModeForTests();
+  }
+
+  beforeEach(() => {
+    now = T0;
+    nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    nowSpy.mockRestore();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+    if (SAVED_TENANCY === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = SAVED_TENANCY;
+    resetTenancyModeForTests();
+  });
+
+  /** A Prisma stub whose `organization` table holds exactly `orgs`. */
+  function prismaWithOrgs(
+    orgs: Array<{ id: string; slug: string; name: string }>,
+    user: ReturnType<typeof makeUserRow> | null,
+  ) {
+    const prisma = makePrisma(user ? { user } : {});
+    if (user === null) {
+      prisma.user.findUnique.mockResolvedValue(null as never);
+      prisma.user.upsert.mockImplementation(
+        async (args: { where: { username: string }; update: Record<string, unknown> }) =>
+          ({
+            ...makeUserRow({ id: 'sub-1' }),
+            ...((args as unknown as { create: Record<string, unknown> }).create ?? {}),
+          }) as never,
+      );
+    }
+    prisma.organization.findUnique.mockImplementation((async (args: {
+      where: { id?: string; slug?: string };
+    }) =>
+      orgs.find(
+        (o) =>
+          (args.where.id !== undefined && o.id === args.where.id) ||
+          (args.where.slug !== undefined && o.slug === args.where.slug),
+      ) ?? null) as never);
+    return prisma;
+  }
+
+  describe('multi', () => {
+    beforeEach(() => setMode('multi'));
+
+    it('refuses a token for an unknown org with 401 and creates no org', async () => {
+      const prisma = prismaWithOrgs([ORG], null);
+      const service = svc(prisma);
+      const err = await service
+        .upsertFromClaims(makeClaims({ org: 'new-slug' }))
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      expect((err as Error).message).toBe(NOT_ATTACHED_MESSAGE);
+      expect(prisma.organization.upsert).not.toHaveBeenCalled();
+      // Nothing else was read or written either: refused before the user.
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+      expect(prisma.item.createMany).not.toHaveBeenCalled();
+    });
+
+    it('logs the unknown slug at warn level, at most once a minute per slug', async () => {
+      const service = svc(prismaWithOrgs([ORG], null));
+      const tryOrg = (org: string) =>
+        service.upsertFromClaims(makeClaims({ org })).catch(() => undefined);
+      await tryOrg('new-slug');
+      await tryOrg('new-slug');
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(String(warnSpy.mock.calls[0]![0])).toContain('"new-slug"');
+      await tryOrg('other-slug');
+      expect(warnSpy).toHaveBeenCalledTimes(2);
+      now += 60_000;
+      await tryOrg('new-slug');
+      expect(warnSpy).toHaveBeenCalledTimes(3);
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses an existing user of org A presenting org B and leaves the row in org A', async () => {
+      // matt's row is in randolph (org-1); tucker exists too.
+      const prisma = prismaWithOrgs([ORG, ORG_B], makeUserRow());
+      const err = await svc(prisma)
+        .upsertFromClaims(makeClaims({ org: 'tucker' }))
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(UnauthorizedException);
+      // Same words as an unknown org: nothing confirms tucker exists.
+      expect((err as Error).message).toBe(NOT_ATTACHED_MESSAGE);
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+      expect(prisma.organization.upsert).not.toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(String(errorSpy.mock.calls[0]![0])).toContain('org-1');
+    });
+
+    it('creates a new user in a known org as before, without seeding built-ins', async () => {
+      const prisma = prismaWithOrgs([ORG], null);
+      const user = await svc(prisma).upsertFromClaims(makeClaims());
+      expect(user.orgId).toBe('org-1');
+      expect(user.orgSlug).toBe('randolph');
+      expect(prisma.user.upsert).toHaveBeenCalledTimes(1);
+      const args = prisma.user.upsert.mock.calls[0]![0] as unknown as {
+        create: Record<string, unknown>;
+      };
+      expect(args.create).toEqual(
+        expect.objectContaining({ id: 'sub-1', orgId: 'org-1', username: 'matt' }),
+      );
+      expect(prisma.organization.upsert).not.toHaveBeenCalled();
+      // Seeding belongs to provisioning in multi mode.
+      expect(prisma.item.findMany).not.toHaveBeenCalled();
+      expect(prisma.item.createMany).not.toHaveBeenCalled();
+    });
+
+    it('adds no query for a known org and an existing user', async () => {
+      const prisma = prismaWithOrgs([ORG], makeUserRow());
+      await svc(prisma).upsertFromClaims(makeClaims());
+      expect(prisma.organization.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.user.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.groupMember.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.userCapabilityOverride.findMany).toHaveBeenCalledTimes(1);
+      // The first request in a process always writes lastSeenAt.
+      expect(prisma.user.upsert).toHaveBeenCalledTimes(1);
+      expect(dbCalls(prisma)).toBe(5);
+    });
+
+    it('never writes orgId when updating a row in the same org', async () => {
+      const prisma = prismaWithOrgs([ORG], makeUserRow());
+      await svc(prisma).upsertFromClaims(makeClaims({ org_role: 'admin' }));
+      const args = prisma.user.upsert.mock.calls[0]![0] as unknown as {
+        update: Record<string, unknown>;
+      };
+      expect(args.update).toEqual(expect.objectContaining({ orgRole: 'admin' }));
+      expect(args.update).not.toHaveProperty('orgId');
+    });
+
+    it('refuses when a racing request created the row in another org', async () => {
+      const prisma = prismaWithOrgs([ORG], null);
+      // The read saw no row; by the upsert another request had made one
+      // in org-2, so the upsert lands in its update branch.
+      prisma.user.upsert.mockImplementation(
+        async (args: { where: { username: string }; update: Record<string, unknown> }) =>
+          ({ ...makeUserRow({ orgId: 'org-2' }), ...args.update }) as never,
+      );
+      await expect(svc(prisma).upsertFromClaims(makeClaims())).rejects.toThrow(
+        NOT_ATTACHED_MESSAGE,
+      );
+      const args = prisma.user.upsert.mock.calls[0]![0] as unknown as {
+        update: Record<string, unknown>;
+      };
+      expect(args.update).not.toHaveProperty('orgId');
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('looks a UUID-shaped claim up by id and uses that org', async () => {
+      const uuidOrg = { id: ORG_UUID, slug: 'acme', name: 'Acme' };
+      const prisma = prismaWithOrgs([uuidOrg], makeUserRow({ orgId: ORG_UUID }));
+      const user = await svc(prisma).upsertFromClaims(makeClaims({ org: ORG_UUID }));
+      expect(user.orgId).toBe(ORG_UUID);
+      expect(user.orgSlug).toBe('acme');
+      expect(prisma.organization.findUnique).toHaveBeenCalledWith({ where: { id: ORG_UUID } });
+      expect(prisma.organization.upsert).not.toHaveBeenCalled();
+    });
+
+    it('refuses a UUID-shaped claim that matches no org and creates nothing', async () => {
+      const prisma = prismaWithOrgs([ORG], null);
+      await expect(
+        svc(prisma).upsertFromClaims(makeClaims({ org: ORG_UUID })),
+      ).rejects.toThrow(NOT_ATTACHED_MESSAGE);
+      expect(prisma.organization.upsert).not.toHaveBeenCalled();
+      expect(prisma.user.upsert).not.toHaveBeenCalled();
+    });
+
+    it('drops a cached principal when the org claim changes, then refuses', async () => {
+      const prisma = prismaWithOrgs([ORG, ORG_B], makeUserRow());
+      const service = svc(prisma);
+      const first = await service.upsertFromClaims(makeClaims());
+      now += 1_000;
+      // Inside the TTL, but the org is part of the fingerprint: the
+      // cached org-1 principal is not served for an org=tucker token.
+      await expect(service.upsertFromClaims(makeClaims({ org: 'tucker' }))).rejects.toThrow(
+        NOT_ATTACHED_MESSAGE,
+      );
+      expect(prisma.user.findUnique).toHaveBeenCalledTimes(2);
+      // The entry is gone, so the original token is rebuilt, not served.
+      const again = await service.upsertFromClaims(makeClaims());
+      expect(again).not.toBe(first);
+      expect(again.orgId).toBe('org-1');
+      expect(prisma.user.findUnique).toHaveBeenCalledTimes(3);
+    });
+
+    it('runs the org hook on the build path', async () => {
+      const prisma = prismaWithOrgs([ORG], makeUserRow());
+      const service = svc(prisma);
+      const hook = jest.spyOn(
+        service as unknown as { assertOrgUsable: (o: unknown) => void },
+        'assertOrgUsable',
+      );
+      await service.upsertFromClaims(makeClaims());
+      expect(hook).toHaveBeenCalledWith(ORG);
+    });
+  });
+
+  describe('single', () => {
+    beforeEach(() => setMode(undefined));
+
+    it('still creates the org on first sign-in and seeds its built-ins', async () => {
+      const prisma = prismaWithOrgs([], null);
+      await svc(prisma).upsertFromClaims(makeClaims({ org: 'new-slug' }));
+      expect(prisma.organization.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ create: { slug: 'new-slug', name: 'new-slug' } }),
+      );
+      expect(prisma.item.findMany).toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('still moves an existing user to the org the token names', async () => {
+      const prisma = prismaWithOrgs([ORG, ORG_B], makeUserRow());
+      const user = await svc(prisma).upsertFromClaims(makeClaims({ org: 'tucker' }));
+      const args = prisma.user.upsert.mock.calls[0]![0] as unknown as {
+        update: Record<string, unknown>;
+      };
+      expect(args.update).toEqual(expect.objectContaining({ orgId: 'org-2' }));
+      expect(user.orgId).toBe('org-2');
+      expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not run the org hook', async () => {
+      const prisma = prismaWithOrgs([ORG], makeUserRow());
+      const service = svc(prisma);
+      const hook = jest.spyOn(
+        service as unknown as { assertOrgUsable: (o: unknown) => void },
+        'assertOrgUsable',
+      );
+      await service.upsertFromClaims(makeClaims());
+      expect(hook).not.toHaveBeenCalled();
+    });
   });
 });
