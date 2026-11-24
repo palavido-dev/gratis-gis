@@ -20,9 +20,10 @@ import { useFormat } from '@/lib/i18n/format';
 import { formatBytes } from '@/lib/format-bytes';
 
 /**
- * Off-site settings as GET /admin/backup/offsite returns them. The two
- * secrets are never sent to the browser; only whether each one is set
- * and where it came from.
+ * Off-site settings as GET /admin/backup/offsite returns them. The
+ * bucket secret is never sent to the browser; only whether it is set
+ * and where it came from. The public key is not a secret. The private
+ * key and its passphrase never come near the portal.
  */
 interface OffsiteConfig {
   enabled: boolean;
@@ -34,19 +35,22 @@ interface OffsiteConfig {
   accessKeyId: string | null;
   hasSecretAccessKey: boolean;
   secretAccessKeySource: 'database' | 'environment' | null;
-  hasPassphrase: boolean;
-  passphraseSource: 'database' | 'environment' | null;
+  publicKey: string | null;
+  publicKeyFingerprint: string | null;
+  publicKeySource: 'database' | 'environment' | null;
   retentionDays: number;
   alertDays: number;
   mirrorThresholdBytes: number;
   complete: boolean;
   missing: string[];
+  problems: string[];
   status: {
     lastSuccess: {
       runId: string;
       finishedAt: string;
       mode: string | null;
       bytes: string | null;
+      keyFingerprint: string | null;
     } | null;
     lastFailure: { runId: string; finishedAt: string | null; error: string | null } | null;
     running: { runId: string; startedAt: string | null } | null;
@@ -64,9 +68,8 @@ interface Draft {
   pathStyle: boolean;
   accessKeyId: string;
   secretAccessKey: string;
-  passphrase: string;
-  passphraseConfirm: string;
-  passphraseStored: boolean;
+  publicKey: string;
+  keyStored: boolean;
   retentionDays: number;
   alertDays: number;
   mirrorThresholdGb: number;
@@ -84,9 +87,8 @@ function toDraft(c: OffsiteConfig): Draft {
     pathStyle: c.pathStyle,
     accessKeyId: c.accessKeyId ?? '',
     secretAccessKey: '',
-    passphrase: '',
-    passphraseConfirm: '',
-    passphraseStored: false,
+    publicKey: '',
+    keyStored: false,
     retentionDays: c.retentionDays,
     alertDays: c.alertDays,
     mirrorThresholdGb: Math.round(c.mirrorThresholdBytes / GB),
@@ -102,6 +104,10 @@ async function serverMessage(res: Response): Promise<string | null> {
     return null;
   }
 }
+
+/** What the admin runs on their own computer; not translated. */
+const KEY_GENERATE = 'node offsite-key.mjs generate my-portal.ggkey';
+const KEY_PUBLIC = 'node offsite-key.mjs public my-portal.ggkey';
 
 const inputClass =
   'mt-1 w-full rounded-md border border-border bg-surface-0 px-2 py-1.5 text-sm text-ink-0 focus:border-accent focus:outline-none';
@@ -120,6 +126,9 @@ export function OffsiteSection() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
+  const [checkValue, setCheckValue] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -147,12 +156,12 @@ export function OffsiteSection() {
   if (!config || !draft) return null;
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft({ ...draft, [k]: v });
-  const newPassphrase = draft.passphrase.length > 0;
+  const newKey = draft.publicKey.trim().length > 0;
 
   async function save() {
     if (!draft || !config) return;
-    if (newPassphrase && !draft.passphraseStored) {
-      setMessage({ ok: false, text: t('adminBackup.offsite.passphraseStoredRequired') });
+    if (newKey && !draft.keyStored) {
+      setMessage({ ok: false, text: t('adminBackup.offsite.keyStoredRequired') });
       return;
     }
     setSaving(true);
@@ -172,10 +181,7 @@ export function OffsiteSection() {
       };
       // Secrets only when typed: a blank field keeps the saved one.
       if (draft.secretAccessKey) body.secretAccessKey = draft.secretAccessKey;
-      if (newPassphrase) {
-        body.passphrase = draft.passphrase;
-        body.passphraseConfirm = draft.passphraseConfirm;
-      }
+      if (newKey) body.publicKey = draft.publicKey.trim();
       const res = await fetch('/api/portal/admin/backup/offsite', {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
@@ -218,6 +224,52 @@ export function OffsiteSection() {
     }
   }
 
+  async function checkKey() {
+    setChecking(true);
+    setCheckResult(null);
+    try {
+      const res = await fetch('/api/portal/admin/backup/offsite/check-key', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ value: checkValue }),
+      });
+      if (!res.ok) {
+        setCheckResult({
+          ok: false,
+          text: (await serverMessage(res)) ?? t('adminBackup.offsite.checkKeyFailed'),
+        });
+        return;
+      }
+      const body = (await res.json()) as {
+        matches: boolean;
+        serverFingerprint: string | null;
+        checkedFingerprint: string;
+      };
+      setCheckResult(
+        body.matches
+          ? {
+              ok: true,
+              text: t('adminBackup.offsite.checkKeyMatch', {
+                fingerprint: body.serverFingerprint ?? '',
+              }),
+            }
+          : body.serverFingerprint === null
+            ? { ok: false, text: t('adminBackup.offsite.checkKeyNoServerKey') }
+            : {
+                ok: false,
+                text: t('adminBackup.offsite.checkKeyMismatch', {
+                  server: body.serverFingerprint,
+                  checked: body.checkedFingerprint,
+                }),
+              },
+      );
+    } catch {
+      setCheckResult({ ok: false, text: t('adminBackup.offsite.checkKeyFailed') });
+    } finally {
+      setChecking(false);
+    }
+  }
+
   const st = config.status;
   const secretHint =
     config.secretAccessKeySource === 'environment'
@@ -225,12 +277,8 @@ export function OffsiteSection() {
       : config.hasSecretAccessKey
         ? t('adminBackup.offsite.secretSaved')
         : null;
-  const passHint =
-    config.passphraseSource === 'environment'
-      ? t('adminBackup.offsite.secretFromEnv')
-      : config.hasPassphrase
-        ? t('adminBackup.offsite.passphraseSaved')
-        : null;
+  const keyHint =
+    config.publicKeySource === 'environment' ? t('adminBackup.offsite.secretFromEnv') : null;
 
   return (
     <section
@@ -266,6 +314,7 @@ export function OffsiteSection() {
               ? t('adminBackup.offsite.lastGood', {
                   when: fmt.dateTime(st.lastSuccess.finishedAt),
                   size: st.lastSuccess.bytes ? formatBytes(BigInt(st.lastSuccess.bytes)) : '?',
+                  fingerprint: st.lastSuccess.keyFingerprint ?? '?',
                 })
               : t('adminBackup.offsite.lastGoodNever')}
           </p>
@@ -279,6 +328,20 @@ export function OffsiteSection() {
           ) : null}
           {st.running ? <p>{t('adminBackup.offsite.uploading')}</p> : null}
         </div>
+
+        {config.problems.length > 0 ? (
+          <div
+            role="status"
+            className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800"
+          >
+            <p className="font-medium">{t('adminBackup.offsite.problemsTitle')}</p>
+            <ul className="mt-1 list-disc pl-5">
+              {config.problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <label className="flex items-center gap-2">
           <input
@@ -336,6 +399,7 @@ export function OffsiteSection() {
               onChange={(e) => set('prefix', e.target.value)}
               spellCheck={false}
             />
+            <span className="text-2xs text-muted">{t('adminBackup.offsite.folderHint')}</span>
           </label>
           <label className="flex items-end gap-2 pb-2 text-xs text-ink-1">
             <input
@@ -372,52 +436,99 @@ export function OffsiteSection() {
           </label>
         </div>
 
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 px-3 py-3">
+        <div className="rounded-md border border-red-400/60 bg-red-500/10 px-3 py-3">
           <p className="flex items-center gap-2 font-medium text-ink-0">
             <KeyRound className="h-4 w-4" aria-hidden />
-            {t('adminBackup.offsite.passphraseWarningTitle')}
+            {t('adminBackup.offsite.keyWarningTitle')}
           </p>
-          <p className="mt-1 text-xs text-ink-1">{t('adminBackup.offsite.passphraseWarning')}</p>
-          {config.hasPassphrase ? (
-            <p className="mt-1 text-xs text-ink-1">{t('adminBackup.offsite.passphraseChange')}</p>
+          <p className="mt-1 text-xs text-ink-1">{t('adminBackup.offsite.keyWarning')}</p>
+          <p className="mt-1 text-xs text-ink-1">
+            {t('adminBackup.offsite.keyHowTo', { command: KEY_GENERATE })}
+          </p>
+          {config.publicKeyFingerprint ? (
+            <p className="mt-2 font-mono text-xs text-ink-0">
+              {t('adminBackup.offsite.fingerprint', {
+                fingerprint: config.publicKeyFingerprint,
+              })}
+            </p>
+          ) : (
+            <p className="mt-2 text-xs font-medium text-danger">
+              {t('adminBackup.offsite.keyNone')}
+            </p>
+          )}
+          {config.publicKey ? (
+            <p className="mt-1 text-xs text-ink-1">{t('adminBackup.offsite.keyRotation')}</p>
           ) : null}
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="block">
-              <span className="text-xs font-medium text-ink-1">
-                {t('adminBackup.offsite.passphrase')}
-              </span>
-              <input
-                className={inputClass}
-                type="password"
-                value={draft.passphrase}
-                onChange={(e) => set('passphrase', e.target.value)}
-                autoComplete="new-password"
-              />
-              {passHint ? <span className="text-2xs text-muted">{passHint}</span> : null}
-            </label>
-            <label className="block">
-              <span className="text-xs font-medium text-ink-1">
-                {t('adminBackup.offsite.passphraseConfirm')}
-              </span>
-              <input
-                className={inputClass}
-                type="password"
-                value={draft.passphraseConfirm}
-                onChange={(e) => set('passphraseConfirm', e.target.value)}
-                autoComplete="new-password"
-              />
-            </label>
-          </div>
-          {newPassphrase ? (
+          <label className="mt-3 block">
+            <span className="text-xs font-medium text-ink-1">
+              {t('adminBackup.offsite.publicKey')}
+            </span>
+            <textarea
+              className={`${inputClass} font-mono`}
+              rows={2}
+              value={draft.publicKey}
+              onChange={(e) => set('publicKey', e.target.value)}
+              placeholder={config.publicKey ?? 'ggpub1:'}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <span className="text-2xs text-muted">
+              {keyHint ?? t('adminBackup.offsite.publicKeyHint')}
+            </span>
+          </label>
+          {newKey ? (
             <label className="mt-2 flex items-center gap-2 text-xs text-ink-0">
               <input
                 type="checkbox"
-                checked={draft.passphraseStored}
-                onChange={(e) => set('passphraseStored', e.target.checked)}
+                checked={draft.keyStored}
+                onChange={(e) => set('keyStored', e.target.checked)}
               />
-              {t('adminBackup.offsite.passphraseStored')}
+              {t('adminBackup.offsite.keyStored')}
             </label>
           ) : null}
+
+          <div className="mt-4 border-t border-border pt-3">
+            <p className="text-xs font-medium text-ink-0">
+              {t('adminBackup.offsite.checkKeyTitle')}
+            </p>
+            <p className="mt-1 text-xs text-ink-1">
+              {t('adminBackup.offsite.checkKeyHint', { command: KEY_PUBLIC })}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                className={`${inputClass} mt-0 flex-1 font-mono`}
+                value={checkValue}
+                onChange={(e) => setCheckValue(e.target.value)}
+                placeholder={t('adminBackup.offsite.checkKeyPlaceholder')}
+                aria-label={t('adminBackup.offsite.checkKeyTitle')}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={checkKey}
+                disabled={checking || checkValue.trim() === ''}
+                className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-60"
+              >
+                {checking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-4 w-4" />
+                )}
+                {checking ? t('adminBackup.offsite.checking') : t('adminBackup.offsite.checkKey')}
+              </button>
+            </div>
+            {checkResult ? (
+              <p
+                role="status"
+                className={
+                  checkResult.ok ? 'mt-2 text-xs text-emerald-700' : 'mt-2 text-xs text-danger'
+                }
+              >
+                {checkResult.text}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
@@ -518,6 +629,7 @@ export function OffsiteRunBadge({
     offsiteStatus?: string | null;
     offsiteMode?: string | null;
     offsiteError?: string | null;
+    offsiteKeyFingerprint?: string | null;
   };
   onChanged: () => void;
 }) {
@@ -553,11 +665,18 @@ export function OffsiteRunBadge({
   }
   if (run.offsiteStatus === 'succeeded') {
     return (
-      <span className="mt-1 flex items-center gap-1 text-2xs text-emerald-700">
-        <ShieldCheck className="h-3 w-3" aria-hidden />
-        {run.offsiteMode === 'mirror'
-          ? t('adminBackup.offsite.statusMirror')
-          : t('adminBackup.offsite.statusSucceeded')}
+      <span className="mt-1 flex flex-col text-2xs text-emerald-700">
+        <span className="flex items-center gap-1">
+          <ShieldCheck className="h-3 w-3" aria-hidden />
+          {run.offsiteMode === 'mirror'
+            ? t('adminBackup.offsite.statusMirror')
+            : t('adminBackup.offsite.statusSucceeded')}
+        </span>
+        {run.offsiteKeyFingerprint ? (
+          <span className="font-mono text-muted">
+            {t('adminBackup.offsite.statusKey', { fingerprint: run.offsiteKeyFingerprint })}
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -602,6 +721,7 @@ export function RestoreTestSection() {
   const [tests, setTests] = useState<RestoreTest[] | null>(null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmBytes, setConfirmBytes] = useState<number | null>(null);
   const poll = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -635,15 +755,36 @@ export function RestoreTestSection() {
 
   if (tests === null) return null;
 
-  async function start() {
+  async function start(confirmed: number | null = null) {
     setStarting(true);
     setError(null);
     try {
-      const res = await fetch('/api/portal/admin/backup/restore-tests', { method: 'POST' });
+      const res = await fetch('/api/portal/admin/backup/restore-tests', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(confirmed === null ? {} : { confirmBytes: confirmed }),
+      });
       if (!res.ok) {
-        setError((await serverMessage(res)) ?? t('adminBackup.test.failedToStart'));
+        const body = (await res.json().catch(() => null)) as {
+          message?: string;
+          needsConfirmation?: boolean;
+          databaseBytes?: number;
+        } | null;
+        if (
+          res.status === 409 &&
+          body?.needsConfirmation &&
+          typeof body.databaseBytes === 'number'
+        ) {
+          setConfirmBytes(body.databaseBytes);
+          return;
+        }
+        setError(
+          (typeof body?.message === 'string' && body.message) ||
+            t('adminBackup.test.failedToStart'),
+        );
         return;
       }
+      setConfirmBytes(null);
       await load();
     } finally {
       setStarting(false);
@@ -669,7 +810,7 @@ export function RestoreTestSection() {
         </div>
         <button
           type="button"
-          onClick={start}
+          onClick={() => void start()}
           disabled={starting || running}
           className="inline-flex shrink-0 items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-60"
         >
@@ -693,6 +834,31 @@ export function RestoreTestSection() {
           >
             {t('adminBackup.test.reminder')}
           </p>
+        ) : null}
+        {confirmBytes !== null ? (
+          <div
+            role="alertdialog"
+            className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-ink-0"
+          >
+            <p>{t('adminBackup.test.confirmSize', { size: formatBytes(BigInt(confirmBytes)) })}</p>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => void start(confirmBytes)}
+                disabled={starting}
+                className="rounded-md border border-accent bg-accent px-3 py-1 text-xs font-medium text-white disabled:opacity-60"
+              >
+                {t('adminBackup.test.confirmStart')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmBytes(null)}
+                className="rounded-md border border-border px-3 py-1 text-xs"
+              >
+                {t('adminBackup.test.cancel')}
+              </button>
+            </div>
+          </div>
         ) : null}
         {error ? <p className="text-xs text-danger">{error}</p> : null}
         {tests.length === 0 ? (
