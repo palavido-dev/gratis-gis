@@ -15,7 +15,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   records to add and can wait for them, and the install ends by waiting
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
-- `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
+- `GET /api/portal-info` reports a `tenancy` field (`single` on a standard install).
 - The public catalog feeds (OGC API Records, Features collections and
   Styles, STAC, CSW) take `?org=<slug>` like `catalog.json` does: the
   answer lists that organization's public items only, and the links in
@@ -101,8 +101,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Analysis jobs (hillshade, contours, mosaics, point cloud merges, the
   outline tool and the others) refuse a source file whose key names an
   organization other than that of the item the job runs on.
-
-- Installs with more than one organization: a layer's boundary clip on
+- A layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature
   routes, and a map's or editor's stored extent only draws on layers
   from its own organization or public ones.
@@ -140,6 +139,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The What's Here PDF covered only the first 30 layers of a map and left
+  the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed
   from the map no longer stays on the app's map. The app's Layers list
   still feeds charts and tables, and marks any layer that is not on the

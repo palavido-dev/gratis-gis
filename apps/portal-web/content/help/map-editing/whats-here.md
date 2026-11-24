@@ -126,6 +126,6 @@ On a public app, signed-out visitors see public layers only.
 - What's Here checks visible data layers. Tables, which have no
   shapes, are skipped.
 - An uploaded file can hold up to 2,000 shapes.
-- A PDF covers up to 30 layers.
+- A PDF covers up to 200 layers.
 - A very detailed area may be too long for a link, or too detailed
   to save as markup. Download it instead.
