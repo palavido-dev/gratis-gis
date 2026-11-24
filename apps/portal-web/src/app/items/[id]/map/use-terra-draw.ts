@@ -234,7 +234,7 @@ export function useTerraDraw(
           // (circle materialised as a polygon on finish).
           new td.TerraDrawCircleMode({ segments: 32 }),
           new td.TerraDrawRectangleMode(),
-          new td.TerraDrawFreehandMode(),
+          new td.TerraDrawFreehandMode({ drawInteraction: 'click-drag' }),
           new td.TerraDrawSelectMode({ flags: selectFlags(snapping) }),
         ],
       });
