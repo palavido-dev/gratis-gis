@@ -58,7 +58,9 @@ The purge fails closed when it is refused.
 Org assignment and org-role are set in Keycloak via user attributes. The
 portal-api `AuthSyncService` reads them from the token and updates the
 local `User` row when they change, so a role or org change in Keycloak
-takes effect at the next sign-in.
+takes effect at the next sign-in. With `GRATIS_TENANCY=multi` an org
+change is refused instead, and a sign-in never creates an org; see
+[org-creation.md](org-creation.md).
 
 Keycloak 26 drops attributes that the realm's user-profile schema does
 not declare. `deploy.sh`, `restore-golden.sh` and the NAS bootstrap
