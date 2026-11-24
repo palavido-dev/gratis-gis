@@ -1,0 +1,58 @@
+# Build the Postgres image on pull requests that change it.
+#
+# publish-images.yml builds infra/postgres/Dockerfile only after a
+# merge to main, so a broken apt line or a failed version check (the
+# pgBackRest 2.59.3 floor) would first show up on main. This job
+# builds the same image on the pull request, loads it into the
+# runner's Docker, and checks that pgBackRest runs. It pushes nothing.
+#
+# The cache is read from the publish job's scope, so an unchanged base
+# layer is not rebuilt. Nothing is written back to that scope.
+
+name: Postgres image
+
+on:
+  pull_request:
+    paths:
+      - infra/postgres/**
+      # Copied into the image by the Dockerfile.
+      - infra/init-prod-db.sql
+      - infra/init-prod-db.sh
+      - .github/workflows/postgres-image.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build postgres image (no push)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: infra
+          file: infra/postgres/Dockerfile
+          push: false
+          load: true
+          provenance: false
+          sbom: false
+          platforms: linux/amd64
+          tags: gratis-gis-postgres:pr
+          cache-from: type=gha,scope=postgres
+
+      - name: Tools in the image
+        run: |
+          set -euo pipefail
+          # As postgres: pgBackRest 2.59 and later refuse most commands as root.
+          docker run --rm -u postgres gratis-gis-postgres:pr pgbackrest version

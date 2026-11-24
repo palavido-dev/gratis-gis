@@ -15,6 +15,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   records to add and can wait for them, and the install ends by waiting
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
+- Opt-in continuous database backups for the VPS stack: an overlay
+  (`infra/docker-compose.pitr.yml`) that sends every WAL file, encrypted,
+  to an S3-compatible bucket with pgBackRest, plus setup, status and
+  restore scripts. Restores the portal and Keycloak databases to any
+  minute in the last 14 days. Off unless `infra/.env.pitr` exists. See
+  `docs/cloud/backup-design.md`. The Postgres image now includes
+  pgBackRest, so the next update restarts the database once.
 
 ## [1.7.0] - 2026-11-23
 

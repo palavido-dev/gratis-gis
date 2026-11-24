@@ -81,5 +81,69 @@ class BootstrapTests(unittest.TestCase):
         self.assertNotIn("https://${AUTH_DOMAIN}/admin/", text)
 
 
+def command_items(block: str) -> list[str]:
+    """The `- item` lines of a service's `command:` list, comments dropped."""
+    match = re.search(r"^    command:\n((?:      (?:- .*|#.*)\n)+)", block, re.M)
+    if not match:
+        raise AssertionError("no command list")
+    return [line.strip()[2:] for line in match.group(1).splitlines() if line.strip().startswith("- ")]
+
+
+class PitrOverlayTests(unittest.TestCase):
+    """infra/docker-compose.pitr.yml repeats the postgres command."""
+
+    PITR = (INFRA / "docker-compose.pitr.yml").read_text(encoding="utf-8")
+
+    def overlay_postgres(self) -> str:
+        match = re.search(r"^  postgres:\n(.*)", self.PITR, re.M | re.S)
+        self.assertIsNotNone(match)
+        return match.group(1)
+
+    def test_overlay_keeps_every_base_flag(self):
+        # Compose replaces `command` instead of merging it. A flag added
+        # to the base file and not here would be silently dropped on a
+        # server with continuous backups on.
+        base = command_items(service_block("postgres"))
+        overlay = command_items(self.overlay_postgres())
+        self.assertEqual(overlay[: len(base)], base)
+
+    def test_overlay_adds_archiving(self):
+        extra = command_items(self.overlay_postgres())[len(command_items(service_block("postgres"))) :]
+        self.assertIn("wal_level=replica", extra)
+        self.assertIn("archive_mode=${GG_PITR_ARCHIVE_MODE:-on}", extra)
+        self.assertIn("archive_command=pgbackrest --stanza=gratisgis archive-push %p", extra)
+        self.assertIn("archive_timeout=60", extra)
+
+    def test_base_file_does_not_archive(self):
+        # Self-host without the overlay must not change.
+        self.assertNotIn("archive_mode", uncommented(service_block("postgres")))
+
+    def test_secrets_stay_out_of_the_repo(self):
+        example = (INFRA / "pitr" / "pitr.env.example").read_text(encoding="utf-8")
+        for line in example.splitlines():
+            if line.startswith("PGBACKREST_"):
+                self.assertTrue(line.endswith("=CHANGE_ME"), line)
+        conf = uncommented((INFRA / "pitr" / "pgbackrest.conf").read_text(encoding="utf-8"))
+        for word in ("cipher-pass", "s3-key", "s3-bucket", "s3-endpoint"):
+            self.assertNotIn(word, conf)
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "infra/.env.pitr"], cwd=INFRA.parent, check=False
+        )
+        self.assertEqual(ignored.returncode, 0, "infra/.env.pitr must be git-ignored")
+
+    def test_queue_limit_and_alert_agree(self):
+        # The status alert is set at a quarter of the queue limit. If one
+        # changes without the other, the alert may come too late.
+        conf = (INFRA / "pitr" / "pgbackrest.conf").read_text(encoding="utf-8")
+        lib = (INFRA / "pitr" / "lib-pitr.sh").read_text(encoding="utf-8")
+        self.assertIn("\narchive-push-queue-max=8GiB\n", conf)
+        self.assertIn("PITR_QUEUE_LIMIT_BYTES=$((8 * 1073741824))", lib)
+
+    def test_deploy_keeps_the_overlay(self):
+        deploy = (INFRA / "deploy.sh").read_text(encoding="utf-8")
+        self.assertIn("if [[ -f infra/.env.pitr ]]; then", deploy)
+        self.assertIn("-f infra/docker-compose.pitr.yml", deploy)
+
+
 if __name__ == "__main__":
     unittest.main()

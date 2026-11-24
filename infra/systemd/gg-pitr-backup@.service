@@ -1,0 +1,16 @@
+[Unit]
+Description=GratisGIS continuous backup - %i backup to the pgBackRest repository
+After=docker.service
+Requires=docker.service
+# Opt-in. Only meaningful once infra/pitr-setup.sh has run.
+ConditionPathExists=/opt/gratis-gis/infra/.env.pitr
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/gratis-gis
+# %i is full or diff (gg-pitr-full.timer, gg-pitr-diff.timer). The
+# result file is read by the monitor (docs/cloud/backup-design.md).
+ExecStart=/opt/gratis-gis/infra/pitr-backup.sh %i --textfile-dir /var/lib/gratis-gis/pitr
+# A full backup of a large database can take hours. Do not let a
+# stuck upload run into the next day's backup.
+TimeoutStartSec=20h

@@ -1,0 +1,11 @@
+[Unit]
+Description=GratisGIS continuous backup - pgbackrest check every hour
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+Unit=gg-pitr-check.service
+
+[Install]
+WantedBy=timers.target

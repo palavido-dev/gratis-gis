@@ -111,3 +111,29 @@ sudo systemctl disable --now gg-reset-demo.timer
   again on top of a broken stack.
 - Downtime about 20 minutes on the demo (mostly the GIN index rebuild). Caddy stays up, so users hit a polite
   502 page rather than connection-refused.
+
+## Continuous backups (opt-in): gg-pitr-*
+
+Only for a server where `infra/pitr-setup.sh` has run. Every unit has
+`ConditionPathExists=/opt/gratis-gis/infra/.env.pitr`, so on any other
+server they do nothing. Design: `docs/cloud/backup-design.md`.
+
+| Unit | When | What |
+| --- | --- | --- |
+| `gg-pitr-full.timer` | Sunday 02:15 UTC | `pitr-backup.sh full` |
+| `gg-pitr-diff.timer` | Monday to Saturday 02:15 UTC | `pitr-backup.sh diff` |
+| `gg-pitr-status.timer` | every 5 minutes | `pitr-status.sh`, writes `/var/lib/gratis-gis/pitr/status.prom` |
+| `gg-pitr-check.timer` | hourly | `pitr-status.sh --check-only`, writes `check.prom` |
+
+The backup service writes `backup-full.prom` and `backup-diff.prom`
+in the same directory.
+
+```sh
+sudo cp infra/systemd/gg-pitr-* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now gg-pitr-full.timer gg-pitr-diff.timer \
+  gg-pitr-status.timer gg-pitr-check.timer
+# Status now, by hand:
+sudo /opt/gratis-gis/infra/pitr-status.sh
+journalctl -u gg-pitr-backup@full.service -n 100 --no-pager
+```

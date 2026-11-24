@@ -1,0 +1,11 @@
+[Unit]
+Description=GratisGIS continuous backup - weekly full backup, Sunday 02:15 UTC
+
+[Timer]
+OnCalendar=Sun *-*-* 02:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+Unit=gg-pitr-backup@full.service
+
+[Install]
+WantedBy=timers.target
