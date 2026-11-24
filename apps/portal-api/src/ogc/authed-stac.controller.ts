@@ -53,8 +53,8 @@ const UUID_RE =
  *
  * Authorization is the portal's one true pipeline, same as the authed
  * Features surface beside this file: listing filters with
- * SharingService.visibleWhere (the exact predicate the items list
- * uses), and single-item reads re-apply it in the WHERE rather than
+ * SharingService.listWhere (the exact predicate the items list
+ * uses), and single-item reads apply SharingService.visibleWhere in the WHERE rather than
  * fetching then checking, so an item the caller must not learn exists
  * answers 404.
  *
@@ -81,7 +81,7 @@ export class AuthedStacController {
   private rows(user: AuthUser): Promise<StacItemRow[]> {
     return this.prisma.item.findMany({
       where: {
-        AND: [{ type: 'tile_layer' }, this.sharing.visibleWhere(user)],
+        AND: [{ type: 'tile_layer' }, this.sharing.listWhere(user)],
       },
       select: STAC_ITEM_SELECT,
       orderBy: { updatedAt: 'desc' },

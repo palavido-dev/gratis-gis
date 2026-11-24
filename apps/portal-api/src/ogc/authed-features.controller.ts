@@ -64,7 +64,7 @@ import { absoluteBase } from '../public/ogc/url.js';
  * exactly the right credential (GET-only, item-scoped by sharing).
  *
  * Authorization is the portal's one true pipeline, not a copy:
- *   - Collection listing filters with SharingService.visibleWhere,
+ *   - Collection listing filters with SharingService.listWhere,
  *     the same predicate the items list uses, so the two can never
  *     disagree about what a caller sees.
  *   - Per-collection reads resolve through ItemsService.get, which
@@ -143,7 +143,7 @@ export class AuthedOgcFeaturesController {
     const base = absoluteBase(req);
     const rows = await this.prisma.item.findMany({
       where: {
-        AND: [{ type: 'data_layer' }, this.sharing.visibleWhere(user)],
+        AND: [{ type: 'data_layer' }, this.sharing.listWhere(user)],
       },
       select: {
         id: true,

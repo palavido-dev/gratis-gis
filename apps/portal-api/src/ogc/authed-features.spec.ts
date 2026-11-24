@@ -104,7 +104,7 @@ function makeController(overrides: Partial<Fakes> = {}) {
         ),
         userId: user.id,
       }),
-      visibleWhere: fakes.visibleWhere,
+      listWhere: fakes.visibleWhere,
     } as never,
     {
       listFeatures: fakes.listFeatures,
@@ -143,7 +143,7 @@ describe('authorization pipeline', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('the collection list filters with visibleWhere', async () => {
+  it('the collection list filters with listWhere', async () => {
     const { controller, fakes } = makeController();
     await controller.collections(USER, req);
     expect(fakes.visibleWhere).toHaveBeenCalledWith(USER);
