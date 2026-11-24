@@ -19,22 +19,31 @@
 #
 # What it does, in order:
 #   1. Open the key file with the passphrase, before anything else.
-#   2. Show what will be replaced (project, database, row counts) and
-#      ask you to type the database name. A database that is in use
-#      (it has users) is refused unless you pass --replace-existing.
-#   3. Download the newest complete copy (or the one named) into the
-#      backups volume, check its checksum and decrypt it. The work runs
-#      in the portal-api image, which already has the tools.
+#   2. Show the copy it will use (its name, date, size and the key it
+#      was encrypted to) and what will be replaced (project, database,
+#      row counts), and ask you to type the database name. Nothing has
+#      changed before this point. A database that is in use (it has
+#      users) is refused unless you pass --replace-existing. Without a
+#      terminal, --confirm-database also needs the copy named with
+#      --archive or --mirror-run.
+#   3. Download that copy into the backups volume, check its checksum
+#      and decrypt it. The work runs in the portal-api image, which
+#      already has the tools.
 #   4. Stop the portal's own services (not the database or MinIO).
 #   5. Save the current database with pg_dump into the backups volume,
-#      then replace it: drop it, create it empty, and restore the dump
-#      in one transaction that stops on the first error.
+#      check the saved file reads back, then replace the database: drop
+#      it, create it empty, and restore the dump in one transaction that
+#      stops on the first error.
 #   6. Run the database migrations, so an older backup matches this code.
-#   7. Empty this server's index of mirrored files and turn off-site
-#      copies off, so the new server never cleans up the bucket by
-#      mistake. Turn them on again on Admin, Backup.
+#   7. Empty this server's index of mirrored files, give this server a
+#      new off-site install id and turn off-site copies off, so it never
+#      cleans up the bucket by mistake. To make it the portal in use,
+#      turn them on again on Admin, Backup and take over the folder.
 #   8. Put the stored files back into MinIO.
 #   9. Start everything and print counts next to the backup's own.
+#
+# A copy dated in the future, or well after the provider recorded it,
+# is never picked as the newest; it is used only when named.
 #
 # The key file and the passphrase file are given to the restore helper
 # on standard input. Neither is ever an argument, an environment
@@ -78,14 +87,14 @@ ggo_env_value() {
   printf '%s\n' "$value"
 }
 
-# An archive name as the portal writes it.
+# An archive name exactly as the portal writes it.
 ggo_valid_archive() {
-  [[ "$1" =~ ^backup-[0-9A-Za-z-]+\.tar\.gz$ ]]
+  [[ "$1" =~ ^backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}-[0-9a-f]{8}\.tar\.gz$ ]]
 }
 
 # A mirror run folder name: <time stamp>-<8 hex>.
 ggo_valid_mirror_run() {
-  [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9-]+-[0-9a-f]{8}$ ]]
+  [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}-[0-9a-f]{8}$ ]]
 }
 
 # A database or role name safe to put inside double or single quotes in SQL.
@@ -105,11 +114,16 @@ ggo_kv() {
   return 0
 }
 
-# The time stamp at the front of an archive or mirror run name, for
-# picking the newer of the two kinds.
-ggo_stamp() {
-  local n="${1#backup-}"
-  printf '%s\n' "${n:0:23}"
+# Bytes as a short human figure.
+ggo_size() {
+  local b="$1"
+  if [[ ! "$b" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$b"
+  elif (( b >= 1073741824 )); then
+    printf '%s.%s GB\n' "$(( b / 1073741824 ))" "$(( b % 1073741824 * 10 / 1073741824 ))"
+  else
+    printf '%s MB\n' "$(( (b + 1048575) / 1048576 ))"
+  fi
 }
 
 ggo_compose() {
@@ -217,9 +231,12 @@ ggo_target_state() {
 }
 
 # Typed confirmation: --confirm-database, or the name typed on the terminal.
+# Without a terminal the copy must have been named, so a script never
+# restores whatever happens to be newest in the bucket.
 ggo_confirm() {
   if [[ -n "$CONFIRM_DB" ]]; then
     [[ "$CONFIRM_DB" == "$PG_DB" ]] || ggo_die "--confirm-database $CONFIRM_DB does not match the database $PG_DB"
+    [[ "$COPY_NAMED" == "1" ]] || ggo_die "with --confirm-database, name the copy with --archive or --mirror-run (see --list)"
     return 0
   fi
   if [[ ! -t 0 ]] || [[ ! -r /dev/tty ]]; then
@@ -258,25 +275,54 @@ ggo_main() {
   [[ -n "$fingerprint" ]] || ggo_die "the key file did not open; check the key file and its passphrase"
   echo "Key fingerprint: $fingerprint"
 
-  # Which copy: the one named, or the newest of either kind.
-  local mode="archive"
-  if [[ -n "$MIRROR_RUN" ]]; then
-    mode="mirror"
-  elif [[ -z "$ARCHIVE" ]]; then
-    local listing latest latest_mirror
-    listing="$(ggo_cli list)"
-    latest="$(ggo_kv latest <<<"$listing")"
-    latest_mirror="$(ggo_kv latestMirror <<<"$listing")"
-    [[ -z "$latest" && -z "$latest_mirror" ]] && ggo_die "no complete off-site copy was found"
-    if [[ -n "$latest_mirror" && ( -z "$latest" || "$(ggo_stamp "$latest_mirror")" > "$(ggo_stamp "$latest")" ) ]]; then
-      mode="mirror"
-      MIRROR_RUN="$latest_mirror"
-    else
-      ARCHIVE="$latest"
-    fi
+  # Which copy: the one named, or the newest good one of either kind.
+  # Nothing is downloaded or changed here.
+  COPY_NAMED=0
+  local describe_args=()
+  if [[ -n "$ARCHIVE" ]]; then
+    COPY_NAMED=1
+    describe_args=(--name "$ARCHIVE")
+  elif [[ -n "$MIRROR_RUN" ]]; then
+    COPY_NAMED=1
+    describe_args=(--run "$MIRROR_RUN")
+  fi
+  local described copy_kind copy_name copy_created copy_uploaded copy_bytes copy_fp copy_suspect
+  described="$(ggo_cli describe "${describe_args[@]}")" || ggo_die "could not find the copy to restore (see the message above)"
+  copy_kind="$(ggo_kv kind <<<"$described")"
+  copy_name="$(ggo_kv name <<<"$described")"
+  copy_created="$(ggo_kv created <<<"$described")"
+  copy_uploaded="$(ggo_kv uploaded <<<"$described")"
+  copy_bytes="$(ggo_kv bytes <<<"$described")"
+  copy_fp="$(ggo_kv fingerprint <<<"$described")"
+  copy_suspect="$(ggo_kv suspect <<<"$described")"
+  if [[ "$copy_kind" == "mirror" ]]; then
+    ggo_valid_mirror_run "$copy_name" || ggo_die "unexpected copy name"
+    MIRROR_RUN="$copy_name"
+    ARCHIVE=""
+  else
+    ggo_valid_archive "$copy_name" || ggo_die "unexpected copy name"
+    ARCHIVE="$copy_name"
+    MIRROR_RUN=""
+  fi
+  if [[ "$copy_fp" != "unknown" && "$copy_fp" != "$fingerprint" ]]; then
+    ggo_die "this copy was encrypted to the key $copy_fp, not to the key file given ($fingerprint)"
   fi
 
-  ggo_step "2. Check what will be replaced"
+  ggo_step "2. Check the copy and what it will replace"
+  echo "Copy:      $copy_name ($copy_kind)"
+  echo "Made:      $copy_created"
+  echo "Uploaded:  $copy_uploaded"
+  echo "Size:      $(ggo_size "$copy_bytes") encrypted"
+  echo "Key:       $copy_fp"
+  if [[ -n "$copy_suspect" ]]; then
+    echo ""
+    echo "WARNING: this copy is dated $([[ "$copy_suspect" == "future" ]] && echo "in the future" || echo "after the provider recorded its upload")."
+    echo "The portal did not make it with that date. Restore it only if you know where it came from."
+  fi
+  echo ""
+  echo "Restore a copy made before any suspected break-in or damage. Anyone who"
+  echo "could write to the bucket could have added a copy."
+  echo ""
   local state orgs users items
   state="$(ggo_target_state)"
   echo "Project:   $PROJECT"
@@ -293,23 +339,18 @@ ggo_main() {
       fi
       ;;
   esac
-  if [[ "$mode" == "mirror" ]]; then
-    echo "Restore:   mirrored run $MIRROR_RUN"
-  else
-    echo "Restore:   ${ARCHIVE:-the newest archive}"
-  fi
   ggo_confirm
 
   ggo_step "3. Download and decrypt"
   local fetched dump_cmd database objects archive_path=""
-  if [[ "$mode" == "mirror" ]]; then
-    fetched="$(ggo_cli_key fetch-mirror --out "$OUT_DIR" --run "$MIRROR_RUN")"
+  if [[ "$copy_kind" == "mirror" ]]; then
+    fetched="$(ggo_cli_key fetch-mirror --out "$OUT_DIR" --run "$MIRROR_RUN" --confirm-copy "$MIRROR_RUN")"
     local dump
     dump="$(ggo_kv dump <<<"$fetched")"
     [[ "$dump" == "$OUT_DIR/"* ]] || ggo_die "unexpected dump path"
     dump_cmd=(cat "$dump")
   else
-    fetched="$(ggo_cli_key fetch --out "$OUT_DIR" ${ARCHIVE:+--name "$ARCHIVE"})"
+    fetched="$(ggo_cli_key fetch --out "$OUT_DIR" --name "$ARCHIVE" --confirm-copy "$ARCHIVE")"
     archive_path="$(ggo_kv archive <<<"$fetched")"
     [[ "$archive_path" == "$OUT_DIR/"* ]] || ggo_die "unexpected archive path"
     database="$(ggo_kv database <<<"$fetched")"
@@ -334,11 +375,13 @@ ggo_main() {
     local safety
     safety="$OUT_DIR/pre-restore-${PG_DB}-$(date -u +%Y%m%dT%H%M%SZ).dump"
     # The inner script takes the path as $1; it is meant not to expand here.
+    # The saved file must be non-empty and list as a pg_dump archive
+    # before anything is dropped.
     # shellcheck disable=SC2016
     ggo_compose exec -T postgres pg_dump -Fc -U "$PG_USER" -d "$PG_DB" |
       ggo_compose run --rm -T --no-deps --entrypoint sh portal-api \
-        -c 'umask 077; mkdir -p "$(dirname "$1")" && cat >"$1"' sh "$safety" ||
-      ggo_die "could not save the current database; nothing was dropped"
+        -c 'umask 077; mkdir -p "$(dirname "$1")" && cat >"$1" && test -s "$1" && pg_restore -l "$1" >/dev/null' sh "$safety" ||
+      ggo_die "could not save the current database, or the saved copy does not read back; nothing was dropped"
     echo "The database as it was is saved in the backups volume: $safety"
   fi
   ggo_psql postgres \
@@ -351,16 +394,20 @@ ggo_main() {
   ggo_step "6. Run the database migrations"
   ggo_compose run --rm portal-migrate
 
-  ggo_step "7. Reset the off-site index"
+  ggo_step "7. Reset the off-site state"
+  # A new install id (the portal makes one on next use): this server
+  # does not own the bucket folder until an admin takes it over.
   ggo_psql "$PG_DB" \
     -c "TRUNCATE backup_offsite_object" \
-    -c "UPDATE backup_config SET offsite_enabled = false"
-  echo "Off-site copies are off on this server. Turn them on again on Admin, Backup once this server is the one in use."
+    -c "UPDATE backup_config SET offsite_enabled = false, offsite_install_id = NULL"
+  echo "Off-site copies are off on this server, and it does not own the bucket folder."
+  echo "If this server replaces the old one: on Admin, Backup, turn off-site copies on"
+  echo "and use \"Take over this folder\". For a test restore, leave them off."
 
   ggo_step "8. Put the stored files back"
   ggo_compose up -d minio
   local put
-  if [[ "$mode" == "mirror" ]]; then
+  if [[ "$copy_kind" == "mirror" ]]; then
     put="$(ggo_cli_key put-mirror-objects --run "$MIRROR_RUN")"
   else
     put="$(ggo_cli put-objects --archive "$archive_path")"

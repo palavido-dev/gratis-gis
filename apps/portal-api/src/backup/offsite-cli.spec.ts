@@ -265,6 +265,21 @@ describe('offsite-cli', () => {
     expect(out.find((l) => l.startsWith('suspect='))).toBeUndefined();
   });
 
+  it('describe picks the newer of the newest archive and the newest mirror run', async () => {
+    const run = '2026-11-24T05-00-00-000-abababab';
+    remote.objects.set(`${PREFIX}mirror/runs/${run}/done.json`, {
+      body: Buffer.from(JSON.stringify({ keyFingerprint: key.publicKey.fingerprintText })),
+      lastModified: new Date(),
+      etag: '"d"',
+    });
+    expect(await runCli(['describe'], io())).toBe(0);
+    expect(out).toEqual(expect.arrayContaining(['kind=mirror', `name=${run}`]));
+    out.length = 0;
+    // fetch refuses to download a mirror run; it names the right command.
+    expect(await runCli(['fetch', ...withKey('--out', path.join(dir, 'r'))], io())).toBe(1);
+    expect(errs.join(' ')).toMatch(/use fetch-mirror/);
+  });
+
   it('downloads nothing until the copy is confirmed by its name', async () => {
     const outDir = path.join(dir, 'restore');
     expect(await runCli(['fetch', ...withKey('--out', outDir)], io())).toBe(1);
