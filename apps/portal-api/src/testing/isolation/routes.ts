@@ -905,6 +905,10 @@ export const ROUTES: Record<string, RouteEntry> = {
   'POST /api/public/stac/search': pubNone({ body: () => ({}) }),
   'POST /api/feedback': skip('no-tenant-data', 'anonymous feedback form; sends mail'),
   'POST /api/areas-of-interest': skip('no-tenant-data', "What's Here area resolve (#796): stores a shape only, no org, reads no table"),
+  'POST /api/whats-here/report': skip(
+    'public-by-design',
+    "What's Here PDF (#796): needs Chromium. Reads each layer through items.get + featureScopeFor, or public items only when anonymous; whats-here-report.service.spec covers both",
+  ),
 
   // ---------------------------------------------------------------- users, keys, preferences
   'GET /api/users': list(),
