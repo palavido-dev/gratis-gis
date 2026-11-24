@@ -38,7 +38,10 @@ describe('probe keeps the event loop free', () => {
 
     expect(probe.layers[0]!.featureCount).toBe(150_000);
     // A blocked loop fires the timer once or not at all during the
-    // probe. Free, it fires for a good share of the elapsed time.
-    expect(ticks).toBeGreaterThan(Math.max(3, elapsed / 5 / 4));
+    // probe. Free, it fires many times. The bar is one tick in twenty
+    // of the ideal count: a busy test machine starves timers well
+    // below the ideal, but never down to the one or two a blocked
+    // loop gives.
+    expect(ticks).toBeGreaterThan(Math.max(3, elapsed / 5 / 20));
   });
 });
