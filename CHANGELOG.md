@@ -48,6 +48,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   shapefile or a GeoPackage, up to 2,000 shapes (#796).
 - What's Here downloads the area it checked as GeoJSON, distance included,
   to keep, open in desktop GIS or upload again later (#796).
+- What's Here saves the checked area to the map's markup, with its size
+  shown in the middle (#796).
+- What's Here adds up number fields: tick any number fields on a layer to
+  see their totals for the features in the area, in the panel, the
+  spreadsheet, the PDF and share links (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 - Storage usage: the server keeps a running total of the bytes each
@@ -135,6 +140,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- An app built on a map now draws exactly the map's layers. A layer removed
+  from the map no longer stays on the app's map. The app's Layers list
+  still feeds charts and tables, and marks any layer that is not on the
+  map (#797).
 - Saving a notification preference, or an organization's default for
   a notification, no longer fails with a server error. A migration
   changes `notification_type_default.type` and `.channel` to the enum

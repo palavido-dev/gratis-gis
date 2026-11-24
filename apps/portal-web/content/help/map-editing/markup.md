@@ -64,6 +64,13 @@ Use the tools on a set, then click the map to draw:
 **Center** still drops a pin at the current map center when you just
 need a quick marker without switching tools.
 
+## Shapes from other tools
+
+[Measure](/help/web-apps/widgets/measure) and
+[What's Here](/help/map-editing/whats-here) can both save their
+shape to your markup. It goes into your most recent visible markup
+set, or a new one, and shows its measurements on the map.
+
 ## Download as GeoJSON
 
 Click **GeoJSON** on any markup set that has features. Your browser

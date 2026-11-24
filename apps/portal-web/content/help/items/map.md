@@ -55,6 +55,26 @@ The legend, markup, and comments panels use the screen width
 instead of a fixed desktop card. The attribute table docks to
 the bottom and its toolbar wraps.
 
+## Save as a new map
+
+Anyone who can open a map and create items can save their own copy
+of it. Click **Save as** in the map builder toolbar, or on the map's
+detail page.
+
+![Save as a new map dialog](/help/items/map-save-as.png)
+
+- **Name**. Starts as "Copy of" the original's name.
+- **Include markup**. Copies the redlines and notes drawn on the map.
+  Shown only when the map has markup, and on by default.
+- Changes you have not saved in the builder go into the copy. The
+  original stays as it was last saved.
+- The copy starts private, and you own it. Its layers point at the
+  same data as the original, so data edits show in both.
+- Items you can't read are left out of the copy, and the dialog
+  lists them when it is done.
+- If you could only view the original, per-layer custom access on
+  the copy goes back to inheriting each item's sharing.
+
 ## Sharing
 
 Maps follow the standard three-tier sharing (Owner only,

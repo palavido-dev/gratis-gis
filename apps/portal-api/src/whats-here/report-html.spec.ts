@@ -116,6 +116,30 @@ describe('What’s Here report HTML (#796)', () => {
     expect(renderWhatsHereReport(doc())).toMatch(/10:00\s?AM/);
   });
 
+  it('prints added-up fields under the layer and as breakdown columns', () => {
+    const html = renderWhatsHereReport(
+      doc({
+        labels: { ...labels, totalOf: 'Total {label}' },
+        layers: [
+          {
+            title: 'Parcels',
+            geometry: 'polygon',
+            sumLabels: ['Assessed value', 'Units'],
+            total: { value: null, count: 2, measure: 10 * ACRE, sums: [1250000.5, null] },
+            breakdown: {
+              fieldLabel: 'Zoning',
+              truncated: false,
+              rows: [{ value: 'R1', count: 2, measure: 10 * ACRE, sums: [1250000.5, null] }],
+            },
+          },
+        ],
+      }),
+    );
+    expect(html).toContain('Total Assessed value 1,250,000.5 · Total Units –');
+    expect(html).toContain('<th class="n">Total Units</th>');
+    expect(html).toContain('[sumNote]');
+  });
+
   it('embeds the map picture only when given', () => {
     expect(renderWhatsHereReport(doc())).not.toContain('<img');
     expect(renderWhatsHereReport(doc({ mapImage: 'data:image/png;base64,AAAA' }))).toContain(

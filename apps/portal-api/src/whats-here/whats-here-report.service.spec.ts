@@ -17,6 +17,8 @@ const layerData = {
       geometryType: 'polygon',
       editingPolicy: 'own-rows-only',
       fields: [
+        { name: 'value', label: 'Assessed value', type: 'number' },
+        { name: 'code', type: 'number', domain: { type: 'coded-value', values: [] } },
         {
           name: 'zone',
           label: 'Zoning',
@@ -103,6 +105,23 @@ describe('WhatsHereReportService (#796)', () => {
     // Coded values print as their labels, largest share first.
     expect(html.indexOf('Residential')).toBeLessThan(html.indexOf('<em>noValue</em>'));
     expect(html).toContain('Parcels · breakdownBy Zoning');
+  });
+
+  it('adds up only plain number fields still on the layer', async () => {
+    const { svc, v3 } = setup();
+    await svc.pdf({ id: 'u1' } as never, {
+      ...body(PUBLIC_ITEM),
+      layers: [
+        { itemId: PUBLIC_ITEM, layerKey: 'parcels', title: 'Parcels', sumFields: ['value', 'code', 'gone'] },
+      ],
+    });
+    expect(v3.aggregateFeatures.mock.calls[0]![2]).toMatchObject({
+      aggs: [
+        { op: 'count', as: 'count' },
+        { op: 'area', as: 'measure' },
+        { op: 'sum', field: 'value', as: 'sum_0' },
+      ],
+    });
   });
 
   it('names a layer the caller cannot read as unavailable and reads nothing from it', async () => {

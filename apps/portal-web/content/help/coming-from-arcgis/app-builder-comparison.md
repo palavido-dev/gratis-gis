@@ -31,10 +31,11 @@ drop-in.
 
 Widget catalog overlap (incomplete, growing): map, layer list,
 basemap gallery, search, attribute table, legend, print, measure,
-draw, splash, swipe, edit, layer effects. Several Esri-specific
-widgets (Smart Editor with detailed editing config, Near Me,
-Coordinate) don't have direct equivalents and are tracked as
-follow-up work.
+draw, splash, swipe, edit, layer effects. Near Me and Screening
+are covered by [What's Here](/help/map-editing/whats-here), in one
+panel and also as an app widget. Smart Editor with detailed editing
+config and Coordinate don't have direct equivalents yet and are
+tracked as follow-up work.
 
 ## Esri Experience Builder → GratisGIS Custom Web App
 

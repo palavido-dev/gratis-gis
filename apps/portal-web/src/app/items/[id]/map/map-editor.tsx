@@ -2389,6 +2389,17 @@ export function MapEditor({
             mapLayers={map.layers}
             onDrawActiveChange={onClickToolActive}
             shared={sharedWhatsHere}
+            markup={
+              !scratch && currentUser
+                ? {
+                    mapId: itemId,
+                    currentUser,
+                    canEditMap: canEdit,
+                    drawings,
+                    onDrawingsChange: setDrawings,
+                  }
+                : undefined
+            }
           />
           {hasElevation ? (
             <ElevationProfileTool

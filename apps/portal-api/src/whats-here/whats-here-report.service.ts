@@ -113,8 +113,22 @@ export class WhatsHereReportService {
     if (!geometry) return { title: req.title, geometry: null };
     const op: AggregateOp | null =
       geometry === 'polygon' ? 'area' : geometry === 'line' ? 'length' : null;
-    const aggs: Array<{ op: AggregateOp; as: string }> = [{ op: 'count', as: 'count' }];
+    const aggs: Array<{ op: AggregateOp; field?: string; as: string }> = [
+      { op: 'count', as: 'count' },
+    ];
     if (op) aggs.push({ op, as: 'measure' });
+    // Only plain number fields still on the layer: a field may have
+    // been removed or retyped since the panel was opened.
+    const sumFields = (req.sumFields ?? [])
+      .map((name) => access.layer.fields?.find((f) => f.name === name))
+      .filter(
+        (f): f is FeatureField =>
+          !!f &&
+          f.type === 'number' &&
+          f.domain?.type !== 'coded-value' &&
+          f.domain?.type !== 'coded-value-ref',
+      );
+    sumFields.forEach((f, i) => aggs.push({ op: 'sum', field: f.name, as: `sum_${i}` }));
     const base = {
       aggs,
       areaOfInterestId,
@@ -125,6 +139,7 @@ export class WhatsHereReportService {
       value,
       count: values.count ?? 0,
       measure: op ? (values.measure ?? 0) : null,
+      ...(sumFields.length > 0 ? { sums: sumFields.map((_, i) => values[`sum_${i}`] ?? null) } : {}),
     });
 
     const whole = await this.v3.aggregateFeatures(req.itemId, req.layerKey, base);
@@ -132,6 +147,9 @@ export class WhatsHereReportService {
       title: req.title,
       geometry,
       total: toRow(whole.groups[0]?.values ?? {}, null),
+      ...(sumFields.length > 0
+        ? { sumLabels: sumFields.map((f) => f.label?.trim() || f.name) }
+        : {}),
     };
 
     const field = req.breakdownField

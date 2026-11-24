@@ -1099,6 +1099,15 @@ export function CustomAppDetail({
       app={app}
       page={activePage}
       mapTitle={mapTitle}
+      mapLayerKeys={
+        app.mapId && previewMapData
+          ? new Set(
+              (previewMapData.layers ?? []).flatMap((l) =>
+                l.source.kind === 'data-layer' ? [`${l.source.itemId}:${l.source.layerKey}`] : [],
+              ),
+            )
+          : null
+      }
       canEdit={canEdit}
       themeOptions={themeOptions}
       onUpdateApp={updateApp}
@@ -3613,6 +3622,7 @@ function AppProperties({
   app,
   page,
   mapTitle,
+  mapLayerKeys,
   canEdit,
   themeOptions,
   onUpdateApp,
@@ -3625,6 +3635,9 @@ function AppProperties({
   app: CustomAppData;
   page: CustomPage;
   mapTitle: string | null;
+  /** item:layer keys of the default map's data layers, or null when
+   *  the app has no map (or it has not loaded). */
+  mapLayerKeys: Set<string> | null;
   canEdit: boolean;
   /**
    * #22: themes the picker renders.  Order = built-in starters
@@ -3860,6 +3873,10 @@ function AppProperties({
                   key={src.id}
                   source={src}
                   siblings={sources.filter((o) => o.id !== src.id)}
+                  notOnMap={
+                    mapLayerKeys !== null &&
+                    !mapLayerKeys.has(`${src.layer.dataLayerId}:${src.layer.layerKey}`)
+                  }
                   // Sources are app-level, so list maps on every page
                   // (and inside containers), named by page.
                   mapOptions={app.pages.flatMap((pg) =>
@@ -3935,6 +3952,7 @@ function AppProperties({
 function SourceRow({
   source,
   siblings,
+  notOnMap,
   mapOptions,
   canEdit,
   onChange,
@@ -3942,6 +3960,9 @@ function SourceRow({
 }: {
   source: AppDataSource;
   siblings: AppDataSource[];
+  /** The app has a map and this layer is not on it, so the app's map
+   *  does not draw it (#797). */
+  notOnMap: boolean;
   mapOptions: Array<{ id: string; pageTitle: string }>;
   canEdit: boolean;
   onChange: (patch: SourcePatch) => void;
@@ -3974,6 +3995,12 @@ function SourceRow({
           </button>
         )}
       </div>
+      {notOnMap ? (
+        <p className="mt-1 pl-5 text-2xs leading-snug text-warn">
+          Not on the map, so the map doesn&apos;t draw it. Charts and tables can still read
+          it. Remove it if nothing here uses it.
+        </p>
+      ) : null}
       <div className="mt-1 flex items-center gap-1.5 pl-5">
         <span className="shrink-0 text-2xs text-muted">Shows</span>
         <select
@@ -4711,7 +4738,7 @@ function WidgetConfigForm({
             <input
               type="checkbox"
               disabled={!canEdit}
-              checked={widget.config.showLabel ?? false}
+              checked={widget.config.showLabel !== false}
               onChange={(e) => onChangeConfig({ showLabel: e.target.checked })}
             />
             Show label next to the icon
