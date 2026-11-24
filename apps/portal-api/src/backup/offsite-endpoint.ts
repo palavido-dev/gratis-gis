@@ -84,7 +84,10 @@ export function isRefusedAddress(address: string): boolean {
 }
 
 function hostOf(u: URL): string {
-  return u.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+  return u.hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.$/, '')
+    .toLowerCase();
 }
 
 /**
@@ -118,7 +121,10 @@ export function checkEndpoint(text: string, policy: EndpointPolicy): string {
     );
   }
   const host = hostOf(u);
-  if (!policy.allowLocal && (REFUSED_NAMES.has(host) || host.endsWith('.localhost') || isRefusedAddress(host))) {
+  if (
+    !policy.allowLocal &&
+    (REFUSED_NAMES.has(host) || host.endsWith('.localhost') || isRefusedAddress(host))
+  ) {
     throw new EndpointError(
       'The endpoint cannot be this server, a link-local address or a cloud metadata address.',
     );

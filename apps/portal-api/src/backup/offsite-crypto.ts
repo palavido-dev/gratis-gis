@@ -105,7 +105,11 @@ function check4(label: Buffer, raw: Buffer): Buffer {
 }
 
 export function fingerprintOf(raw: Buffer): Buffer {
-  return createHash('sha256').update(FINGERPRINT_LABEL).update(raw).digest().subarray(0, KEY_ID_LEN);
+  return createHash('sha256')
+    .update(FINGERPRINT_LABEL)
+    .update(raw)
+    .digest()
+    .subarray(0, KEY_ID_LEN);
 }
 
 export function fingerprintText(fp: Buffer): string {
@@ -138,7 +142,9 @@ function publicFromRaw(raw: Buffer): OffsitePublicKey {
 
 /** True when the text holds something that looks like a private key. */
 export function looksLikePrivateKey(text: string): boolean {
-  return text.includes(PRIVATE_KEY_PREFIX) || text.includes('GRCV2') || text.includes(KEY_FILE_KIND);
+  return (
+    text.includes(PRIVATE_KEY_PREFIX) || text.includes('GRCV2') || text.includes(KEY_FILE_KIND)
+  );
 }
 
 /**
@@ -201,7 +207,8 @@ function privateFromRaw(d: Buffer): OffsitePrivateKey {
 }
 
 function parsePrivateText(text: string): Buffer {
-  if (!text.startsWith(PRIVATE_KEY_PREFIX)) throw new OffsiteCryptoError('The key file is damaged.');
+  if (!text.startsWith(PRIVATE_KEY_PREFIX))
+    throw new OffsiteCryptoError('The key file is damaged.');
   const body = text.slice(PRIVATE_KEY_PREFIX.length);
   if (!/^[A-Za-z0-9_-]{48}$/.test(body)) throw new OffsiteCryptoError('The key file is damaged.');
   const bytes = Buffer.from(body, 'base64url');
@@ -233,7 +240,9 @@ export function checkKeyPassphrase(p: string): void {
   for (let i = 0; i < p.length; i += 1) {
     const c = p.charCodeAt(i);
     if (c < 32 || c === 127) {
-      throw new OffsiteCryptoError('The key file passphrase cannot contain line breaks or control characters.');
+      throw new OffsiteCryptoError(
+        'The key file passphrase cannot contain line breaks or control characters.',
+      );
     }
   }
 }
@@ -289,7 +298,11 @@ export async function openKeyFile(file: Buffer, passphrase: string): Promise<Off
   } catch {
     throw new OffsiteCryptoError('The key file is damaged.');
   }
-  if (parsed.kind !== KEY_FILE_KIND || parsed.version !== 1 || typeof parsed.privateKey !== 'string') {
+  if (
+    parsed.kind !== KEY_FILE_KIND ||
+    parsed.version !== 1 ||
+    typeof parsed.privateKey !== 'string'
+  ) {
     throw new OffsiteCryptoError('This is not a GratisGIS off-site key file.');
   }
   const key = privateFromRaw(parsePrivateText(parsed.privateKey));
@@ -402,7 +415,10 @@ export interface ParsedOffsiteHeader {
 }
 
 export function parseOffsiteHeader(head: Buffer): ParsedOffsiteHeader {
-  if (head.length !== OFFSITE_HEADER_LEN || !head.subarray(0, OFFSITE_MAGIC.length).equals(OFFSITE_MAGIC)) {
+  if (
+    head.length !== OFFSITE_HEADER_LEN ||
+    !head.subarray(0, OFFSITE_MAGIC.length).equals(OFFSITE_MAGIC)
+  ) {
     throw new OffsiteCryptoError('This file is not an encrypted GratisGIS off-site backup.');
   }
   let o = OFFSITE_MAGIC.length;

@@ -20,6 +20,8 @@ export class FakeS3 {
   lieAboutPartEtag = false;
   /** Report a different size from HeadObject. */
   lieAboutSize = false;
+  /** Report a larger ContentLength from GetObject than the body has. */
+  lieAboutGetLength = false;
   private failures: Array<{ command: string; error: Error }> = [];
   private nextId = 1;
 
@@ -133,7 +135,7 @@ export class FakeS3 {
           });
         return {
           Body: Readable.from([o.body]),
-          ContentLength: o.body.length,
+          ContentLength: o.body.length + (this.lieAboutGetLength ? 1 : 0),
           ...(o.contentType ? { ContentType: o.contentType } : {}),
         };
       }

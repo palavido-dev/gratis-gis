@@ -78,7 +78,8 @@ export function pgEnvFromUrl(databaseUrl: string): Record<string, string> {
 /** The database name in the portal's URL. */
 export function databaseName(databaseUrl: string): string {
   const name = decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\//, ''));
-  if (!/^[A-Za-z0-9_.-]{1,63}$/.test(name)) throw new Error('DATABASE_URL names an unexpected database.');
+  if (!/^[A-Za-z0-9_.-]{1,63}$/.test(name))
+    throw new Error('DATABASE_URL names an unexpected database.');
   return name;
 }
 
@@ -384,7 +385,9 @@ export class RestoreTestService {
         return Number(st.bavail) * Number(st.bsize);
       }
     } catch (e) {
-      this.log.warn(`Could not measure free database space: ${scrub(e instanceof Error ? e.message : String(e))}`);
+      this.log.warn(
+        `Could not measure free database space: ${scrub(e instanceof Error ? e.message : String(e))}`,
+      );
     }
     return null;
   }
@@ -440,7 +443,9 @@ export class RestoreTestService {
 }
 
 function gb(bytes: number): string {
-  return bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1)} GB` : `${Math.ceil(bytes / 1024 ** 2)} MB`;
+  return bytes >= 1024 ** 3
+    ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
+    : `${Math.ceil(bytes / 1024 ** 2)} MB`;
 }
 
 function scrub(text: string): string {

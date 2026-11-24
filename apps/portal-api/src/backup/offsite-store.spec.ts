@@ -96,6 +96,61 @@ describe('uploadStream', () => {
 });
 
 describe('etagIsMd5', () => {
+  /** A body that records whether it was closed, and can fail part way. */
+  function tracked(data: Buffer, failAfter: number | null = null) {
+    const state = { closed: false, read: 0 };
+    async function* gen(): AsyncGenerator<Buffer> {
+      try {
+        for (let i = 0; i < data.length; i += 300_000) {
+          if (failAfter !== null && state.read >= failAfter) {
+            throw Object.assign(new Error('source read failed'), { code: 'EIO' });
+          }
+          const piece = data.subarray(i, i + 300_000);
+          state.read += piece.length;
+          yield piece;
+        }
+      } finally {
+        state.closed = true;
+      }
+    }
+    return { body: gen(), state };
+  }
+
+  it('aborts and stores nothing when the source fails in the middle of a multipart upload', async () => {
+    const s3 = new FakeS3();
+    const { body, state } = tracked(randomBytes(5 * PART), 2 * PART + 10);
+    await expect(uploadStream(s3, { bucket: 'b', key: 'k', body, partSize: PART })).rejects.toThrow(
+      /source read failed/,
+    );
+    expect(s3.calls).toContain('UploadPartCommand');
+    expect(s3.aborted).toHaveLength(1);
+    expect(s3.objects.has('k')).toBe(false);
+    expect(s3.uploads.size).toBe(0);
+    expect(state.closed).toBe(true);
+  });
+
+  it('closes the body when the store refuses to start the upload', async () => {
+    const s3 = new FakeS3();
+    s3.fail('CreateMultipartUploadCommand', 'AccessDenied', 403);
+    const { body, state } = tracked(randomBytes(3 * PART));
+    await expect(
+      uploadStream(s3, { bucket: 'b', key: 'k', body, partSize: PART }),
+    ).rejects.toThrow();
+    expect(state.closed).toBe(true);
+    expect(state.read).toBeLessThan(3 * PART);
+  });
+
+  it('closes the body when a part is refused half way', async () => {
+    const s3 = new FakeS3();
+    s3.fail('UploadPartCommand', 'InternalError', 500);
+    const { body, state } = tracked(randomBytes(4 * PART));
+    await expect(
+      uploadStream(s3, { bucket: 'b', key: 'k', body, partSize: PART }),
+    ).rejects.toThrow();
+    expect(state.closed).toBe(true);
+    expect(s3.aborted).toHaveLength(1);
+  });
+
   it('does not compare ETags of KMS or customer-key encrypted objects', () => {
     expect(etagIsMd5({ ETag: '"x"' })).toBe(true);
     expect(etagIsMd5({ ETag: '"x"', ServerSideEncryption: 'AES256' })).toBe(true);

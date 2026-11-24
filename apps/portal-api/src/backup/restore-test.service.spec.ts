@@ -5,22 +5,49 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { BackupService } from './backup.service.js';
-import { adminUrl, judgeSanity, RestoreTestService, scratchUrl } from './restore-test.service.js';
+import { ConflictException } from '@nestjs/common';
 
-const DB_URL = 'postgresql://gg:pw@postgres:5432/gratisgis?schema=public&sslmode=disable';
+import type { BackupService } from './backup.service.js';
+import {
+  childEnv,
+  databaseName,
+  judgeSanity,
+  parseDfAvailable,
+  pgEnvFromUrl,
+  RestoreTestService,
+  spaceNeeded,
+  type CommandRunner,
+} from './restore-test.service.js';
+
+const DB_URL = 'postgresql://gg:p%40ss@postgres:5432/gratisgis?schema=public&sslmode=disable';
+const GB = 1024 ** 3;
 
 describe('scratch restore helpers', () => {
-  it('points the URL at the scratch database and drops Prisma parameters', () => {
-    expect(scratchUrl(DB_URL, 'gg_restore_test_0123456789abcdef')).toBe(
-      'postgresql://gg:pw@postgres:5432/gg_restore_test_0123456789abcdef?sslmode=disable',
-    );
-    expect(adminUrl(DB_URL)).toBe('postgresql://gg:pw@postgres:5432/postgres?sslmode=disable');
+  it('turns the URL into libpq variables, the password included, and no URL', () => {
+    expect(pgEnvFromUrl(DB_URL)).toEqual({
+      PGHOST: 'postgres',
+      PGPORT: '5432',
+      PGUSER: 'gg',
+      PGPASSWORD: 'p@ss',
+      PGSSLMODE: 'disable',
+    });
+    expect(databaseName(DB_URL)).toBe('gratisgis');
+    expect(() => databaseName('postgresql://h/a;b')).toThrow();
   });
 
-  it('refuses any other database name', () => {
-    expect(() => scratchUrl(DB_URL, 'gratisgis')).toThrow();
-    expect(() => scratchUrl(DB_URL, 'gg_restore_test_x; DROP')).toThrow();
+  it('gives a child process only what it needs', () => {
+    const saved = { ...process.env };
+    process.env.DATABASE_URL = DB_URL;
+    process.env.CREDENTIAL_ENCRYPTION_KEY = 'k';
+    try {
+      const env = childEnv({ PGPASSWORD: 'x' });
+      expect(env.PGPASSWORD).toBe('x');
+      expect(env.PATH).toBe(process.env.PATH);
+      expect(env.DATABASE_URL).toBeUndefined();
+      expect(env.CREDENTIAL_ENCRYPTION_KEY).toBeUndefined();
+    } finally {
+      process.env = saved;
+    }
   });
 
   it('judges the counts', () => {
@@ -32,14 +59,79 @@ describe('scratch restore helpers', () => {
       /migration/,
     );
   });
+
+  it('reads df and the room a test needs', () => {
+    expect(
+      parseDfAvailable(
+        'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100 40 60 40% /var/lib/postgresql/data\n',
+      ),
+    ).toBe(60 * 1024);
+    expect(parseDfAvailable('nonsense')).toBeNull();
+    expect(spaceNeeded(4 * GB)).toBe(5 * GB + 256 * 1024 * 1024);
+  });
 });
 
-describe('RestoreTestService.perform', () => {
+describe('RestoreTestService', () => {
   let dir: string;
   let archive: string;
-  let calls: Array<{ bin: string; args: string[]; stdinBytes: number | null }>;
+  let calls: Array<{
+    bin: string;
+    args: string[];
+    stdinBytes: number | null;
+    env: Record<string, string> | undefined;
+  }>;
   let updates: Array<Record<string, unknown>>;
   let svc: RestoreTestService;
+  let dbSize: number;
+  let df: string | null;
+
+  const baseRunner: CommandRunner = async (bin, args, opts) => {
+    let stdinBytes: number | null = null;
+    if (opts?.stdin) {
+      stdinBytes = 0;
+      for await (const c of opts.stdin as AsyncIterable<Buffer>) stdinBytes += c.length;
+    }
+    calls.push({ bin, args, stdinBytes, env: opts?.env });
+    const joined = args.join(' ');
+    if (joined.includes('pg_database_size')) return `${dbSize}\n`;
+    if (joined.includes(' df ') || args.includes('df')) {
+      if (df === null) throw new Error('df failed');
+      return df;
+    }
+    if (joined.includes('count(*)')) return '3\n';
+    return '';
+  };
+
+  function service(extra: Record<string, string> = {}) {
+    const prisma = {
+      backupRestoreTest: {
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          updates.push(data);
+          return data;
+        }),
+        updateMany: jest.fn(async () => ({ count: 0 })),
+        findFirst: jest.fn(async () => null),
+        create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'new',
+          ...data,
+        })),
+      },
+    };
+    const vars: Record<string, string> = { DATABASE_URL: DB_URL, ...extra };
+    const cfg = { get: (k: string, d?: string) => vars[k] ?? d };
+    const backup = {
+      liveRun: async () => null,
+      listRunsWithArchiveState: async () => [
+        { id: 'run-1', status: 'succeeded', filename: 'backup.tar.gz', archiveOnDisk: true },
+      ],
+      resolveArchivePath: async () => ({ filename: 'backup.tar.gz', path: archive }),
+    } as unknown as BackupService;
+    const s = new RestoreTestService(prisma as never, cfg as never, backup);
+    s.runner = baseRunner;
+    // The test itself is not under test here.
+    jest.spyOn(s, 'perform').mockResolvedValue({ ok: true, error: null });
+    return { s, prisma };
+  }
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gg-rtest-'));
@@ -56,6 +148,8 @@ describe('RestoreTestService.perform', () => {
 
     calls = [];
     updates = [];
+    dbSize = 2 * GB;
+    df = null;
     const prisma = {
       backupRestoreTest: {
         update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -66,19 +160,11 @@ describe('RestoreTestService.perform', () => {
     };
     const cfg = { get: (k: string, d?: string) => (k === 'DATABASE_URL' ? DB_URL : d) };
     svc = new RestoreTestService(prisma as never, cfg as never, {} as BackupService);
-    svc.runner = async (bin, args, stdin) => {
-      let stdinBytes: number | null = null;
-      if (stdin) {
-        stdinBytes = 0;
-        for await (const c of stdin as AsyncIterable<Buffer>) stdinBytes += c.length;
-      }
-      calls.push({ bin, args, stdinBytes });
-      if (bin === 'psql' && args.join(' ').includes('count(*)')) return '3\n';
-      return '';
-    };
+    svc.runner = baseRunner;
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -97,6 +183,26 @@ describe('RestoreTestService.perform', () => {
     });
   });
 
+  it('never puts the database URL or password in a command line, and hands children a minimal env', async () => {
+    const saved = process.env.CREDENTIAL_ENCRYPTION_KEY;
+    process.env.CREDENTIAL_ENCRYPTION_KEY = 'must-not-reach-a-child';
+    try {
+      await svc.perform('t1', archive);
+    } finally {
+      if (saved === undefined) delete process.env.CREDENTIAL_ENCRYPTION_KEY;
+      else process.env.CREDENTIAL_ENCRYPTION_KEY = saved;
+    }
+    expect(calls.length).toBeGreaterThan(3);
+    for (const c of calls) {
+      const argv = c.args.join(' ');
+      expect(argv).not.toContain('postgresql://');
+      expect(argv).not.toContain('p@ss');
+      expect(c.env?.PGPASSWORD).toBe('p@ss');
+      expect(c.env?.CREDENTIAL_ENCRYPTION_KEY).toBeUndefined();
+      expect(c.env?.DATABASE_URL).toBeUndefined();
+    }
+  });
+
   it('fails on a truncated archive and still drops the scratch database', async () => {
     const full = fs.readFileSync(archive);
     fs.writeFileSync(archive, full.subarray(0, Math.floor(full.length / 2)));
@@ -110,45 +216,65 @@ describe('RestoreTestService.perform', () => {
     }
   });
 
-  it('fails when pg_restore fails, without the database URL in the message', async () => {
-    const base = svc.runner;
-    svc.runner = async (bin, args, stdin) => {
-      if (bin === 'pg_restore') {
-        for await (const _ of stdin as AsyncIterable<Buffer>) void _;
-        throw new Error(`pg_restore failed (exit 1): could not connect to ${args.at(-1)}`);
-      }
-      return base(bin, args, stdin);
-    };
-    const res = await svc.perform('t3', archive);
-    expect(res.ok).toBe(false);
-    expect(res.error).not.toContain('pw@');
-    expect(calls.some((c) => c.bin === 'dropdb')).toBe(true);
-  });
-
   it('fails when the restored copy has no organization', async () => {
-    const base = svc.runner;
-    svc.runner = async (bin, args, stdin) => {
+    svc.runner = async (bin, args, opts) => {
       if (bin === 'psql' && args.join(' ').includes('FROM organization')) return '0\n';
-      return base(bin, args, stdin);
+      return baseRunner(bin, args, opts);
     };
     const res = await svc.perform('t4', archive);
     expect(res.error).toMatch(/no organization/);
   });
 
-  it('runs inside the database container in docker mode', async () => {
+  it('runs inside the database container in docker mode, passing variables by name only', async () => {
     const cfg = {
       get: (k: string, d?: string) =>
         k === 'DATABASE_URL' ? DB_URL : k === 'BACKUP_PGDUMP_DOCKER_CONTAINER' ? 'gg-postgres' : d,
     };
     const prisma = { backupRestoreTest: { update: jest.fn() } };
     const docker = new RestoreTestService(prisma as never, cfg as never, {} as BackupService);
-    docker.runner = svc.runner;
+    docker.runner = baseRunner;
     await docker.perform('t5', archive);
     expect(calls.every((c) => c.bin === 'docker')).toBe(true);
-    expect(calls.find((c) => c.args.includes('pg_restore'))!.args.slice(0, 3)).toEqual([
-      'exec',
-      '-i',
-      'gg-postgres',
-    ]);
+    const restore = calls.find((c) => c.args.includes('pg_restore'))!;
+    expect(restore.args.slice(0, 2)).toEqual(['exec', '-i']);
+    expect(restore.args).toContain('PGPASSWORD');
+    expect(restore.args.join(' ')).not.toContain('p@ss');
+    expect(restore.env?.PGPASSWORD).toBe('p@ss');
+  });
+
+  describe('free space', () => {
+    it('refuses a test that would not fit in the measured free space', async () => {
+      df = `Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/x 1 1 ${Math.floor(GB / 1024)} 99% /d\n`;
+      const { s, prisma } = service({ BACKUP_PGDUMP_DOCKER_CONTAINER: 'gg-postgres' });
+      await expect(s.start('u1')).rejects.toThrow(/Not enough free space/);
+      expect(prisma.backupRestoreTest.create).not.toHaveBeenCalled();
+    });
+
+    it('starts when the measured free space is enough', async () => {
+      df = `Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/x 1 1 ${Math.floor((10 * GB) / 1024)} 9% /d\n`;
+      const { s, prisma } = service({ BACKUP_PGDUMP_DOCKER_CONTAINER: 'gg-postgres' });
+      await expect(s.start('u1')).resolves.toMatchObject({ id: 'new' });
+      expect(prisma.backupRestoreTest.create).toHaveBeenCalled();
+    });
+
+    it('asks the admin to confirm the size when free space cannot be measured', async () => {
+      const { s, prisma } = service();
+      const err = await s.start('u1').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({
+        needsConfirmation: true,
+        databaseBytes: 2 * GB,
+      });
+      await expect(s.start('u1', GB)).rejects.toThrow(/cannot be measured/);
+      expect(prisma.backupRestoreTest.create).not.toHaveBeenCalled();
+      await expect(s.start('u1', 2 * GB)).resolves.toMatchObject({ id: 'new' });
+    });
+
+    it('measures a host data directory with statfs', async () => {
+      const { s } = service({ BACKUP_PG_DATA_DIR: dir });
+      const p = await s.preflight();
+      expect(p.freeBytes).toBeGreaterThan(0);
+      expect(p.neededBytes).toBe(spaceNeeded(2 * GB));
+    });
   });
 });

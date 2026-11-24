@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  defaultPrefix,
   envSecret,
   normalizePrefix,
   OFFSITE_DEFAULTS,
@@ -7,8 +8,16 @@ import {
   resolveOffsiteSettings,
   toPublicConfig,
   validateOffsitePatch,
+  type OffsitePatch,
   type OffsiteRow,
 } from './offsite-config.js';
+import { generateOffsiteKeyPair } from './offsite-crypto.js';
+import {
+  assertEndpointReachable,
+  checkEndpoint,
+  endpointPolicy,
+  isRefusedAddress,
+} from './offsite-endpoint.js';
 
 const EMPTY_ROW: OffsiteRow = {
   offsiteEnabled: null,
@@ -18,34 +27,56 @@ const EMPTY_ROW: OffsiteRow = {
   offsitePrefix: null,
   offsitePathStyle: null,
   offsiteAccessKeyId: null,
+  offsitePublicKey: null,
+  offsiteInstallId: null,
   offsiteRetentionDays: null,
   offsiteAlertDays: null,
   offsiteMirrorThresholdBytes: null,
 };
 
 const env = (vars: Record<string, string>) => (name: string) => vars[name];
-const noSecrets = { secretFromDb: null, passphraseFromDb: null };
+const noSecret = { secretFromDb: null };
+const strict = { allowHttp: false, allowLocal: false };
+const PUB = generateOffsiteKeyPair().publicKey;
 
 describe('off-site settings', () => {
   it('uses defaults when nothing is set, and is off', () => {
-    const s = resolveOffsiteSettings(EMPTY_ROW, noSecrets, env({}));
+    const s = resolveOffsiteSettings(EMPTY_ROW, noSecret, env({}), strict);
     expect(s.enabled).toBe(false);
     expect(s.region).toBe('us-east-1');
-    expect(s.prefix).toBe('gratisgis/');
     expect(s.retentionDays).toBe(OFFSITE_DEFAULTS.retentionDays);
-    expect(toPublicConfig(s).missing).toEqual([
+    expect(s.mirrorThresholdBytes).toBe(50 * 1024 ** 3);
+    expect(toPublicConfig(s, strict).missing).toEqual([
       'endpoint',
       'bucket',
       'accessKeyId',
       'secretAccessKey',
-      'passphrase',
+      'publicKey',
     ]);
+  });
+
+  it('the default folder is different for every install', () => {
+    const a = resolveOffsiteSettings(
+      { ...EMPTY_ROW, offsiteInstallId: '0f1e2d3c-aaaa-4bbb-8ccc-000000000001' },
+      noSecret,
+      env({}),
+      strict,
+    );
+    const b = resolveOffsiteSettings(
+      { ...EMPTY_ROW, offsiteInstallId: '9a8b7c6d-aaaa-4bbb-8ccc-000000000002' },
+      noSecret,
+      env({}),
+      strict,
+    );
+    expect(a.prefix).toBe('gratisgis-0f1e2d3c/');
+    expect(b.prefix).toBe('gratisgis-9a8b7c6d/');
+    expect(defaultPrefix(null)).toBe('gratisgis/');
   });
 
   it('reads every setting from the environment', () => {
     const s = resolveOffsiteSettings(
       EMPTY_ROW,
-      noSecrets,
+      noSecret,
       env({
         BACKUP_OFFSITE_ENABLED: 'true',
         BACKUP_OFFSITE_ENDPOINT: 'https://s3.example.com',
@@ -55,11 +86,12 @@ describe('off-site settings', () => {
         BACKUP_OFFSITE_PATH_STYLE: 'false',
         BACKUP_OFFSITE_ACCESS_KEY_ID: 'AKIDEXAMPLE',
         BACKUP_OFFSITE_SECRET_ACCESS_KEY: 'env-secret-value',
-        BACKUP_OFFSITE_PASSPHRASE: 'an env passphrase long enough',
+        BACKUP_OFFSITE_PUBLIC_KEY: PUB.text,
         BACKUP_OFFSITE_RETENTION_DAYS: '90',
         BACKUP_OFFSITE_ALERT_DAYS: '5',
         BACKUP_OFFSITE_MIRROR_THRESHOLD_GB: '2',
       }),
+      strict,
     );
     expect(s).toMatchObject({
       enabled: true,
@@ -71,22 +103,65 @@ describe('off-site settings', () => {
       accessKeyId: 'AKIDEXAMPLE',
       secretAccessKey: 'env-secret-value',
       secretSource: 'environment',
-      passphraseSource: 'environment',
+      publicKeySource: 'environment',
       retentionDays: 90,
       alertDays: 5,
       mirrorThresholdBytes: 2 * 1024 ** 3,
+      problems: [],
     });
+    expect(s.publicKey?.fingerprintText).toBe(PUB.fingerprintText);
+  });
+
+  it('checks values from the environment like values from the page', () => {
+    const s = resolveOffsiteSettings(
+      EMPTY_ROW,
+      noSecret,
+      env({
+        BACKUP_OFFSITE_ENDPOINT: 'http://store.example.com',
+        BACKUP_OFFSITE_BUCKET: 'Bad_Bucket',
+        BACKUP_OFFSITE_PUBLIC_KEY: 'ggpub1:not-a-key',
+        BACKUP_OFFSITE_RETENTION_DAYS: '0',
+        BACKUP_OFFSITE_ENABLED: 'maybe',
+        BACKUP_OFFSITE_MIRROR_THRESHOLD_GB: 'lots',
+      }),
+      strict,
+    );
+    expect(s.endpoint).toBeNull();
+    expect(s.bucket).toBeNull();
+    expect(s.publicKey).toBeNull();
+    expect(s.retentionDays).toBe(30);
+    expect(s.problems.join(' ')).toMatch(/must use https/);
+    expect(s.problems.join(' ')).toMatch(/bucket name/);
+    expect(s.problems.join(' ')).toMatch(/public key is the wrong length/);
+    expect(s.problems.join(' ')).toMatch(/from 1 to 3650/);
+    expect(s.problems.join(' ')).toMatch(/BACKUP_OFFSITE_ENABLED must be true or false/);
+    expect(s.problems.join(' ')).toMatch(
+      /BACKUP_OFFSITE_MIRROR_THRESHOLD_GB must be a whole number/,
+    );
+    expect(toPublicConfig(s, strict).complete).toBe(false);
+  });
+
+  it('an http endpoint needs the server flag, from the page or the environment', () => {
+    for (const row of [{ ...EMPTY_ROW, offsiteEndpoint: 'http://minio.lan:9000' }, EMPTY_ROW]) {
+      const vars = { BACKUP_OFFSITE_ENDPOINT: 'http://minio.lan:9000' };
+      expect(resolveOffsiteSettings(row, noSecret, env(vars), strict).endpoint).toBeNull();
+      expect(
+        resolveOffsiteSettings(row, noSecret, env(vars), { allowHttp: true, allowLocal: false })
+          .endpoint,
+      ).toBe('http://minio.lan:9000');
+    }
   });
 
   it('prefers saved values over the environment', () => {
     const s = resolveOffsiteSettings(
       { ...EMPTY_ROW, offsiteBucket: 'saved', offsiteEnabled: false },
-      { secretFromDb: 'db-secret', passphraseFromDb: null },
+      { secretFromDb: 'db-secret' },
       env({
         BACKUP_OFFSITE_BUCKET: 'from-env',
         BACKUP_OFFSITE_ENABLED: 'true',
         BACKUP_OFFSITE_SECRET_ACCESS_KEY: 'env',
       }),
+      strict,
     );
     expect(s.bucket).toBe('saved');
     expect(s.enabled).toBe(false);
@@ -94,50 +169,52 @@ describe('off-site settings', () => {
     expect(s.secretSource).toBe('database');
   });
 
-  it('reads a secret from a *_FILE path and drops one trailing newline', () => {
+  it('reads a secret from a *_FILE path and drops one trailing LF or CRLF', () => {
     const read = (p: string) => {
-      if (p === '/run/secrets/pass') return 'file passphrase value\n';
+      if (p === '/run/secrets/a') return 'file secret value\n';
+      if (p === '/run/secrets/b') return 'file secret value\r\n';
       throw new Error('ENOENT');
     };
+    for (const f of ['/run/secrets/a', '/run/secrets/b']) {
+      expect(
+        envSecret(
+          env({ BACKUP_OFFSITE_SECRET_ACCESS_KEY_FILE: f }),
+          'BACKUP_OFFSITE_SECRET_ACCESS_KEY',
+          'BACKUP_OFFSITE_SECRET_ACCESS_KEY_FILE',
+          read,
+        ),
+      ).toBe('file secret value');
+    }
     expect(
       envSecret(
-        env({ BACKUP_OFFSITE_PASSPHRASE_FILE: '/run/secrets/pass' }),
-        'BACKUP_OFFSITE_PASSPHRASE',
-        'BACKUP_OFFSITE_PASSPHRASE_FILE',
-        read,
-      ),
-    ).toBe('file passphrase value');
-    expect(
-      envSecret(
-        env({ BACKUP_OFFSITE_PASSPHRASE_FILE: '/missing' }),
-        'BACKUP_OFFSITE_PASSPHRASE',
-        'BACKUP_OFFSITE_PASSPHRASE_FILE',
+        env({ BACKUP_OFFSITE_SECRET_ACCESS_KEY_FILE: '/missing' }),
+        'BACKUP_OFFSITE_SECRET_ACCESS_KEY',
+        'BACKUP_OFFSITE_SECRET_ACCESS_KEY_FILE',
         read,
       ),
     ).toBeNull();
   });
 
-  it('the public view carries no secret values', () => {
+  it('the public view carries no secret, and shows the key with its fingerprint', () => {
     const s = resolveOffsiteSettings(
       {
         ...EMPTY_ROW,
         offsiteEndpoint: 'https://e.example',
         offsiteBucket: 'b-1',
         offsiteAccessKeyId: 'AKID',
+        offsitePublicKey: PUB.text,
       },
-      { secretFromDb: 'TOP-SECRET-KEY-123', passphraseFromDb: 'TOP SECRET PASSPHRASE 456' },
+      { secretFromDb: 'TOP-SECRET-KEY-123' },
       env({}),
+      strict,
     );
-    const view = toPublicConfig(s);
-    const json = JSON.stringify(view);
-    expect(json).not.toContain('TOP-SECRET-KEY-123');
-    expect(json).not.toContain('TOP SECRET PASSPHRASE 456');
+    const view = toPublicConfig(s, strict);
+    expect(JSON.stringify(view)).not.toContain('TOP-SECRET-KEY-123');
     expect(view.hasSecretAccessKey).toBe(true);
-    expect(view.hasPassphrase).toBe(true);
+    expect(view.publicKey).toBe(PUB.text);
+    expect(view.publicKeyFingerprint).toBe(PUB.fingerprintText);
     expect(view.complete).toBe(true);
-    expect(Object.keys(view)).not.toEqual(
-      expect.arrayContaining(['secretAccessKey', 'passphrase']),
-    );
+    expect(Object.keys(view)).not.toContain('secretAccessKey');
   });
 
   it.each([
@@ -151,8 +228,7 @@ describe('off-site settings', () => {
 });
 
 describe('validateOffsitePatch', () => {
-  const ok = { allowHttp: false };
-  it.each([
+  it.each<[OffsitePatch, RegExp]>([
     [{ endpoint: 'not a url' }, /full URL/],
     [{ endpoint: 'http://minio:9000' }, /https/],
     [{ endpoint: 'https://user:pw@s3.example.com' }, /own fields/],
@@ -162,30 +238,37 @@ describe('validateOffsitePatch', () => {
     [{ prefix: 'a/../b' }, /prefix/],
     [{ accessKeyId: 'has space' }, /access key id/],
     [{ secretAccessKey: 'has space' }, /secret access key/],
-    [{ passphrase: 'short', passphraseConfirm: 'short' }, /at least 16/],
-    [
-      { passphrase: ' leading space passphrase', passphraseConfirm: ' leading space passphrase' },
-      /start or end/,
-    ],
-    [
-      { passphrase: 'line\nbreak passphrase!!', passphraseConfirm: 'line\nbreak passphrase!!' },
-      /line breaks/,
-    ],
-    [
-      { passphrase: 'a long enough passphrase', passphraseConfirm: 'a different one entirely' },
-      /do not match/,
-    ],
+    [{ publicKey: 'ggpub1:short' }, /wrong length/],
     [{ retentionDays: 0 }, /from 1 to 3650/],
     [{ alertDays: 91 }, /from 1 to 90/],
     [{ mirrorThresholdBytes: 1000 }, /1 GB/],
   ])('refuses %j', (patch, msg) => {
-    expect(() => validateOffsitePatch(patch, ok)).toThrow(msg);
+    expect(() => validateOffsitePatch(patch, strict)).toThrow(msg);
+  });
+
+  it('never takes a passphrase or private key, and never repeats one', () => {
+    for (const patch of [
+      { passphrase: 'a long enough passphrase' },
+      { passphraseConfirm: 'x' },
+      { privateKey: 'ggsec1:abc' },
+    ]) {
+      expect(() => validateOffsitePatch(patch as OffsitePatch, strict)).toThrow(
+        /never takes the private key/,
+      );
+    }
+    try {
+      validateOffsitePatch({ publicKey: 'ggsec1:SECRETSECRETSECRET' }, strict);
+      throw new Error('expected a refusal');
+    } catch (e) {
+      expect((e as Error).message).toMatch(/private key/);
+      expect((e as Error).message).not.toContain('SECRETSECRET');
+    }
   });
 
   it('never puts a secret in a refusal message', () => {
     const secret = 'sneaky secret with spaces';
     try {
-      validateOffsitePatch({ secretAccessKey: secret }, ok);
+      validateOffsitePatch({ secretAccessKey: secret }, strict);
       throw new Error('expected a refusal');
     } catch (e) {
       expect((e as Error).message).not.toContain(secret);
@@ -203,21 +286,82 @@ describe('validateOffsitePatch', () => {
           prefix: 'portal/',
           accessKeyId: '003abc',
           secretAccessKey: 'K003secretsecret',
-          passphrase: 'a long enough passphrase',
-          passphraseConfirm: 'a long enough passphrase',
+          publicKey: PUB.text,
           retentionDays: 30,
           alertDays: 3,
           mirrorThresholdBytes: 50 * 1024 ** 3,
         },
-        ok,
+        strict,
       ),
     ).not.toThrow();
   });
+});
 
-  it('allows http only when the operator says so', () => {
-    expect(() =>
-      validateOffsitePatch({ endpoint: 'http://minio:9000' }, { allowHttp: true }),
-    ).not.toThrow();
+describe('endpoint rules', () => {
+  it('allows http only when the server environment says so', () => {
+    expect(() => checkEndpoint('http://minio.lan:9000', strict)).toThrow(/https/);
+    expect(checkEndpoint('http://minio.lan:9000', { allowHttp: true, allowLocal: false })).toBe(
+      'http://minio.lan:9000',
+    );
+    expect(endpointPolicy(env({ BACKUP_OFFSITE_ALLOW_HTTP: 'true' })).allowHttp).toBe(true);
+    expect(endpointPolicy(env({})).allowHttp).toBe(false);
+  });
+
+  it.each([
+    'https://localhost:9000',
+    'https://api.localhost',
+    'https://127.0.0.1',
+    'https://127.8.9.10:443',
+    'https://0.0.0.0',
+    'https://[::1]',
+    'https://[::ffff:127.0.0.1]',
+    'https://[::ffff:7f00:1]',
+    'https://169.254.169.254',
+    'https://[fe80::1]',
+    'https://[fd00:ec2::254]',
+    'https://100.100.100.200',
+    'https://metadata.google.internal',
+    'https://instance-data.ec2.internal.',
+  ])('refuses %s unless the local flag is set', (url) => {
+    expect(() => checkEndpoint(url, strict)).toThrow(/this server|link-local|metadata/);
+    expect(() => checkEndpoint(url, { allowHttp: false, allowLocal: true })).not.toThrow();
+  });
+
+  it('allows a private network address and public names', () => {
+    for (const url of [
+      'https://10.0.0.5:9000',
+      'https://192.168.1.20',
+      'https://s3.amazonaws.com',
+    ]) {
+      expect(() => checkEndpoint(url, strict)).not.toThrow();
+    }
+    expect(isRefusedAddress('8.8.8.8')).toBe(false);
+  });
+});
+
+describe('endpoint rules after DNS', () => {
+  it('refuses a name that resolves to this server or a metadata address', async () => {
+    const lookup = (answers: string[]) => async () => answers.map((address) => ({ address }));
+    await expect(
+      assertEndpointReachable('https://store.example.com', strict, lookup(['127.0.0.1'])),
+    ).rejects.toThrow(/points at this server/);
+    await expect(
+      assertEndpointReachable(
+        'https://store.example.com',
+        strict,
+        lookup(['203.0.113.5', '169.254.169.254']),
+      ),
+    ).rejects.toThrow(/points at/);
+    await expect(
+      assertEndpointReachable('https://store.example.com', strict, lookup(['203.0.113.5'])),
+    ).resolves.toBeUndefined();
+    await expect(
+      assertEndpointReachable(
+        'https://store.example.com',
+        { allowHttp: false, allowLocal: true },
+        lookup(['127.0.0.1']),
+      ),
+    ).resolves.toBeUndefined();
   });
 });
 

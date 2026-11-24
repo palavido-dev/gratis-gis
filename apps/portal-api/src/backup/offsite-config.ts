@@ -314,9 +314,24 @@ export function resolveOffsiteSettings(
     envText(env, OFFSITE_ENV.endpoint),
     (v: string) => checks.endpoint(v, policy),
   );
-  const region = pick('region', row.offsiteRegion, envText(env, OFFSITE_ENV.region), same(checks.region));
-  const bucket = pick('bucket', row.offsiteBucket, envText(env, OFFSITE_ENV.bucket), same(checks.bucket));
-  const prefix = pick('prefix', row.offsitePrefix, envText(env, OFFSITE_ENV.prefix), same(checks.prefix));
+  const region = pick(
+    'region',
+    row.offsiteRegion,
+    envText(env, OFFSITE_ENV.region),
+    same(checks.region),
+  );
+  const bucket = pick(
+    'bucket',
+    row.offsiteBucket,
+    envText(env, OFFSITE_ENV.bucket),
+    same(checks.bucket),
+  );
+  const prefix = pick(
+    'prefix',
+    row.offsitePrefix,
+    envText(env, OFFSITE_ENV.prefix),
+    same(checks.prefix),
+  );
   const keyId = pick(
     'access key id',
     row.offsiteAccessKeyId,
@@ -341,7 +356,12 @@ export function resolveOffsiteSettings(
     envInt(OFFSITE_ENV.retentionDays),
     intIn(LIMITS.retentionDays),
   );
-  const alert = pick('alert days', row.offsiteAlertDays, envInt(OFFSITE_ENV.alertDays), intIn(LIMITS.alertDays));
+  const alert = pick(
+    'alert days',
+    row.offsiteAlertDays,
+    envInt(OFFSITE_ENV.alertDays),
+    intIn(LIMITS.alertDays),
+  );
   const gb = envInt(OFFSITE_ENV.mirrorThresholdGb);
   const threshold = pick(
     'mirror threshold',
@@ -445,7 +465,8 @@ export function validateOffsitePatch(patch: OffsitePatch, policy: EndpointPolicy
       );
     }
   }
-  const str = (v: string | null | undefined) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  const str = (v: string | null | undefined) =>
+    typeof v === 'string' && v.trim() ? v.trim() : null;
   const e = str(patch.endpoint);
   if (e) checks.endpoint(e, policy);
   const b = str(patch.bucket);
@@ -461,7 +482,12 @@ export function validateOffsitePatch(patch: OffsitePatch, policy: EndpointPolicy
   const pk = str(patch.publicKey);
   if (pk) checks.publicKey(pk);
   if (patch.retentionDays !== undefined && patch.retentionDays !== null) {
-    checks.int(LIMITS.retentionDays[0], patch.retentionDays, LIMITS.retentionDays[1], LIMITS.retentionDays[2]);
+    checks.int(
+      LIMITS.retentionDays[0],
+      patch.retentionDays,
+      LIMITS.retentionDays[1],
+      LIMITS.retentionDays[2],
+    );
   }
   if (patch.alertDays !== undefined && patch.alertDays !== null) {
     checks.int(LIMITS.alertDays[0], patch.alertDays, LIMITS.alertDays[1], LIMITS.alertDays[2]);

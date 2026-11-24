@@ -19,7 +19,12 @@ import {
   type OffsitePrivateKey,
   type OffsitePublicKey,
 } from './offsite-crypto.js';
-import { OFFSITE_LAYOUT, selectExpired, stampFromName, type OffsiteArtifact } from './offsite-rules.js';
+import {
+  OFFSITE_LAYOUT,
+  selectExpired,
+  stampFromName,
+  type OffsiteArtifact,
+} from './offsite-rules.js';
 import {
   deleteObject,
   getObjectStream,

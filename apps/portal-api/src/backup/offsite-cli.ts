@@ -96,7 +96,12 @@ function arg(args: string[], name: string): string | null {
 
 /** Bucket settings from the environment, the folder found when unset. */
 async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
-  const s = resolveOffsiteSettings(EMPTY_ROW, { secretFromDb: null }, io.env, endpointPolicy(io.env));
+  const s = resolveOffsiteSettings(
+    EMPTY_ROW,
+    { secretFromDb: null },
+    io.env,
+    endpointPolicy(io.env),
+  );
   const missing = [
     !s.endpoint && OFFSITE_ENV.endpoint,
     !s.bucket && OFFSITE_ENV.bucket,
@@ -104,9 +109,7 @@ async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
     !s.secretAccessKey && OFFSITE_ENV.secretAccessKey,
   ].filter(Boolean);
   if (missing.length > 0) {
-    throw new Error(
-      [`Set these in the env file: ${missing.join(', ')}.`, ...s.problems].join(' '),
-    );
+    throw new Error([`Set these in the env file: ${missing.join(', ')}.`, ...s.problems].join(' '));
   }
   if (!io.env(OFFSITE_ENV.prefix)?.trim()) {
     // The default folder carries the portal's install id, which a new

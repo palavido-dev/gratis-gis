@@ -50,7 +50,11 @@ import {
   sealStream,
   type OffsitePublicKey,
 } from './offsite-crypto.js';
-import { assertEndpointReachable, endpointPolicy, type EndpointPolicy } from './offsite-endpoint.js';
+import {
+  assertEndpointReachable,
+  endpointPolicy,
+  type EndpointPolicy,
+} from './offsite-endpoint.js';
 import { OffsiteMirror, PrismaMirrorIndex, type MirrorIndexStore } from './offsite-mirror.js';
 import {
   archiveArtifacts,
@@ -200,7 +204,9 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   private env = (name: string) => process.env[name];
 
   /** Settings for a row, with the stored secret opened if it still fits. */
-  private resolve(row: OffsiteRow & { offsiteSecretEncrypted: string | null; offsiteSecretIv: string | null }) {
+  private resolve(
+    row: OffsiteRow & { offsiteSecretEncrypted: string | null; offsiteSecretIv: string | null },
+  ) {
     const policy = this.policy();
     // The endpoint and key id first: the secret is bound to them.
     const plain = resolveOffsiteSettings(row, { secretFromDb: null }, this.env, policy);
@@ -505,7 +511,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       this.markerKey(s),
       Buffer.from(
         JSON.stringify(
-          { kind: 'gratisgis-offsite-folder', installId: s.installId, createdAt: new Date().toISOString() },
+          {
+            kind: 'gratisgis-offsite-folder',
+            installId: s.installId,
+            createdAt: new Date().toISOString(),
+          },
           null,
           2,
         ),
@@ -534,7 +544,9 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     if (!s.enabled) return undefined;
     if (!(await this.claim(runId))) {
-      this.log.warn(`Off-site copy of backup ${runId} not started: another off-site upload is running.`);
+      this.log.warn(
+        `Off-site copy of backup ${runId} not started: another off-site upload is running.`,
+      );
       return undefined;
     }
     const done = this.upload(runId, s, objectBytes).catch((e: unknown) => {
@@ -628,7 +640,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     objectBytes: number | null,
   ): Promise<OffsiteMode> {
     const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
-    const bytes = objectBytes ?? (await this.objectBytesFromManifest(path.join(dir, run.filename!)));
+    const bytes =
+      objectBytes ?? (await this.objectBytesFromManifest(path.join(dir, run.filename!)));
     return bytes !== null && bytes > s.mirrorThresholdBytes ? 'mirror' : 'archive';
   }
 
@@ -892,7 +905,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       }
     }
     const collect = !(await this.otherUploadRunning(self));
-    if (!collect) this.log.log('Another off-site upload is running; mirror files are not collected this time.');
+    if (!collect)
+      this.log.log('Another off-site upload is running; mirror files are not collected this time.');
     const m = await this.mirror.enforceRetention(s, s3, now, this.index, collect);
     removed += m.removed;
     if (m.unknownKept > 0) {
