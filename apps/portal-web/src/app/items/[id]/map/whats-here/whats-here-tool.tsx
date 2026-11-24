@@ -116,6 +116,8 @@ const PICKED_FILL = 'whats-here:picked-fill';
 const PICKED_LINE = 'whats-here:picked-line';
 const AREA_COLOR = '#0284c7';
 const PICK_COLOR = '#f59e0b';
+/** Maps shorter than this get the full-height panel placement. */
+const COMPACT_BELOW_PX = 600;
 /** Wait this long after the last edit before asking the server. */
 const RERUN_DELAY_MS = 350;
 
@@ -328,8 +330,13 @@ export function WhatsHereTool({
     };
   }, [mode, query]);
 
+  // An address is usually somewhere off screen; show it once its area
+  // has resolved. Drawn and picked areas are already in view.
+  const flyOnResolveRef = useRef(false);
+
   function choosePlace(p: SearchResult) {
     if (!p.center) return;
+    flyOnResolveRef.current = true;
     setPlaceLabel(p.label);
     setPlaces([]);
     setQuery(p.label);
@@ -420,6 +427,17 @@ export function WhatsHereTool({
           if (runRef.current !== run) return;
           areaRef.current = resolved;
           setArea(resolved);
+          if (flyOnResolveRef.current && map) {
+            flyOnResolveRef.current = false;
+            const [w, s, e, n] = resolved.bbox;
+            map.fitBounds(
+              [
+                [w, s],
+                [e, n],
+              ],
+              { padding: 80, maxZoom: 17, duration: 800 },
+            );
+          }
           try {
             await screenAll(resolved, run, controller.signal);
           } catch (err) {
@@ -442,7 +460,7 @@ export function WhatsHereTool({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [open, source, distanceMeters, layers, screenAll, t]);
+  }, [open, map, source, distanceMeters, layers, screenAll, t]);
 
   // Changing one layer's breakdown reruns that layer only.
   const setBreakdown = useCallback(
@@ -484,10 +502,24 @@ export function WhatsHereTool({
 
   // ---- Map overlay ----------------------------------------------------
 
+  // What the overlay should show right now. The effect that adds the
+  // sources reads this, so a source created after the area resolved
+  // still starts with the area in it.
+  const overlayRef = useRef<{
+    area: GeoJSON.FeatureCollection;
+    picked: GeoJSON.FeatureCollection;
+  }>({
+    area: { type: 'FeatureCollection', features: [] },
+    picked: { type: 'FeatureCollection', features: [] },
+  });
+
   useEffect(() => {
     if (!map || !open) return;
     const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
     const add = () => {
+      // Before the first style has loaded there is nowhere to add to;
+      // the 'styledata' and 'idle' listeners below come back here.
+      if (!map.style) return;
       if (!map.getSource(OVERLAY_SOURCE)) {
         map.addSource(OVERLAY_SOURCE, { type: 'geojson', data: empty });
         map.addLayer({
@@ -532,13 +564,34 @@ export function WhatsHereTool({
           paint: { 'line-color': PICK_COLOR, 'line-width': 2 },
         });
       }
+      (map.getSource(OVERLAY_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+        overlayRef.current.area,
+      );
+      (map.getSource(PICKED_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+        overlayRef.current.picked,
+      );
     };
-    if (map.isStyleLoaded()) add();
-    else map.once('load', add);
+    // Not gated on isStyleLoaded(): that stays false while any tile is
+    // still loading, and waiting for a 'load' that already fired left
+    // the area outline off the map. Adding needs only the style.
+    try {
+      add();
+    } catch {
+      /* style mid-swap; a listener below retries */
+    }
     // A basemap switch replaces the style and drops these; put them back.
-    map.on('styledata', add);
+    const retry = () => {
+      try {
+        add();
+      } catch {
+        /* next event */
+      }
+    };
+    map.on('styledata', retry);
+    map.once('idle', retry);
     return () => {
-      map.off('styledata', add);
+      map.off('styledata', retry);
+      map.off('idle', retry);
       for (const id of [OVERLAY_POINT, OVERLAY_LINE, OVERLAY_FILL, PICKED_LINE, PICKED_FILL]) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -557,16 +610,22 @@ export function WhatsHereTool({
     if (mode === 'address' && source?.type === 'Point') {
       features.push({ type: 'Feature', geometry: source, properties: {} });
     }
-    const src = map.getSource(OVERLAY_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    src?.setData({ type: 'FeatureCollection', features });
-    const pickedSrc = map.getSource(PICKED_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    pickedSrc?.setData({
-      type: 'FeatureCollection',
-      features:
-        mode === 'features'
-          ? picked.map((p) => ({ type: 'Feature', geometry: p.geometry, properties: {} }))
-          : [],
-    });
+    overlayRef.current = {
+      area: { type: 'FeatureCollection', features },
+      picked: {
+        type: 'FeatureCollection',
+        features:
+          mode === 'features'
+            ? picked.map((p) => ({ type: 'Feature', geometry: p.geometry, properties: {} }))
+            : [],
+      },
+    };
+    (map.getSource(OVERLAY_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+      overlayRef.current.area,
+    );
+    (map.getSource(PICKED_SOURCE) as maplibregl.GeoJSONSource | undefined)?.setData(
+      overlayRef.current.picked,
+    );
   }, [map, open, area, picked, mode, source]);
 
   // ---- Reset ------------------------------------------------------------
@@ -607,6 +666,19 @@ export function WhatsHereTool({
     }
     // startOver is stable enough; this is the close transition only.
   }, [open]);
+
+  // ---- Panel placement ------------------------------------------------
+
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    if (!map || !open) return;
+    const el = map.getContainer();
+    const measure = () => setCompact(el.clientHeight < COMPACT_BELOW_PX);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [map, open]);
 
   // ---- Derived ----------------------------------------------------------
 
@@ -679,6 +751,13 @@ export function WhatsHereTool({
   const container = map?.getContainer() ?? null;
   if (!open || !container) return null;
 
+  // A map in an app can be a short strip. There the panel takes the
+  // map's full height from the top; on a tall map it sits low, clear
+  // of the search bar and select toolbar.
+  const placement = compact
+    ? 'left-2 top-2 bottom-2'
+    : 'bottom-28 left-3 max-h-[calc(100%-14rem)]';
+
   const modeButton = (m: AreaMode, Icon: typeof PenLine, label: string) => (
     <button
       type="button"
@@ -712,7 +791,7 @@ export function WhatsHereTool({
 
   return createPortal(
     <div
-      className="absolute bottom-28 left-3 z-30 flex max-h-[calc(100%-9rem)] w-[min(24rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs"
+      className={`absolute ${placement} z-30 flex w-[min(24rem,calc(100%-5.5rem))] flex-col rounded-md border border-border bg-surface-0/95 shadow-lg backdrop-blur-xs`}
       role="dialog"
       aria-label={t('whatsHere.title')}
     >
