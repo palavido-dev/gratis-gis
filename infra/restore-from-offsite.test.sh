@@ -58,6 +58,11 @@ expect_true "kv reads a key" '[[ "$(printf "a=1\nb=2\n" | ggo_kv b)" == 2 ]]'
 expect_false "archive name loose" 'ggo_valid_archive backup-x.tar.gz'
 expect_false "archive name with a folder" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12.tar.gz/x'
 expect_false "mirror run loose" 'ggo_valid_mirror_run 2026-11-24T0-abcdef12'
+expect_true "prefix ok" 'ggo_valid_prefix gratisgis-0f1e2d3c/'
+expect_true "nested prefix ok" 'ggo_valid_prefix backups/site-a/portal/'
+expect_false "prefix with a quote" "ggo_valid_prefix \"a'b/\""
+expect_false "prefix with dot dot" 'ggo_valid_prefix a/../b/'
+expect_false "empty prefix" 'ggo_valid_prefix ""'
 expect_true "size in GB" '[[ "$(ggo_size 3221225472)" == "3.0 GB" ]]'
 expect_true "size in MB" '[[ "$(ggo_size 1048577)" == "2 MB" ]]'
 
@@ -185,6 +190,7 @@ expect_in "runs migrations" "$log" "run --rm portal-migrate"
 expect_in "empties the local index of mirrored files" "$log" "TRUNCATE backup_offsite_object"
 expect_in "turns off-site copies off on the new server" "$log" "UPDATE backup_config SET offsite_enabled = false"
 expect_in "gives the new server a new install id" "$log" "offsite_install_id = NULL"
+expect_in "keeps the folder it restored from" "$log" "offsite_prefix = COALESCE(offsite_prefix, 'gratisgis-0f1e2d3c/')"
 expect_in "says how to take over the folder" "$out" "Take over this folder"
 expect_in "puts files back" "$log" "offsite-cli.js put-objects --archive /app/backups/offsite-restore/$A"
 expect_in "starts everything" "$log" "up -d"

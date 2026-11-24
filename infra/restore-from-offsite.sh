@@ -97,6 +97,11 @@ ggo_valid_mirror_run() {
   [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}-[0-9a-f]{8}$ ]]
 }
 
+# A bucket folder as the portal writes it: plain path parts, ending in "/".
+ggo_valid_prefix() {
+  [[ "$1" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*/$ ]] && [[ ! "$1" =~ (^|/)\.\.?/ ]]
+}
+
 # A database or role name safe to put inside double or single quotes in SQL.
 ggo_valid_identifier() {
   [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]]
@@ -286,7 +291,7 @@ ggo_main() {
     COPY_NAMED=1
     describe_args=(--run "$MIRROR_RUN")
   fi
-  local described copy_kind copy_name copy_created copy_uploaded copy_bytes copy_fp copy_suspect
+  local described copy_kind copy_name copy_created copy_uploaded copy_bytes copy_fp copy_suspect copy_prefix
   described="$(ggo_cli describe "${describe_args[@]}")" || ggo_die "could not find the copy to restore (see the message above)"
   copy_kind="$(ggo_kv kind <<<"$described")"
   copy_name="$(ggo_kv name <<<"$described")"
@@ -295,6 +300,8 @@ ggo_main() {
   copy_bytes="$(ggo_kv bytes <<<"$described")"
   copy_fp="$(ggo_kv fingerprint <<<"$described")"
   copy_suspect="$(ggo_kv suspect <<<"$described")"
+  copy_prefix="$(ggo_kv prefix <<<"$described")"
+  ggo_valid_prefix "$copy_prefix" || ggo_die "unexpected bucket folder name: $copy_prefix"
   if [[ "$copy_kind" == "mirror" ]]; then
     ggo_valid_mirror_run "$copy_name" || ggo_die "unexpected copy name"
     MIRROR_RUN="$copy_name"
@@ -396,10 +403,12 @@ ggo_main() {
 
   ggo_step "7. Reset the off-site state"
   # A new install id (the portal makes one on next use): this server
-  # does not own the bucket folder until an admin takes it over.
+  # does not own the bucket folder until an admin takes it over. The
+  # folder restored from is kept as the setting, since the default
+  # folder name comes from the install id.
   ggo_psql "$PG_DB" \
     -c "TRUNCATE backup_offsite_object" \
-    -c "UPDATE backup_config SET offsite_enabled = false, offsite_install_id = NULL"
+    -c "UPDATE backup_config SET offsite_enabled = false, offsite_install_id = NULL, offsite_prefix = COALESCE(offsite_prefix, '$copy_prefix')"
   echo "Off-site copies are off on this server, and it does not own the bucket folder."
   echo "If this server replaces the old one: on Admin, Backup, turn off-site copies on"
   echo "and use \"Take over this folder\". For a test restore, leave them off."
