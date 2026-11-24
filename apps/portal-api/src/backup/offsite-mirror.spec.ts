@@ -392,9 +392,21 @@ describe('off-site mirror mode', () => {
       local: () => ({ s3: local, bucket: 'gratisgis' }),
     };
     const outDir = path.join(dir, 'restore');
+    // Nothing is downloaded until the copy is confirmed by name.
     expect(
       await runCli(
         ['fetch-mirror', '--key-file', keyFile, '--passphrase-stdin', '--out', outDir],
+        io,
+      ),
+    ).toBe(1);
+    expect(fs.existsSync(outDir)).toBe(false);
+    const newest = out.find((l) => l.startsWith('name='))!.slice(5);
+    expect(out).toContain(`fingerprint=${key.publicKey.fingerprintText}`);
+    out.length = 0;
+    const confirm = ['--confirm-copy', newest];
+    expect(
+      await runCli(
+        ['fetch-mirror', '--key-file', keyFile, '--passphrase-stdin', '--out', outDir, ...confirm],
         io,
       ),
     ).toBe(0);
@@ -406,14 +418,17 @@ describe('off-site mirror mode', () => {
     out.length = 0;
     expect(
       await runCli(
-        ['fetch-mirror', '--key-file', keyFile, '--passphrase-stdin', '--out', outDir],
+        ['fetch-mirror', '--key-file', keyFile, '--passphrase-stdin', '--out', outDir, ...confirm],
         io,
       ),
     ).toBe(0);
 
     out.length = 0;
     expect(
-      await runCli(['put-mirror-objects', '--key-file', keyFile, '--passphrase-stdin'], io),
+      await runCli(
+        ['put-mirror-objects', '--key-file', keyFile, '--passphrase-stdin', '--run', newest],
+        io,
+      ),
     ).toBe(0);
     expect(out).toContain('objects=2');
     expect(local.objects.get('items/x/a.tif')!.body.toString()).toBe('TIFFDATA');

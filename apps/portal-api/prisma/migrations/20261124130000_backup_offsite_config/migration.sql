@@ -20,4 +20,7 @@ ALTER TABLE "backup_config"
   ADD COLUMN "offsite_name_key_iv" TEXT,
   ADD COLUMN "offsite_retention_days" INTEGER,
   ADD COLUMN "offsite_alert_days" INTEGER,
-  ADD COLUMN "offsite_mirror_threshold_bytes" BIGINT;
+  ADD COLUMN "offsite_mirror_threshold_bytes" BIGINT,
+  ADD COLUMN "offsite_key_changed_at" TIMESTAMPTZ(6),
+  ADD COLUMN "offsite_key_changed_by" UUID,
+  ADD COLUMN "offsite_previous_fingerprint" TEXT;

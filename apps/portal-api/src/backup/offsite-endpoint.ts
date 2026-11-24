@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { lookup as dnsLookupCb, type LookupAddress, type LookupOptions } from 'node:dns';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 
@@ -13,8 +14,10 @@ import { BlockList, isIP } from 'node:net';
  *   test store on the same machine). Private network ranges such as
  *   10.0.0.0/8 stay allowed: a store on the LAN is a real use.
  *
- * The name is checked as written, and again after DNS when the portal
- * connects, so a name that points at a refused address is refused too.
+ * The name is checked as written, and again after DNS before each
+ * upload. The S3 client also checks every address it is about to
+ * connect to (guardedLookup), so a name that starts pointing at a
+ * refused address between the check and the connection is refused too.
  */
 
 export class EndpointError extends Error {
@@ -63,24 +66,99 @@ const REFUSED_NAMES = new Set([
   'instance-data.ec2.internal',
 ]);
 
+/** The 16 bytes of an IPv6 address, or null when it does not parse. */
+export function ipv6Bytes(address: string): Buffer | null {
+  let text = address.toLowerCase().replace(/%.*$/, '');
+  // A trailing dotted IPv4 part becomes two hex groups.
+  const dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) {
+    const o = dotted.slice(2).map(Number);
+    if (o.some((n) => n > 255)) return null;
+    text = `${dotted[1]}${((o[0]! << 8) | o[1]!).toString(16)}:${((o[2]! << 8) | o[3]!).toString(16)}`;
+  }
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const part = (h: string) => (h === '' ? [] : h.split(':'));
+  const head = part(halves[0]!);
+  const tail = halves.length === 2 ? part(halves[1]!) : [];
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 1 ? fill !== 0 : fill < 1) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? fill : 0).fill('0'), ...tail];
+  const out = Buffer.alloc(16);
+  for (let i = 0; i < 8; i += 1) {
+    const g = groups[i]!;
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    out.writeUInt16BE(parseInt(g, 16), i * 2);
+  }
+  return out;
+}
+
+/**
+ * The IPv4 address carried inside an IPv6 one, for the forms that
+ * reach an IPv4 host: IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible
+ * (::a.b.c.d, also written ::7f00:1), the well-known NAT64 prefix
+ * 64:ff9b::/96 and the local-use NAT64 prefix 64:ff9b:1::/48.
+ */
+export function embeddedIpv4(address: string): string | null {
+  const b = ipv6Bytes(address);
+  if (!b) return null;
+  const zero = (from: number, to: number) => b.subarray(from, to).every((x) => x === 0);
+  const v4 = `${b[12]}.${b[13]}.${b[14]}.${b[15]}`;
+  if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return v4;
+  // ::/96. Also :: and ::1, which land in 0.0.0.0/8 and are refused.
+  if (zero(0, 12)) return v4;
+  if (b.readUInt32BE(0) === 0x0064ff9b && zero(4, 12)) return v4;
+  if (b.readUInt32BE(0) === 0x0064ff9b && b.readUInt16BE(4) === 1) return v4;
+  return null;
+}
+
 /** True when the address is one the portal must not send backups to. */
 export function isRefusedAddress(address: string): boolean {
   const kind = isIP(address);
   if (kind === 4) return refused.check(address, 'ipv4');
   if (kind === 6) {
-    const lower = address.toLowerCase();
-    // IPv4 written inside IPv6 (::ffff:127.0.0.1) is the IPv4 address.
-    const mapped = /^(?:0*:)*:?(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-    if (mapped) return refused.check(mapped[1]!, 'ipv4');
-    const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
-    if (hexMapped) {
-      const hi = parseInt(hexMapped[1]!, 16);
-      const lo = parseInt(hexMapped[2]!, 16);
-      return refused.check(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`, 'ipv4');
-    }
+    const v4 = embeddedIpv4(address);
+    if (v4) return refused.check(v4, 'ipv4');
     return refused.check(address, 'ipv6');
   }
   return false;
+}
+
+const REFUSED_AFTER_DNS =
+  'The endpoint name points at this server, a link-local address or a cloud metadata address, so it is refused.';
+
+type LookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address: string | LookupAddress[],
+  family?: number,
+) => void;
+
+/**
+ * A DNS lookup for the S3 client's connections that refuses an answer
+ * holding a refused address. It runs on the very lookup the connection
+ * uses, so there is no gap between the check and the use.
+ */
+export function guardedLookup(
+  policy: EndpointPolicy,
+  lookup: typeof dnsLookupCb = dnsLookupCb,
+): (hostname: string, options: LookupOptions, callback: LookupCallback) => void {
+  return (hostname, options, callback) => {
+    lookup(hostname, { ...options }, ((
+      err: NodeJS.ErrnoException | null,
+      address: string | LookupAddress[],
+      family?: number,
+    ) => {
+      if (err || policy.allowLocal) return callback(err, address, family);
+      const all = Array.isArray(address) ? address.map((a) => a.address) : [address];
+      if (all.some((a) => isRefusedAddress(a))) {
+        return callback(
+          Object.assign(new Error(REFUSED_AFTER_DNS), { code: 'EOFFSITEREFUSED' }),
+          Array.isArray(address) ? [] : '',
+        );
+      }
+      return callback(null, address, family);
+    }) as never);
+  };
 }
 
 function hostOf(u: URL): string {
@@ -154,8 +232,6 @@ export async function assertEndpointReachable(
     return;
   }
   if (addresses.some((a) => isRefusedAddress(a.address))) {
-    throw new EndpointError(
-      'The endpoint name points at this server, a link-local address or a cloud metadata address, so it is refused.',
-    );
+    throw new EndpointError(REFUSED_AFTER_DNS);
   }
 }

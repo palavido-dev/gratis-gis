@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   archiveArtifacts,
+  FUTURE_MARGIN_MS,
+  newestGood,
   selectExpired,
   stampFromName,
   staleNoticeKey,
+  suspectDate,
   unreferencedObjects,
 } from './offsite-rules.js';
 
@@ -59,6 +62,15 @@ describe('archiveArtifacts', () => {
       { key: `${p}backup-2026-11-22T02-00-00-000-cccccccc.tar.gz.enc.json`, lastModified: null },
       { key: `${p}notes.txt`, lastModified: null },
       { key: 'other/backup-2026-11-22T02-00-00-000-dddddddd.tar.gz.enc', lastModified: null },
+      // Names the portal never writes: nested, or loosely matching.
+      { key: `${p}sub/backup-2026-11-23T02-00-00-000-eeeeeeee.tar.gz.enc`, lastModified: null },
+      {
+        key: `${p}sub/backup-2026-11-23T02-00-00-000-eeeeeeee.tar.gz.enc.json`,
+        lastModified: null,
+      },
+      { key: `${p}backup-x.tar.gz.enc`, lastModified: null },
+      { key: `${p}backup-2026-11-23T02-00-00-000-EEEEEEEE.tar.gz.enc`, lastModified: null },
+      { key: `${p}xbackup-2026-11-23T02-00-00-000-eeeeeeee.tar.gz.enc`, lastModified: null },
     ];
     const out = archiveArtifacts(list, p);
     const byId = Object.fromEntries(out.map((a) => [a.id, a]));
@@ -74,6 +86,46 @@ describe('archiveArtifacts', () => {
     expect(
       byId['backup-2026-11-20T02-00-00-000-aaaaaaaa.tar.gz.enc']!.createdAt.toISOString(),
     ).toBe('2026-11-20T02:00:00.000Z');
+  });
+});
+
+describe('copies dated in the future', () => {
+  const HOUR = 60 * 60 * 1000;
+  const future = new Date(NOW.getTime() + 2 * DAY);
+
+  it('sets aside a name dated after now plus the margin, or after its upload', () => {
+    expect(suspectDate({ id: 'a', createdAt: future, complete: true }, NOW)).toBe('future');
+    expect(
+      suspectDate(
+        { id: 'b', createdAt: new Date(NOW.getTime() + FUTURE_MARGIN_MS / 2), complete: true },
+        NOW,
+      ),
+    ).toBeNull();
+    expect(
+      suspectDate({ id: 'c', createdAt: ago(1), complete: true, lastModified: ago(3) }, NOW),
+    ).toBe('after-upload');
+    expect(
+      suspectDate(
+        {
+          id: 'd',
+          createdAt: ago(1),
+          complete: true,
+          lastModified: new Date(ago(1).getTime() + HOUR),
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it('is never the newest good copy and never deleted by retention', () => {
+    const list = [
+      { id: 'planted', createdAt: future, complete: true },
+      { id: 'good', createdAt: ago(40), complete: true },
+      { id: 'older', createdAt: ago(50), complete: true },
+    ];
+    expect(newestGood(list, NOW)?.id).toBe('good');
+    // Without the rule, "planted" would be kept as newest and "good" deleted.
+    expect(selectExpired(list, NOW, 30)).toEqual(['older']);
   });
 });
 

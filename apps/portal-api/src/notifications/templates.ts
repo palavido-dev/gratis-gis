@@ -387,6 +387,9 @@ const TYPE_VARIABLES: { [K in NotificationType]?: TemplateVariableDescriptor[] }
       description: 'Empty for a failed backup; offsite_failed or offsite_stale for an off-site copy.',
     },
     { name: 'days', label: 'Days since the last good off-site copy' },
+    { name: 'from', label: 'Fingerprint of the replaced off-site key' },
+    { name: 'to', label: 'Fingerprint of the new off-site key' },
+    { name: 'name', label: 'Off-site copy set aside' },
   ],
 };
 
@@ -651,8 +654,41 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
     return { subject, text, html };
   }) as Renderer<unknown>,
 
-  backup_failed: ((payload: { runId?: string; kind?: string; days?: number | null }, ctx) => {
+  backup_failed: ((
+    payload: {
+      runId?: string;
+      kind?: string;
+      days?: number | null;
+      from?: string | null;
+      to?: string | null;
+      name?: string;
+    },
+    ctx,
+  ) => {
     const runId = typeof payload.runId === 'string' ? payload.runId : '';
+    if (payload.kind === 'offsite_key_changed') {
+      const from = typeof payload.from === 'string' ? payload.from : 'none';
+      const to = typeof payload.to === 'string' ? payload.to : 'none';
+      const subject = `The off-site backup key was changed on ${ctx.orgLabel}`;
+      const line =
+        `The public key that off-site backup copies are encrypted to was changed. ` +
+        `If you did not expect this, check Admin, Backup now.`;
+      const text = `${line}\nOld fingerprint: ${from}\nNew fingerprint: ${to}\n`;
+      const html =
+        `<p>${escapeHtml(line)}</p>` +
+        `<p>Old fingerprint: ${escapeHtml(from)}<br>New fingerprint: ${escapeHtml(to)}</p>`;
+      return { subject, text, html };
+    }
+    if (payload.kind === 'offsite_suspect_copy') {
+      const name = typeof payload.name === 'string' ? payload.name : '';
+      const subject = `An off-site backup copy was set aside on ${ctx.orgLabel}`;
+      const line =
+        `An off-site copy in the bucket is dated in the future, or after the provider recorded it. ` +
+        `It is not used for restores or deleted by retention. Check who can write to the bucket.`;
+      const text = `${line}\nCopy: ${name}\n`;
+      const html = `<p>${escapeHtml(line)}</p><p>Copy: ${escapeHtml(name)}</p>`;
+      return { subject, text, html };
+    }
     if (payload.kind === 'offsite_failed') {
       const subject = `An off-site backup copy failed on ${ctx.orgLabel}`;
       const text =

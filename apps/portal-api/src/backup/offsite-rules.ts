@@ -14,13 +14,62 @@ export interface OffsiteArtifact {
   createdAt: Date;
   /** The completion marker exists: the upload finished and verified. */
   complete: boolean;
+  /** When the bucket says the first of its files was written, if known. */
+  lastModified?: Date | null;
+}
+
+/**
+ * How far a name's time stamp may be ahead of the clock (or of the time
+ * the bucket says the file was written) before the copy is set aside.
+ * Covers clock differences between this server and the provider.
+ */
+export const FUTURE_MARGIN_MS = 60 * 60 * 1000;
+
+/**
+ * Why a copy's name cannot be trusted for its age, or null. A name
+ * dated after now (plus the margin) would count as the newest copy for
+ * ever; a name dated well after the time the provider recorded for the
+ * upload was not written by this portal's clock. Such a copy is never
+ * picked as newest and never deleted by retention: it is reported.
+ */
+export function suspectDate(a: OffsiteArtifact, now: Date): 'future' | 'after-upload' | null {
+  const t = a.createdAt.getTime();
+  if (t > now.getTime() + FUTURE_MARGIN_MS) return 'future';
+  if (a.lastModified && t > a.lastModified.getTime() + FUTURE_MARGIN_MS) return 'after-upload';
+  return null;
+}
+
+/** Split artifacts into those with a usable date and those set aside. */
+export function partitionByDate<T extends OffsiteArtifact>(
+  artifacts: readonly T[],
+  now: Date,
+): { usable: T[]; suspect: T[] } {
+  const usable: T[] = [];
+  const suspect: T[] = [];
+  for (const a of artifacts) (suspectDate(a, now) ? suspect : usable).push(a);
+  return { usable, suspect };
+}
+
+/** The newest complete artifact with a usable date, or null. */
+export function newestGood<T extends OffsiteArtifact>(
+  artifacts: readonly T[],
+  now: Date,
+): T | null {
+  let best: T | null = null;
+  for (const a of partitionByDate(artifacts, now).usable) {
+    if (!a.complete) continue;
+    if (!best || a.createdAt.getTime() > best.createdAt.getTime()) best = a;
+  }
+  return best;
 }
 
 /**
  * Artifacts retention may delete: every one created before the
  * cutoff, except the newest complete one, which is kept whatever its
  * age. Incomplete artifacts younger than the cutoff are kept too,
- * since one of them may be an upload still running.
+ * since one of them may be an upload still running. Artifacts whose
+ * date is suspect (see suspectDate) are neither deleted nor counted
+ * as the newest: the caller reports them.
  */
 export function selectExpired(
   artifacts: readonly OffsiteArtifact[],
@@ -29,14 +78,9 @@ export function selectExpired(
 ): string[] {
   if (!Number.isFinite(retentionDays) || retentionDays < 1) return [];
   const cutoff = now.getTime() - retentionDays * DAY_MS;
-  let newestComplete: OffsiteArtifact | null = null;
-  for (const a of artifacts) {
-    if (!a.complete) continue;
-    if (!newestComplete || a.createdAt.getTime() > newestComplete.createdAt.getTime()) {
-      newestComplete = a;
-    }
-  }
-  return artifacts
+  const { usable } = partitionByDate(artifacts, now);
+  const newestComplete = newestGood(usable, now);
+  return usable
     .filter((a) => a !== newestComplete && a.createdAt.getTime() < cutoff)
     .map((a) => a.id);
 }
@@ -114,6 +158,17 @@ export const OFFSITE_LAYOUT = {
 
 const STAMP_RE = /(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})(?:-(\d{3}))?/;
 
+/** A local archive name exactly as the portal writes it. No "/". */
+export const ARCHIVE_NAME_RE =
+  /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}\.tar\.gz$/;
+
+/** A mirror run folder name: the archive's time stamp and run id. No "/". */
+export const MIRROR_RUN_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}$/;
+
+/** An encrypted archive or its sidecar, directly under archives/. */
+const SEALED_ARCHIVE_RE =
+  /^(backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}-[0-9a-f]{8}\.tar\.gz\.enc)(\.json)?$/;
+
 /**
  * The time in a backup file or folder name such as
  * backup-2026-11-24T02-00-00-123-abcdef12.tar.gz. Null when the name
@@ -131,30 +186,35 @@ export function stampFromName(name: string): Date | null {
 /**
  * Group an archive-mode listing into artifacts. An archive is complete
  * when its sidecar exists; the sidecar is written only after the
- * upload verified.
+ * upload verified. Only names the portal writes count: anything else,
+ * including names in sub-folders, is ignored.
  */
 export function archiveArtifacts(
-  listing: Iterable<{ key: string; lastModified: Date | null }>,
+  listing: Iterable<{ key: string; lastModified: Date | null; size?: number }>,
   archivesPrefix: string,
-): Array<OffsiteArtifact & { keys: string[] }> {
-  const byId = new Map<string, OffsiteArtifact & { keys: string[] }>();
+): Array<OffsiteArtifact & { keys: string[]; sealedBytes: number | null }> {
+  const byId = new Map<string, OffsiteArtifact & { keys: string[]; sealedBytes: number | null }>();
   for (const o of listing) {
     if (!o.key.startsWith(archivesPrefix)) continue;
-    const name = o.key.slice(archivesPrefix.length);
-    let id: string;
-    let sidecar = false;
-    if (name.endsWith(OFFSITE_LAYOUT.sidecar)) {
-      id = name.slice(0, -'.json'.length);
-      sidecar = true;
-    } else if (name.endsWith(OFFSITE_LAYOUT.sealed)) {
-      id = name;
-    } else {
-      continue;
-    }
+    const m = SEALED_ARCHIVE_RE.exec(o.key.slice(archivesPrefix.length));
+    if (!m) continue;
+    const id = m[1]!;
+    const sidecar = m[2] !== undefined;
     const at = stampFromName(id) ?? o.lastModified ?? new Date(0);
-    const cur = byId.get(id) ?? { id, createdAt: at, complete: false, keys: [] };
+    const cur = byId.get(id) ?? {
+      id,
+      createdAt: at,
+      complete: false,
+      keys: [],
+      lastModified: null,
+      sealedBytes: null,
+    };
     cur.keys.push(o.key);
     if (sidecar) cur.complete = true;
+    else if (o.size !== undefined) cur.sealedBytes = o.size;
+    if (o.lastModified && (!cur.lastModified || o.lastModified < cur.lastModified)) {
+      cur.lastModified = o.lastModified;
+    }
     byId.set(id, cur);
   }
   // A sidecar without its archive is not a usable copy.

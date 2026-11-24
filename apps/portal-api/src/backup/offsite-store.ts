@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createHash } from 'node:crypto';
+import { Agent as HttpAgent } from 'node:http';
+import { Agent as HttpsAgent } from 'node:https';
 
 import {
   AbortMultipartUploadCommand,
@@ -15,13 +17,42 @@ import {
 } from '@aws-sdk/client-s3';
 
 import type { OffsiteSettings } from './offsite-config.js';
+import { endpointPolicy, guardedLookup, type EndpointPolicy } from './offsite-endpoint.js';
 
 /**
  * The S3 calls the off-site copy makes, kept small so tests can hand
  * in a fake with the same `send`.
  */
 export interface S3Like {
-  send(command: unknown, options?: { abortSignal?: AbortSignal }): Promise<unknown>;
+  send(
+    command: unknown,
+    options?: { abortSignal?: AbortSignal; requestTimeout?: number },
+  ): Promise<unknown>;
+}
+
+/**
+ * Time limits for every request to the bucket. The SDK sets none of its
+ * own (no connection, request or idle limit), so a provider that stops
+ * answering would otherwise hold an upload, and the install-wide
+ * upload claim, for ever.
+ */
+export const OFFSITE_TIMEOUTS = {
+  /** To open the TCP and TLS connection. */
+  connectMs: 30_000,
+  /** No byte in either direction for this long ends the request. */
+  idleMs: 120_000,
+  /** From the start of a request to the first byte of its answer. */
+  requestMs: 15 * 60_000,
+  /** Slowest upload speed a part may take, in bytes per second. */
+  minBytesPerSecond: 32 * 1024,
+} as const;
+
+/** Time allowed for one request that sends `bytes`. */
+export function requestTimeoutFor(bytes: number): number {
+  return Math.max(
+    OFFSITE_TIMEOUTS.requestMs,
+    60_000 + Math.ceil((bytes / OFFSITE_TIMEOUTS.minBytesPerSecond) * 1000),
+  );
 }
 
 /** 16 MiB parts: 160 GB before the 10,000 part limit, raised past that. */
@@ -29,9 +60,24 @@ export const DEFAULT_PART_SIZE = 16 * 1024 * 1024;
 const MIN_PART_SIZE = 5 * 1024 * 1024;
 const MAX_PARTS = 10_000;
 
-export function createOffsiteClient(s: OffsiteSettings): S3Client {
+export function createOffsiteClient(
+  s: OffsiteSettings,
+  policy: EndpointPolicy = endpointPolicy(),
+  limits: { connectMs: number; idleMs: number; requestMs: number } = OFFSITE_TIMEOUTS,
+): S3Client {
+  // Every connection resolves the endpoint through guardedLookup, so an
+  // address refused by the endpoint rules is refused at connect time.
+  const lookup = guardedLookup(policy) as never;
   return new S3Client({
     region: s.region,
+    requestHandler: {
+      connectionTimeout: limits.connectMs,
+      socketTimeout: limits.idleMs,
+      requestTimeout: limits.requestMs,
+      throwOnRequestTimeout: true,
+      httpsAgent: new HttpsAgent({ keepAlive: true, maxSockets: 50, lookup }),
+      httpAgent: new HttpAgent({ keepAlive: true, maxSockets: 50, lookup }),
+    },
     ...(s.endpoint ? { endpoint: s.endpoint } : {}),
     forcePathStyle: s.pathStyle,
     credentials: {
@@ -114,7 +160,10 @@ export async function uploadStream(
   },
 ): Promise<UploadResult> {
   const partSize = args.partSize ?? partSizeFor(args.expectedBytes ?? null);
-  const opts = args.signal ? { abortSignal: args.signal } : undefined;
+  const opts = {
+    ...(args.signal ? { abortSignal: args.signal } : {}),
+    requestTimeout: requestTimeoutFor(partSize),
+  };
 
   // The body is pulled by hand below. Whatever happens, it is closed
   // before this returns, so a file or socket behind it is released even
@@ -136,7 +185,7 @@ async function sendBody(
   args: Parameters<typeof uploadStream>[1],
   iter: AsyncIterator<Buffer>,
   partSize: number,
-  opts: { abortSignal: AbortSignal } | undefined,
+  opts: { abortSignal?: AbortSignal; requestTimeout: number },
   markDrained: () => void,
 ): Promise<UploadResult> {
   // Read up to one part first. A body that ends inside it goes up as
@@ -275,6 +324,8 @@ async function sendBody(
       }
     }
   } catch (err) {
+    // Not tied to the caller's signal: after a stop the parts must
+    // still be released.
     await s3
       .send(
         new AbortMultipartUploadCommand({ Bucket: args.bucket, Key: args.key, UploadId: uploadId }),
@@ -292,7 +343,7 @@ async function verifyStored(
   s3: S3Like,
   args: { bucket: string; key: string; expectedBytes?: number | null | undefined },
   total: number,
-  opts: { abortSignal: AbortSignal } | undefined,
+  opts: { abortSignal?: AbortSignal; requestTimeout?: number },
 ): Promise<void> {
   const head = (await s3.send(
     new HeadObjectCommand({ Bucket: args.bucket, Key: args.key }),
@@ -321,6 +372,7 @@ export async function putSmall(
   key: string,
   body: Buffer,
   contentType = 'application/json',
+  signal?: AbortSignal,
 ): Promise<void> {
   await s3.send(
     new PutObjectCommand({
@@ -331,6 +383,7 @@ export async function putSmall(
       ContentType: contentType,
       ContentMD5: createHash('md5').update(body).digest('base64'),
     }),
+    signal ? { abortSignal: signal } : undefined,
   );
 }
 
@@ -345,6 +398,7 @@ export async function* listObjects(
   s3: S3Like,
   bucket: string,
   prefix: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<ListedObject> {
   let token: string | undefined;
   do {
@@ -354,6 +408,7 @@ export async function* listObjects(
         Prefix: prefix,
         ...(token ? { ContinuationToken: token } : {}),
       }),
+      signal ? { abortSignal: signal } : undefined,
     )) as {
       Contents?: Array<{ Key?: string; Size?: number; LastModified?: Date; ETag?: string }>;
       IsTruncated?: boolean;
@@ -372,12 +427,18 @@ export async function* listObjects(
   } while (token);
 }
 
-/** The "folders" directly under `prefix`, each ending in "/". */
-export async function* listPrefixes(
+/**
+ * One level of the bucket under `prefix`: the object names directly in
+ * it and the "folders" (each ending in "/"), up to `limit` of each.
+ */
+export async function listLevel(
   s3: S3Like,
   bucket: string,
   prefix: string,
-): AsyncGenerator<string> {
+  limit = 1000,
+): Promise<{ keys: string[]; prefixes: string[]; truncated: boolean }> {
+  const keys: string[] = [];
+  const prefixes: string[] = [];
   let token: string | undefined;
   do {
     const page = (await s3.send(
@@ -388,17 +449,33 @@ export async function* listPrefixes(
         ...(token ? { ContinuationToken: token } : {}),
       }),
     )) as {
+      Contents?: Array<{ Key?: string }>;
       CommonPrefixes?: Array<{ Prefix?: string }>;
       IsTruncated?: boolean;
       NextContinuationToken?: string;
     };
-    for (const p of page.CommonPrefixes ?? []) if (p.Prefix) yield p.Prefix;
+    for (const o of page.Contents ?? []) if (o.Key && keys.length < limit) keys.push(o.Key);
+    for (const p of page.CommonPrefixes ?? []) {
+      if (p.Prefix && prefixes.length < limit) prefixes.push(p.Prefix);
+    }
     token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    if (keys.length >= limit && prefixes.length >= limit) {
+      return { keys, prefixes, truncated: token !== undefined };
+    }
   } while (token);
+  return { keys, prefixes, truncated: false };
 }
 
-export async function deleteObject(s3: S3Like, bucket: string, key: string): Promise<void> {
-  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+export async function deleteObject(
+  s3: S3Like,
+  bucket: string,
+  key: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await s3.send(
+    new DeleteObjectCommand({ Bucket: bucket, Key: key }),
+    signal ? { abortSignal: signal } : undefined,
+  );
 }
 
 /** The body of one object as a byte stream. */
@@ -416,10 +493,15 @@ export async function getObjectStream(
   return res.Body as AsyncIterable<Buffer>;
 }
 
-export async function getSmall(s3: S3Like, bucket: string, key: string): Promise<Buffer> {
+export async function getSmall(
+  s3: S3Like,
+  bucket: string,
+  key: string,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   const parts: Buffer[] = [];
   let n = 0;
-  for await (const c of await getObjectStream(s3, bucket, key)) {
+  for await (const c of await getObjectStream(s3, bucket, key, signal)) {
     const b = Buffer.isBuffer(c) ? c : Buffer.from(c as Uint8Array);
     n += b.length;
     if (n > 1024 * 1024) throw new Error(`The object ${key} is larger than expected.`);
@@ -440,7 +522,9 @@ export function describeS3Error(err: unknown): string {
     message?: string;
     $metadata?: { httpStatusCode?: number };
   };
-  const code = e.name ?? e.Code ?? e.code ?? '';
+  // Node's own network errors are named plain "Error" and carry the
+  // reason in `code`.
+  const code = (e.name && e.name !== 'Error' ? e.name : undefined) ?? e.Code ?? e.code ?? '';
   const status = e.$metadata?.httpStatusCode;
   switch (code) {
     case 'RequestTimeTooSkewed':
@@ -468,8 +552,13 @@ export function describeS3Error(err: unknown): string {
     case 'ECONNREFUSED':
     case 'ECONNRESET':
     case 'ETIMEDOUT':
-    case 'TimeoutError':
       return "Could not reach the endpoint. Check the address and this server's outbound network.";
+    case 'TimeoutError':
+      return "The storage provider stopped answering, so the request was given up. Check the provider status and this server's outbound network, then try again.";
+    case 'EOFFSITEREFUSED':
+      return e.message ?? 'The endpoint address is refused.';
+    case 'AbortError':
+      return 'Stopped.';
   }
   if (err instanceof OffsiteVerifyError) return `Verification failed: ${err.message}`;
   if (status === 403)

@@ -865,6 +865,11 @@ model BackupConfig {
   /// Object storage larger than this is mirrored object by object
   /// instead of uploaded inside the archive.
   offsiteMirrorThresholdBytes BigInt? @map("offsite_mirror_threshold_bytes")
+  /// When the saved public key last changed, who changed it, and the
+  /// fingerprint it replaced. Shown on the page.
+  offsiteKeyChangedAt        DateTime? @map("offsite_key_changed_at") @db.Timestamptz(6)
+  offsiteKeyChangedBy        String?   @map("offsite_key_changed_by") @db.Uuid
+  offsitePreviousFingerprint String?   @map("offsite_previous_fingerprint")
 
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy String?  @map("updated_by") @db.Uuid

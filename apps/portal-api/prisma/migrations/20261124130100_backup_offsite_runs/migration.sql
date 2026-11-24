@@ -64,3 +64,10 @@ CREATE TABLE "backup_restore_test" (
 );
 
 CREATE INDEX "backup_restore_test_started_at_idx" ON "backup_restore_test"("started_at" DESC);
+
+-- One backup test at a time: two would share the database volume and
+-- each one clears scratch databases left by earlier tests. Not
+-- expressible in schema.prisma, like the index above on backup_run.
+CREATE UNIQUE INDEX "backup_restore_test_one_running_idx"
+  ON "backup_restore_test" ("status")
+  WHERE "status" = 'running';

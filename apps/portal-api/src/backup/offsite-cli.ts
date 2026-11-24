@@ -5,9 +5,10 @@
  * inside the portal-api image:
  *
  *   node dist/backup/offsite-cli.js list
+ *   node dist/backup/offsite-cli.js describe [--name ARCHIVE | --run RUN]
  *   node dist/backup/offsite-cli.js check-key KEY
- *   node dist/backup/offsite-cli.js fetch KEY --out DIR [--name ARCHIVE]
- *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR [--run RUN]
+ *   node dist/backup/offsite-cli.js fetch KEY --out DIR --confirm-copy NAME [--name ARCHIVE]
+ *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR --confirm-copy NAME [--run RUN]
  *   node dist/backup/offsite-cli.js put-objects --archive FILE
  *   node dist/backup/offsite-cli.js put-mirror-objects KEY [--run RUN]
  *   node dist/backup/offsite-cli.js count-objects
@@ -24,6 +25,12 @@
  * argument; one trailing line break is dropped and Unicode NFC applied.
  * Results are printed as key=value lines on stdout for the script;
  * progress goes to stderr.
+ *
+ * `describe` names the copy a restore would use (the one named, or the
+ * newest complete one) with its date, size and key fingerprint, and
+ * changes nothing. `fetch` and `fetch-mirror` download only when
+ * --confirm-copy repeats that copy's name. A copy dated in the future
+ * is never picked as the newest; it is used only when named.
  */
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -35,6 +42,7 @@ import { pipeline } from 'node:stream/promises';
 import { ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 import {
+  normalizePrefix,
   OFFSITE_ENV,
   resolveOffsiteSettings,
   type OffsiteRow,
@@ -42,14 +50,21 @@ import {
 } from './offsite-config.js';
 import { openKeyFile, unsealStream, type OffsitePrivateKey } from './offsite-crypto.js';
 import { endpointPolicy } from './offsite-endpoint.js';
-import { archiveArtifacts, OFFSITE_LAYOUT } from './offsite-rules.js';
+import {
+  ARCHIVE_NAME_RE,
+  archiveArtifacts,
+  MIRROR_RUN_RE,
+  newestGood,
+  OFFSITE_LAYOUT,
+  suspectDate,
+} from './offsite-rules.js';
 import {
   createOffsiteClient,
   describeS3Error,
   getObjectStream,
   getSmall,
+  listLevel,
   listObjects,
-  listPrefixes,
   type S3Like,
 } from './offsite-store.js';
 import { extractTarGz, readTarEntry } from './tar-cli.js';
@@ -57,8 +72,11 @@ import { OffsiteMirror } from './offsite-mirror.js';
 
 /** Same name as backup.service.ts; not imported, to keep Nest out of the CLI. */
 const MINIO_META_MEMBER = 'minio-meta.json';
-const ARCHIVE_NAME = /^backup-[0-9A-Za-z-]+\.tar\.gz$/;
 const SAFE_VALUE = /^[A-Za-z0-9._:/@+-]{0,300}$/;
+const FINGERPRINT_RE = /^[0-9a-f]{4}(?:-[0-9a-f]{4}){7}$/;
+/** How deep, and through how many folders, the restore looks for a portal folder. */
+const FIND_DEPTH = 4;
+const FIND_FOLDERS = 200;
 
 const EMPTY_ROW: OffsiteRow = {
   offsiteEnabled: null,
@@ -100,7 +118,46 @@ function arg(args: string[], name: string): string | null {
   return v;
 }
 
-/** Bucket settings from the environment, the folder found when unset. */
+/**
+ * Folders under `base` that hold a portal marker, looking down at most
+ * FIND_DEPTH levels and FIND_FOLDERS folders. A folder with a marker
+ * is not searched further. Also returns every folder looked at, so a
+ * failure can say what was there.
+ */
+export async function findPortalFolders(
+  s3: S3Like,
+  bucket: string,
+  base: string,
+): Promise<{ found: string[]; seen: string[] }> {
+  const found: string[] = [];
+  const seen: string[] = [];
+  const queue: Array<{ prefix: string; depth: number }> = [{ prefix: base, depth: 0 }];
+  while (queue.length > 0 && seen.length < FIND_FOLDERS) {
+    const { prefix, depth } = queue.shift()!;
+    seen.push(prefix);
+    const level = await listLevel(s3, bucket, prefix);
+    if (level.keys.includes(`${prefix}${OFFSITE_LAYOUT.installMarker}`)) {
+      found.push(prefix);
+      continue;
+    }
+    if (depth >= FIND_DEPTH) continue;
+    for (const p of level.prefixes) queue.push({ prefix: p, depth: depth + 1 });
+  }
+  return { found, seen };
+}
+
+function describeSeen(seen: string[]): string {
+  const shown = seen.slice(0, 20).map((p) => (p === '' ? '(top of the bucket)' : p));
+  return `${shown.join(', ')}${seen.length > shown.length ? ` and ${seen.length - shown.length} more` : ''}`;
+}
+
+/**
+ * Bucket settings from the environment, and the portal folder: the one
+ * BACKUP_OFFSITE_PREFIX names, or the only portal folder found under it
+ * (or in the whole bucket when it is unset). Never falls back to a
+ * default folder: when none or several are found, it stops and lists
+ * what it saw.
+ */
 async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
   const s = resolveOffsiteSettings(
     EMPTY_ROW,
@@ -117,29 +174,32 @@ async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
   if (missing.length > 0) {
     throw new Error([`Set these in the env file: ${missing.join(', ')}.`, ...s.problems].join(' '));
   }
-  if (!io.env(OFFSITE_ENV.prefix)?.trim()) {
-    // The default folder carries the portal's install id, which a new
-    // server does not know. Find folders that hold a portal marker.
-    const s3 = io.offsite(s);
-    const found: string[] = [];
-    for await (const p of listPrefixes(s3, s.bucket!, '')) {
-      try {
-        await getSmall(s3, s.bucket!, `${p}${OFFSITE_LAYOUT.installMarker}`);
-        found.push(p);
-      } catch {
-        // Not a portal folder.
-      }
-    }
-    if (found.length === 1) {
-      s.prefix = found[0]!;
-      io.err(`Using the folder ${s.prefix} (set ${OFFSITE_ENV.prefix} to choose another).`);
-    } else if (found.length > 1) {
-      throw new Error(
-        `The bucket has several portal folders (${found.join(', ')}). Set ${OFFSITE_ENV.prefix} to the one to restore.`,
-      );
-    }
+  const raw = io.env(OFFSITE_ENV.prefix)?.trim() ?? '';
+  const given = raw ? normalizePrefix(raw) : null;
+  if (raw && given === '') {
+    throw new Error(
+      `${OFFSITE_ENV.prefix} cannot be empty or "/". Set it to the portal's folder, or leave it unset to search the bucket.`,
+    );
   }
-  return s;
+  const prefixProblem = s.problems.find((p) => /folder prefix/i.test(p));
+  if (prefixProblem) throw new Error(prefixProblem);
+  const s3 = io.offsite(s);
+  const { found, seen } = await findPortalFolders(s3, s.bucket!, given ?? '');
+  if (found.length === 1) {
+    s.prefix = found[0]!;
+    if (s.prefix !== given) {
+      io.err(`Using the folder ${s.prefix} (set ${OFFSITE_ENV.prefix} to choose another).`);
+    }
+    return s;
+  }
+  if (found.length > 1) {
+    throw new Error(
+      `Found several portal folders (${found.join(', ')}). Set ${OFFSITE_ENV.prefix} to the one to restore.`,
+    );
+  }
+  throw new Error(
+    `No portal folder (a folder holding ${OFFSITE_LAYOUT.installMarker}) was found ${given ? `in or under ${given}` : 'in the bucket'}. Looked in: ${describeSeen(seen)}. Set ${OFFSITE_ENV.prefix} to the folder that holds the copies.`,
+  );
 }
 
 /**
@@ -186,27 +246,138 @@ async function completeArchives(s3: S3Like, s: OffsiteSettings) {
   );
 }
 
-async function cmdList(io: CliIo) {
+async function cmdList(io: CliIo, now: Date) {
   const s = await settingsFrom(io);
   const s3 = io.offsite(s);
   result(io, 'prefix', s.prefix);
   const archives = await completeArchives(s3, s);
+  const state = (a: { complete: boolean; createdAt: Date; lastModified?: Date | null }) =>
+    suspectDate({ id: '', ...a }, now) ? 'set aside' : a.complete ? 'ok        ' : 'unfinished';
   for (const a of archives) {
-    io.err(
-      `${a.complete ? 'ok        ' : 'unfinished'}  ${a.createdAt.toISOString()}  ${a.id.replace(/\.enc$/, '')}`,
-    );
+    io.err(`${state(a)}  ${a.createdAt.toISOString()}  ${a.id.replace(/\.enc$/, '')}`);
   }
   const runs = await new OffsiteMirror(null, null).listRuns(s3, s);
   for (const r of runs) {
+    io.err(`${state(r)}  ${r.createdAt.toISOString()}  mirror:${r.id}`);
+  }
+  if ([...archives, ...runs].some((a) => suspectDate(a, now))) {
     io.err(
-      `${r.complete ? 'ok        ' : 'unfinished'}  ${r.createdAt.toISOString()}  mirror:${r.id}`,
+      '"set aside": dated in the future or after the provider recorded the upload. Never picked as the newest; name it to use it.',
     );
   }
-  const newest = archives.find((a) => a.complete);
+  const newest = newestGood(archives, now);
   if (newest) result(io, 'latest', newest.id.replace(/\.enc$/, ''));
-  const newestMirror = runs.find((r) => r.complete);
+  const newestMirror = newestGood(runs, now);
   if (newestMirror) result(io, 'latestMirror', newestMirror.id);
   if (!newest && !newestMirror) io.err('No complete off-site copy was found under this prefix.');
+}
+
+/** The copy a restore uses, with what the admin should see before confirming. */
+interface ChosenCopy {
+  kind: 'archive' | 'mirror';
+  name: string;
+  createdAt: Date;
+  uploadedAt: Date | null;
+  bytes: number;
+  fingerprint: string;
+  suspect: string | null;
+}
+
+async function chooseCopy(
+  s: OffsiteSettings,
+  s3: S3Like,
+  args: string[],
+  now: Date,
+): Promise<ChosenCopy> {
+  const wantedArchive = arg(args, '--name');
+  const wantedRun = arg(args, '--run');
+  if (wantedArchive !== null && wantedRun !== null)
+    throw new Error('Give --name or --run, not both.');
+  if (wantedArchive !== null && !ARCHIVE_NAME_RE.test(wantedArchive))
+    throw new Error('--name must be an archive name such as backup-...tar.gz');
+  if (wantedRun !== null && !MIRROR_RUN_RE.test(wantedRun))
+    throw new Error('--run must be a mirror run name as list prints it (without mirror:).');
+  const archives = (await completeArchives(s3, s)).filter((a) => a.complete);
+  const runs =
+    wantedArchive === null
+      ? (await new OffsiteMirror(null, null).listRuns(s3, s)).filter((r) => r.complete)
+      : [];
+  let kind: 'archive' | 'mirror';
+  let pick: (typeof archives)[number] | (typeof runs)[number] | null;
+  if (wantedArchive !== null) {
+    kind = 'archive';
+    pick = archives.find((a) => a.id === `${wantedArchive}${OFFSITE_LAYOUT.sealed}`) ?? null;
+    if (!pick) throw new Error(`No complete off-site copy named ${wantedArchive}.`);
+  } else if (wantedRun !== null) {
+    kind = 'mirror';
+    pick = runs.find((r) => r.id === wantedRun) ?? null;
+    if (!pick) throw new Error(`No complete mirror run named ${wantedRun}.`);
+  } else {
+    const a = newestGood(archives, now);
+    const r = newestGood(runs, now);
+    if (!a && !r) throw new Error('No complete off-site copy was found.');
+    if (r && (!a || r.createdAt > a.createdAt)) {
+      kind = 'mirror';
+      pick = r;
+    } else {
+      kind = 'archive';
+      pick = a;
+    }
+  }
+  const marker =
+    kind === 'archive'
+      ? `${s.prefix}${OFFSITE_LAYOUT.archives}${pick!.id}.json`
+      : `${s.prefix}${OFFSITE_LAYOUT.mirrorRuns}${pick!.id}/${OFFSITE_LAYOUT.doneMarker}`;
+  let fingerprint = 'unknown';
+  try {
+    const j = JSON.parse((await getSmall(s3, s.bucket!, marker)).toString('utf8')) as {
+      keyFingerprint?: unknown;
+    };
+    if (typeof j.keyFingerprint === 'string' && FINGERPRINT_RE.test(j.keyFingerprint)) {
+      fingerprint = j.keyFingerprint;
+    }
+  } catch {
+    // Shown as unknown; decrypting still checks the key.
+  }
+  return {
+    kind,
+    name: kind === 'archive' ? pick!.id.replace(/\.enc$/, '') : pick!.id,
+    createdAt: pick!.createdAt,
+    uploadedAt: pick!.lastModified ?? null,
+    bytes:
+      kind === 'archive'
+        ? ((pick as (typeof archives)[number]).sealedBytes ?? 0)
+        : (pick as (typeof runs)[number]).sealedBytes,
+    fingerprint,
+    suspect: suspectDate(pick!, now),
+  };
+}
+
+function printCopy(io: CliIo, c: ChosenCopy) {
+  result(io, 'kind', c.kind);
+  result(io, 'name', c.name);
+  result(io, 'created', c.createdAt.toISOString());
+  result(io, 'uploaded', c.uploadedAt ? c.uploadedAt.toISOString() : 'unknown');
+  result(io, 'bytes', c.bytes);
+  result(io, 'fingerprint', c.fingerprint);
+  if (c.suspect) result(io, 'suspect', c.suspect);
+}
+
+async function cmdDescribe(io: CliIo, args: string[], now: Date) {
+  const s = await settingsFrom(io);
+  const c = await chooseCopy(s, io.offsite(s), args, now);
+  result(io, 'prefix', s.prefix);
+  printCopy(io, c);
+}
+
+/** The download goes ahead only for the copy the admin confirmed by name. */
+function assertConfirmed(args: string[], c: ChosenCopy) {
+  const confirmed = arg(args, '--confirm-copy');
+  if (confirmed !== c.name) {
+    throw new Error(
+      `Confirm the copy first: check it with describe, then pass --confirm-copy ${c.name}. Nothing was downloaded.`,
+    );
+  }
 }
 
 async function cmdCheckKey(io: CliIo, args: string[]) {
@@ -214,26 +385,22 @@ async function cmdCheckKey(io: CliIo, args: string[]) {
   result(io, 'fingerprint', key.publicKey.fingerprintText);
 }
 
-async function cmdFetch(io: CliIo, args: string[]) {
+async function cmdFetch(io: CliIo, args: string[], now: Date) {
   const outDir = arg(args, '--out');
   if (!outDir) throw new Error('--out is required.');
-  const wanted = arg(args, '--name');
-  if (wanted !== null && !ARCHIVE_NAME.test(wanted))
-    throw new Error('--name must be an archive name such as backup-...tar.gz');
+  if (arg(args, '--run') !== null)
+    throw new Error('fetch takes --name; use fetch-mirror for --run.');
   const key = await privateKeyFrom(io, args);
   const s = await settingsFrom(io);
   const s3 = io.offsite(s);
-  const archives = (await completeArchives(s3, s)).filter((a) => a.complete);
-  const pick = wanted ? archives.find((a) => a.id === `${wanted}.enc`) : archives[0];
-  if (!pick) {
-    throw new Error(
-      wanted
-        ? `No complete off-site copy named ${wanted}.`
-        : 'No complete off-site copy was found.',
-    );
+  const chosen = await chooseCopy(s, s3, args, now);
+  if (chosen.kind !== 'archive') {
+    throw new Error(`The newest copy is the mirror run ${chosen.name}; use fetch-mirror.`);
   }
-  const name = pick.id.replace(/\.enc$/, '');
-  const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${pick.id}`;
+  printCopy(io, chosen);
+  assertConfirmed(args, chosen);
+  const name = chosen.name;
+  const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${name}${OFFSITE_LAYOUT.sealed}`;
   const sidecar = JSON.parse(
     (await getSmall(s3, s.bucket!, `${objectKey}.json`)).toString('utf8'),
   ) as {
@@ -404,28 +571,43 @@ async function cmdCountObjects(io: CliIo) {
   result(io, 'objects', count);
 }
 
-export async function runCli(argv: string[], io: CliIo): Promise<number> {
+export async function runCli(argv: string[], io: CliIo, now = new Date()): Promise<number> {
   const [cmd, ...args] = argv;
   try {
     switch (cmd) {
       case 'list':
-        await cmdList(io);
+        await cmdList(io, now);
+        return 0;
+      case 'describe':
+        await cmdDescribe(io, args, now);
         return 0;
       case 'check-key':
         await cmdCheckKey(io, args);
         return 0;
       case 'fetch':
-        await cmdFetch(io, args);
+        await cmdFetch(io, args, now);
         return 0;
       case 'fetch-mirror': {
+        if (arg(args, '--name') !== null) {
+          throw new Error('fetch-mirror takes --run; use fetch for --name.');
+        }
         const key = await privateKeyFrom(io, args);
-        await new OffsiteMirror(null, null).cliFetch(io, args, await settingsFrom(io), key);
+        const s = await settingsFrom(io);
+        const chosen = await chooseCopy(s, io.offsite(s), args, now);
+        if (chosen.kind !== 'mirror') {
+          throw new Error(`The newest copy is the archive ${chosen.name}; use fetch.`);
+        }
+        printCopy(io, chosen);
+        assertConfirmed(args, chosen);
+        const rest = args.filter((a, i) => a !== '--run' && args[i - 1] !== '--run');
+        await new OffsiteMirror(null, null).cliFetch(io, [...rest, '--run', chosen.name], s, key);
         return 0;
       }
       case 'put-objects':
         await cmdPutObjects(io, args);
         return 0;
       case 'put-mirror-objects': {
+        if (arg(args, '--run') === null) throw new Error('--run is required.');
         const key = await privateKeyFrom(io, args);
         await new OffsiteMirror(null, null).cliPutObjects(io, args, await settingsFrom(io), key);
         return 0;
@@ -435,7 +617,7 @@ export async function runCli(argv: string[], io: CliIo): Promise<number> {
         return 0;
       default:
         io.err(
-          'usage: offsite-cli.js list | check-key | fetch | fetch-mirror | put-objects | put-mirror-objects | count-objects',
+          'usage: offsite-cli.js list | describe | check-key | fetch | fetch-mirror | put-objects | put-mirror-objects | count-objects',
         );
         return 2;
     }

@@ -37,6 +37,7 @@ describe('offsite-cli', () => {
   let key: OffsitePrivateKey;
   let keyFile: string;
   const withKey = (...args: string[]) => [...args, '--key-file', keyFile, '--passphrase-stdin'];
+  const confirmed = (...args: string[]) => withKey(...args, '--confirm-copy', NAME);
 
   const io = (): CliIo => ({
     out: (l) => out.push(l),
@@ -177,8 +178,8 @@ describe('offsite-cli', () => {
     // A partial file from an interrupted run does not get in the way.
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(path.join(outDir, `.partial-${NAME}`), 'left over');
-    expect(await runCli(['fetch', ...withKey('--out', outDir)], io())).toBe(0);
-    expect(out).toEqual([
+    expect(await runCli(['fetch', ...confirmed('--out', outDir)], io())).toBe(0);
+    expect(out.slice(-4)).toEqual([
       `archive=${path.join(outDir, NAME)}`,
       'database=gratisgis',
       'objects=2',
@@ -197,7 +198,7 @@ describe('offsite-cli', () => {
     side.sealedSha256 = '0'.repeat(64);
     remote.objects.get(sideKey)!.body = Buffer.from(JSON.stringify(side));
     const outDir = path.join(dir, 'restore');
-    expect(await runCli(['fetch', ...withKey('--out', outDir)], io())).toBe(1);
+    expect(await runCli(['fetch', ...confirmed('--out', outDir)], io())).toBe(1);
     expect(errs.join(' ')).toMatch(/checksum/);
     expect(fs.readdirSync(outDir)).toEqual([]);
   });
@@ -215,7 +216,7 @@ describe('offsite-cli', () => {
     const other = generateOffsiteKeyPair();
     fs.writeFileSync(keyFile, await sealKeyFile(other, PASS, { logN: 14 }));
     const outDir = path.join(dir, 'restore');
-    expect(await runCli(['fetch', ...withKey('--out', outDir)], io())).toBe(1);
+    expect(await runCli(['fetch', ...confirmed('--out', outDir)], io())).toBe(1);
     expect(errs.join(' ')).toContain(key.publicKey.fingerprintText);
     expect(errs.join(' ')).toContain(other.publicKey.fingerprintText);
   });
@@ -247,6 +248,123 @@ describe('offsite-cli', () => {
     out.length = 0;
     expect(await runCli(['count-objects'], io())).toBe(0);
     expect(out).toEqual(['objects=2']);
+  });
+
+  it('describe names the copy a restore would use, with its date, size and key', async () => {
+    expect(await runCli(['describe'], io())).toBe(0);
+    expect(out).toEqual(
+      expect.arrayContaining([
+        'kind=archive',
+        `name=${NAME}`,
+        'created=2026-11-24T02:00:00.000Z',
+        `fingerprint=${key.publicKey.fingerprintText}`,
+      ]),
+    );
+    const bytes = Number(out.find((l) => l.startsWith('bytes='))!.slice(6));
+    expect(bytes).toBe(remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!.body.length);
+    expect(out.find((l) => l.startsWith('suspect='))).toBeUndefined();
+  });
+
+  it('downloads nothing until the copy is confirmed by its name', async () => {
+    const outDir = path.join(dir, 'restore');
+    expect(await runCli(['fetch', ...withKey('--out', outDir)], io())).toBe(1);
+    expect(errs.join(' ')).toMatch(new RegExp(`--confirm-copy ${NAME.replace(/\./g, '\\.')}`));
+    expect(out).toContain(`name=${NAME}`);
+    expect(fs.existsSync(outDir)).toBe(false);
+    errs.length = 0;
+    expect(
+      await runCli(
+        ['fetch', ...withKey('--out', outDir, '--confirm-copy', 'backup-something-else')],
+        io(),
+      ),
+    ).toBe(1);
+    expect(fs.existsSync(outDir)).toBe(false);
+  });
+
+  describe('a copy dated in the future', () => {
+    const PLANTED = 'backup-2099-01-01T00-00-00-000-dddddddd.tar.gz';
+    beforeEach(() => {
+      // A complete-looking copy whose name claims a later date.
+      const src = remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!;
+      const side = remote.objects.get(`${PREFIX}archives/${NAME}.enc.json`)!;
+      remote.objects.set(`${PREFIX}archives/${PLANTED}.enc`, { ...src, lastModified: new Date() });
+      remote.objects.set(`${PREFIX}archives/${PLANTED}.enc.json`, {
+        ...side,
+        lastModified: new Date(),
+      });
+    });
+
+    it('is never picked as the newest copy, and list says it was set aside', async () => {
+      expect(await runCli(['list'], io())).toBe(0);
+      expect(out).toContain(`latest=${NAME}`);
+      expect(errs.join('\n')).toMatch(new RegExp(`set aside.*${PLANTED.slice(0, 20)}`));
+      out.length = 0;
+      expect(await runCli(['describe'], io())).toBe(0);
+      expect(out).toContain(`name=${NAME}`);
+    });
+
+    it('is used only when named, and then flagged', async () => {
+      expect(await runCli(['describe', '--name', PLANTED], io())).toBe(0);
+      expect(out).toContain(`name=${PLANTED}`);
+      expect(out).toContain('suspect=future');
+    });
+  });
+
+  it('ignores names in sub-folders of archives/', async () => {
+    const src = remote.objects.get(`${PREFIX}archives/${NAME}.enc`)!;
+    const nested = 'backup-2026-11-24T09-00-00-000-eeeeeeee.tar.gz';
+    remote.objects.set(`${PREFIX}archives/x/${nested}.enc`, src);
+    remote.objects.set(`${PREFIX}archives/x/${nested}.enc.json`, src);
+    expect(await runCli(['list'], io())).toBe(0);
+    expect(out).toContain(`latest=${NAME}`);
+    expect(errs.join(' ')).not.toContain(nested);
+  });
+
+  describe('finding the portal folder', () => {
+    const move = (to: string) => {
+      for (const [k, v] of [...remote.objects]) {
+        if (!k.startsWith(PREFIX)) continue;
+        remote.objects.delete(k);
+        remote.objects.set(`${to}${k.slice(PREFIX.length)}`, v);
+      }
+    };
+    afterEach(() => {
+      delete ENV.BACKUP_OFFSITE_PREFIX;
+    });
+
+    it('finds a nested folder, with or without a parent prefix given', async () => {
+      move('backups/site-a/portal/');
+      expect(await runCli(['list'], io())).toBe(0);
+      expect(out).toContain('prefix=backups/site-a/portal/');
+      out.length = 0;
+      ENV.BACKUP_OFFSITE_PREFIX = 'backups/';
+      expect(await runCli(['list'], io())).toBe(0);
+      expect(out).toContain('prefix=backups/site-a/portal/');
+      out.length = 0;
+      ENV.BACKUP_OFFSITE_PREFIX = 'backups/site-a/portal';
+      expect(await runCli(['list'], io())).toBe(0);
+      expect(out).toContain('prefix=backups/site-a/portal/');
+    });
+
+    it('stops and lists what it saw when no folder is found, never guessing one', async () => {
+      move('elsewhere/');
+      remote.objects.delete('elsewhere/gratisgis-install.json');
+      expect(await runCli(['list'], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(
+        /No portal folder.*Looked in: \(top of the bucket\), elsewhere\//,
+      );
+      expect(out).toEqual([]);
+      errs.length = 0;
+      ENV.BACKUP_OFFSITE_PREFIX = 'gratisgis/';
+      expect(await runCli(['list'], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(/in or under gratisgis\//);
+    });
+
+    it('refuses an empty prefix', async () => {
+      ENV.BACKUP_OFFSITE_PREFIX = '/';
+      expect(await runCli(['list'], io())).toBe(1);
+      expect(errs.join(' ')).toMatch(/cannot be empty/);
+    });
   });
 
   it('refuses an archive name that is not one', async () => {

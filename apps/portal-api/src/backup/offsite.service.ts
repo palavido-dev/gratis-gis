@@ -28,8 +28,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { BackupFailureNotice } from './backup-failure-notice.js';
 import { BackupService } from './backup.service.js';
 import {
+  envSecret,
   missingSettings,
   normalizePrefix,
+  OFFSITE_ENV,
   OffsiteValidationError,
   redactSecrets,
   resolveOffsiteSettings,
@@ -60,8 +62,10 @@ import {
   archiveArtifacts,
   daysSince,
   OFFSITE_LAYOUT,
+  partitionByDate,
   selectExpired,
   staleNoticeKey,
+  suspectDate,
 } from './offsite-rules.js';
 import {
   createOffsiteClient,
@@ -82,12 +86,58 @@ const AAD_NAME_KEY = 'backup-offsite:mirror-name-key';
 /** An upload whose beat is older than this belongs to a dead process. */
 const STALE_UPLOAD_MS = 5 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The longest one off-site upload may take: two hours, plus the time
+ * to send its bytes at 256 KiB/s (about 2 Mbit/s). Past it the upload
+ * is stopped and marked failed, so a provider that stops answering
+ * cannot hold the install-wide upload claim.
+ */
+export function uploadTimeLimitMs(bytes: number): number {
+  return 2 * HOUR_MS + Math.ceil((Math.max(0, bytes) / (256 * 1024)) * 1000);
+}
+
+/** Why an upload was stopped from outside its own steps. */
+class UploadStop extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UploadStop';
+  }
+}
+
+/** Rejects as soon as the signal fires, whatever `work` is waiting on. */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason as Error);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason as Error);
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (v) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(v);
+      },
+      (e: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(e as Error);
+      },
+    );
+  });
+}
 
 export type OffsiteMode = 'archive' | 'mirror';
 
 /** What the run-succeeded hook gets back: the upload, still running. */
 export interface UploadHandle {
   done: Promise<void>;
+}
+
+/** The last change of the saved public key. */
+export interface OffsiteKeyChange {
+  at: string;
+  /** Name of the admin who saved it, when known. */
+  by: string | null;
+  previousFingerprint: string | null;
 }
 
 /** What the page shows under the settings. */
@@ -143,6 +193,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     assertEndpointReachable;
   /** How often a running upload writes its heartbeat. */
   beatEveryMs = 10_000;
+  /** Swapped in tests: the longest an upload of `bytes` may take. */
+  uploadTimeLimit: (bytes: number) => number = uploadTimeLimitMs;
   private readonly mirror: OffsiteMirror;
   private readonly index: MirrorIndexStore;
 
@@ -216,7 +268,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       secretAad(plain.endpoint, plain.accessKeyId),
       'secret access key',
     );
-    return resolveOffsiteSettings(row, { secretFromDb }, this.env, policy);
+    // A saved secret that no longer opens is not replaced by the
+    // environment's: that would send the environment's secret to an
+    // endpoint saved for another one.
+    const storedSecretUnreadable =
+      !!row.offsiteSecretEncrypted && !!row.offsiteSecretIv && secretFromDb === null;
+    return resolveOffsiteSettings(row, { secretFromDb, storedSecretUnreadable }, this.env, policy);
   }
 
   /** Effective settings with the secret. Never return this to a client. */
@@ -239,9 +296,42 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     return this.backup.configRow();
   }
 
-  async getPublicConfig(): Promise<OffsitePublicConfig & { status: OffsiteStatusSummary }> {
-    const s = await this.settings();
-    return { ...toPublicConfig(s, this.policy()), status: await this.statusSummary(s) };
+  async getPublicConfig(): Promise<
+    OffsitePublicConfig & { status: OffsiteStatusSummary; keyChange: OffsiteKeyChange | null }
+  > {
+    const row = await this.ensureInstallId();
+    const s = this.resolve(row);
+    return {
+      ...toPublicConfig(s, this.policy()),
+      status: await this.statusSummary(s),
+      keyChange: await this.keyChange(row),
+    };
+  }
+
+  /** The last change of the saved public key, for the page. */
+  private async keyChange(row: {
+    offsiteKeyChangedAt?: Date | null;
+    offsiteKeyChangedBy?: string | null;
+    offsitePreviousFingerprint?: string | null;
+  }): Promise<OffsiteKeyChange | null> {
+    if (!row.offsiteKeyChangedAt) return null;
+    let by: string | null = null;
+    if (row.offsiteKeyChangedBy) {
+      try {
+        const u = await this.prisma.user.findUnique({
+          where: { id: row.offsiteKeyChangedBy },
+          select: { fullName: true, username: true },
+        });
+        by = u ? u.fullName || u.username : null;
+      } catch {
+        by = null;
+      }
+    }
+    return {
+      at: row.offsiteKeyChangedAt.toISOString(),
+      by,
+      previousFingerprint: row.offsitePreviousFingerprint ?? null,
+    };
   }
 
   async updateConfig(patch: OffsitePatch, updatedBy: string | null) {
@@ -302,6 +392,35 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         'Enter the secret access key again when you change the endpoint or the access key id.',
       );
     }
+    // Clearing a saved secret hands over to the one in the server
+    // environment. That counts as a new target: it is allowed only when
+    // the endpoint and key id also come from the environment after this
+    // save, so a secret typed for one endpoint and then cleared cannot
+    // bring the environment's secret along to it.
+    const envSecretSet =
+      envSecret(this.env, OFFSITE_ENV.secretAccessKey, OFFSITE_ENV.secretAccessKeyFile) !== null;
+    if (
+      clearing &&
+      envSecretSet &&
+      row.offsiteSecretEncrypted !== null &&
+      (next.offsiteEndpoint !== null || next.offsiteAccessKeyId !== null)
+    ) {
+      throw new BadRequestException(
+        'The server environment also sets a secret access key. To use it again, clear the endpoint and the access key id on this page in the same save, so all three come from the environment; or type the secret for this endpoint.',
+      );
+    }
+
+    // A changed key is recorded with who changed it and the fingerprint
+    // it replaced, and announced to the operator admins below.
+    const keyFrom = before.publicKey?.fingerprintText ?? null;
+    const keyTo = after.publicKey?.fingerprintText ?? null;
+    const keyChanged = keyFrom !== keyTo;
+    const changedAt = new Date();
+    if (keyChanged) {
+      data.offsiteKeyChangedAt = changedAt;
+      data.offsiteKeyChangedBy = updatedBy;
+      data.offsitePreviousFingerprint = keyFrom;
+    }
 
     if (typedSecret) {
       try {
@@ -347,19 +466,31 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
 
     await this.prisma.backupConfig.update({ where: { id: row.id }, data });
     const saved = await this.settings();
-    if (
-      before.publicKey &&
-      saved.publicKey &&
-      before.publicKey.fingerprintText !== saved.publicKey.fingerprintText
-    ) {
+    if (keyChanged) {
       this.log.warn(
-        `The off-site public key was replaced (fingerprint ${before.publicKey.fingerprintText} is now ${saved.publicKey.fingerprintText}). New copies use the new key; older copies still open only with the old private key.`,
+        `The off-site public key was changed (fingerprint ${keyFrom ?? 'none'} is now ${keyTo ?? 'none'}). New copies use the new key; older copies still open only with the old private key.`,
       );
+      if (keyFrom !== null) {
+        await this.notice
+          ?.announceOffsite(`key:${keyTo ?? 'none'}:${changedAt.toISOString()}`, {
+            kind: 'offsite_key_changed',
+            from: keyFrom,
+            to: keyTo,
+          })
+          .catch((e: unknown) =>
+            this.log.warn(
+              `The key change notice could not be sent: ${e instanceof Error ? e.message : e}`,
+            ),
+          );
+      }
     }
     this.log.log(
       `Off-site backup settings saved (enabled=${saved.enabled}, complete=${missingSettings(saved).length === 0}${saved.publicKey ? `, key ${saved.publicKey.fingerprintText}` : ''}).`,
     );
-    return this.getPublicConfig();
+    return {
+      ...(await this.getPublicConfig()),
+      savedKeyChange: keyChanged ? { from: keyFrom, to: keyTo } : null,
+    };
   }
 
   private tryDecrypt(
@@ -482,10 +613,14 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   /** The install id written under the prefix, or null when there is none. */
-  private async readInstallMarker(s3: S3Like, s: OffsiteSettings): Promise<string | null> {
+  private async readInstallMarker(
+    s3: S3Like,
+    s: OffsiteSettings,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
     let buf: Buffer;
     try {
-      buf = await getSmall(s3, s.bucket!, this.markerKey(s));
+      buf = await getSmall(s3, s.bucket!, this.markerKey(s), signal);
     } catch (e) {
       const err = e as { name?: string; $metadata?: { httpStatusCode?: number } };
       if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) return null;
@@ -500,11 +635,24 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   /** Claim the folder for this portal, or stop when another one has it. */
-  private async ensureInstallMarker(s3: S3Like, s: OffsiteSettings): Promise<void> {
+  private async ensureInstallMarker(
+    s3: S3Like,
+    s: OffsiteSettings,
+    signal?: AbortSignal,
+  ): Promise<void> {
     if (!s.installId) throw new Error('This portal has no install id yet.');
-    const owner = await this.readInstallMarker(s3, s);
+    const owner = await this.readInstallMarker(s3, s, signal);
     if (owner === s.installId) return;
     if (owner !== null) throw new Error(foreignFolderMessage(owner));
+    await this.writeInstallMarker(s3, s, null, signal);
+  }
+
+  private async writeInstallMarker(
+    s3: S3Like,
+    s: OffsiteSettings,
+    takenOverFrom: string | null,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await putSmall(
       s3,
       s.bucket!,
@@ -515,12 +663,64 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             kind: 'gratisgis-offsite-folder',
             installId: s.installId,
             createdAt: new Date().toISOString(),
+            ...(takenOverFrom ? { takenOverFrom } : {}),
           },
           null,
           2,
         ),
       ),
+      'application/json',
+      signal,
     );
+  }
+
+  /**
+   * "Take over this folder": after a restore on a new server, the
+   * portal has a new install id and the folder still names the old
+   * one. The admin confirms by typing the first 8 characters of the
+   * old id, which the refusal message shows. Nothing in the folder is
+   * deleted; from then on this portal's retention applies to it.
+   */
+  async takeOverFolder(typedOwner: string): Promise<{ previousOwner: string }> {
+    const s = await this.settings();
+    const missing = missingSettings(s).filter((m) => m !== 'publicKey');
+    if (missing.length > 0 || s.problems.length > 0) {
+      throw new ConflictException(
+        [missing.length ? `Fill in: ${missing.map(fieldLabel).join(', ')}.` : '', ...s.problems]
+          .filter(Boolean)
+          .join(' '),
+      );
+    }
+    if (await this.otherUploadRunning(null)) {
+      throw new ConflictException('An off-site upload is running. Try again when it finishes.');
+    }
+    await this.endpointCheck(s.endpoint!, this.policy());
+    const s3 = this.clientFactory(s);
+    let owner: string | null;
+    try {
+      owner = await this.readInstallMarker(s3, s);
+    } catch (e) {
+      throw new ConflictException(this.safeMessage(e, s));
+    }
+    if (owner === null) {
+      throw new ConflictException(
+        'This folder has no owner yet. Turn off-site copies on and the next copy claims it.',
+      );
+    }
+    if (owner === s.installId) throw new ConflictException('This portal already owns the folder.');
+    const short = owner.slice(0, 8).toLowerCase();
+    if (typedOwner.trim().toLowerCase() !== short) {
+      throw new BadRequestException(
+        `Type ${short}, the start of the install id that owns the folder now, to take it over.`,
+      );
+    }
+    try {
+      await this.writeInstallMarker(s3, s, owner);
+    } catch (e) {
+      throw new ConflictException(this.safeMessage(e, s));
+    }
+    this.log.warn(`This portal took over the off-site folder ${s.prefix} from install ${short}.`);
+    return { previousOwner: short };
   }
 
   // ---------------------------------------------------------------
@@ -662,10 +862,28 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         })
         .catch((e: unknown) => {
           // The run was deleted underneath the upload: stop sending.
-          if ((e as { code?: string }).code === 'P2025') abort.abort();
+          if ((e as { code?: string }).code === 'P2025') {
+            abort.abort(
+              new UploadStop(
+                'Stopped: the backup was deleted while its off-site copy was uploading.',
+              ),
+            );
+          }
         });
     }, this.beatEveryMs);
     timer.unref?.();
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const armDeadline = (bytes: number) => {
+      const limit = this.uploadTimeLimit(bytes);
+      deadline = setTimeout(() => {
+        abort.abort(
+          new UploadStop(
+            `Stopped: the upload took longer than the ${Math.max(1, Math.round(limit / HOUR_MS))} hour(s) allowed for its size. The storage provider may have stopped answering.`,
+          ),
+        );
+      }, limit);
+      deadline.unref?.();
+    };
     let mode: OffsiteMode = 'archive';
     try {
       const missing = missingSettings(s);
@@ -685,42 +903,52 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       const archivePath = path.join(dir, run.filename!);
       const size = (await fs.stat(archivePath)).size;
       mode = await this.chooseMode(s, run, objectBytes);
+      armDeadline(size + (mode === 'mirror' ? (objectBytes ?? 0) : 0));
       await this.prisma.backupRun.update({
         where: { id: runId },
         data: { offsiteMode: mode, offsiteKeyFingerprint: s.publicKey!.fingerprintText },
       });
 
       const s3 = this.clientFactory(s);
-      await this.ensureInstallMarker(s3, s);
-      const result =
-        mode === 'mirror'
-          ? await this.mirror.upload({
-              s3,
-              s,
-              publicKey: s.publicKey!,
-              nameKey: await this.nameKey(),
-              index: this.index,
-              run,
-              archivePath,
-              signal: abort.signal,
-            })
-          : await this.uploadArchive({
-              s3,
-              s,
-              publicKey: s.publicKey!,
-              run,
-              archivePath,
-              size,
-              signal: abort.signal,
-            });
-
-      // Clean up while this upload still holds the install-wide claim,
-      // so no other upload can be using what is removed.
-      try {
-        await this.enforceRetention(s, s3, runId);
-      } catch (e) {
-        this.log.warn(`Off-site retention failed: ${this.safeMessage(e, s)}`);
-      }
+      const signal = abort.signal;
+      // Every step waits on the signal too: a request that never
+      // answers cannot keep the upload, and its claim, alive.
+      const result = await untilAborted(
+        (async () => {
+          await this.ensureInstallMarker(s3, s, signal);
+          const r =
+            mode === 'mirror'
+              ? await this.mirror.upload({
+                  s3,
+                  s,
+                  publicKey: s.publicKey!,
+                  nameKey: await this.nameKey(),
+                  index: this.index,
+                  run,
+                  archivePath,
+                  signal,
+                })
+              : await this.uploadArchive({
+                  s3,
+                  s,
+                  publicKey: s.publicKey!,
+                  run,
+                  archivePath,
+                  size,
+                  signal,
+                });
+          // Clean up while this upload still holds the install-wide
+          // claim, so no other upload can be using what is removed.
+          try {
+            await this.enforceRetention(s, s3, runId, signal);
+          } catch (e) {
+            if (signal.aborted) throw e;
+            this.log.warn(`Off-site retention failed: ${this.safeMessage(e, s)}`);
+          }
+          return r;
+        })(),
+        signal,
+      );
       await this.prisma.backupRun.update({
         where: { id: runId },
         data: {
@@ -736,9 +964,10 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         `Off-site copy of backup ${runId} uploaded (${mode}, ${result.bytes} bytes, key ${s.publicKey!.fingerprintText}).`,
       );
     } catch (e) {
-      const msg = abort.signal.aborted
-        ? 'Stopped: the backup was deleted while its off-site copy was uploading.'
-        : this.safeMessage(e, s);
+      const reason: unknown = abort.signal.aborted ? abort.signal.reason : null;
+      const msg = reason instanceof UploadStop ? reason.message : this.safeMessage(e, s);
+      // Whatever is still in flight stops with the signal.
+      if (!abort.signal.aborted) abort.abort(new UploadStop('Stopped.'));
       this.log.error(`Off-site copy of backup ${runId} failed: ${msg}`);
       await this.prisma.backupRun
         .update({
@@ -754,6 +983,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       await this.notice?.announceOffsite(`failed:${runId}`, { runId, kind: 'offsite_failed' });
     } finally {
       clearInterval(timer);
+      if (deadline) clearTimeout(deadline);
     }
     await this.checkStale().catch((e: unknown) =>
       this.log.warn(`Off-site staleness check failed: ${e instanceof Error ? e.message : e}`),
@@ -843,6 +1073,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       a.s.bucket!,
       `${objectKey}.json`,
       Buffer.from(JSON.stringify(sidecar, null, 2)),
+      'application/json',
+      a.signal,
     );
     return { key: objectKey, bytes: up.bytes, sha256: up.sha256 };
   }
@@ -886,11 +1118,15 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     s: OffsiteSettings,
     s3: S3Like = this.clientFactory(s),
     self: string | null = null,
+    signal?: AbortSignal,
   ): Promise<number> {
     const now = new Date();
+    const stop = () => {
+      if (signal?.aborted) throw signal.reason as Error;
+    };
     const archivesPrefix = `${s.prefix}${OFFSITE_LAYOUT.archives}`;
     const listing = [];
-    for await (const o of listObjects(s3, s.bucket!, archivesPrefix)) listing.push(o);
+    for await (const o of listObjects(s3, s.bucket!, archivesPrefix, signal)) listing.push(o);
     const artifacts = archiveArtifacts(listing, archivesPrefix);
     let removed = 0;
     for (const id of selectExpired(artifacts, now, s.retentionDays)) {
@@ -900,10 +1136,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         (x, y) => Number(y.endsWith('.json')) - Number(x.endsWith('.json')),
       );
       for (const k of ordered) {
-        await deleteObject(s3, s.bucket!, k);
+        stop();
+        await deleteObject(s3, s.bucket!, k, signal);
         removed += 1;
       }
     }
+    stop();
     const collect = !(await this.otherUploadRunning(self));
     if (!collect)
       this.log.log('Another off-site upload is running; mirror files are not collected this time.');
@@ -914,8 +1152,30 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
         `${m.unknownKept} mirrored file(s) in the bucket are not in this server's index and were kept. A bucket lifecycle rule can remove them once they are older than your retention window.`,
       );
     }
+    const suspect = [
+      ...partitionByDate(artifacts, now).suspect.map((a) => ({
+        id: a.id,
+        why: suspectDate(a, now),
+      })),
+      ...m.suspect.map((r) => ({ id: `mirror:${r.id}`, why: r.why })),
+    ];
+    for (const x of suspect) await this.reportSuspect(x.id, x.why);
     if (removed > 0) this.log.log(`Off-site retention removed ${removed} object(s).`);
     return removed;
+  }
+
+  /**
+   * A copy whose name is dated in the future, or well after the
+   * provider says it was written, was not made by this portal's clock.
+   * It is kept, never counted as the newest copy, and reported once.
+   */
+  private async reportSuspect(id: string, why: string | null): Promise<void> {
+    this.log.warn(
+      `Off-site copy ${id} is dated ${why === 'future' ? 'in the future' : 'after the provider recorded its upload'}. It was not used or deleted. Check who can write to the bucket.`,
+    );
+    await this.notice
+      ?.announceOffsite(`suspect:${id}`, { kind: 'offsite_suspect_copy', name: id })
+      .catch(() => undefined);
   }
 
   // ---------------------------------------------------------------
@@ -1028,7 +1288,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
 }
 
 function foreignFolderMessage(owner: string): string {
-  return `This folder in the bucket belongs to another GratisGIS portal (install ${owner.slice(0, 8)}). Give each portal its own folder.`;
+  return `This folder in the bucket belongs to another GratisGIS portal (install ${owner.slice(0, 8)}). Give each portal its own folder. If this portal was restored from that one and replaces it, use "Take over this folder" on the Backup page.`;
 }
 
 /**

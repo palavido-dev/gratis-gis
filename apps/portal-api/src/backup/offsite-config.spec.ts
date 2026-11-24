@@ -16,8 +16,10 @@ import {
   assertEndpointReachable,
   checkEndpoint,
   endpointPolicy,
+  guardedLookup,
   isRefusedAddress,
 } from './offsite-endpoint.js';
+import { createOffsiteClient, OFFSITE_TIMEOUTS, requestTimeoutFor } from './offsite-store.js';
 
 const EMPTY_ROW: OffsiteRow = {
   offsiteEnabled: null,
@@ -227,6 +229,61 @@ describe('off-site settings', () => {
   });
 });
 
+describe('the folder prefix is never the whole bucket', () => {
+  it('refuses an empty prefix from the environment or the saved row', () => {
+    for (const [row, vars] of [
+      [EMPTY_ROW, { BACKUP_OFFSITE_PREFIX: '/' }],
+      [{ ...EMPTY_ROW, offsitePrefix: '' }, {}],
+    ] as const) {
+      const s = resolveOffsiteSettings(row, noSecret, env(vars), strict);
+      expect(s.problems.join(' ')).toMatch(/cannot be empty/);
+      expect(s.prefix).not.toBe('');
+      expect(toPublicConfig(s, strict).complete).toBe(false);
+    }
+  });
+});
+
+describe('the secret from the environment stays with the endpoint from the environment', () => {
+  const vars = {
+    BACKUP_OFFSITE_ENDPOINT: 'https://s3.example.test',
+    BACKUP_OFFSITE_ACCESS_KEY_ID: 'AKENV',
+    BACKUP_OFFSITE_SECRET_ACCESS_KEY: 'env-secret-value-1',
+  };
+  it('is used with the environment endpoint, or a saved one that is the same', () => {
+    expect(resolveOffsiteSettings(EMPTY_ROW, noSecret, env(vars), strict).secretAccessKey).toBe(
+      'env-secret-value-1',
+    );
+    const same = resolveOffsiteSettings(
+      { ...EMPTY_ROW, offsiteEndpoint: 'https://s3.example.test/' },
+      noSecret,
+      env(vars),
+      strict,
+    );
+    expect(same.secretAccessKey).toBe('env-secret-value-1');
+  });
+
+  it('is not used with an endpoint or key id saved on the page', () => {
+    for (const row of [
+      { ...EMPTY_ROW, offsiteEndpoint: 'https://elsewhere.example.test' },
+      { ...EMPTY_ROW, offsiteAccessKeyId: 'AKOTHER' },
+    ]) {
+      const s = resolveOffsiteSettings(row, noSecret, env(vars), strict);
+      expect(s.secretAccessKey).toBeNull();
+      expect(s.problems.join(' ')).toMatch(/only with the endpoint and access key id/);
+    }
+  });
+
+  it('is not used when a saved secret is there but does not open', () => {
+    const s = resolveOffsiteSettings(
+      EMPTY_ROW,
+      { secretFromDb: null, storedSecretUnreadable: true },
+      env(vars),
+      strict,
+    );
+    expect(s.secretAccessKey).toBeNull();
+  });
+});
+
 describe('validateOffsitePatch', () => {
   it.each<[OffsitePatch, RegExp]>([
     [{ endpoint: 'not a url' }, /full URL/],
@@ -236,6 +293,9 @@ describe('validateOffsitePatch', () => {
     [{ bucket: 'Bad_Bucket' }, /bucket name/],
     [{ region: 'us east' }, /region/],
     [{ prefix: 'a/../b' }, /prefix/],
+    [{ prefix: '' }, /cannot be empty/],
+    [{ prefix: '/' }, /cannot be empty/],
+    [{ prefix: ' // ' }, /cannot be empty/],
     [{ accessKeyId: 'has space' }, /access key id/],
     [{ secretAccessKey: 'has space' }, /secret access key/],
     [{ publicKey: 'ggpub1:short' }, /wrong length/],
@@ -316,6 +376,11 @@ describe('endpoint rules', () => {
     'https://[::1]',
     'https://[::ffff:127.0.0.1]',
     'https://[::ffff:7f00:1]',
+    'https://[::7f00:1]',
+    'https://[::127.0.0.1]',
+    'https://[64:ff9b::7f00:1]',
+    'https://[64:ff9b::169.254.169.254]',
+    'https://[64:ff9b:1::a9fe:a9fe]',
     'https://169.254.169.254',
     'https://[fe80::1]',
     'https://[fd00:ec2::254]',
@@ -362,6 +427,107 @@ describe('endpoint rules after DNS', () => {
         lookup(['127.0.0.1']),
       ),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('the connection itself checks every address it is given', () => {
+  type Cb = (err: Error | null, address: unknown, family?: number) => void;
+  const fakeDns =
+    (answer: string | Array<{ address: string; family: number }>) =>
+    (_h: string, _o: unknown, cb: Cb) =>
+      cb(null, answer, typeof answer === 'string' ? 4 : undefined);
+  const run = (
+    policy: { allowHttp: boolean; allowLocal: boolean },
+    answer: string | Array<{ address: string; family: number }>,
+    all = false,
+  ) =>
+    new Promise<{ err: Error | null; address: unknown }>((resolve) =>
+      guardedLookup(policy, fakeDns(answer) as never)(
+        'store.example.com',
+        { all },
+        (err, address) => resolve({ err, address }),
+      ),
+    );
+
+  it('refuses an answer that turned into a refused address after the first check', async () => {
+    expect((await run(strict, '127.0.0.1')).err?.message).toMatch(/points at this server/);
+    const many = await run(
+      strict,
+      [
+        { address: '203.0.113.5', family: 4 },
+        { address: '::ffff:169.254.169.254', family: 6 },
+      ],
+      true,
+    );
+    expect(many.err?.message).toMatch(/points at/);
+  });
+
+  it('passes a good answer through unchanged, in both forms', async () => {
+    expect(await run(strict, '203.0.113.5')).toEqual({ err: null, address: '203.0.113.5' });
+    const list = [{ address: '2001:db8::5', family: 6 }];
+    expect(await run(strict, list, true)).toEqual({ err: null, address: list });
+    expect((await run({ allowHttp: false, allowLocal: true }, '127.0.0.1')).err).toBeNull();
+  });
+});
+
+describe('S3 client limits', () => {
+  it('sets connection, idle and request limits, and makes requests fail when one is reached', async () => {
+    const client = createOffsiteClient(
+      {
+        region: 'us-east-1',
+        endpoint: 'https://s3.example.test',
+        pathStyle: true,
+        accessKeyId: 'AK',
+        secretAccessKey: 'SK',
+      } as never,
+      strict,
+    );
+    const handler = client.config.requestHandler as unknown as {
+      configProvider: Promise<Record<string, unknown>>;
+    };
+    const cfg = await handler.configProvider;
+    expect(cfg.connectionTimeout).toBe(OFFSITE_TIMEOUTS.connectMs);
+    expect(cfg.socketTimeout).toBe(OFFSITE_TIMEOUTS.idleMs);
+    expect(cfg.requestTimeout).toBe(OFFSITE_TIMEOUTS.requestMs);
+    expect(cfg.throwOnRequestTimeout).toBe(true);
+    client.destroy();
+  });
+
+  it('a provider that accepts the connection and never answers is given up on', async () => {
+    const { createServer } = await import('node:http');
+    const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+    const sockets: Array<{ destroy: () => void }> = [];
+    const server = createServer(() => undefined);
+    server.on('connection', (c) => sockets.push(c));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as { port: number }).port;
+    const client = createOffsiteClient(
+      {
+        region: 'us-east-1',
+        endpoint: `http://127.0.0.1:${port}`,
+        pathStyle: true,
+        accessKeyId: 'AK',
+        secretAccessKey: 'SK',
+      } as never,
+      { allowHttp: true, allowLocal: true },
+      { connectMs: 1000, idleMs: 60_000, requestMs: 300 },
+    );
+    const started = Date.now();
+    try {
+      await expect(
+        client.send(new ListObjectsV2Command({ Bucket: 'b' }), { requestTimeout: 300 } as never),
+      ).rejects.toMatchObject({ name: 'TimeoutError' });
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally {
+      client.destroy();
+      for (const c of sockets) c.destroy();
+      await new Promise((r) => server.close(r));
+    }
+  });
+
+  it('gives a bigger part more time, never less than the default', () => {
+    expect(requestTimeoutFor(1024)).toBe(OFFSITE_TIMEOUTS.requestMs);
+    expect(requestTimeoutFor(1024 ** 3)).toBeGreaterThan(OFFSITE_TIMEOUTS.requestMs);
   });
 });
 

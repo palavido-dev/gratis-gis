@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createHash, createHmac } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
@@ -20,9 +20,13 @@ import {
   type OffsitePublicKey,
 } from './offsite-crypto.js';
 import {
+  MIRROR_RUN_RE,
+  newestGood,
   OFFSITE_LAYOUT,
+  partitionByDate,
   selectExpired,
   stampFromName,
+  suspectDate,
   type OffsiteArtifact,
 } from './offsite-rules.js';
 import {
@@ -185,8 +189,6 @@ export function mirrorObjectName(
     .digest('hex')}${OFFSITE_LAYOUT.sealed}`;
 }
 
-const RUN_ID = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9-]+-[0-9a-f]{8}$/;
-
 /** Folder name of a mirror run: the archive's time stamp and run id. */
 export function mirrorRunId(filename: string | null, runId: string, startedAt: Date): string {
   const m = filename ? /^backup-(.+)-[0-9a-f]{8}\.tar\.gz$/.exec(filename) : null;
@@ -218,7 +220,147 @@ async function* once(buf: Buffer): AsyncGenerator<Buffer> {
   yield buf;
 }
 
+/** A file's bytes, opened only when first read. */
+async function* readFileLazily(file: string): AsyncGenerator<Buffer> {
+  for await (const chunk of createReadStream(file)) yield chunk as Buffer;
+}
+
 const BATCH = 500;
+
+/** The largest file index a mirror run writes: about 13 million files. */
+export const MAX_INDEX_BYTES = 2 * 1024 ** 3;
+
+const OBJECT_NAME_RE = /^[0-9a-f]{64}\.enc$/;
+const RECORD = 40;
+
+/**
+ * The bucket's mirrored files by name and stored size, packed: 32
+ * bytes of name and 8 of size per file (about 40 MB per million
+ * files), searched by halving. Names that are not mirror file names
+ * are ignored.
+ */
+export class PackedListing {
+  private buf = Buffer.alloc(RECORD * 1024);
+  private count = 0;
+  private sorted = true;
+  private last: Buffer | null = null;
+
+  get size(): number {
+    return this.count;
+  }
+
+  add(name: string, size: number): void {
+    if (!OBJECT_NAME_RE.test(name)) return;
+    if ((this.count + 1) * RECORD > this.buf.length) {
+      const next = Buffer.alloc(this.buf.length * 2);
+      this.buf.copy(next, 0, 0, this.count * RECORD);
+      this.buf = next;
+    }
+    const at = this.count * RECORD;
+    this.buf.write(name.slice(0, 64), at, 32, 'hex');
+    this.buf.writeDoubleBE(size, at + 32);
+    const rec = this.buf.subarray(at, at + 32);
+    if (this.last && Buffer.compare(this.last, rec) > 0) this.sorted = false;
+    this.last = rec;
+    this.count += 1;
+  }
+
+  /** Call once after the last add. Providers list in name order; sort if one did not. */
+  finish(): void {
+    if (this.sorted) return;
+    const order = Array.from({ length: this.count }, (_, i) => i);
+    order.sort((a, b) =>
+      Buffer.compare(
+        this.buf.subarray(a * RECORD, a * RECORD + 32),
+        this.buf.subarray(b * RECORD, b * RECORD + 32),
+      ),
+    );
+    const next = Buffer.alloc(Math.max(this.count, 1) * RECORD);
+    order.forEach((from, to) =>
+      this.buf.copy(next, to * RECORD, from * RECORD, from * RECORD + RECORD),
+    );
+    this.buf = next;
+    this.sorted = true;
+  }
+
+  /** The stored size of a mirror file, or undefined when it is not listed. */
+  get(name: string): number | undefined {
+    if (!OBJECT_NAME_RE.test(name)) return undefined;
+    const want = Buffer.from(name.slice(0, 64), 'hex');
+    let lo = 0;
+    let hi = this.count - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      const c = Buffer.compare(this.buf.subarray(mid * RECORD, mid * RECORD + 32), want);
+      if (c === 0) return this.buf.readDoubleBE(mid * RECORD + 32);
+      if (c < 0) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return undefined;
+  }
+}
+
+/**
+ * The run's file index, written line by line to a file next to the
+ * local archive instead of being held in memory, then uploaded from
+ * there. Removed afterwards, whatever happens.
+ */
+class IndexFile {
+  private out: ReturnType<typeof createWriteStream> | null = null;
+  bytes = 0;
+  lines = 0;
+  constructor(
+    readonly dir: string,
+    readonly file: string,
+  ) {}
+
+  static async open(nextTo: string): Promise<IndexFile> {
+    const dir = await fs.mkdtemp(path.join(path.dirname(nextTo), '.offsite-index-'));
+    const f = new IndexFile(dir, path.join(dir, 'objects.jsonl'));
+    f.out = createWriteStream(f.file, { flags: 'wx', mode: 0o600 });
+    return f;
+  }
+
+  async write(line: string): Promise<void> {
+    const b = Buffer.from(`${line}\n`, 'utf8');
+    if (this.bytes + b.length > MAX_INDEX_BYTES) {
+      throw new Error(
+        `The file index of this mirror run would be larger than ${MAX_INDEX_BYTES / 1024 ** 3} GB.`,
+      );
+    }
+    this.bytes += b.length;
+    this.lines += 1;
+    if (!this.out!.write(b)) {
+      await new Promise<void>((resolve, reject) => {
+        const out = this.out!;
+        const done = (e?: Error) => {
+          out.off('drain', done);
+          out.off('error', done);
+          if (e) reject(e);
+          else resolve();
+        };
+        out.once('drain', done);
+        out.once('error', done);
+      });
+    }
+  }
+
+  async close(): Promise<void> {
+    const out = this.out;
+    this.out = null;
+    if (!out) return;
+    await new Promise<void>((resolve, reject) => {
+      out.once('error', reject);
+      out.end(() => resolve());
+    });
+  }
+
+  async remove(): Promise<void> {
+    if (this.out) this.out.destroy();
+    this.out = null;
+    await fs.rm(this.dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Incremental mirror for large object stores.
@@ -246,25 +388,35 @@ export class OffsiteMirror {
     return `${s.prefix}${OFFSITE_LAYOUT.mirrorObjects}`;
   }
 
-  /** Mirror runs in the bucket, newest first, with their keys. */
+  /**
+   * Mirror runs in the bucket, newest first, with their keys and
+   * stored size. Only folders named as the portal names runs count.
+   */
   async listRuns(
     s3: S3Like,
     s: OffsiteSettings,
-  ): Promise<Array<OffsiteArtifact & { keys: string[] }>> {
+  ): Promise<Array<OffsiteArtifact & { keys: string[]; sealedBytes: number }>> {
     const prefix = this.runsPrefix(s);
-    const byId = new Map<string, OffsiteArtifact & { keys: string[] }>();
+    const byId = new Map<string, OffsiteArtifact & { keys: string[]; sealedBytes: number }>();
     for await (const o of listObjects(s3, s.bucket!, prefix)) {
       const rest = o.key.slice(prefix.length);
       const slash = rest.indexOf('/');
       if (slash <= 0) continue;
       const id = rest.slice(0, slash);
+      if (!MIRROR_RUN_RE.test(id)) continue;
       const cur = byId.get(id) ?? {
         id,
         createdAt: stampFromName(id) ?? o.lastModified ?? new Date(0),
         complete: false,
         keys: [],
+        lastModified: null,
+        sealedBytes: 0,
       };
       cur.keys.push(o.key);
+      cur.sealedBytes += o.size;
+      if (o.lastModified && (!cur.lastModified || o.lastModified < cur.lastModified)) {
+        cur.lastModified = o.lastModified;
+      }
       if (rest.slice(slash + 1) === OFFSITE_LAYOUT.doneMarker) cur.complete = true;
       byId.set(id, cur);
     }
@@ -299,25 +451,48 @@ export class OffsiteMirror {
     signal: AbortSignal;
   }): Promise<{ key: string; bytes: number; sha256: string }> {
     if (!this.backup) throw new Error('Mirror upload needs the backup service.');
-    const { s3, s, publicKey: pub } = a;
+    const { s3, s } = a;
     const runId = mirrorRunId(a.run.filename, a.run.id, a.run.startedAt);
     const runAt = stampFromName(runId) ?? a.run.startedAt;
     const folder = `${this.runsPrefix(s)}${runId}/`;
     const target = mirrorTarget(s);
-    const fp = pub.fingerprintText;
 
-    // What the bucket holds now, by name and size. A file the local
-    // index lists but the bucket lost (a lifecycle rule, a hand
-    // delete) is uploaded again.
-    const inBucket = new Map<string, number>();
+    // What the bucket holds now, by name and size, packed (see
+    // PackedListing). A file the local index lists but the bucket lost
+    // (a lifecycle rule, a hand delete) is uploaded again.
+    const inBucket = new PackedListing();
     const objectsPrefix = this.objectsPrefix(s);
-    for await (const o of listObjects(s3, s.bucket!, objectsPrefix)) {
-      inBucket.set(o.key.slice(objectsPrefix.length), o.size);
+    for await (const o of listObjects(s3, s.bucket!, objectsPrefix, a.signal)) {
+      inBucket.add(o.key.slice(objectsPrefix.length), o.size);
       if (a.signal.aborted) throw new Error('Stopped.');
     }
+    inBucket.finish();
 
     const src = this.backup.sourceStore();
-    const index: string[] = [];
+    const index = await IndexFile.open(a.archivePath);
+    try {
+      return await this.uploadRun(a, { runId, runAt, folder, target, inBucket, src, index });
+    } finally {
+      await index.remove();
+    }
+  }
+
+  private async uploadRun(
+    a: Parameters<OffsiteMirror['upload']>[0],
+    r: {
+      runId: string;
+      runAt: Date;
+      folder: string;
+      target: string;
+      inBucket: PackedListing;
+      src: ReturnType<BackupService['sourceStore']>;
+      index: IndexFile;
+    },
+  ): Promise<{ key: string; bytes: number; sha256: string }> {
+    const { s3, s, publicKey: pub } = a;
+    const { runId, runAt, folder, target, inBucket, src, index } = r;
+    const fp = pub.fingerprintText;
+    const objectsPrefix = this.objectsPrefix(s);
     let sent = 0;
     let uploaded = 0;
     let reused = 0;
@@ -341,7 +516,7 @@ export class OffsiteMirror {
           row.plainBytes === o.size &&
           inBucket.get(name) === row.sealedBytes
         ) {
-          index.push(
+          await index.write(
             JSON.stringify({
               k: o.key,
               o: name,
@@ -381,10 +556,9 @@ export class OffsiteMirror {
           contentType: got.ContentType ?? null,
           lastRunAt: runAt,
         });
-        inBucket.set(name, up.bytes);
         sent += up.bytes;
         uploaded += 1;
-        index.push(
+        await index.write(
           JSON.stringify({
             k: o.key,
             o: name,
@@ -438,12 +612,12 @@ export class OffsiteMirror {
       signal: a.signal,
     });
     sent += man.bytes;
-    const indexBuf = Buffer.from(index.join('\n') + (index.length ? '\n' : ''), 'utf8');
+    await index.close();
     const idx = await uploadStream(s3, {
       bucket: s.bucket!,
       key: `${folder}objects.jsonl${OFFSITE_LAYOUT.sealed}`,
-      body: sealStream(once(indexBuf), pub),
-      expectedBytes: sealedSize(indexBuf.length),
+      body: sealStream(readFileLazily(index.file), pub),
+      expectedBytes: sealedSize(index.bytes),
       signal: a.signal,
     });
     sent += idx.bytes;
@@ -457,7 +631,7 @@ export class OffsiteMirror {
       keyFingerprint: fp,
       createdAt: a.run.startedAt.toISOString(),
       database: { name: db, sealedBytes: dump.bytes, sealedSha256: dump.sha256 },
-      index: { files: index.length, sealedSha256: idx.sha256 },
+      index: { files: index.lines, sealedSha256: idx.sha256 },
       uploaded,
       reused,
     };
@@ -492,9 +666,14 @@ export class OffsiteMirror {
     now: Date,
     index: MirrorIndexStore | null,
     collectFiles: boolean,
-  ): Promise<{ removed: number; unknownKept: number }> {
+  ): Promise<{
+    removed: number;
+    unknownKept: number;
+    suspect: Array<{ id: string; why: 'future' | 'after-upload' | null }>;
+  }> {
     const runs = await this.listRuns(s3, s);
-    if (runs.length === 0) return { removed: 0, unknownKept: 0 };
+    if (runs.length === 0) return { removed: 0, unknownKept: 0, suspect: [] };
+    const { usable, suspect } = partitionByDate(runs, now);
     let removed = 0;
     const expired = new Set(selectExpired(runs, now, s.retentionDays));
     for (const r of runs.filter((x) => expired.has(x.id))) {
@@ -508,8 +687,12 @@ export class OffsiteMirror {
         removed += 1;
       }
     }
-    const kept = runs.filter((r) => !expired.has(r.id) && r.complete);
-    if (kept.length === 0 || !index || !collectFiles) return { removed, unknownKept: 0 };
+    // Runs with a suspect date never decide which files are old.
+    const kept = usable.filter((r) => !expired.has(r.id) && r.complete);
+    const suspectIds = suspect.map((r) => ({ id: r.id, why: suspectDate(r, now) }));
+    if (kept.length === 0 || !index || !collectFiles) {
+      return { removed, unknownKept: 0, suspect: suspectIds };
+    }
     const oldest = new Date(Math.min(...kept.map((r) => r.createdAt.getTime())));
     const target = mirrorTarget(s);
     const objectsPrefix = this.objectsPrefix(s);
@@ -537,18 +720,22 @@ export class OffsiteMirror {
       if (batch.length >= BATCH) await countUnknown();
     }
     if (batch.length) await countUnknown();
-    return { removed, unknownKept };
+    return { removed, unknownKept, suspect: suspectIds };
   }
 
   // ---------------------------------------------------------------
   // Restore helpers for offsite-cli (they hold the private key)
   // ---------------------------------------------------------------
 
-  private async pickRun(s3: S3Like, s: OffsiteSettings, wanted: string | null) {
-    if (wanted !== null && !RUN_ID.test(wanted))
+  /**
+   * The run named, or the newest complete run with a usable date. A
+   * run dated in the future is used only when named.
+   */
+  async pickRun(s3: S3Like, s: OffsiteSettings, wanted: string | null, now = new Date()) {
+    if (wanted !== null && !MIRROR_RUN_RE.test(wanted))
       throw new Error('--run must be a mirror run name.');
-    const runs = (await this.listRuns(s3, s)).filter((r) => r.complete && RUN_ID.test(r.id));
-    const run = wanted ? runs.find((r) => r.id === wanted) : runs[0];
+    const runs = (await this.listRuns(s3, s)).filter((r) => r.complete);
+    const run = wanted ? runs.find((r) => r.id === wanted) : newestGood(runs, now);
     if (!run)
       throw new Error(
         wanted ? `No complete mirror run named ${wanted}.` : 'No complete mirror run was found.',

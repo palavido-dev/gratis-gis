@@ -199,6 +199,13 @@ const checks = {
         'The folder prefix can be up to 200 characters, with no backslashes, control characters, or "." or ".." parts.',
       );
     }
+    // The whole bucket is not a folder: retention and the restore tool
+    // both work inside one portal's folder.
+    if (normalizePrefix(p) === '') {
+      throw new OffsiteValidationError(
+        'The folder prefix cannot be empty. Give each portal its own folder, such as gratisgis-main/.',
+      );
+    }
   },
   accessKeyId(v: string) {
     if (!ACCESS_KEY_RE.test(v)) {
@@ -252,7 +259,11 @@ const LIMITS = {
  */
 export function resolveOffsiteSettings(
   row: OffsiteRow,
-  secrets: { secretFromDb: string | null },
+  secrets: {
+    secretFromDb: string | null;
+    /** A secret is saved but does not open: never fall back to the environment's. */
+    storedSecretUnreadable?: boolean;
+  },
   env: EnvReader,
   policy: EndpointPolicy,
   readFile?: (p: string) => string,
@@ -338,12 +349,32 @@ export function resolveOffsiteSettings(
     envText(env, OFFSITE_ENV.accessKeyId),
     same(checks.accessKeyId),
   );
-  const secret = pick(
+  let secret = pick(
     'secret access key',
     secrets.secretFromDb,
-    envSecret(env, OFFSITE_ENV.secretAccessKey, OFFSITE_ENV.secretAccessKeyFile, readFile),
+    secrets.storedSecretUnreadable
+      ? null
+      : envSecret(env, OFFSITE_ENV.secretAccessKey, OFFSITE_ENV.secretAccessKeyFile, readFile),
     same(checks.secretAccessKey),
   );
+  // The environment's secret goes only with the environment's endpoint
+  // and key id, when those are set there: a value saved on the page
+  // cannot take it elsewhere.
+  if (secret.source === 'environment') {
+    const envEndpoint = envText(env, OFFSITE_ENV.endpoint);
+    const envKeyId = envText(env, OFFSITE_ENV.accessKeyId);
+    const endpointMoved =
+      envEndpoint !== null &&
+      endpoint.source === 'database' &&
+      endpoint.value !== safeEndpoint(envEndpoint, policy);
+    const keyMoved = envKeyId !== null && keyId.source === 'database' && keyId.value !== envKeyId;
+    if (endpointMoved || keyMoved) {
+      problems.push(
+        'The secret access key from the server environment is used only with the endpoint and access key id from the environment. Type the secret for this endpoint on the page, or clear the endpoint and access key id saved on the page.',
+      );
+      secret = { value: null, source: null };
+    }
+  }
   const publicKey = pick(
     'public key',
     row.offsitePublicKey,
@@ -394,6 +425,14 @@ export function resolveOffsiteSettings(
     installId: row.offsiteInstallId,
     problems,
   };
+}
+
+function safeEndpoint(v: string, policy: EndpointPolicy): string | null {
+  try {
+    return checkEndpoint(v, policy);
+  } catch {
+    return null;
+  }
 }
 
 export function missingSettings(s: OffsiteSettings): string[] {

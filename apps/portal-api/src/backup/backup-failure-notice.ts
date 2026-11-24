@@ -31,24 +31,36 @@ export class BackupFailureNotice {
   }
 
   /**
-   * One notice per off-site problem, keyed in backup_offsite_notice:
+   * One notice per off-site event, keyed in backup_offsite_notice:
    * "failed:<run id>" for an upload that failed, "stale:<run id or
-   * none>" for a quiet period. Same recipients and notification type
-   * as a failed backup; the payload says which kind it is. Never
-   * carries an error message, a key or a bucket name.
+   * none>" for a quiet period, "key:<fingerprint>:<time>" for a changed
+   * public key, "suspect:<copy>" for a copy whose date cannot be
+   * trusted. Same recipients and notification type as a failed backup;
+   * the payload says which kind it is. Never carries an error message,
+   * a key or a bucket name; fingerprints are not secret.
    */
   async announceOffsite(
     key: string,
-    payload: { runId?: string; kind: 'offsite_failed' | 'offsite_stale'; days?: number | null },
+    payload: {
+      runId?: string;
+      kind: 'offsite_failed' | 'offsite_stale' | 'offsite_key_changed' | 'offsite_suspect_copy';
+      days?: number | null;
+      from?: string | null;
+      to?: string | null;
+      name?: string;
+    },
   ): Promise<boolean> {
     try {
-      await this.prisma.backupOffsiteNotice.create({ data: { key } });
+      await this.prisma.backupOffsiteNotice.create({ data: { key: key.slice(0, 300) } });
     } catch {
       return false;
     }
     const body: Record<string, string | number | null> = { kind: payload.kind };
     if (payload.runId) body.runId = payload.runId;
     if (payload.days !== undefined) body.days = payload.days;
+    if (payload.from !== undefined) body.from = payload.from;
+    if (payload.to !== undefined) body.to = payload.to;
+    if (payload.name !== undefined) body.name = payload.name;
     await this.notifyOperatorAdmins(body);
     this.log.warn(`off-site backup notice queued (${payload.kind})`);
     return true;
