@@ -336,6 +336,10 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
    * query per level. data_layer (hop 0) -> map (hop 1) -> editor (hop
    * 2) covers every shipped referencing chain today; deeper paths are
    * caught by the housekeeping cron.
+   *
+   * The walk only follows a reference from an item in the same org as
+   * the item it names, or to a public item: the same rule
+   * `aggregateFromReferenced` applies to what a bbox may include.
    */
   private async runRefresh(
     seedId: string,
@@ -343,42 +347,60 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
   ): Promise<void> {
     const freshById = new Map<string, Envelope | null>();
     const seen = new Set<string>([seedId]);
+    let frontier: RefScope[];
 
     if (seedBbox !== null) {
       // Already written by growStoredBbox.
       freshById.set(seedId, seedBbox);
+      frontier = await this.prisma.item.findMany({
+        where: { id: { in: [seedId] } },
+        select: { id: true, orgId: true, access: true },
+      });
     } else {
       const seed = await this.prisma.item.findUnique({
         where: { id: seedId },
-        select: { id: true, type: true, data: true, bbox: true },
+        select: ITEM_FOR_BBOX,
       });
       if (!seed) return;
       await this.recomputeAndStore(seed, freshById);
+      frontier = [seed];
     }
 
-    let frontier = [seedId];
     for (
       let hop = 1;
       hop <= ItemBboxRefreshService.MAX_REVERSE_HOPS && frontier.length > 0;
       hop++
     ) {
-      const referencing = await this.findReferencingItems(frontier);
+      const referencing = await this.findReferencingItems(
+        frontier.map((f) => f.id),
+      );
       const nextIds = referencing.filter((id) => !seen.has(id));
       if (nextIds.length === 0) break;
       for (const id of nextIds) seen.add(id);
-      const rows = await this.prisma.item.findMany({
+      const loaded = await this.prisma.item.findMany({
         where: { id: { in: nextIds } },
-        select: { id: true, type: true, data: true, bbox: true },
+        select: ITEM_FOR_BBOX,
+      });
+      const targets = frontier;
+      const rows = loaded.filter((row) => {
+        const refs = new Set(collectBboxRefs(row.type, row.data));
+        return targets.some((t) => refs.has(t.id) && mayUseExtentOf(row, t));
       });
       for (const row of rows) {
         await this.recomputeAndStore(row, freshById);
       }
-      frontier = rows.map((r) => r.id);
+      frontier = rows;
     }
   }
 
   private async recomputeAndStore(
-    row: { id: string; type: string; data: unknown; bbox: unknown },
+    row: {
+      id: string;
+      type: string;
+      data: unknown;
+      bbox: unknown;
+      orgId: string;
+    },
     freshById: Map<string, Envelope | null>,
   ): Promise<void> {
     const next = await this.computeBbox(row, freshById);
@@ -402,7 +424,7 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
    *     data_json directly)
    */
   private async computeBbox(
-    it: { id: string; type: string; data: unknown },
+    it: { id: string; type: string; data: unknown; orgId: string },
     freshById: Map<string, Envelope | null>,
   ): Promise<Envelope | null> {
     if (it.type === 'data_layer') {
@@ -420,6 +442,7 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
       const refs = collectMapItemRefs(it.data);
       if (refs.length > 0) {
         const aggregated = await this.aggregateFromReferenced(
+          it,
           refs,
           freshById,
         );
@@ -431,6 +454,7 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
       const refs = collectEditorItemRefs(it.data);
       if (refs.length > 0) {
         const aggregated = await this.aggregateFromReferenced(
+          it,
           refs,
           freshById,
         );
@@ -446,26 +470,27 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
    * the in-memory freshById cache when present, falls back to the
    * DB row when the reference points at an item we haven't yet
    * recomputed in this pass.
+   *
+   * Only referenced items in the owner's org, or public ones, count.
+   * The housekeeping recompute keeps a map to its own org the same way.
    */
   private async aggregateFromReferenced(
+    owner: { orgId: string },
     refs: string[],
     freshById: Map<string, Envelope | null>,
   ): Promise<Envelope | null> {
     let out: Envelope | null = null;
-    const missing: string[] = [];
+    const rows = await this.prisma.item.findMany({
+      where: { id: { in: refs } },
+      select: { id: true, orgId: true, access: true, bbox: true, deletedAt: true },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
     for (const id of refs) {
-      if (!freshById.has(id)) {
-        missing.push(id);
-        continue;
-      }
-      out = unionEnvelopes(out, freshById.get(id) ?? null);
-    }
-    if (missing.length > 0) {
-      const rows = await this.prisma.item.findMany({
-        where: { id: { in: missing }, deletedAt: null },
-        select: { bbox: true },
-      });
-      for (const row of rows) {
+      const row = byId.get(id);
+      if (!row || !mayUseExtentOf(owner, row)) continue;
+      if (freshById.has(id)) {
+        out = unionEnvelopes(out, freshById.get(id) ?? null);
+      } else if (row.deletedAt === null || row.deletedAt === undefined) {
         out = unionEnvelopes(out, readStoredEnvelope(row.bbox));
       }
     }
@@ -532,6 +557,42 @@ export class ItemBboxRefreshService implements OnApplicationShutdown {
     `);
     return rows.map((r) => r.id);
   }
+}
+
+/** Columns the refresh reads for an item it recomputes. */
+const ITEM_FOR_BBOX = {
+  id: true,
+  type: true,
+  data: true,
+  bbox: true,
+  orgId: true,
+  access: true,
+} as const;
+
+/** What decides whether one item's extent may feed another's. */
+interface RefScope {
+  id: string;
+  orgId: string;
+  access: string;
+}
+
+/**
+ * An item's bbox may include a referenced item's extent when both are
+ * in the same org, or the referenced item is public (its extent is
+ * already visible to everyone).
+ */
+function mayUseExtentOf(
+  owner: { orgId: string },
+  referenced: { orgId: string; access: string },
+): boolean {
+  return referenced.orgId === owner.orgId || referenced.access === 'public';
+}
+
+/** The ids whose extents feed this item's bbox in `computeBbox`. */
+function collectBboxRefs(type: string, data: unknown): string[] {
+  if (type === 'map') return collectMapItemRefs(data);
+  if (type === 'editor' || type === 'web_app') return collectEditorItemRefs(data);
+  return [];
 }
 
 /** Walk a map's data.layers[] and return the underlying portal
