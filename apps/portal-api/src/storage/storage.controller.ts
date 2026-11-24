@@ -42,6 +42,7 @@ import {
   recordUploadGrant,
 } from './key-ownership.js';
 import { contentDisposition } from '../common/content-disposition.js';
+import { ORG_SEGMENT, isLowerUuid, orgOwner } from './object-keys.js';
 
 // Kinds the browser may request a presigned PUT for. `map-icon` is
 // deliberately absent (its upload path sanitizes server-side and
@@ -138,6 +139,7 @@ export class StorageController {
     try {
       signed = await this.storage.presignUpload(
         dto.kind,
+        { orgId: user.orgId },
         dto.contentType,
         dto.sizeBytes,
       );
@@ -172,6 +174,28 @@ export class StorageController {
    * forwarded so attachment-viewer apps that ask for `bytes=0-` keep
    * working.
    */
+  /**
+   * Same as getPrivateAsset, for keys in the org-prefixed layout
+   * (`<kind>/o/<orgId>/<uuid>`). The org segment must be a lowercase
+   * UUID; it is checked against the owning item's org before a byte
+   * is read.
+   */
+  @Public()
+  @Get('private/:kind/o/:org/:key')
+  async getPrivateOrgAsset(
+    @CurrentUser() user: AuthUser | null,
+    @Param('kind') kindParam: string,
+    @Param('org') orgParam: string,
+    @Param('key') key: string,
+    @Headers('range') rangeHeader: string | undefined,
+    @Query('inline') inlineParam: string | undefined,
+    @Req() _req: Request,
+    @Res() res: Response,
+  ): Promise<void> {
+    if (!isLowerUuid(orgParam)) throw new BadRequestException('Invalid key');
+    return this.servePrivate(user, kindParam, `${ORG_SEGMENT}/${orgParam}/`, key, rangeHeader, inlineParam, res);
+  }
+
   @Public()
   @Get('private/:kind/:key')
   async getPrivateAsset(
@@ -189,6 +213,18 @@ export class StorageController {
     @Req() _req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    return this.servePrivate(user, kindParam, '', key, rangeHeader, inlineParam, res);
+  }
+
+  private async servePrivate(
+    user: AuthUser | null,
+    kindParam: string,
+    orgPart: string,
+    key: string,
+    rangeHeader: string | undefined,
+    inlineParam: string | undefined,
+    res: Response,
+  ): Promise<void> {
     const kind = kindParam as AssetKind;
     if (!PRIVATE_KINDS_FOR_ROUTE.has(kind)) {
       throw new BadRequestException(`Unsupported kind: ${kindParam}`);
@@ -199,10 +235,13 @@ export class StorageController {
 
     // Composed storage key the same way the mint path does, so the
     // SDK can find the right object.
-    const storageKey = `${kind}/${key}`;
+    const storageKey = `${kind}/${orgPart}${key}`;
 
-    // Sharing check + filename for content-disposition.
+    // Sharing check + filename for content-disposition. `ownerOrg` is
+    // the org of the item that authorised the read; the storage owner
+    // check refuses the key unless it belongs to that org.
     let filename = key;
+    let ownerOrg: string | null = null;
     if (kind === 'feature-attachment') {
       // Oldest row decides the ACL. Attach paths refuse a copied key
       // now, but rows from before that check can share one, and the
@@ -215,10 +254,12 @@ export class StorageController {
           itemId: true,
           layerId: true,
           featureId: true,
+          item: { select: { orgId: true } },
         },
       });
       if (!att) throw new NotFoundException('Attachment not found');
       filename = att.fileName || key;
+      ownerOrg = att.item.orgId;
       // #224: attachments are binaries (site photos); honour the
       // download tier the same way CSV / GeoParquet exports do.
       // Anonymous callers are only allowed if the parent is
@@ -285,10 +326,11 @@ export class StorageController {
       const item = ownerId
         ? await this.prisma.item.findUnique({
             where: { id: ownerId },
-            select: { id: true, type: true, data: true, access: true },
+            select: { id: true, type: true, data: true, access: true, orgId: true },
           })
         : null;
       if (!item) throw new NotFoundException('File not found');
+      ownerOrg = item.orgId;
       // Pull the filename when present in item.data.
       const data = (item.data ?? {}) as Record<string, unknown>;
       filename =
@@ -322,7 +364,8 @@ export class StorageController {
     // absent from the allowlist: it is a script container, so it
     // downloads like any other active type.  Unknown or missing
     // types default to attachment.
-    const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    if (ownerOrg === null) throw new NotFoundException('File not found');
+    const upstream = await this.storage.streamObject(storageKey, orgOwner(ownerOrg), rangeHeader);
     // Tear down the S3 read stream when the client disconnects (or the
     // response finishes) so its socket returns to the pool instead of
     // draining to the end. `pipe` does not destroy the source on a

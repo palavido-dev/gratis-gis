@@ -33,6 +33,7 @@ describe('pooled PMTiles archive after a storage error', () => {
     const { TileLayerService } = await import('./tile-layer.service.js');
     let calls = 0;
     const storage = {
+      assertKeyOwner: jest.fn(async () => undefined),
       readRange: jest.fn(async () => {
         calls += 1;
         throw new Error('MinIO unavailable');
@@ -43,9 +44,9 @@ describe('pooled PMTiles archive after a storage error', () => {
       }),
     };
     const svc = new TileLayerService({} as never, {} as never, storage as never, {} as never, {} as never);
-    await expect(svc.getPmtilesTileByKey('item-tile-layer/k', 0, 0, 0)).rejects.toThrow();
+    await expect(svc.getPmtilesTileByKey('item-tile-layer/k', { system: 'test' }, 0, 0, 0)).rejects.toThrow();
     const after = calls;
-    await expect(svc.getPmtilesTileByKey('item-tile-layer/k', 0, 0, 0)).rejects.toThrow();
+    await expect(svc.getPmtilesTileByKey('item-tile-layer/k', { system: 'test' }, 0, 0, 0)).rejects.toThrow();
     // The second request reached storage again: the failed header
     // promise was not served from a pooled instance.
     expect(calls).toBeGreaterThan(after);

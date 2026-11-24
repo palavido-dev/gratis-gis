@@ -5,6 +5,7 @@ import { ItemsModule } from '../items/items.module.js';
 import { EngineModule } from '../engine/engine.module.js';
 import { StorageController } from './storage.controller.js';
 import { StorageService } from './storage.service.js';
+import { StorageLedgerService } from './storage-ledger.service.js';
 
 @Module({
   // ItemsModule exports ItemsService + SharingService + PrismaService
@@ -12,8 +13,8 @@ import { StorageService } from './storage.service.js';
   // forwardRef avoids the circular-init issue if a future Items submodule
   // imports StorageModule.
   imports: [forwardRef(() => ItemsModule), EngineModule],
-  providers: [StorageService],
+  providers: [StorageService, StorageLedgerService],
   controllers: [StorageController],
-  exports: [StorageService],
+  exports: [StorageService, StorageLedgerService],
 })
 export class StorageModule {}

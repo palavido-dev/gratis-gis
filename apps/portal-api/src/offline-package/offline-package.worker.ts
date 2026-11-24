@@ -173,6 +173,7 @@ export class OfflinePackageWorker implements OnModuleInit {
       const { size } = await stat(outPath);
       const { key } = await this.storage.uploadLocalFile(
         'offline-package',
+        { orgId: job.orgId },
         outPath,
         'application/vnd.pmtiles',
       );

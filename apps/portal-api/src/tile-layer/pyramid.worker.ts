@@ -276,9 +276,12 @@ export class TileLayerPyramidWorker implements OnModuleInit {
    */
   private async buildPyramid(claim: {
     itemId: string;
+    orgId: string;
     data: TileLayerData;
   }): Promise<void> {
     const { itemId, data } = claim;
+    // The item's objects, read and written, belong to its org.
+    const owner = { orgId: claim.orgId };
     // Ownership token for terminal stamps (#232 race with mosaic
     // rebuild): only patch if the item is still 'tiling' with the
     // same COG key we claimed.
@@ -331,7 +334,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       // legacy rows that predate the key fields and still carry
       // an absolute MinIO URL.
       if (data.cogStorageKey) {
-        await this.storage.streamObjectToDisk(data.cogStorageKey, cogPath);
+        await this.storage.streamObjectToDisk(data.cogStorageKey, owner, cogPath);
       } else {
         await this.downloadTo(data.cogStorageUrl!, cogPath);
       }
@@ -478,8 +481,10 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       // source per the design.
       const uploaded = await this.storage.uploadLocalFile(
         'item-tile-layer',
+        owner,
         pmtilesPath,
         'application/octet-stream',
+        { itemId },
       );
 
       // Patch the item.  storageKey + storageUrl flip to the new

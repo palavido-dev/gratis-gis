@@ -188,7 +188,7 @@ describe('PmtilesArchiveCache', () => {
 describe('TileLayerService.resolveStorageKey (pmtiles pin)', () => {
   function makeService(data: unknown) {
     const items = {
-      get: jest.fn(async () => ({ id: ITEM_ID, type: 'tile_layer', data })),
+      get: jest.fn(async () => ({ id: ITEM_ID, orgId: 'org-1', type: 'tile_layer', data })),
     };
     const service = new TileLayerService(
       items as unknown as ConstructorParameters<typeof TileLayerService>[0],
@@ -267,7 +267,7 @@ describe('TileLayerService.resolveStorageKey (pmtiles pin)', () => {
 describe('TileLayerService.resolveTileSource', () => {
   function makeService(data: unknown) {
     const items = {
-      get: jest.fn(async () => ({ id: ITEM_ID, type: 'tile_layer', data })),
+      get: jest.fn(async () => ({ id: ITEM_ID, orgId: 'org-1', type: 'tile_layer', data })),
     };
     const service = new TileLayerService(
       items as unknown as ConstructorParameters<typeof TileLayerService>[0],
@@ -289,6 +289,8 @@ describe('TileLayerService.resolveTileSource', () => {
       cogStorageKey: 'item-tile-layer/source-cog',
     });
     await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      // The org the key must belong to: the item's.
+      owner: { orgId: 'org-1' },
       kind: 'cog',
       storageKey: 'item-tile-layer/source-cog',
     });
@@ -306,6 +308,8 @@ describe('TileLayerService.resolveTileSource', () => {
       pmtilesStorageKey: 'item-tile-layer/pyramid',
     });
     await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      // The org the key must belong to: the item's.
+      owner: { orgId: 'org-1' },
       kind: 'pmtiles',
       storageKey: 'item-tile-layer/pyramid',
     });
@@ -318,6 +322,8 @@ describe('TileLayerService.resolveTileSource', () => {
       storageKey: 'item-tile-layer/uploaded',
     });
     await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      // The org the key must belong to: the item's.
+      owner: { orgId: 'org-1' },
       kind: 'pmtiles',
       storageKey: 'item-tile-layer/uploaded',
     });
@@ -335,6 +341,8 @@ describe('TileLayerService.resolveTileSource', () => {
       bbox: [-80.1023483, 38.7211441, -80.0316238, 38.7677365],
     });
     await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      // The org the key must belong to: the item's.
+      owner: { orgId: 'org-1' },
       kind: 'cog',
       storageKey: 'item-tile-layer/source-cog',
       bbox: [-80.1023483, 38.7211441, -80.0316238, 38.7677365],
@@ -353,6 +361,8 @@ describe('TileLayerService.resolveTileSource', () => {
       bbox: [-80.1, 38.7, 'east', 38.8],
     });
     await expect(service.resolveTileSource(user, ITEM_ID)).resolves.toEqual({
+      // The org the key must belong to: the item's.
+      owner: { orgId: 'org-1' },
       kind: 'cog',
       storageKey: 'item-tile-layer/source-cog',
     });

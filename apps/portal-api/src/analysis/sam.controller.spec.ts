@@ -14,6 +14,9 @@ import {
  * to flood it.
  */
 const USER = { id: 'viewer-1', orgId: 'org-1', orgRole: 'viewer' } as unknown as AuthUser;
+// Embeddings are keyed by the stored item id and its org.
+const IMAGERY_ID = '0a1b2c3d-0000-4000-8000-0000000000f1';
+const IMAGERY_ORG = '0a1b2c3d-0000-4000-8000-0000000000f2';
 // Roughly Riverside County, CA.
 const BBOX = [-117.7, 33.4, -114.4, 34.1];
 
@@ -38,6 +41,8 @@ function makeController(inFlight: number) {
     } as never,
     {
       get: async () => ({
+        id: IMAGERY_ID,
+        orgId: IMAGERY_ORG,
         type: 'tile_layer',
         bbox: BBOX,
         data: { kind: 'raster', cogStorageKey: 'item-tile-layer/x' },
@@ -88,12 +93,14 @@ describe('SAM embedding download', () => {
       {} as never,
       {
         get: async () => ({
+          id: IMAGERY_ID,
+          orgId: IMAGERY_ORG,
           type: 'tile_layer',
           bbox: BBOX,
           data: { kind: 'raster', cogStorageKey: 'item-tile-layer/x' },
         }),
       } as never,
-      { streamObject } as never,
+      { streamObject, objectExists: async () => false } as never,
       { get: () => 'server-heavy' } as never,
     );
     return c;

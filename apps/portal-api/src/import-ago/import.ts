@@ -784,7 +784,7 @@ export class AgoImportService {
       };
     }
     try {
-      const upload = await this.fetchAndUploadAgoFile(row, token, portalBase);
+      const upload = await this.fetchAndUploadAgoFile(user, row, token, portalBase);
       const data = {
         ...DEFAULT_FILE,
         storageKey: upload.storageKey,
@@ -832,6 +832,7 @@ export class AgoImportService {
    * source filename.
    */
   private async fetchAndUploadAgoFile(
+    user: AuthUser,
     row: DryRunItem,
     token: string,
     portalBase: string,
@@ -909,6 +910,7 @@ export class AgoImportService {
       }
       const upload = await this.storage.uploadLocalFile(
         'item-file',
+        { orgId: user.orgId },
         tmp,
         mimeType,
       );

@@ -175,8 +175,10 @@ describe('HousekeepingService orphaned uploads', () => {
     const result = await svc.purgeOrphanedUploads();
 
     expect(deleteObject).toHaveBeenCalledTimes(2);
-    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-a');
-    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-b');
+    // The sweep is install-wide system work.
+    const sweep = { system: 'housekeeping:orphan-sweep' };
+    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-a', sweep);
+    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-b', sweep);
     expect(deleteObject).not.toHaveBeenCalledWith('map-icon/keep-fresh');
     expect(result.deletedCount).toBe(1);
     expect(result.freedBytes).toBe(30);
@@ -233,6 +235,20 @@ describe('STORAGE_KEY_REF_PATTERN', () => {
   it('still matches a bare SVG map-icon key', () => {
     const json = JSON.stringify({ iconName: `upload:map-icon/${uuid}` });
     expect(scan(json)).toEqual([`map-icon/${uuid}`]);
+  });
+
+  it('matches whole keys in the org-prefixed layout, so a referenced new object is never an orphan', () => {
+    const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const json = JSON.stringify({
+      storageKey: `item-file/o/${org}/${uuid}`,
+      url: `/api/portal/storage/private/item-tile-layer/o/${org}/${uuid}`,
+      iconName: `upload:map-icon/o/${org}/${uuid}.png`,
+    });
+    expect(scan(json)).toEqual([
+      `item-file/o/${org}/${uuid}`,
+      `item-tile-layer/o/${org}/${uuid}`,
+      `map-icon/o/${org}/${uuid}.png`,
+    ]);
   });
 
   it('adds no suffix to the other prefixes', () => {

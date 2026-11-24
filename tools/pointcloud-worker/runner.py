@@ -904,6 +904,89 @@ RASTER_TARGET_KINDS = {
 }
 
 
+
+_ORG_UUID = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+
+
+def org_prefix(kind: str, org_id) -> str:
+    """Prefix of new objects of `kind` owned by `org_id`. Same layout as
+    apps/portal-api/src/storage/object-keys.ts: the kind first (the
+    bucket's public-read rules match on it), then `o/<orgId>/`."""
+    org = str(org_id or "")
+    if not _ORG_UUID.match(org):
+        raise RuntimeError("This job has no organization to store its result under.")
+    return f"{kind}/o/{org}/"
+
+
+def storage_key(kind: str, org_id, suffix: str = "") -> str:
+    """Key for a new object: `<kind>/o/<orgId>/<uuid><suffix>`."""
+    return f"{org_prefix(kind, org_id)}{uuid.uuid4()}{suffix}"
+
+
+def _rollback_ledger(conn) -> None:
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ROLLBACK TO SAVEPOINT usage_ledger")
+        conn.commit()
+    except Exception:  # noqa: BLE001 - the connection is reset by the caller's next error path
+        conn.rollback()
+
+
+def ledger_record(conn, key: str, org_id, kind: str, size: int, item_id=None) -> None:
+    """Count a stored object in its org's storage usage (the same two
+    statements as the API's usage ledger). Never fails the job: the
+    API's daily reconcile records anything missed here."""
+    # Committed at once so the org's totals row is not held locked
+    # while the job runs on. A savepoint keeps a failure here from
+    # rolling back anything else on this connection.
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT usage_ledger")
+            cur.execute(
+                "INSERT INTO storage_object (key, org_id, kind, bytes, item_id) "
+                "VALUES (%s, %s::uuid, %s, %s, %s::uuid) "
+                "ON CONFLICT (key) DO NOTHING RETURNING bytes",
+                (key, str(org_id), kind, int(size), item_id),
+            )
+            if cur.fetchone() is not None:
+                cur.execute(
+                    "INSERT INTO org_storage_usage (org_id, bytes, objects, updated_at) "
+                    "VALUES (%s::uuid, %s, 1, now()) "
+                    "ON CONFLICT (org_id) DO UPDATE SET "
+                    "bytes = org_storage_usage.bytes + EXCLUDED.bytes, "
+                    "objects = org_storage_usage.objects + 1, updated_at = now()",
+                    (str(org_id), int(size)),
+                )
+        conn.commit()
+    except Exception as err:  # noqa: BLE001 - usage is best effort
+        _rollback_ledger(conn)
+        log(f"  usage ledger: could not record {key}: {err}")
+
+
+def ledger_deleted(conn, key: str, org_id) -> None:
+    """Take a deleted object off its org's storage usage."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT usage_ledger")
+            cur.execute(
+                "UPDATE storage_object SET deleted_at = now() "
+                "WHERE key = %s AND org_id = %s::uuid AND deleted_at IS NULL "
+                "RETURNING bytes",
+                (key, str(org_id)),
+            )
+            row = cur.fetchone()
+            if row is not None:
+                cur.execute(
+                    "UPDATE org_storage_usage SET bytes = bytes - %s, "
+                    "objects = objects - 1, updated_at = now() WHERE org_id = %s::uuid",
+                    (int(row[0]), str(org_id)),
+                )
+        conn.commit()
+    except Exception as err:  # noqa: BLE001 - usage is best effort
+        _rollback_ledger(conn)
+        log(f"  usage ledger: could not mark {key} deleted: {err}")
+
+
 TILE_LAYER_KEY_PREFIX = "item-tile-layer/"
 POINT_CLOUD_KEY_PREFIX = "item-point-cloud/"
 
@@ -1367,13 +1450,14 @@ def do_hillshade(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 85)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         # Stamp the pre-created tile_layer item into the cog-ready
@@ -1493,13 +1577,14 @@ def do_elevation(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 85)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -1711,13 +1796,14 @@ def do_viewshed(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 88)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -1895,13 +1981,14 @@ def do_contours(conn, s3, job):
         seq.unlink(missing_ok=True)
         set_progress(conn, job["id"], 72)
 
-        key = f"analysis-artifact/{uuid.uuid4()}.geojson"
+        key = storage_key("analysis-artifact", job["org_id"], ".geojson")
         size = wgs.stat().st_size
         log(f"  uploading {size} bytes ({count} lines) to {key}")
         transfer_file(
             s3, "upload", key, wgs, job["id"],
             ExtraArgs={"ContentType": "application/geo+json"},
         )
+        ledger_record(conn, key, job["org_id"], "analysis-artifact", size, job.get("target_item_id"))
 
         # Hand off to the API-side bridge: merge the artifact key
         # into params and flip the state. The bridge stages the
@@ -1936,6 +2023,7 @@ def do_contours(conn, s3, job):
             # as a cancel (best effort, artifacts are small).
             try:
                 s3.delete_object(Bucket=BUCKET, Key=key)
+                ledger_deleted(conn, key, job["org_id"])
             except Exception:
                 pass
             raise JobCancelled()
@@ -2146,13 +2234,14 @@ def do_zonal_stats(conn, s3, job):
         )
         set_progress(conn, job["id"], 72)
 
-        key = f"analysis-artifact/{uuid.uuid4()}.geojson"
+        key = storage_key("analysis-artifact", job["org_id"], ".geojson")
         size = out_path.stat().st_size
         log(f"  uploading {size} bytes ({len(out_features)} zones) to {key}")
         transfer_file(
             s3, "upload", key, out_path, job["id"],
             ExtraArgs={"ContentType": "application/geo+json"},
         )
+        ledger_record(conn, key, job["org_id"], "analysis-artifact", size, job.get("target_item_id"))
 
         new_params = dict(params)
         new_params["artifactKey"] = key
@@ -2176,12 +2265,14 @@ def do_zonal_stats(conn, s3, job):
         if flipped == 0:
             try:
                 s3.delete_object(Bucket=BUCKET, Key=key)
+                ledger_deleted(conn, key, job["org_id"])
             except Exception:
                 pass
             raise JobCancelled()
         # Best-effort cleanup of the staged zones input.
         try:
             s3.delete_object(Bucket=BUCKET, Key=zones_key)
+            ledger_deleted(conn, zones_key, job["org_id"])
         except Exception:
             pass
         return "handoff"
@@ -2289,13 +2380,14 @@ def do_steepness(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 85)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -2454,13 +2546,14 @@ def do_heightmap(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 88)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -2609,28 +2702,42 @@ def do_sam_embed(conn, s3, job) -> None:
     set_progress(conn, job["id"], 85)
     emb = np.ascontiguousarray(embedding.astype(np.float32))
 
-    base = f"sam-embed/{job['source_item_id']}/{z}/{gx}/{gy}"
+    # Embeddings belong to the imagery item's org (the viewer who asked
+    # may be reading another org's public layer). Same layout the API
+    # reads first: sam-embed/o/<orgId>/<itemId>/<z>/<gx>/<gy>.
+    with conn.cursor() as cur:
+        cur.execute("SELECT org_id::text FROM item WHERE id = %s::uuid", (job["source_item_id"],))
+        row = cur.fetchone()
+    conn.commit()
+    if row is None:
+        raise RuntimeError("The imagery layer for this view no longer exists.")
+    item_org = row[0]
+    base = f"{org_prefix('sam-embed', item_org)}{job['source_item_id']}/{z}/{gx}/{gy}"
+    emb_bytes = emb.tobytes()
     s3.put_object(
         Bucket=BUCKET,
         Key=f"{base}.bin",
-        Body=emb.tobytes(),
+        Body=emb_bytes,
         ContentType="application/octet-stream",
     )
+    ledger_record(conn, f"{base}.bin", item_org, "sam-embed", len(emb_bytes), job["source_item_id"])
+    meta = json.dumps(
+        {
+            "version": "mobilesam-v1",
+            "shape": list(emb.shape),
+            "mercBounds": [x0, y0, x1, y1],
+            "z": z,
+            "gx": gx,
+            "gy": gy,
+        }
+    ).encode()
     s3.put_object(
         Bucket=BUCKET,
         Key=f"{base}.json",
-        Body=json.dumps(
-            {
-                "version": "mobilesam-v1",
-                "shape": list(emb.shape),
-                "mercBounds": [x0, y0, x1, y1],
-                "z": z,
-                "gx": gx,
-                "gy": gy,
-            }
-        ).encode(),
+        Body=meta,
         ContentType="application/json",
     )
+    ledger_record(conn, f"{base}.json", item_org, "sam-embed", len(meta), job["source_item_id"])
 
 
 def copc_header_meta(path: Path, conn=None, job_id: str | None = None) -> dict:
@@ -2950,13 +3057,14 @@ def do_colorize(conn, s3, job) -> None:
         set_progress(conn, job["id"], 88)
 
         out_meta = copc_header_meta(colored_copc, conn, job["id"])
-        key = f"item-point-cloud/{uuid.uuid4()}"
+        key = storage_key("item-point-cloud", job["org_id"])
         size = colored_copc.stat().st_size
         log(
             f"  uploading colored COPC ({size} bytes, "
             f"{out_meta['count']} pts, hasRgb={out_meta['hasRgb']}) to {key}"
         )
         transfer_file(s3, "upload", key, colored_copc, job["id"])
+        ledger_record(conn, key, job["org_id"], "item-point-cloud", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         patch = {
@@ -3151,7 +3259,7 @@ def do_copc_build(conn, s3, job) -> None:
         meta = copc_header_meta(merged, conn, job["id"])
         set_progress(conn, job["id"], 82)
 
-        key = f"item-point-cloud/{uuid.uuid4()}"
+        key = storage_key("item-point-cloud", job["org_id"])
         size = merged.stat().st_size
         # Baseline timing (#205): one structured line per completed
         # merge so we can fit a "X GB / N tiles -> ~H hours" model and
@@ -3166,6 +3274,7 @@ def do_copc_build(conn, s3, job) -> None:
         )
         log(f"  uploading merged COPC ({size} bytes, {meta['count']} pts) to {key}")
         transfer_file(s3, "upload", key, merged, job["id"])
+        ledger_record(conn, key, job["org_id"], "item-point-cloud", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 92)
 
         # Final stamp: patch only the keys this worker owns. Writing
@@ -3229,6 +3338,7 @@ def do_copc_build(conn, s3, job) -> None:
         if prev_key and prev_key != key and prev_key not in source_keys:
             try:
                 s3.delete_object(Bucket=BUCKET, Key=prev_key)
+                ledger_deleted(conn, prev_key, job["org_id"])
             except Exception as err:
                 log(f"  warn: could not delete old merged {prev_key}: {err}")
     except Exception as exc:
@@ -3509,7 +3619,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
         except Exception:
             max_zoom = None  # metadata only; never fail the job over it
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         total_secs = int(time.time() - t_start)
         # Baseline timing (#205 rule): one structured line per build
@@ -3523,6 +3633,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
         )
         log(f"  uploading mosaic COG ({size} bytes) to {key}")
         transfer_file(s3, "upload", key, cog, job["id"])
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 92)
 
         patch = {
@@ -3600,6 +3711,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
             if stale and stale not in keep:
                 try:
                     s3.delete_object(Bucket=BUCKET, Key=stale)
+                    ledger_deleted(conn, stale, job["org_id"])
                 except Exception as err:
                     log(f"  warn: could not delete superseded {stale}: {err}")
     except Exception as exc:

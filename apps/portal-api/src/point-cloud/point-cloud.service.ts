@@ -21,6 +21,7 @@ import { isPointCloudData } from '@gratis-gis/shared-types';
 import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { orgOwner, type ObjectOwner } from '../storage/object-keys.js';
 import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
 import {
   assertKeysAttachable,
@@ -157,11 +158,11 @@ export class PointCloudService {
     const sources = this.validateSources(body.sources);
     await assertKeysAttachable(
       this.prisma,
-      user.id,
+      user,
       sources.map((s) => s.storageKey),
       itemDataStorageKeys(item.data),
     );
-    await this.useStoredSizes(sources);
+    await this.useStoredSizes(sources, orgOwner(item.orgId), item.id);
     return this.enqueueBuild(user, item, sources);
   }
 
@@ -191,11 +192,11 @@ export class PointCloudService {
     const added = this.validateSources(body.sources);
     await assertKeysAttachable(
       this.prisma,
-      user.id,
+      user,
       added.map((s) => s.storageKey),
       itemDataStorageKeys(item.data),
     );
-    await this.useStoredSizes(added);
+    await this.useStoredSizes(added, orgOwner(item.orgId), item.id);
     const prev = isPointCloudData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding tiles to a cloud that was a single-file upload: the
@@ -306,13 +307,19 @@ export class PointCloudService {
    * numbers are the client's: `sizeBytes: 1` on multi-GB tiles used to
    * get a 4 hour merge past it.
    */
-  private async useStoredSizes(sources: PointCloudSource[]): Promise<void> {
+  private async useStoredSizes(
+    sources: PointCloudSource[],
+    owner: ObjectOwner,
+    itemId: string,
+  ): Promise<void> {
     for (const s of sources) {
-      const size = await this.storage.headObjectSize(s.storageKey);
+      const size = await this.storage.headObjectSize(s.storageKey, owner);
       if (size === null) {
         throw new BadRequestException(`The tile ${s.fileName} has not finished uploading.`);
       }
       s.sizeBytes = size;
+      // The tile is now part of the cloud: count it at the stored size.
+      await this.storage.recordStoredSize(s.storageKey, owner, size, itemId);
     }
   }
 
@@ -370,7 +377,7 @@ export class PointCloudService {
     // a delete primitive over another item's cloud.
     await assertKeysAttachable(
       this.prisma,
-      user.id,
+      user,
       [input.storageKey],
       itemDataStorageKeys(item.data),
     );
@@ -392,6 +399,7 @@ export class PointCloudService {
     try {
       const upstream = await this.storage.streamObject(
         input.storageKey,
+        orgOwner(item.orgId),
         `bytes=0-${COPC_PROBE_BYTES - 1}`,
       );
       head = await collectStream(upstream.body, COPC_PROBE_BYTES);
@@ -440,6 +448,8 @@ export class PointCloudService {
       data: data as unknown as Prisma.JsonObject,
     });
 
+    await this.storage.recordUploaded(input.storageKey, orgOwner(item.orgId), { itemId });
+
     // Replacing an existing upload: delete the old object so a
     // re-upload doesn't leak gigabytes in MinIO. Only after the item
     // points at the new file: deleting first left the item pointing
@@ -450,9 +460,13 @@ export class PointCloudService {
       previous.storageKey &&
       previous.storageKey !== input.storageKey
     ) {
-      await deleteIfUnreferenced(this.prisma, this.storage, previous.storageKey, {
-        itemId,
-      });
+      await deleteIfUnreferenced(
+        this.prisma,
+        this.storage,
+        previous.storageKey,
+        orgOwner(item.orgId),
+        { itemId },
+      );
     }
     this.log.log(
       `point_cloud ${itemId}: finalized ${input.fileName} (${parsed.pointCount} pts, LAS ${parsed.lasVersion}, pdrf ${parsed.pointFormat})`,
@@ -465,22 +479,29 @@ export class PointCloudService {
    * for anonymous requests, which resolve only when the item is
    * shared publicly.
    */
-  async resolveStorageKey(
+  async resolveStorageKey(user: AuthUser | null, itemId: string): Promise<string> {
+    return (await this.resolveServedObject(user, itemId)).storageKey;
+  }
+
+  /** The key to serve and the org it must belong to. */
+  async resolveServedObject(
     user: AuthUser | null,
     itemId: string,
-  ): Promise<string> {
+  ): Promise<{ storageKey: string; owner: ObjectOwner }> {
     // A malformed id on this public route reached a uuid column and
     // came back as a 500 with a stack trace in the log.
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(itemId)) {
       throw new NotFoundException('Point cloud not found.');
     }
     let data: unknown;
+    let orgId: string;
     if (user) {
       const item = await this.items.get(user, itemId);
       if (item.type !== 'point_cloud') {
         throw new BadRequestException(`Item ${itemId} is not a point_cloud.`);
       }
       data = item.data;
+      orgId = item.orgId;
     } else {
       const item = await this.prisma.item.findFirst({
         where: {
@@ -489,12 +510,13 @@ export class PointCloudService {
           access: 'public',
           deletedAt: null,
         },
-        select: { data: true },
+        select: { data: true, orgId: true },
       });
       if (!item) {
         throw new NotFoundException('Point cloud not found.');
       }
       data = item.data;
+      orgId = item.orgId;
     }
     if (!isPointCloudData(data) || !data.storageKey) {
       throw new NotFoundException(
@@ -515,7 +537,7 @@ export class PointCloudService {
       );
       throw new NotFoundException('Point cloud not found.');
     }
-    return data.storageKey;
+    return { storageKey: data.storageKey, owner: orgOwner(orgId) };
   }
 }
 

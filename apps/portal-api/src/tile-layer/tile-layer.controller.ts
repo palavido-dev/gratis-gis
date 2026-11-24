@@ -265,12 +265,12 @@ export class TileLayerController {
       : req.path.endsWith('.cog')
         ? ('cog' as const)
         : undefined;
-    const storageKey = await this.tileLayer.resolveStorageKey(
+    const { storageKey, owner } = await this.tileLayer.resolveServedObject(
       user,
       itemId,
       format,
     );
-    const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    const upstream = await this.storage.streamObject(storageKey, owner, rangeHeader);
     // Destroy the S3 read if anything below throws before the pipe
     // (the download-name lookup, a header). Otherwise the stream would
     // hold its socket until the SDK's idle timeout.
@@ -415,6 +415,7 @@ export class TileLayerController {
     if (source.kind === 'pmtiles') {
       const tile = await this.tileLayer.getPmtilesTileByKey(
         source.storageKey,
+        source.owner,
         z,
         x,
         y,
@@ -440,7 +441,12 @@ export class TileLayerController {
     let hit: Awaited<ReturnType<CogTileService['tile']>>;
     try {
       hit = await this.cogTiles.tile(
-        { itemId, storageKey: source.storageKey, ...(source.bbox ? { bbox: source.bbox } : {}) },
+        {
+          itemId,
+          storageKey: source.storageKey,
+          owner: source.owner,
+          ...(source.bbox ? { bbox: source.bbox } : {}),
+        },
         z,
         x,
         y,

@@ -630,6 +630,23 @@ def test_grid_vrt_spans_the_planned_extent():
         runner.run, runner.run_long, runner.plan_grid_chunks = orig
 
 
+def test_new_object_keys_carry_the_org():
+    org = "0a1b2c3d-0000-4000-8000-000000000001"
+    key = runner.storage_key("item-tile-layer", org)
+    assert key.startswith(f"item-tile-layer/o/{org}/"), key
+    assert len(key.split("/")[-1]) == 36, key
+    art = runner.storage_key("analysis-artifact", org, ".geojson")
+    assert art.endswith(".geojson") and art.startswith(f"analysis-artifact/o/{org}/"), art
+    # The layer prefix pin still accepts the new layout.
+    assert runner.pinned_source_key({"storageKey": key}, runner.TILE_LAYER_KEY_PREFIX, "storageKey") == key
+    for bad in (None, "", "ORG", org.upper(), "../x"):
+        try:
+            runner.storage_key("item-tile-layer", bad)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"accepted org {bad!r}")
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -654,4 +671,5 @@ if __name__ == "__main__":
     test_failure_stamp_keeps_a_handler_message()
     test_non_metric_crs_is_refused()
     test_grid_vrt_spans_the_planned_extent()
+    test_new_object_keys_carry_the_org()
     print("test_runner_units: all assertions passed")

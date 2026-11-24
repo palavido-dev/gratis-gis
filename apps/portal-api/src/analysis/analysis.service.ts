@@ -918,6 +918,7 @@ export class AnalysisService {
     };
     const zonesUpload = await this.storage.uploadBuffer(
       'item-file',
+      { orgId: user.orgId },
       Buffer.from(JSON.stringify(stamped)),
       'application/geo+json',
     );

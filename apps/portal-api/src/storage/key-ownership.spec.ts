@@ -38,6 +38,8 @@ function prismaWith(opts: { grants?: Record<string, string>; referenced?: boolea
       deleteMany: jest.fn(async () => ({ count: 0 })),
     },
     $queryRaw: jest.fn(async () => [{ found: opts.referenced ?? false }]),
+    // The org an item's objects belong to (purge and attachments look it up).
+    item: { findUnique: jest.fn(async () => ({ orgId: 'o1' })) },
   };
 }
 
@@ -137,7 +139,8 @@ describe('asset picker File items', () => {
       storageKey: '',
       publicImageKey: 'item-thumb/picked',
     });
-    expect(storage.deleteObject).toHaveBeenCalledWith('item-thumb/picked');
+    // Deleted as the item's org, the owner the storage check holds it to.
+    expect(storage.deleteObject).toHaveBeenCalledWith('item-thumb/picked', { orgId: 'o1' });
   });
 
   it('purge will not delete a public image key outside item-thumb/', async () => {
@@ -213,6 +216,8 @@ describe('generic item writes (failures b and d)', () => {
       get: async () => row,
       sharing: { canEdit: () => true },
       prisma: client,
+      // New uploads an item names go into the usage ledger.
+      storage: { recordUploaded: jest.fn(async () => 10) },
     });
     return { svc, update };
   }
@@ -263,7 +268,11 @@ describe('generic item writes (failures b and d)', () => {
 
 describe('feature attachments (failure c)', () => {
   function service(prisma: Record<string, unknown>) {
-    const storage = { headObjectSize: jest.fn(async () => 10), deleteObject: jest.fn() };
+    const storage = {
+      headObjectSize: jest.fn(async () => 10),
+      deleteObject: jest.fn(),
+      recordStoredSize: jest.fn(async () => undefined),
+    };
     const dataLayer = { listFeatures: jest.fn(async () => ({ features: [{}] })) };
     const svc = new DataLayerAttachmentsService(
       prisma as never,

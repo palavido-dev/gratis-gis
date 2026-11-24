@@ -20,6 +20,7 @@ import {
   StorageService,
 } from '../storage/storage.service.js';
 import { DataLayerEngine } from '../engine/data-layer.js';
+import { orgOwner, type ObjectOwner } from '../storage/object-keys.js';
 import { visibleFeatureIds, type AttachmentAccess } from './attachments-access.js';
 
 /**
@@ -78,6 +79,16 @@ export class DataLayerAttachmentsService {
     private readonly storage: StorageService,
     private readonly dataLayer: DataLayerEngine,
   ) {}
+
+  /** The org an item's stored objects belong to. */
+  private async itemOwner(itemId: string): Promise<{ orgId: string }> {
+    const item = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: { orgId: true },
+    });
+    if (!item) throw new NotFoundException('Item not found');
+    return { orgId: item.orgId };
+  }
 
   async list(
     itemId: string,
@@ -197,9 +208,12 @@ export class DataLayerAttachmentsService {
     // The prefix alone does not make the key this caller's: attachment
     // URLs carry the key to every download-tier reader, and remove()
     // deletes the object.
+    // The object belongs to the item's org; only a writer of that
+    // item gets here, so it is the caller's org too.
+    const owner = await this.itemOwner(itemId);
     await assertKeysAttachable(
       this.prisma,
-      userId,
+      { id: userId, orgId: owner.orgId },
       [input.storageKey],
       opts.storedKeys ?? [],
     );
@@ -222,14 +236,14 @@ export class DataLayerAttachmentsService {
     // #224: HeadObject for the real size; reject missing / over-cap
     // objects so register cannot invent sizeBytes or point at a key
     // that was never uploaded.
-    const realSize = await this.storage.headObjectSize(input.storageKey);
+    const realSize = await this.storage.headObjectSize(input.storageKey, owner);
     if (realSize === null) {
       throw new BadRequestException(
         'Uploaded object was not found; complete the presigned PUT before registering',
       );
     }
     if (realSize > FEATURE_ATTACHMENT_MAX_BYTES) {
-      await deleteIfUnreferenced(this.prisma, this.storage, input.storageKey);
+      await deleteIfUnreferenced(this.prisma, this.storage, input.storageKey, owner);
       throw new BadRequestException(
         `Attachment exceeds the ${FEATURE_ATTACHMENT_MAX_BYTES} byte limit`,
       );
@@ -249,6 +263,7 @@ export class DataLayerAttachmentsService {
       },
       select: ATTACHMENT_PUBLIC_SELECT,
     });
+    await this.storage.recordStoredSize(input.storageKey, owner, realSize, itemId);
     return toPublicAttachment(row);
   }
 
@@ -261,11 +276,14 @@ export class DataLayerAttachmentsService {
     layerId: string,
     featureId: string,
     attachmentId: string,
-  ): Promise<{ storageKey: string; fileName: string }> {
-    const row = await this.prisma.featureAttachment.findFirst({
+  ): Promise<{ storageKey: string; fileName: string; owner: ObjectOwner }> {
+    const found = await this.prisma.featureAttachment.findFirst({
       where: { id: attachmentId, itemId, layerId, featureId },
-      select: { storageKey: true, fileName: true },
+      select: { storageKey: true, fileName: true, item: { select: { orgId: true } } },
     });
+    const row = found
+      ? { storageKey: found.storageKey, fileName: found.fileName, owner: orgOwner(found.item.orgId) }
+      : null;
     if (!row) throw new NotFoundException('Attachment not found');
     if (!row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
       // Pre-guard rows with arbitrary keys must not be streamed —
@@ -300,9 +318,13 @@ export class DataLayerAttachmentsService {
     if (row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
       // Another row may share the key (registered before attach paths
       // checked ownership). Leave the object to it.
-      await deleteIfUnreferenced(this.prisma, this.storage, row.storageKey, {
-        attachmentId: row.id,
-      });
+      await deleteIfUnreferenced(
+        this.prisma,
+        this.storage,
+        row.storageKey,
+        await this.itemOwner(itemId),
+        { attachmentId: row.id },
+      );
     }
   }
 }

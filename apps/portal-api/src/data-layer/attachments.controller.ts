@@ -142,6 +142,7 @@ export class DataLayerAttachmentsController {
     );
     const upstream = await this.storage.streamObject(
       row.storageKey,
+      row.owner,
       rangeHeader,
     );
     // Registered before any header is set: if anything below threw,

@@ -109,6 +109,8 @@ describe('attachment scope', () => {
       storageUploadGrant: {
         findMany: jest.fn(async () => [{ key: 'feature-attachment/abc' }]),
       },
+      // The org the item's objects belong to.
+      item: { findUnique: jest.fn(async () => ({ orgId: 'o' })) },
     };
     const svc = new DataLayerAttachmentsService(
       prisma as never,

@@ -51,6 +51,7 @@ function service(opts: { jobsInFlight?: number; storedSize?: number | null; exis
     },
   };
   const storage = {
+    recordStoredSize: jest.fn(async () => undefined),
     headObjectSize: jest.fn(async () =>
       opts.storedSize === undefined ? 5 * 1024 ** 4 : opts.storedSize,
     ),

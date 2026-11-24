@@ -322,13 +322,13 @@ export class ReportsService {
         .slice(0, MAX_PHOTOS_PER_FEATURE)) {
         if (att.sizeBytes > PHOTO_MAX_BYTES) continue;
         try {
-          const { storageKey } = await this.attachments.getForDownload(
+          const { storageKey, owner } = await this.attachments.getForDownload(
             source.itemId,
             source.layerKey,
             featureId,
             att.id,
           );
-          const obj = await this.storage.streamObject(storageKey);
+          const obj = await this.storage.streamObject(storageKey, owner);
           const chunks: Buffer[] = [];
           let size = 0;
           for await (const c of obj.body) {

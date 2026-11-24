@@ -50,6 +50,8 @@ function service(opts: { jobsInFlight?: number; storedSize?: number | null } = {
     },
   };
   const storage = {
+    recordStoredSize: jest.fn(async () => undefined),
+    recordUploaded: jest.fn(async () => 1),
     headObjectSize: jest.fn(async () => (opts.storedSize === undefined ? 5 * 1024 ** 4 : opts.storedSize)),
     streamObject: jest.fn(async () => ({ body: Readable.from([Buffer.alloc(16)]) })),
   };
@@ -132,7 +134,9 @@ describe('point cloud file caching', () => {
         body: Readable.from([Buffer.from('x')]),
       })),
     };
-    const pc = { resolveStorageKey: jest.fn(async () => KEY) };
+    const pc = {
+      resolveServedObject: jest.fn(async () => ({ storageKey: KEY, owner: { orgId: 'o1' } })),
+    };
     const c = new PointCloudController(pc as never, storage as never);
     const first = res();
     first.on.mockImplementation(() => undefined);

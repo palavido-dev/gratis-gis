@@ -23,6 +23,7 @@ import {
 } from './key-ownership.js';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
+const ORG = '00000000-0000-4000-8000-0000000000cc';
 const d = TEST_URL ? describe : describe.skip;
 
 if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
@@ -134,17 +135,17 @@ d('storage key ownership against Postgres', () => {
   it('a key is attachable only by the user it was issued to', async () => {
     await recordUploadGrant(prisma, 'item-file', 'item-file/new', victim);
     await expect(
-      assertKeysAttachable(prisma, victim, ['item-file/new']),
+      assertKeysAttachable(prisma, { id: victim, orgId: ORG }, ['item-file/new']),
     ).resolves.toBeUndefined();
     await expect(
-      assertKeysAttachable(prisma, attacker, ['item-file/new']),
+      assertKeysAttachable(prisma, { id: attacker, orgId: ORG }, ['item-file/new']),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
-      assertKeysAttachable(prisma, attacker, ['item-file/a']),
+      assertKeysAttachable(prisma, { id: attacker, orgId: ORG }, ['item-file/a']),
     ).rejects.toBeInstanceOf(BadRequestException);
     // Already on the target: allowed without a grant.
     await expect(
-      assertKeysAttachable(prisma, attacker, ['item-file/a'], ['item-file/a']),
+      assertKeysAttachable(prisma, { id: attacker, orgId: ORG }, ['item-file/a'], ['item-file/a']),
     ).resolves.toBeUndefined();
   });
 
@@ -168,10 +169,10 @@ d('storage key ownership against Postgres', () => {
   it('records item-thumb grants for the asset picker', async () => {
     await recordUploadGrant(prisma, 'item-thumb', 'item-thumb/mine', victim);
     await expect(
-      assertKeysAttachable(prisma, victim, ['item-thumb/mine']),
+      assertKeysAttachable(prisma, { id: victim, orgId: ORG }, ['item-thumb/mine']),
     ).resolves.toBeUndefined();
     await expect(
-      assertKeysAttachable(prisma, attacker, ['item-thumb/mine']),
+      assertKeysAttachable(prisma, { id: attacker, orgId: ORG }, ['item-thumb/mine']),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

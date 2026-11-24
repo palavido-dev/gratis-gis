@@ -165,6 +165,7 @@ export class MapIconsController {
     const body = Buffer.from(cleaned, 'utf8');
     const upload = await this.storage.uploadBuffer(
       'map-icon',
+      { orgId: user.orgId },
       body,
       'image/svg+xml',
     );
@@ -199,6 +200,7 @@ export class MapIconsController {
     }
     const upload = await this.storage.uploadBuffer(
       'map-icon',
+      { orgId: user.orgId },
       body,
       'image/png',
       '.png',

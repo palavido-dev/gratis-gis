@@ -109,13 +109,14 @@ export class TrashPurgeService {
             if (claimed.length === 0) return false;
             const row = await tx.item.findUnique({
               where: { id: it.id },
-              select: { type: true, data: true },
+              select: { type: true, data: true, orgId: true },
             });
             if (!row) return false;
             await this.items.tearDownItemBackingStorage(
               it.id,
               row.type as ItemType,
               row.data,
+              row.orgId,
             );
             // #238: the interactive purge path has always spliced the id
             // out of the lists that name it; this sweep did not, so an

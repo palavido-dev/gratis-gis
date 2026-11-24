@@ -15,7 +15,8 @@ describe('elevation mosaic stack resolution', () => {
     });
     const svc = new ElevationMosaicService(
       { resolveDemSource } as never,
-      {} as never,
+      // Each resolved DEM key passes the storage owner check.
+      { assertKeyOwner: async () => undefined } as never,
       {} as never,
     );
     const resolve = (user: unknown, ids: string[]) =>

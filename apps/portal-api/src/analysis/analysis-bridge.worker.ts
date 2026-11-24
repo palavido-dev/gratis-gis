@@ -3,6 +3,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { orgOwner } from '../storage/object-keys.js';
 import { IngestStagingService } from '../ingest/ingest-staging.service.js';
 import { ImportJobsService } from '../import-jobs/import-jobs.service.js';
 import {
@@ -238,7 +239,10 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           // old collect-into-one-Buffer approach held all of it in
           // this process's heap for no benefit (the import worker
           // reads the staged FILE, never the bytes in memory).
-          const obj = await this.storage.streamObject(params.artifactKey);
+          const obj = await this.storage.streamObject(
+            params.artifactKey,
+            orgOwner(job.orgId),
+          );
           const staged = await this.staging.stageStream({
             stream: obj.body,
             // Kind-neutral name: contours, zonal-stats, and future
@@ -275,7 +279,7 @@ export class AnalysisBridgeWorker implements OnModuleInit {
           // The artifact has served its purpose; the staged copy is
           // what the import reads. Best-effort cleanup.
           try {
-            await this.storage.deleteObject(params.artifactKey);
+            await this.storage.deleteObject(params.artifactKey, orgOwner(job.orgId));
           } catch {
             /* orphaned artifacts are harmless and tiny */
           }

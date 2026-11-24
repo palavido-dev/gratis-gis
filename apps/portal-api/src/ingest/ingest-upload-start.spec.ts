@@ -16,6 +16,7 @@ import {
  */
 const USER = '00000000-0000-4000-8000-0000000000aa';
 const OTHER = '00000000-0000-4000-8000-0000000000bb';
+const ORG = '00000000-0000-4000-8000-0000000000cc';
 const GiB = 1024 ** 3;
 
 function service(open: string[], free: number) {
@@ -31,25 +32,32 @@ function service(open: string[], free: number) {
 
 describe('IngestUploadService.start', () => {
   it('refuses a fourth open upload for one user', async () => {
-    const open = [1, 2, 3].map((i) => uploadObjectKey(USER, 10, `id-${i}`));
+    const open = [1, 2, 3].map((i) => uploadObjectKey(ORG, USER, 10, `id-${i}`));
     const { svc, storage } = service(open, 100 * GiB);
-    await expect(svc.start(USER, 'a.gpkg', 10)).rejects.toMatchObject({ status: 429 });
+    await expect(svc.start(USER, ORG, 'a.gpkg', 10)).rejects.toMatchObject({ status: 429 });
     expect(storage.createMultipartUpload).not.toHaveBeenCalled();
   });
 
+  it('counts open uploads in the older key layout as the same user', async () => {
+    const open = [1, 2, 3].map((i) => `${INGEST_UPLOAD_PREFIX}${USER}/10b-id-${i}`);
+    const { svc } = service(open, 100 * GiB);
+    await expect(svc.start(USER, ORG, 'a.gpkg', 10)).rejects.toMatchObject({ status: 429 });
+  });
+
   it('counts the bytes other open uploads will need', async () => {
-    const open = [uploadObjectKey(OTHER, 20 * GiB, 'x')];
+    const open = [uploadObjectKey(ORG, OTHER, 20 * GiB, 'x')];
     const { svc } = service(open, 30 * GiB);
     // 2 x (10 + 20) GiB plus margin is more than 30 GiB free.
-    await expect(svc.start(USER, 'a.gpkg', 10 * GiB)).rejects.toBeInstanceOf(HttpException);
+    await expect(svc.start(USER, ORG, 'a.gpkg', 10 * GiB)).rejects.toBeInstanceOf(HttpException);
   });
 
   it('writes the declared size into the key and a handle that lives as long as MinIO keeps parts', async () => {
     const { svc, storage } = service([], 100 * GiB);
     const before = Date.now();
-    const started = await svc.start(USER, 'a.gpkg', 12345);
+    const started = await svc.start(USER, ORG, 'a.gpkg', 12345);
     const key = (storage.createMultipartUpload.mock.calls[0] as unknown as [string])[0];
-    expect(key.startsWith(`${INGEST_UPLOAD_PREFIX}${USER}/`)).toBe(true);
+    // New uploads sit under the org prefix, then the user.
+    expect(key.startsWith(`${INGEST_UPLOAD_PREFIX}o/${ORG}/${USER}/`)).toBe(true);
     expect(declaredSizeOfKey(key)).toBe(12345);
     expect(Date.parse(started.expiresAt) - before).toBeLessThanOrEqual(UPLOAD_HANDLE_TTL_MS + 1000);
     expect(UPLOAD_HANDLE_TTL_MS).toBe(24 * 60 * 60 * 1000);

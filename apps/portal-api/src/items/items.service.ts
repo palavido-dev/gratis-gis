@@ -170,6 +170,7 @@ import {
   withoutReferences,
   type ReferenceSource,
 } from './item-references.js';
+import { orgOwner } from '../storage/object-keys.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import {
@@ -1890,7 +1891,7 @@ export class ItemsService {
       if (opts.clientKeys) {
         await assertKeysAttachable(
           this.prisma,
-          user.id,
+          user,
           itemDataStorageKeys(resolvedData),
         );
       }
@@ -1963,6 +1964,9 @@ export class ItemsService {
           });
       }
       throw err;
+    }
+    if (opts.clientKeys) {
+      await this.recordAttachedKeys(itemDataStorageKeys(resolvedData), [], user.orgId, row.id);
     }
     // Phase 2.5: data_layer items no longer pre-provision per-layer
     // PostGIS tables. The engine substrate writes feature
@@ -3150,7 +3154,7 @@ export class ItemsService {
     if (opts.clientKeys && nextData !== undefined) {
       await assertKeysAttachable(
         this.prisma,
-        user.id,
+        user,
         itemDataStorageKeys(nextData),
         itemDataStorageKeys(item.data),
       );
@@ -3385,6 +3389,14 @@ export class ItemsService {
       }
       return writeItem(tx);
     });
+    if (opts.clientKeys && nextData !== undefined) {
+      await this.recordAttachedKeys(
+        itemDataStorageKeys(nextData),
+        itemDataStorageKeys(item.data),
+        updated.orgId,
+        id,
+      );
+    }
     // A layer's or map's extent is not in its blob, so the save above
     // left the stored bbox alone. Recompute it in the background in
     // case the change moved it (a sublayer or a map layer removed).
@@ -3455,7 +3467,7 @@ export class ItemsService {
           keepIds,
         );
         for (const key of orphanedKeys) {
-          await this.storage.deleteObject(key).catch(() => {});
+          await this.storage.deleteObject(key, orgOwner(updated.orgId)).catch(() => {});
         }
       } catch (err) {
         this.log.warn(
@@ -3910,7 +3922,7 @@ export class ItemsService {
     if (!this.sharing.canAdmin(user, item)) {
       throw new ForbiddenException('Only the owner or an org admin can purge an item');
     }
-    await this.tearDownItemBackingStorage(item.id, item.type, item.data);
+    await this.tearDownItemBackingStorage(item.id, item.type, item.data, item.orgId);
     await this.detachPurgedItemReferences(id);
     await this.prisma.item.delete({ where: { id } });
   }
@@ -3935,11 +3947,45 @@ export class ItemsService {
    * Other item types (map, web_app, dashboard, ...) carry only
    * metadata in item.data and don't need backing-storage cleanup.
    */
+  /**
+   * Put uploads an item now names, and did not before, in the usage
+   * ledger at the size the store reports. Best effort: the object is
+   * stored either way, and the daily reconcile records anything
+   * missed here.
+   */
+  private async recordAttachedKeys(
+    keys: string[],
+    before: string[],
+    orgId: string,
+    itemId: string,
+  ): Promise<void> {
+    const had = new Set(before);
+    for (const key of new Set(keys)) {
+      if (had.has(key)) continue;
+      try {
+        await this.storage.recordUploaded(key, orgOwner(orgId), { itemId });
+      } catch (err) {
+        this.log.warn(
+          `usage ledger: could not record ${key}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  }
+
   async tearDownItemBackingStorage(
     itemId: string,
     itemType: ItemType,
     itemData: unknown,
+    orgId?: string,
   ): Promise<void> {
+    // The org the item's objects belong to. The storage owner check
+    // refuses to delete a key of any other org.
+    const ownerOrg =
+      orgId ??
+      (
+        await this.prisma.item.findUnique({ where: { id: itemId }, select: { orgId: true } })
+      )?.orgId;
+    const owner = ownerOrg ? orgOwner(ownerOrg) : null;
     if (itemType === 'geocoding_service') {
       // Its search indexes sit on the shared observation table and
       // slow every write there. Nothing else drops them.
@@ -3957,8 +4003,8 @@ export class ItemsService {
         select: { storageKey: true },
       });
       for (const row of rows) {
-        if (row.storageKey) {
-          await this.storage.deleteObject(row.storageKey).catch(() => {});
+        if (row.storageKey && owner) {
+          await this.storage.deleteObject(row.storageKey, owner).catch(() => {});
         }
       }
     }
@@ -4035,7 +4081,8 @@ export class ItemsService {
           // object (rows from before attach paths checked
           // ownership). Leave it; the orphan sweep reclaims it once
           // nothing does.
-          await deleteIfUnreferenced(this.prisma, this.storage, key, {
+          if (!owner) continue;
+          await deleteIfUnreferenced(this.prisma, this.storage, key, owner, {
             itemId,
           });
         } catch (err) {

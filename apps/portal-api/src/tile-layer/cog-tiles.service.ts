@@ -9,6 +9,7 @@ import {
   type CacheHit,
 } from '../engine/tile-cache.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import type { ObjectOwner } from '../storage/object-keys.js';
 import { bboxesIntersect } from './elevation-mosaic.compositor.js';
 import { ensureVsis3, loadGdal } from './gdal-s3.js';
 import {
@@ -26,6 +27,8 @@ import {
 export interface CogSource {
   itemId: string;
   storageKey: string;
+  /** The org the key must belong to: the item's. */
+  owner: ObjectOwner;
   bbox?: [number, number, number, number];
 }
 
@@ -86,6 +89,9 @@ export class CogTileService {
     if (source.bbox && !bboxesIntersect(source.bbox, tileBoundsWgs84(z, x, y))) {
       return null;
     }
+    // Before the cache: a cached tile must not answer for a key the
+    // item's org does not own.
+    await this.storage.assertKeyOwner(source.storageKey, source.owner);
     // Keyed on the storage key, not the item id. Two viewers who can
     // both read the item read the same bytes; a viewer who cannot
     // never gets here, because resolution happens before this call.
@@ -116,7 +122,7 @@ export class CogTileService {
   ): Promise<Buffer> {
     const gdal = await this.loadGdal();
     this.ensureVsis3(gdal);
-    const { bucket } = this.storage.vsis3Config();
+    const srcPath = await this.storage.vsis3Path(source.storageKey, source.owner);
 
     let src: import('gdal-async').Dataset | null = null;
     let warped: import('gdal-async').Dataset | null = null;
@@ -125,7 +131,7 @@ export class CogTileService {
     // tiles sharing a path would overwrite each other's bytes.
     const token = randomUUID();
     try {
-      src = await gdal.openAsync(`/vsis3/${bucket}/${source.storageKey}`, 'r', ['GTiff']);
+      src = await gdal.openAsync(srcPath, 'r', ['GTiff']);
       const bandCount = src.bands.count();
       const dataType = String(src.bands.get(1).dataType);
       const lastInterp = String(
