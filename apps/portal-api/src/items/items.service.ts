@@ -34,6 +34,7 @@ import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
 import { assertFormNotifyLimits } from '../forms/form-notify-limits.js';
 import { pickDefaultBasemap } from './default-basemap.js';
+import { mapDataForCopy } from './map-copy.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
 import {
@@ -156,6 +157,8 @@ import {
 } from '../data-layer/tables.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
+import { assertCurrentDataLayerVersion } from '../features/legacy-feature-tables.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import {
@@ -1753,6 +1756,9 @@ export class ItemsService {
     if (input.access !== undefined && input.access !== 'private') {
       assertCanShare(user);
     }
+    // An install that serves many orgs keeps every data layer in the
+    // shared observation table (version 3), never in a per-item table.
+    assertCurrentDataLayerVersion(input.type, input.data);
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
@@ -1775,6 +1781,7 @@ export class ItemsService {
       resolvedData = (await this.enrichDerivedLayerData(
         user,
         input.data,
+        user.orgId,
       )) as Prisma.InputJsonValue;
     }
     if (input.type === 'map') {
@@ -2056,6 +2063,8 @@ export class ItemsService {
   private async enrichDerivedLayerData(
     user: AuthUser,
     rawData: Prisma.InputJsonValue,
+    /** The org that owns (or will own) the derived layer. */
+    orgId: string,
   ): Promise<Prisma.JsonValue> {
     if (!rawData || typeof rawData !== 'object') {
       throw new BadRequestException('derived_layer data must be an object');
@@ -2088,7 +2097,7 @@ export class ItemsService {
     const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
       source,
-      expressionData ? { expressionData } : {},
+      expressionData ? { orgId, expressionData } : { orgId },
     );
     return enriched as unknown as Prisma.JsonValue;
   }
@@ -2167,6 +2176,57 @@ export class ItemsService {
       }
     }
     return null;
+  }
+
+  /**
+   * "Save as" for a map (#797). Anyone who can read a map and create
+   * items can save their own copy of it, which is also how someone
+   * forks a map shared with them.
+   *
+   * `data` carries the builder's live state, so unsaved changes land
+   * in the copy and the source stays as it was last saved. Without it
+   * the copy is the source as this caller reads it: a view-only
+   * caller gets the layer-filtered map from get(), never the raw one.
+   * Taking client data widens nothing, since POST /items already lets
+   * this caller create a map with any data at all.
+   *
+   * The copy starts private. Description, tags, license and the
+   * thumbnail design come along. An uploaded thumbnail does not: its
+   * object belongs to the source and is removed when the source is
+   * purged.
+   */
+  async copyMap(
+    user: AuthUser,
+    id: string,
+    input: { title: string; includeMarkup: boolean; data?: unknown },
+  ) {
+    const source = await this.get(user, id);
+    if (source.type !== 'map') {
+      throw new BadRequestException('Only maps can be saved as a copy.');
+    }
+    const base = input.data !== undefined ? input.data : source.data;
+    if (!base || typeof base !== 'object' || Array.isArray(base)) {
+      throw new BadRequestException('Map data must be an object.');
+    }
+    const data = mapDataForCopy(base as Record<string, unknown>, {
+      includeMarkup: input.includeMarkup,
+      sourceEditable: this.sharing.canEdit(user, source, source.shares),
+    });
+    return this.create(
+      user,
+      {
+        type: 'map',
+        title: input.title,
+        description: source.description,
+        tags: source.tags,
+        data: data as Prisma.InputJsonValue,
+        access: 'private',
+        thumbnailDesign:
+          (source.thumbnailDesign as Prisma.InputJsonValue | null) ?? null,
+        license: source.license,
+      },
+      { clientKeys: true },
+    );
   }
 
   /**
@@ -2519,6 +2579,7 @@ export class ItemsService {
       pipeline: args.pipeline,
     });
     return this.derivedLayers.previewRecipe({
+      orgId: user.orgId,
       ...(expressionData ? { expressionData } : {}),
       source: sourceArg,
       pipeline,
@@ -2870,6 +2931,7 @@ export class ItemsService {
     // invalidation here: a setting that changes tile bytes changes the
     // tile cache key (see data-layer/tile-settings.ts).
     if (item.type === 'data_layer' && nextData !== undefined) {
+      assertCurrentDataLayerVersion(item.type, nextData);
       nextData = normalizeTileSettingsInData(nextData) as Prisma.InputJsonValue;
     }
     if (opts.clientKeys && nextData !== undefined) {
@@ -2897,6 +2959,7 @@ export class ItemsService {
       nextData = (await this.enrichDerivedLayerData(
         user,
         input.data,
+        item.orgId,
       )) as Prisma.InputJsonValue;
     }
     if (nextData !== undefined && item.type === 'report_template') {
@@ -4009,6 +4072,11 @@ export class ItemsService {
     // meta.ui advertises that one for v3 items.
     if (data?.version === 3) {
       return { type: 'FeatureCollection', features: [] };
+    }
+    // Older layers read per-item tables, which an install serving many
+    // orgs does not use (see features/legacy-feature-tables.ts).
+    if (isMultiTenant()) {
+      throw new NotFoundException('Item not found');
     }
 
     if (data?.storageType === 'postgis') {

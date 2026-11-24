@@ -11,21 +11,29 @@ import { withAuth, type NextRequestWithAuth } from 'next-auth/middleware';
 import { NextResponse } from 'next/server';
 
 import { APP_RUNTIME_PATH_RE, appRuntimeCsp } from './lib/app-runtime-csp';
+import { publicOrgSlug, withOrgQuery } from './lib/public-org';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
 /** How long this server trusts its copy of the embed allow-list. An
  *  admin's change shows up on app pages within this long. */
 const EMBED_ORIGINS_TTL_MS = 30_000;
-let embedOrigins: { list: string[]; at: number } | null = null;
+/** Cached lists, keyed by org slug ('' when the page names none). */
+const embedOrigins = new Map<string, { list: string[]; at: number }>();
+/** Bound on cached slugs; the cache is cleared when it is reached. */
+const EMBED_ORIGINS_MAX_ENTRIES = 1_000;
 
-/** The admin's embed allow-list, cached. A failed read keeps the last
- *  good list, or none, so the page always gets a policy. */
-async function loadEmbedOrigins(): Promise<string[]> {
-  if (embedOrigins && Date.now() - embedOrigins.at < EMBED_ORIGINS_TTL_MS) {
-    return embedOrigins.list;
+/** The admin's embed allow-list for the org the page shows, cached. A
+ *  failed read keeps the last good list, or none, so the page always
+ *  gets a policy. An install serving many orgs answers 404 when the
+ *  page names no org, which reads as no extra sites. */
+async function loadEmbedOrigins(orgSlug: string | undefined): Promise<string[]> {
+  const key = orgSlug ?? '';
+  const cached = embedOrigins.get(key);
+  if (cached && Date.now() - cached.at < EMBED_ORIGINS_TTL_MS) {
+    return cached.list;
   }
   try {
-    const res = await fetch(`${API_BASE}/api/public/embed-origins`, {
+    const res = await fetch(withOrgQuery(`${API_BASE}/api/public/embed-origins`, orgSlug), {
       cache: 'no-store',
       signal: AbortSignal.timeout(2_000),
     });
@@ -34,13 +42,14 @@ async function loadEmbedOrigins(): Promise<string[]> {
       const list = Array.isArray(body.origins)
         ? body.origins.filter((o): o is string => typeof o === 'string')
         : [];
-      embedOrigins = { list, at: Date.now() };
+      if (embedOrigins.size >= EMBED_ORIGINS_MAX_ENTRIES) embedOrigins.clear();
+      embedOrigins.set(key, { list, at: Date.now() });
       return list;
     }
   } catch {
     /* fall through to the last good list */
   }
-  return embedOrigins?.list ?? [];
+  return cached?.list ?? [];
 }
 
 // Authorized requests go through unchanged, except the custom app
@@ -59,7 +68,7 @@ export default withAuth(
     const res = NextResponse.next();
     res.headers.set(
       'Content-Security-Policy',
-      appRuntimeCsp(PAGE_CSP, await loadEmbedOrigins()),
+      appRuntimeCsp(PAGE_CSP, await loadEmbedOrigins(publicOrgSlug(req.nextUrl.searchParams))),
     );
     return res;
   },

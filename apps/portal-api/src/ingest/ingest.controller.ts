@@ -14,7 +14,9 @@ import {
   Res,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
 } from '@nestjs/common';
+import { LegacyFeatureTablesGuard } from '../features/legacy-feature-tables.js';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
@@ -415,6 +417,8 @@ export class IngestController {
   }
 
   @Post('items/:id/ingest')
+  // Writes a per-item feature table: 404 when the install serves many orgs.
+  @UseGuards(LegacyFeatureTablesGuard)
   @UseInterceptors(FileInterceptor('file', INGEST_COLLECT_UPLOAD))
   async ingestFile(
     @CurrentUser() user: AuthUser,

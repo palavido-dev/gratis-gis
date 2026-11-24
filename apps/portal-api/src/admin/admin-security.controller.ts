@@ -31,11 +31,15 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminGuard } from './admin.guard.js';
-import { OperatorOrgGuard } from '../backup/operator-org.js';
+import { OperatorOrgGuard, OrgScopedWhenMultiTenant } from '../backup/operator-org.js';
 import { KeycloakAdminService } from './keycloak-admin.service.js';
 import { assertAlias, assertPublicHttps } from './oidc-url.js';
 import { isAdminTierLocked } from './admin-tier-lock.js';
-import { readEmbedOrigins, writeEmbedOrigins } from './embed-origins.js';
+import {
+  adminEmbedOriginsOrgId,
+  readEmbedOrigins,
+  writeEmbedOrigins,
+} from './embed-origins.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 class CreateOidcDto {
@@ -84,13 +88,20 @@ export class AdminSecurityController {
   /**
    * Sites the Embed widget may frame on app runtime pages. Kept
    * apart from GET / so a Keycloak outage does not hide it.
+   *
+   * The list belongs to an organization, not to the realm, so when
+   * the install serves many organizations each org's admin manages
+   * their own and the operator check does not apply.
    */
   @Get('embed-origins')
-  async getEmbedOrigins() {
-    return { origins: await readEmbedOrigins(this.prisma) };
+  @OrgScopedWhenMultiTenant()
+  async getEmbedOrigins(@CurrentUser() user: AuthUser) {
+    const orgId = await adminEmbedOriginsOrgId(this.prisma, user);
+    return { origins: await readEmbedOrigins(this.prisma, orgId) };
   }
 
   @Put('embed-origins')
+  @OrgScopedWhenMultiTenant()
   async putEmbedOrigins(
     @CurrentUser() user: AuthUser,
     @Body() dto: EmbedOriginsDto,
@@ -102,13 +113,14 @@ export class AdminSecurityController {
         `Not a site address: ${invalid.slice(0, 3).join(', ')}. Use the form https://example.org.`,
       );
     }
-    const saved = await writeEmbedOrigins(this.prisma, origins, user.id);
+    const orgId = await adminEmbedOriginsOrgId(this.prisma, user);
+    const saved = await writeEmbedOrigins(this.prisma, orgId, origins);
     void this.audit?.record({
       orgId: user.orgId,
       actorUserId: user.id,
       action: 'admin.security',
       targetType: 'embed_origins',
-      targetId: user.orgId,
+      targetId: orgId,
       outcome: 'succeeded',
       detail: { count: saved.length },
     });

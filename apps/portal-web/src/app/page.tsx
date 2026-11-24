@@ -11,6 +11,8 @@ import { PublicLanding } from './public-landing';
 import { forwardedForHeader } from '@/lib/api';
 import { GG_VERSION } from '@/lib/version';
 import { IS_PUBLIC_TEST_INSTANCE } from '@/lib/seo';
+import { getPortalFeatures } from '@/lib/portal-features';
+import { landingOrgSlug, withOrgQuery } from '@/lib/public-org';
 
 // The canonical link for the home page only. Declared in the root
 // layout it was inherited by every page that did not set its own, so
@@ -82,7 +84,7 @@ function landingJsonLd() {
 
 export default async function HomePage(
   props: {
-    searchParams?: Promise<{ preview?: string }>;
+    searchParams?: Promise<{ preview?: string; org?: string | string[] }>;
   }
 ) {
   const searchParams = await props.searchParams;
@@ -104,7 +106,12 @@ export default async function HomePage(
   // checks on prod before flipping the per-tenant flag).
   const previewProject = searchParams?.preview === 'project';
   const [data, whatsNew] = await Promise.all([
-    loadLandingData(),
+    // The org this landing shows. A one-organization install always
+    // shows its own, so the slug is passed on only when the install
+    // serves many; without one that install shows the fallback below.
+    loadLandingData(
+      landingOrgSlug(searchParams, (await getPortalFeatures()).multiTenant),
+    ),
     // Cap at 5 entries so the landing card stays compact; the
     // full history (and release grouping) lives at /whats-new.
     loadWhatsNewEntries(5),
@@ -141,7 +148,7 @@ export default async function HomePage(
  * falls back to a minimal zero-items payload so the page still
  * renders with a sensible default.
  */
-async function loadLandingData(): Promise<
+async function loadLandingData(orgSlug: string | undefined): Promise<
   React.ComponentProps<typeof PublicLanding>['data']
 > {
   const base =
@@ -149,7 +156,8 @@ async function loadLandingData(): Promise<
     process.env.NEXT_PUBLIC_PORTAL_API_URL ??
     'http://localhost:4000';
   try {
-    const res = await fetch(`${base.replace(/\/$/, '')}/api/public/landing`, {
+    const url = withOrgQuery(`${base.replace(/\/$/, '')}/api/public/landing`, orgSlug);
+    const res = await fetch(url, {
       // Server-to-server call; always fresh data (no Next cache)
       // since the admin might have just flipped a toggle.
       cache: 'no-store',

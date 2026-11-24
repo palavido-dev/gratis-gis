@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppWindow,
   Check,
+  CopyPlus,
   Eye,
   List,
   Loader2,
@@ -62,6 +63,7 @@ import type { DrawGeometryType } from './use-terra-draw';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
 import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Ruler, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
+import { SaveMapCopyDialog } from './save-map-copy-dialog';
 import { ElevationProfileTool } from './elevation-profile';
 import { MeasureTool } from './measure-tool';
 import { VisibilityTool } from './visibility-tool';
@@ -189,6 +191,12 @@ interface Props {
    */
   scratch?: boolean;
   /**
+   * #797: whether the caller may create items (can_publish_items).
+   * Gates "Save as", which a view-only reader of the map can use too:
+   * it is how they make their own version of someone else's map.
+   */
+  canCreate?: boolean;
+  /**
    * #185: auto-add this portal item's layers on first mount, using
    * the same construction the Add Layer dialog uses (all sublayers,
    * grouped). Drives the "Add to map" buttons on item pages and the
@@ -264,6 +272,7 @@ export function MapEditor({
   geoBoundaries = [],
   currentUser = null,
   scratch = false,
+  canCreate = false,
   addItemId,
   addLayerKey,
 }: Props) {
@@ -1835,6 +1844,14 @@ export function MapEditor({
     }
   }
 
+  // #797: Save as. The copy takes the live state, unsaved changes
+  // included, built the same way save() builds its payload.
+  const [copyOpen, setCopyOpen] = useState(false);
+  function liveMapData() {
+    const cam = canvasRef.current?.getCamera();
+    return { ...(cam ? { ...map, ...cam } : map), drawings };
+  }
+
   // #187 scratch save-as flow: name the map, create the item with
   // the current state (live camera included), then move to the real
   // builder for the new item.
@@ -2107,6 +2124,16 @@ export function MapEditor({
           <AppWindow className="h-4 w-4" />
           {t('mapEditor.createAppButton')}
         </a>
+      ) : null}
+      {!scratch && canCreate ? (
+        <button
+          type="button"
+          onClick={() => setCopyOpen(true)}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-surface-1 px-3 text-sm font-medium text-ink-1 hover:bg-surface-2"
+        >
+          <CopyPlus className="h-4 w-4" />
+          {t('mapSaveAs.button')}
+        </button>
       ) : null}
       {canEdit ? (
         <>
@@ -2584,6 +2611,20 @@ export function MapEditor({
       {/* Modal-style overlays render outside BuilderShell so they sit
           above its z-20 layer. Both already use higher z-index (z-30,
           z-40) and are positioned `fixed inset-0`. */}
+      {!scratch && canCreate ? (
+        <SaveMapCopyDialog
+          open={copyOpen}
+          onOpenChange={setCopyOpen}
+          sourceId={itemId}
+          sourceTitle={itemTitle}
+          hasMarkup={drawings.some((d) => d.features.length > 0)}
+          hasUnsavedChanges={dirty}
+          getData={liveMapData}
+          onBeforeNavigate={() => {
+            skipUnloadGuardRef.current = true;
+          }}
+        />
+      ) : null}
       <AddLayerDialog
         open={addOpen}
         onClose={() => setAddOpen(false)}

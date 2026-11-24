@@ -234,7 +234,13 @@ export class KeycloakSyncService implements OnApplicationBootstrap {
           // an org we don't have a row for. Auth-sync will create
           // the org on the user's first real sign-in and the next
           // reconcile run will pick them up. In multi mode neither
-          // path creates an org; provisioning does.
+          // path creates an org; provisioning does, so a user here
+          // points at a realm org with no local row: an error.
+          if (multi) {
+            this.log.error(
+              `reconcileAll: skipped user ${kcUser.id}: realm org ${JSON.stringify(orgSlug)} has no local organization`,
+            );
+          }
           skippedUnknownOrg++;
           continue;
         }

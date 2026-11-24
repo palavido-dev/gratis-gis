@@ -10,7 +10,9 @@ import {
   NotFoundException,
   Param,
   Post,
+  UseGuards,
 } from '@nestjs/common';
+import { LegacyFeatureTablesGuard } from './legacy-feature-tables.js';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import type { Prisma } from '@prisma/client';
@@ -47,6 +49,8 @@ class CreateRelationshipDto {
  */
 @ApiTags('relationships')
 @ApiBearerAuth()
+// Per-item feature tables: 404 when the install serves many orgs.
+@UseGuards(LegacyFeatureTablesGuard)
 @Controller('items/:id/relationships')
 export class RelationshipsController {
   constructor(

@@ -19,6 +19,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsInt,
@@ -111,6 +112,14 @@ class CreateItemDto {
   // create means "not recorded"; DCAT consumers treat absence as
   // "rights reserved".
   @IsOptional() @IsString() @MaxLength(500) license?: string | null;
+}
+
+class CopyItemDto {
+  @IsString() @MinLength(1) @MaxLength(200) title!: string;
+  @IsOptional() @IsBoolean() includeMarkup?: boolean;
+  // The builder's live state, so unsaved changes go into the copy.
+  // Omitted, the copy is the source as the caller reads it.
+  @IsOptional() @IsObject() data?: Prisma.InputJsonValue;
 }
 
 class UpdateItemDto {
@@ -992,6 +1001,24 @@ export class ItemsController {
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateItemDto) {
     return this.items.create(user, dto, { clientKeys: true });
+  }
+
+  /**
+   * "Save as" for a map (#797). See ItemsService.copyMap. Read access
+   * on the source is enough; creating the copy needs the usual
+   * can_publish_items, checked by create().
+   */
+  @Post(':id/copy')
+  copy(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ITEM_ID) id: string,
+    @Body() dto: CopyItemDto,
+  ) {
+    return this.items.copyMap(user, id, {
+      title: dto.title,
+      includeMarkup: dto.includeMarkup === true,
+      ...(dto.data !== undefined ? { data: dto.data } : {}),
+    });
   }
 
   @Patch(':id')
