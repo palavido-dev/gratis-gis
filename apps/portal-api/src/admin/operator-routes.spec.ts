@@ -39,6 +39,10 @@ const RULES: Record<string, Rule> = {
   'admin/readiness.controller.ts': { kind: 'operator' },
   'backup/backup.controller.ts': { kind: 'operator' },
   'feedback/feedback-admin.controller.ts': { kind: 'operator' },
+  'storage/storage-usage.controller.ts': {
+    kind: 'org',
+    why: "reads the signed-in admin's own organization's storage usage",
+  },
   'notifications/admin.controller.ts': {
     kind: 'mixed',
     operator: [
