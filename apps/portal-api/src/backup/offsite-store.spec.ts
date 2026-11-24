@@ -2,7 +2,13 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 import { FakeS3 } from '../testing/fake-s3.js';
-import { describeS3Error, OffsiteVerifyError, partSizeFor, uploadStream } from './offsite-store.js';
+import {
+  describeS3Error,
+  etagIsMd5,
+  OffsiteVerifyError,
+  partSizeFor,
+  uploadStream,
+} from './offsite-store.js';
 
 async function* pieces(buf: Buffer, step = 300_000): AsyncGenerator<Buffer> {
   for (let i = 0; i < buf.length; i += step) yield buf.subarray(i, i + step);
@@ -86,6 +92,16 @@ describe('uploadStream', () => {
       }),
     ).rejects.toThrow();
     expect(s3.aborted).toHaveLength(1);
+  });
+});
+
+describe('etagIsMd5', () => {
+  it('does not compare ETags of KMS or customer-key encrypted objects', () => {
+    expect(etagIsMd5({ ETag: '"x"' })).toBe(true);
+    expect(etagIsMd5({ ETag: '"x"', ServerSideEncryption: 'AES256' })).toBe(true);
+    expect(etagIsMd5({ ETag: '"x"', ServerSideEncryption: 'aws:kms' })).toBe(false);
+    expect(etagIsMd5({ ETag: '"x"', ServerSideEncryption: 'aws:kms:dsse' })).toBe(false);
+    expect(etagIsMd5({ ETag: '"x"', SSECustomerAlgorithm: 'AES256' })).toBe(false);
   });
 });
 

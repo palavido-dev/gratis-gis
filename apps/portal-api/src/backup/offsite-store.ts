@@ -62,6 +62,23 @@ export interface UploadResult {
   parts: number;
 }
 
+/** The parts of an S3 answer that say what its ETag is made of. */
+interface EtagAnswer {
+  ETag?: string;
+  ServerSideEncryption?: string;
+  SSECustomerAlgorithm?: string;
+}
+
+/**
+ * Whether an ETag can be compared with an MD5. With KMS or
+ * customer-key encryption (AWS SSE-KMS, SSE-C) it is not one, so only
+ * the Content-MD5 the store already checked applies.
+ */
+export function etagIsMd5(a: EtagAnswer): boolean {
+  if (a.SSECustomerAlgorithm) return false;
+  return !(a.ServerSideEncryption ?? '').startsWith('aws:kms');
+}
+
 const MD5_ETAG = /^"?([0-9a-f]{32})"?$/i;
 const MULTIPART_ETAG = /^"?([0-9a-f]{32})-(\d+)"?$/i;
 
@@ -129,8 +146,8 @@ export async function uploadStream(
         ...(args.metadata ? { Metadata: args.metadata } : {}),
       }),
       opts,
-    )) as { ETag?: string };
-    const plain = res.ETag ? MD5_ETAG.exec(res.ETag) : null;
+    )) as EtagAnswer;
+    const plain = res.ETag && etagIsMd5(res) ? MD5_ETAG.exec(res.ETag) : null;
     if (plain && plain[1]!.toLowerCase() !== md5.toString('hex')) {
       throw new OffsiteVerifyError('The stored file has a different checksum than the one sent.');
     }
@@ -184,9 +201,9 @@ export async function uploadStream(
         ContentMD5: md5.toString('base64'),
       }),
       opts,
-    )) as { ETag?: string };
+    )) as EtagAnswer;
     if (!res.ETag) throw new OffsiteVerifyError(`Part ${number} was not acknowledged.`);
-    const plain = MD5_ETAG.exec(res.ETag);
+    const plain = etagIsMd5(res) ? MD5_ETAG.exec(res.ETag) : null;
     if (plain && plain[1]!.toLowerCase() !== md5.toString('hex')) {
       throw new OffsiteVerifyError(
         `Part ${number} arrived with a different checksum than it was sent with.`,
@@ -223,8 +240,8 @@ export async function uploadStream(
         MultipartUpload: { Parts: completed },
       }),
       opts,
-    )) as { ETag?: string };
-    const multi = done.ETag ? MULTIPART_ETAG.exec(done.ETag) : null;
+    )) as EtagAnswer;
+    const multi = done.ETag && etagIsMd5(done) ? MULTIPART_ETAG.exec(done.ETag) : null;
     if (multi) {
       const expect = createHash('md5').update(Buffer.concat(partMd5s)).digest('hex');
       if (multi[1]!.toLowerCase() !== expect || Number(multi[2]) !== completed.length) {
