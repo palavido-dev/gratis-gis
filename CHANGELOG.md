@@ -96,6 +96,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The What's Here PDF covered only the first 30 layers of a map and left
+  the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed
   from the map no longer stays on the app's map. The app's Layers list
   still feeds charts and tables, and marks any layer that is not on the

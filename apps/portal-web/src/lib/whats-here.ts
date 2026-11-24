@@ -51,6 +51,9 @@ export interface ScreenRow {
 /** Number fields one layer's results add up, at most. */
 export const MAX_SUM_FIELDS = 10;
 
+/** Layers one PDF covers. Same as MAX_REPORT_LAYERS on the server. */
+export const MAX_REPORT_LAYERS = 200;
+
 export interface LayerScreen {
   total: ScreenRow;
   /** The number fields added up, in the order they were picked. */

@@ -17,6 +17,8 @@ import { parseReportRequest, type ReportLayerRequest } from './report-request.js
 
 /** Breakdown rows per layer, the same cap the panel shows. */
 const BREAKDOWN_LIMIT = 50;
+/** Layers read at once while building one report. */
+const REPORT_CONCURRENCY = 4;
 
 interface V3Layer {
   id: string;
@@ -64,12 +66,18 @@ export class WhatsHereReportService {
     });
     if (!row) throw new NotFoundException('This area has expired. Pick it again.');
 
-    const layers: ReportLayer[] = [];
-    // One at a time: a report is a handful of layers, and the
-    // aggregate lane is shared with every dashboard on the server.
-    for (const l of req.layers) {
-      layers.push(await this.screen(user, l, areaId));
-    }
+    // A few at a time, in order: a screening map can have dozens of
+    // layers, and the aggregate lane is shared with every dashboard on
+    // the server, so not all of them at once either.
+    const layers: ReportLayer[] = new Array(req.layers.length);
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < req.layers.length) {
+        const i = next++;
+        layers[i] = await this.screen(user, req.layers[i]!, areaId);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(REPORT_CONCURRENCY, req.layers.length) }, worker));
 
     const title = req.title?.trim() || req.labels.title;
     const html = renderWhatsHereReport({
