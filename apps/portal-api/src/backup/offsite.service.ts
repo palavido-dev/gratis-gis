@@ -57,7 +57,12 @@ import {
   endpointPolicy,
   type EndpointPolicy,
 } from './offsite-endpoint.js';
-import { OffsiteMirror, PrismaMirrorIndex, type MirrorIndexStore } from './offsite-mirror.js';
+import {
+  OffsiteMirror,
+  PrismaMirrorIndex,
+  sweepIndexLeftovers,
+  type MirrorIndexStore,
+} from './offsite-mirror.js';
 import {
   archiveArtifacts,
   daysSince,
@@ -228,6 +233,20 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       60 * 60 * 1000,
     );
     this.sweepTimer.unref?.();
+    void this.sweepIndexLeftovers();
+  }
+
+  /** At startup: remove mirror index folders a crashed run left behind. */
+  async sweepIndexLeftovers(): Promise<number> {
+    try {
+      const { archiveDirectory } = await this.backup.getConfig();
+      const n = await sweepIndexLeftovers(archiveDirectory);
+      if (n > 0) this.log.warn(`Removed ${n} left-over off-site index folder(s).`);
+      return n;
+    } catch (e) {
+      this.log.warn(`Off-site index clean-up failed: ${e instanceof Error ? e.message : e}`);
+      return 0;
+    }
   }
 
   onModuleDestroy() {
@@ -899,6 +918,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       if (s.problems.length > 0) throw new Error(s.problems.join(' '));
       const policy = this.policy();
       await this.endpointCheck(s.endpoint!, policy);
+      if (policy.allowLocal) {
+        this.log.warn(
+          "BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT is on: off-site copies may go to this server's own loopback address. Turn it off unless this is a test store.",
+        );
+      }
       if (s.endpoint!.startsWith('http:')) {
         this.log.warn(
           'The off-site endpoint uses plain http (allowed by BACKUP_OFFSITE_ALLOW_HTTP). The files are encrypted, but the bucket keys and names travel unprotected.',
@@ -1130,6 +1154,17 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const stop = () => {
       if (signal?.aborted) throw signal.reason as Error;
     };
+    // Another portal may have taken the folder over since the upload
+    // started: then its retention applies, not this one's.
+    const ownsFolder = async () => {
+      const owner = await this.readInstallMarker(s3, s, signal);
+      if (s.installId && owner === s.installId) return true;
+      this.log.warn(
+        `This portal no longer owns the off-site folder ${s.prefix}; nothing in it was removed.`,
+      );
+      return false;
+    };
+    if (!(await ownsFolder())) return 0;
     const archivesPrefix = `${s.prefix}${OFFSITE_LAYOUT.archives}`;
     const listing = [];
     for await (const o of listObjects(s3, s.bucket!, archivesPrefix, signal)) listing.push(o);
@@ -1148,6 +1183,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       }
     }
     stop();
+    if (!(await ownsFolder())) return removed;
     const collect = !(await this.otherUploadRunning(self));
     if (!collect)
       this.log.log('Another off-site upload is running; mirror files are not collected this time.');

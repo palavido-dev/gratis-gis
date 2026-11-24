@@ -156,6 +156,20 @@ export function normalizePrefix(p: string): string {
   return trimmed ? `${trimmed}/` : '';
 }
 
+/**
+ * The one rule for a bucket folder, after normalizePrefix: parts of
+ * letters A-Z and a-z, digits, ".", "_" and "-", separated by "/",
+ * ending in "/", with no empty, "." or ".." parts, up to 200
+ * characters. The page, the environment, offsite-cli.ts and
+ * ggo_valid_prefix in infra/restore-from-offsite.sh all use it, so any
+ * folder the portal writes to can be restored by the script.
+ */
+export const OFFSITE_PREFIX_RE = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\/$/;
+
+export function isValidOffsitePrefix(p: string): boolean {
+  return p.length <= 200 && OFFSITE_PREFIX_RE.test(p) && !/(^|\/)\.\.?\//.test(p);
+}
+
 export function defaultPrefix(installId: string | null): string {
   return installId
     ? `${OFFSITE_DEFAULTS.prefixBase}${installId.replace(/-/g, '').slice(0, 8)}/`
@@ -193,17 +207,17 @@ const checks = {
     }
   },
   prefix(v: string) {
-    const p = v.trim();
-    if (p.length > 200 || p.includes('\\') || hasControl(p) || /(^|\/)\.\.?(\/|$)/.test(p)) {
-      throw new OffsiteValidationError(
-        'The folder prefix can be up to 200 characters, with no backslashes, control characters, or "." or ".." parts.',
-      );
-    }
+    const p = normalizePrefix(v);
     // The whole bucket is not a folder: retention and the restore tool
     // both work inside one portal's folder.
-    if (normalizePrefix(p) === '') {
+    if (p === '') {
       throw new OffsiteValidationError(
         'The folder prefix cannot be empty. Give each portal its own folder, such as gratisgis-main/.',
+      );
+    }
+    if (!isValidOffsitePrefix(p)) {
+      throw new OffsiteValidationError(
+        'The folder prefix can use letters A-Z and a-z, digits 0-9, dots, underscores and hyphens, with "/" between folders, up to 200 characters, and no "." or ".." folders.',
       );
     }
   },

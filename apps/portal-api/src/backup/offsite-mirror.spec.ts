@@ -19,7 +19,13 @@ import {
   unsealStream,
   type OffsitePrivateKey,
 } from './offsite-crypto.js';
-import { mirrorObjectName, mirrorRunId, PackedListing } from './offsite-mirror.js';
+import {
+  INDEX_LEFTOVER_AGE_MS,
+  mirrorObjectName,
+  mirrorRunId,
+  PackedListing,
+  sweepIndexLeftovers,
+} from './offsite-mirror.js';
 import { OffsiteService } from './offsite.service.js';
 
 const KEY_PASS = 'mirror key passphrase 0123';
@@ -54,6 +60,64 @@ describe('mirrorObjectName', () => {
     expect(a).not.toBe(
       `${createHash('sha256').update('items/a/photo.jpg\u000010\u0000"e1"').digest('hex')}.enc`,
     );
+  });
+});
+
+describe('sweepIndexLeftovers', () => {
+  it('removes index folders unchanged for a day, and nothing else', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gg-idx-'));
+    try {
+      const now = Date.now();
+      const old = new Date(now - INDEX_LEFTOVER_AGE_MS - 60_000);
+      const make = (name: string, when: Date, fileWhen = when) => {
+        const d = path.join(dir, name);
+        fs.mkdirSync(d);
+        fs.writeFileSync(path.join(d, 'objects.jsonl'), '{}\n');
+        fs.utimesSync(path.join(d, 'objects.jsonl'), fileWhen, fileWhen);
+        fs.utimesSync(d, when, when);
+      };
+      make('.offsite-index-old', old);
+      make('.offsite-index-fresh', new Date(now));
+      make('.offsite-index-still-writing', old, new Date(now));
+      make('.stage-other', old);
+      fs.writeFileSync(path.join(dir, '.offsite-index-file'), 'x');
+      fs.utimesSync(path.join(dir, '.offsite-index-file'), old, old);
+
+      expect(await sweepIndexLeftovers(dir, now)).toBe(1);
+      expect(fs.readdirSync(dir).sort()).toEqual([
+        '.offsite-index-file',
+        '.offsite-index-fresh',
+        '.offsite-index-still-writing',
+        '.stage-other',
+      ]);
+      expect(await sweepIndexLeftovers(path.join(dir, 'missing'), now)).toBe(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('runs when the service starts', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gg-idx-'));
+    try {
+      const d = path.join(dir, '.offsite-index-crashed');
+      fs.mkdirSync(d);
+      const old = new Date(Date.now() - 2 * INDEX_LEFTOVER_AGE_MS);
+      fs.utimesSync(d, old, old);
+      jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const svc = new OffsiteService(
+        makePrisma([], emptyConfigRow()) as never,
+        { getConfig: async () => ({ archiveDirectory: dir }) } as unknown as BackupService,
+      );
+      const spy = jest.spyOn(svc, 'sweepIndexLeftovers');
+      svc.onApplicationBootstrap();
+      svc.onModuleDestroy();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(await spy.mock.results[0]!.value).toBe(1);
+      expect(fs.existsSync(d)).toBe(false);
+    } finally {
+      jest.restoreAllMocks();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -251,7 +315,8 @@ describe('off-site mirror mode', () => {
     );
     expect(doneOf(r2)).toMatchObject({ uploaded: 2, reused: 1 });
     expect(files()).toHaveLength(4);
-    expect(remote.calls.filter((c) => c === 'GetObjectCommand')).toHaveLength(1); // the folder marker
+    // The folder marker: once at the start, and again before each clean-up step.
+    expect(remote.calls.filter((c) => c === 'GetObjectCommand')).toHaveLength(3);
   });
 
   it('a lost local index means upload everything, never a failure or a delete', async () => {

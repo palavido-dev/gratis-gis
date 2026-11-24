@@ -42,6 +42,7 @@ import { pipeline } from 'node:stream/promises';
 import { ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 import {
+  isValidOffsitePrefix,
   normalizePrefix,
   OFFSITE_ENV,
   resolveOffsiteSettings,
@@ -186,6 +187,12 @@ async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
   const s3 = io.offsite(s);
   const { found, seen } = await findPortalFolders(s3, s.bucket!, given ?? '');
   if (found.length === 1) {
+    // Same folder rule as the page and the restore script.
+    if (!isValidOffsitePrefix(found[0]!)) {
+      throw new Error(
+        `The portal folder ${JSON.stringify(found[0])} has characters the restore does not accept. Copy it to a folder named with letters, digits, ".", "_" and "-", then set ${OFFSITE_ENV.prefix}.`,
+      );
+    }
     s.prefix = found[0]!;
     if (s.prefix !== given) {
       io.err(`Using the folder ${s.prefix} (set ${OFFSITE_ENV.prefix} to choose another).`);

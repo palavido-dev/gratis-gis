@@ -98,6 +98,7 @@ ggo_valid_mirror_run() {
 }
 
 # A bucket folder as the portal writes it: plain path parts, ending in "/".
+# Same rule as isValidOffsitePrefix in apps/portal-api/src/backup/offsite-config.ts.
 ggo_valid_prefix() {
   [[ "$1" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*/$ ]] && [[ ! "$1" =~ (^|/)\.\.?/ ]]
 }

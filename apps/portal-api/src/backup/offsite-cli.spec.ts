@@ -11,6 +11,8 @@ import { FakeS3 } from '../testing/fake-s3.js';
 import { emptyConfigRow, makePrisma, type Row } from '../testing/offsite-fixtures.js';
 import type { BackupService } from './backup.service.js';
 import { runCli, type CliIo } from './offsite-cli.js';
+import { normalizePrefix, validateOffsitePatch } from './offsite-config.js';
+import { endpointPolicy } from './offsite-endpoint.js';
 import { generateOffsiteKeyPair, sealKeyFile, type OffsitePrivateKey } from './offsite-crypto.js';
 import { OffsiteService } from './offsite.service.js';
 
@@ -336,11 +338,11 @@ describe('offsite-cli', () => {
   });
 
   describe('finding the portal folder', () => {
-    const move = (to: string) => {
+    const move = (to: string, from = PREFIX) => {
       for (const [k, v] of [...remote.objects]) {
-        if (!k.startsWith(PREFIX)) continue;
+        if (!k.startsWith(from)) continue;
         remote.objects.delete(k);
-        remote.objects.set(`${to}${k.slice(PREFIX.length)}`, v);
+        remote.objects.set(`${to}${k.slice(from.length)}`, v);
       }
     };
     afterEach(() => {
@@ -373,6 +375,72 @@ describe('offsite-cli', () => {
       ENV.BACKUP_OFFSITE_PREFIX = 'gratisgis/';
       expect(await runCli(['list'], io())).toBe(1);
       expect(errs.join(' ')).toMatch(/in or under gratisgis\//);
+    });
+
+    it('restores from every folder the page accepts, and the restore script accepts it too', async () => {
+      const script = path.resolve(__dirname, '../../../../infra/restore-from-offsite.sh');
+      const shellAccepts = (p: string) => {
+        try {
+          execFileSync(
+            'bash',
+            ['-c', 'GG_RESTORE_LIB_ONLY=1 source "$0" && ggo_valid_prefix "$1"', script, p],
+            { stdio: 'ignore' },
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const pageAccepts = (p: string) => {
+        try {
+          validateOffsitePatch(
+            { prefix: p },
+            endpointPolicy(() => undefined),
+          );
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const candidates = [
+        'gratisgis-main/',
+        'site_a.2026/portal-1',
+        '/Backups/Site.A/x_y-z/',
+        '...a/',
+        'a..b/c/',
+        'my backups/',
+        'site@a/',
+        'a+b/',
+        'sauvegardes-été/',
+        'a:b/',
+        "a'b/",
+        'a//b/',
+        'a/../b/',
+      ];
+      const accepted = candidates.filter(pageAccepts);
+      expect(accepted).toEqual([
+        'gratisgis-main/',
+        'site_a.2026/portal-1',
+        '/Backups/Site.A/x_y-z/',
+        '...a/',
+        'a..b/c/',
+      ]);
+      let from = PREFIX;
+      for (const given of accepted) {
+        const folder = normalizePrefix(given);
+        expect(shellAccepts(folder)).toBe(true);
+        move(folder, from);
+        from = folder;
+        ENV.BACKUP_OFFSITE_PREFIX = given;
+        out.length = 0;
+        errs.length = 0;
+        expect(await runCli(['describe'], io())).toBe(0);
+        expect(out).toContain(`prefix=${folder}`);
+        expect(out).toContain(`name=${NAME}`);
+      }
+      for (const refused of candidates.filter((c) => !pageAccepts(c))) {
+        expect(shellAccepts(refused)).toBe(false);
+      }
     });
 
     it('refuses an empty prefix', async () => {

@@ -3571,7 +3571,7 @@ export const de: Partial<CatalogShape> = {
       helpLink: 'Einrichtungshinweise für jeden Anbieter',
       statusKey: 'Schlüssel {fingerprint}',
       problemsTitle: 'Diese Einstellungen wurden abgelehnt und werden nicht verwendet:',
-      folderHint: 'Ein Ordner pro Portal. Notieren Sie ihn: Eine Wiederherstellung auf einem neuen Server braucht ihn.',
+      folderHint: 'Ein Ordner pro Portal, zum Beispiel gratisgis-main/. Erlaubt sind die Buchstaben A-Z und a-z ohne Umlaute, die Ziffern 0-9, Punkte, Unterstriche und Bindestriche, mit „/“ zwischen Ordnern. Notieren Sie ihn: Eine Wiederherstellung auf einem neuen Server braucht ihn.',
       prefixRequired: 'Geben Sie dem Ordner einen Namen. Der ganze Bucket kann nicht der Ordner sein.',
       keyChanged: 'Schlüssel geändert am {when} von {who}.',
       keyChangedSomeone: 'einem Admin',

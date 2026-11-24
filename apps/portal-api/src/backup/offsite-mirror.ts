@@ -363,6 +363,44 @@ class IndexFile {
   }
 }
 
+/** How old a left-over index folder must be before startup removes it. */
+export const INDEX_LEFTOVER_AGE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Remove `.offsite-index-*` folders a crashed process left in the
+ * archive directory, once neither the folder nor its file has changed
+ * for a day. Returns how many were removed; never throws.
+ */
+export async function sweepIndexLeftovers(dir: string, now = Date.now()): Promise<number> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    if (!name.startsWith('.offsite-index-')) continue;
+    const full = path.join(dir, name);
+    try {
+      const st = await fs.lstat(full);
+      if (!st.isDirectory()) continue;
+      let changed = st.mtimeMs;
+      try {
+        changed = Math.max(changed, (await fs.lstat(path.join(full, 'objects.jsonl'))).mtimeMs);
+      } catch {
+        // No index file inside: the folder's own time decides.
+      }
+      if (now - changed < INDEX_LEFTOVER_AGE_MS) continue;
+      await fs.rm(full, { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      // Gone already, or not ours to remove: leave it.
+    }
+  }
+  return removed;
+}
+
 /**
  * Incremental mirror for large object stores.
  *

@@ -149,7 +149,10 @@ archiving once it is available.
 Everything is under the folder you set. By default each portal gets its
 own folder, `gratisgis-` and the first 8 characters of its install id.
 **Use one folder per portal.** The folder cannot be empty: the whole
-bucket is never one portal's folder. The portal writes a small
+bucket is never one portal's folder. Folder names use letters `A-Z` and
+`a-z`, digits `0-9`, `.`, `_` and `-`, with `/` between folders, such
+as `backups/site-a/`. The page, the environment and the restore tool
+all accept the same names. The portal writes a small
 `gratisgis-install.json` marker in its folder and stops, without
 deleting anything, if the folder belongs to another portal. Note the
 folder down: a restore looks for it.
@@ -368,7 +371,7 @@ format is described in `docs/operations/offsite-backup-format.md`.
 | `BACKUP_OFFSITE_ENDPOINT` | The provider's S3 address |
 | `BACKUP_OFFSITE_REGION` | Region name (`us-east-1` if unset) |
 | `BACKUP_OFFSITE_BUCKET` | Bucket name |
-| `BACKUP_OFFSITE_PREFIX` | Folder in the bucket (`gratisgis-<install id>/` if unset; never empty or `/`) |
+| `BACKUP_OFFSITE_PREFIX` | Folder in the bucket (`gratisgis-<install id>/` if unset; never empty or `/`; letters, digits, `.`, `_`, `-` and `/`) |
 | `BACKUP_OFFSITE_PATH_STYLE` | `false` for AWS S3 |
 | `BACKUP_OFFSITE_ACCESS_KEY_ID` | Access key id |
 | `BACKUP_OFFSITE_SECRET_ACCESS_KEY` or `..._FILE` | Secret access key, or a file holding it |
@@ -388,17 +391,22 @@ until it is fixed.
 
 A secret access key from the environment is used only with the endpoint
 and access key id from the environment, when those are set there. To
-send copies to another endpoint, type its secret on the page.
+send copies to another endpoint, type its secret on the page. A secret
+in the environment cannot be combined with an endpoint or access key id
+typed on the page: with either typed there, type the secret on the page
+too.
 Clearing a secret saved on the page hands over to the environment's
 only when the endpoint and access key id are cleared in the same save.
 
 The endpoint must use `https`. `BACKUP_OFFSITE_ALLOW_HTTP=true` in the
 server environment allows plain `http`, for a test store on a private
 network only; the page cannot turn it on, it applies to endpoints from
-either source, and every run logs a warning. The endpoint cannot be the
-server itself, a link-local address or a cloud metadata address (also
-written inside an IPv6 address), unless
-`BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT=true`. The name is checked again
+either source, and every run logs a warning. The endpoint cannot be this
+server's loopback address (such as `localhost` or `127.0.0.1`) unless
+`BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT=true`, for a test store on the same
+machine; every run logs a warning while it is on. A link-local address
+or a cloud metadata address is refused always, also when written inside
+an IPv6 address. The name is checked again
 on every connection, against the address the connection uses.
 Addresses on your own networks, such as other Docker containers or the
 LAN, are allowed: a store there is a real use.

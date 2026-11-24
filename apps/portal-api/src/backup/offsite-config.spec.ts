@@ -296,6 +296,13 @@ describe('validateOffsitePatch', () => {
     [{ prefix: '' }, /cannot be empty/],
     [{ prefix: '/' }, /cannot be empty/],
     [{ prefix: ' // ' }, /cannot be empty/],
+    [{ prefix: 'my backups/' }, /letters A-Z/],
+    [{ prefix: 'site@a/' }, /letters A-Z/],
+    [{ prefix: 'a+b/' }, /letters A-Z/],
+    [{ prefix: 'sauvegardes-été/' }, /letters A-Z/],
+    [{ prefix: 'a//b/' }, /letters A-Z/],
+    [{ prefix: 'a/./b/' }, /letters A-Z/],
+    [{ prefix: `${'a'.repeat(200)}/` }, /letters A-Z/],
     [{ accessKeyId: 'has space' }, /access key id/],
     [{ secretAccessKey: 'has space' }, /secret access key/],
     [{ publicKey: 'ggpub1:short' }, /wrong length/],
@@ -378,18 +385,30 @@ describe('endpoint rules', () => {
     'https://[::ffff:7f00:1]',
     'https://[::7f00:1]',
     'https://[::127.0.0.1]',
+    'https://[::ffff:0:127.0.0.1]',
+    'https://[2002:7f00:1::]',
     'https://[64:ff9b::7f00:1]',
+  ])('refuses the loopback address %s unless the local flag is set', (url) => {
+    expect(() => checkEndpoint(url, strict)).toThrow(/loopback/);
+    expect(() => checkEndpoint(url, { allowHttp: false, allowLocal: true })).not.toThrow();
+  });
+
+  it.each([
     'https://[64:ff9b::169.254.169.254]',
     'https://[64:ff9b:1::a9fe:a9fe]',
+    'https://[::ffff:0:169.254.169.254]',
+    'https://[2002:a9fe:a9fe::1]',
     'https://169.254.169.254',
     'https://[fe80::1]',
     'https://[fd00:ec2::254]',
     'https://100.100.100.200',
     'https://metadata.google.internal',
     'https://instance-data.ec2.internal.',
-  ])('refuses %s unless the local flag is set', (url) => {
-    expect(() => checkEndpoint(url, strict)).toThrow(/this server|link-local|metadata/);
-    expect(() => checkEndpoint(url, { allowHttp: false, allowLocal: true })).not.toThrow();
+  ])('refuses the link-local or metadata address %s even with the local flag', (url) => {
+    expect(() => checkEndpoint(url, strict)).toThrow(/link-local|metadata/);
+    expect(() => checkEndpoint(url, { allowHttp: false, allowLocal: true })).toThrow(
+      /link-local|metadata/,
+    );
   });
 
   it('allows a private network address and public names', () => {
@@ -427,6 +446,14 @@ describe('endpoint rules after DNS', () => {
         lookup(['127.0.0.1']),
       ),
     ).resolves.toBeUndefined();
+    // The local flag lifts loopback only.
+    await expect(
+      assertEndpointReachable(
+        'https://store.example.com',
+        { allowHttp: false, allowLocal: true },
+        lookup(['169.254.169.254']),
+      ),
+    ).rejects.toThrow(/points at/);
   });
 });
 
@@ -467,6 +494,14 @@ describe('the connection itself checks every address it is given', () => {
     const list = [{ address: '2001:db8::5', family: 6 }];
     expect(await run(strict, list, true)).toEqual({ err: null, address: list });
     expect((await run({ allowHttp: false, allowLocal: true }, '127.0.0.1')).err).toBeNull();
+  });
+
+  it('keeps refusing link-local and metadata answers with the local flag', async () => {
+    const local = { allowHttp: false, allowLocal: true };
+    expect((await run(local, '169.254.169.254')).err?.message).toMatch(/points at/);
+    expect((await run(local, [{ address: 'fe80::1', family: 6 }], true)).err?.message).toMatch(
+      /points at/,
+    );
   });
 });
 

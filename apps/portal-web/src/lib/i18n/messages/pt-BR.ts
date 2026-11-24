@@ -3553,7 +3553,7 @@ export const ptBR: Partial<CatalogShape> = {
       helpLink: 'Notas de configuração para cada provedor',
       statusKey: 'chave {fingerprint}',
       problemsTitle: 'Estas configurações foram recusadas e não são usadas:',
-      folderHint: 'Uma pasta por portal. Anote-a: uma restauração em um servidor novo precisa dela.',
+      folderHint: 'Uma pasta por portal, por exemplo gratisgis-main/. Use letras A-Z e a-z sem acentos, dígitos 0-9, pontos, sublinhados e hifens, com "/" entre as pastas. Anote-a: uma restauração em um servidor novo precisa dela.',
       prefixRequired: 'Dê um nome à pasta. O bucket inteiro não pode ser a pasta.',
       keyChanged: 'Chave alterada em {when} por {who}.',
       keyChangedSomeone: 'um administrador',

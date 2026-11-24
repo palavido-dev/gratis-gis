@@ -9,10 +9,11 @@ import { BlockList, isIP } from 'node:net';
  * - https only, unless BACKUP_OFFSITE_ALLOW_HTTP=true in the server
  *   environment. The admin page cannot turn that on, and it applies to
  *   endpoints set by environment variable too.
- * - Never this server itself, link-local addresses or cloud metadata
- *   services, unless BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT=true (for a
- *   test store on the same machine). Private network ranges such as
- *   10.0.0.0/8 stay allowed: a store on the LAN is a real use.
+ * - Never this server's loopback address, unless
+ *   BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT=true (for a test store on the
+ *   same machine). Link-local addresses and cloud metadata services are
+ *   refused always; the flag does not lift them. Private network ranges
+ *   such as 10.0.0.0/8 stay allowed: a store on the LAN is a real use.
  *
  * The name is checked as written, and again after DNS before each
  * upload. The S3 client also checks every address it is about to
@@ -45,20 +46,24 @@ export function endpointPolicy(
   };
 }
 
+/** This server's loopback: allowed only with the local flag. */
+const loopback = new BlockList();
+loopback.addSubnet('0.0.0.0', 8, 'ipv4');
+loopback.addSubnet('127.0.0.0', 8, 'ipv4');
+loopback.addAddress('::', 'ipv6');
+loopback.addAddress('::1', 'ipv6');
+
+/** Link-local and cloud metadata: refused always. */
 const refused = new BlockList();
-refused.addSubnet('0.0.0.0', 8, 'ipv4');
-refused.addSubnet('127.0.0.0', 8, 'ipv4');
 refused.addSubnet('169.254.0.0', 16, 'ipv4');
 // Alibaba Cloud metadata.
 refused.addAddress('100.100.100.200', 'ipv4');
-refused.addAddress('::', 'ipv6');
-refused.addAddress('::1', 'ipv6');
 refused.addSubnet('fe80::', 10, 'ipv6');
 // AWS metadata over IPv6.
 refused.addAddress('fd00:ec2::254', 'ipv6');
 
+const LOOPBACK_NAMES = new Set(['localhost']);
 const REFUSED_NAMES = new Set([
-  'localhost',
   'metadata',
   'metadata.google.internal',
   'metadata.goog',
@@ -96,8 +101,9 @@ export function ipv6Bytes(address: string): Buffer | null {
 /**
  * The IPv4 address carried inside an IPv6 one, for the forms that
  * reach an IPv4 host: IPv4-mapped (::ffff:a.b.c.d), IPv4-compatible
- * (::a.b.c.d, also written ::7f00:1), the well-known NAT64 prefix
- * 64:ff9b::/96 and the local-use NAT64 prefix 64:ff9b:1::/48.
+ * (::a.b.c.d, also written ::7f00:1), IPv4-translated
+ * (::ffff:0:a.b.c.d), 6to4 (2002:aabb:ccdd::/48), the well-known NAT64
+ * prefix 64:ff9b::/96 and the local-use NAT64 prefix 64:ff9b:1::/48.
  */
 export function embeddedIpv4(address: string): string | null {
   const b = ipv6Bytes(address);
@@ -105,6 +111,8 @@ export function embeddedIpv4(address: string): string | null {
   const zero = (from: number, to: number) => b.subarray(from, to).every((x) => x === 0);
   const v4 = `${b[12]}.${b[13]}.${b[14]}.${b[15]}`;
   if (zero(0, 10) && b[10] === 0xff && b[11] === 0xff) return v4;
+  if (zero(0, 8) && b[8] === 0xff && b[9] === 0xff && zero(10, 12)) return v4;
+  if (b.readUInt16BE(0) === 0x2002) return `${b[2]}.${b[3]}.${b[4]}.${b[5]}`;
   // ::/96. Also :: and ::1, which land in 0.0.0.0/8 and are refused.
   if (zero(0, 12)) return v4;
   if (b.readUInt32BE(0) === 0x0064ff9b && zero(4, 12)) return v4;
@@ -112,20 +120,27 @@ export function embeddedIpv4(address: string): string | null {
   return null;
 }
 
-/** True when the address is one the portal must not send backups to. */
-export function isRefusedAddress(address: string): boolean {
+function inList(list: BlockList, address: string): boolean {
   const kind = isIP(address);
-  if (kind === 4) return refused.check(address, 'ipv4');
+  if (kind === 4) return list.check(address, 'ipv4');
   if (kind === 6) {
     const v4 = embeddedIpv4(address);
-    if (v4) return refused.check(v4, 'ipv4');
-    return refused.check(address, 'ipv6');
+    if (v4) return list.check(v4, 'ipv4');
+    return list.check(address, 'ipv6');
   }
   return false;
 }
 
+/**
+ * True when the address is one the portal must not send backups to.
+ * `allowLocal` (BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT) lifts loopback only.
+ */
+export function isRefusedAddress(address: string, allowLocal = false): boolean {
+  return inList(refused, address) || (!allowLocal && inList(loopback, address));
+}
+
 const REFUSED_AFTER_DNS =
-  'The endpoint name points at this server, a link-local address or a cloud metadata address, so it is refused.';
+  "The endpoint name points at this server's loopback address, a link-local address or a cloud metadata address, so it is refused.";
 
 type LookupCallback = (
   err: NodeJS.ErrnoException | null,
@@ -148,9 +163,9 @@ export function guardedLookup(
       address: string | LookupAddress[],
       family?: number,
     ) => {
-      if (err || policy.allowLocal) return callback(err, address, family);
+      if (err) return callback(err, address, family);
       const all = Array.isArray(address) ? address.map((a) => a.address) : [address];
-      if (all.some((a) => isRefusedAddress(a))) {
+      if (all.some((a) => isRefusedAddress(a, policy.allowLocal))) {
         return callback(
           Object.assign(new Error(REFUSED_AFTER_DNS), { code: 'EOFFSITEREFUSED' }),
           Array.isArray(address) ? [] : '',
@@ -199,12 +214,14 @@ export function checkEndpoint(text: string, policy: EndpointPolicy): string {
     );
   }
   const host = hostOf(u);
+  const loopbackName = LOOPBACK_NAMES.has(host) || host.endsWith('.localhost');
   if (
-    !policy.allowLocal &&
-    (REFUSED_NAMES.has(host) || host.endsWith('.localhost') || isRefusedAddress(host))
+    REFUSED_NAMES.has(host) ||
+    (loopbackName && !policy.allowLocal) ||
+    isRefusedAddress(host, policy.allowLocal)
   ) {
     throw new EndpointError(
-      'The endpoint cannot be this server, a link-local address or a cloud metadata address.',
+      "The endpoint cannot be this server's loopback address, a link-local address or a cloud metadata address.",
     );
   }
   return `${u.protocol}//${u.host}`;
@@ -221,7 +238,6 @@ export async function assertEndpointReachable(
     dnsLookup(h, { all: true, verbatim: true }),
 ): Promise<void> {
   checkEndpoint(text, policy);
-  if (policy.allowLocal) return;
   const host = hostOf(new URL(text.trim()));
   if (isIP(host)) return;
   let addresses: Array<{ address: string }>;
@@ -231,7 +247,7 @@ export async function assertEndpointReachable(
     // Let the S3 client report the DNS failure in its own words.
     return;
   }
-  if (addresses.some((a) => isRefusedAddress(a.address))) {
+  if (addresses.some((a) => isRefusedAddress(a.address, policy.allowLocal))) {
     throw new EndpointError(REFUSED_AFTER_DNS);
   }
 }

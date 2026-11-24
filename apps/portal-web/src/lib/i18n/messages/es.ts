@@ -3554,7 +3554,7 @@ export const es: Partial<CatalogShape> = {
       helpLink: 'Notas de configuración para cada proveedor',
       statusKey: 'clave {fingerprint}',
       problemsTitle: 'Estos ajustes se rechazaron y no se usan:',
-      folderHint: 'Una carpeta por portal. Anótala: una restauración en un servidor nuevo la necesita.',
+      folderHint: 'Una carpeta por portal, por ejemplo gratisgis-main/. Usa letras A-Z y a-z sin acentos, dígitos 0-9, puntos, guiones bajos y guiones, con «/» entre carpetas. Anótala: una restauración en un servidor nuevo la necesita.',
       prefixRequired: 'Ponle un nombre a la carpeta. El bucket entero no puede ser la carpeta.',
       keyChanged: 'Clave cambiada el {when} por {who}.',
       keyChangedSomeone: 'un administrador',

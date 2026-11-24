@@ -3688,7 +3688,7 @@ export const en = {
       helpLink: 'Setup notes for each provider',
       statusKey: 'key {fingerprint}',
       problemsTitle: 'These settings were refused and are not used:',
-      folderHint: 'One folder per portal. Note it down: a restore on a new server needs it.',
+      folderHint: 'One folder per portal, such as gratisgis-main/. Use letters A-Z and a-z, digits 0-9, dots, underscores and hyphens, with "/" between folders. Note it down: a restore on a new server needs it.',
       prefixRequired: 'Give the folder a name. The whole bucket cannot be the folder.',
       keyChanged: 'Key changed on {when} by {who}.',
       keyChangedSomeone: 'an admin',

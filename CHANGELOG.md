@@ -32,11 +32,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   copy for a set number of days, raises a notice. Set it on Admin,
   Backup (operator admins) or with `BACKUP_OFFSITE_*` variables, which
   are checked the same way. Plain http endpoints need
-  `BACKUP_OFFSITE_ALLOW_HTTP`; endpoints on the server itself, link-local
-  or cloud metadata addresses are refused, on every connection. Every
+  `BACKUP_OFFSITE_ALLOW_HTTP` and this server's loopback address needs
+  `BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT`, each with a warning on every
+  run; link-local and cloud metadata addresses are always refused, on
+  every connection. Every
   request to the bucket has time limits and each upload an overall one,
   so a provider that stops answering ends the upload as failed. The
-  folder can never be the whole bucket, and the environment's secret
+  folder can never be the whole bucket, its name uses the same letters,
+  digits, `.`, `_`, `-` and `/` on the page, in the environment and in
+  the restore tool, and the environment's secret
   goes only with the environment's endpoint. Changing the public key
   notifies the operator admins and is shown on the page with who changed
   it and when. Copies dated in the future are kept, reported, and never

@@ -381,6 +381,26 @@ describe('OffsiteService', () => {
     expect(logged.filter((l) => /plain http/.test(l))).toHaveLength(2);
   });
 
+  it('the local endpoint flag logs a warning on every run', async () => {
+    process.env.BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT = 'true';
+    try {
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      const warned = () => logged.filter((l) => /ALLOW_LOCAL_ENDPOINT is on/.test(l));
+      expect(warned()).toHaveLength(1);
+      addRun('run-2', 'backup-2026-11-24T03-00-00-000-bbbbbbbb.tar.gz', new Date());
+      await runUpload('run-2');
+      expect(warned()).toHaveLength(2);
+    } finally {
+      delete process.env.BACKUP_OFFSITE_ALLOW_LOCAL_ENDPOINT;
+    }
+  });
+
+  it('no local endpoint warning when the flag is off', async () => {
+    await runUpload();
+    expect(logged.filter((l) => /ALLOW_LOCAL_ENDPOINT/.test(l))).toHaveLength(0);
+  });
+
   it('refuses an endpoint whose name points at this server', async () => {
     svc.endpointCheck = async () => {
       throw new Error('The endpoint name points at this server, so it is refused.');
@@ -573,6 +593,11 @@ describe('OffsiteService', () => {
       lastModified: new Date(0),
       etag: '"x"',
     });
+    s3.objects.set(`${PREFIX}gratisgis-install.json`, {
+      body: Buffer.from(JSON.stringify({ installId: configRow.offsiteInstallId })),
+      lastModified: new Date(),
+      etag: '"m"',
+    });
     const s = await svc.settings();
     const removed = await svc.enforceRetention(s, s3);
     expect(removed).toBe(3);
@@ -580,10 +605,54 @@ describe('OffsiteService', () => {
       [
         `${PREFIX}archives/${newest}`,
         `${PREFIX}archives/${newest}.json`,
+        `${PREFIX}gratisgis-install.json`,
         `${PREFIX}unrelated.txt`,
         `other-portal/archives/${older}`,
       ].sort(),
     );
+  });
+
+  describe('retention in a folder another portal has taken over', () => {
+    const OLD_COPY = `${PREFIX}archives/backup-2020-01-01T00-00-00-000-99999999.tar.gz.enc`;
+    const setOwner = (installId: string) =>
+      s3.objects.set(`${PREFIX}gratisgis-install.json`, {
+        body: Buffer.from(JSON.stringify({ installId })),
+        lastModified: new Date(),
+        etag: '"m"',
+      });
+    beforeEach(() => {
+      for (const k of [OLD_COPY, `${OLD_COPY}.json`]) {
+        s3.objects.set(k, { body: Buffer.from('x'), lastModified: new Date(0), etag: '"x"' });
+      }
+    });
+
+    it('removes nothing when the folder names another portal', async () => {
+      setOwner('ffffffff-other-install');
+      expect(await svc.enforceRetention(await svc.settings(), s3)).toBe(0);
+      expect(s3.objects.has(OLD_COPY)).toBe(true);
+      expect(logged.join('\n')).toMatch(/no longer owns the off-site folder/);
+    });
+
+    it('stops before mirror clean-up when the folder changes hands midway', async () => {
+      setOwner(configRow.offsiteInstallId as string);
+      const s = await svc.settings();
+      const send = s3.send.bind(s3);
+      let markerReads = 0;
+      jest.spyOn(s3, 'send').mockImplementation(async (cmd) => {
+        const name = (cmd as { constructor: { name: string } }).constructor.name;
+        if (name === 'GetObjectCommand' && ++markerReads === 2) setOwner('ffffffff-other-install');
+        return send(cmd as never);
+      });
+      const mirrorClean = jest.spyOn(
+        (svc as unknown as { mirror: { enforceRetention: () => unknown } }).mirror,
+        'enforceRetention',
+      );
+      await svc.enforceRetention(s, s3);
+      // The first check passed (archive retention ran), the second stopped the rest.
+      expect(markerReads).toBe(2);
+      expect(mirrorClean).not.toHaveBeenCalled();
+      expect(logged.join('\n')).toMatch(/no longer owns the off-site folder/);
+    });
   });
 
   it('a copy dated in the future is kept, reported, and does not stop retention', async () => {
@@ -600,6 +669,11 @@ describe('OffsiteService', () => {
     for (const n of [good, `${good}.json`]) put(n, new Date(Date.now() - 40 * DAY));
     for (const n of [older, `${older}.json`]) put(n, new Date(Date.now() - 50 * DAY));
     for (const n of [planted, `${planted}.json`]) put(n, new Date());
+    s3.objects.set(`${PREFIX}gratisgis-install.json`, {
+      body: Buffer.from(JSON.stringify({ installId: configRow.offsiteInstallId })),
+      lastModified: new Date(),
+      etag: '"m"',
+    });
     const removed = await svc.enforceRetention(await svc.settings(), s3);
     // The good copy is still the newest one kept; the older one goes.
     expect(removed).toBe(2);

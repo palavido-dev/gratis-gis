@@ -292,6 +292,32 @@ describe('runRestore', () => {
     expect(restarted.isActive()).toBe(true);
   });
 
+  it('a pg_restore failure puts the live off-site settings back and empties the mirror record', async () => {
+    const t = setup();
+    await t.mode.activate('restore');
+    t.pgRestore.mockRejectedValue(new Error('pg_restore exited with code 1'));
+    await expect(t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toThrow(
+      /pg_restore exited/,
+    );
+    expect(t.tx).toHaveBeenCalledTimes(1);
+    expect(t.tx).toHaveBeenCalledWith([
+      'deleteOffsiteObjects',
+      { updateConfig: { data: { offsitePublicKey: 'ggpub1:live' } } },
+    ]);
+    expect(existsSync(restoreMarkerPath())).toBe(true);
+  });
+
+  it('a failed off-site reset after a failed restore still keeps the marker and the first error', async () => {
+    const t = setup();
+    await t.mode.activate('restore');
+    t.pgRestore.mockRejectedValue(new Error('pg_restore exited with code 1'));
+    t.tx.mockRejectedValue(new Error('database gone'));
+    await expect(t.svc.runRestore({ runId: 'run-src', startedBy: 'u1' })).rejects.toThrow(
+      /pg_restore exited/,
+    );
+    expect(existsSync(restoreMarkerPath())).toBe(true);
+  });
+
   it('refuses an archive with a different schema before touching anything (API-OPS-05)', async () => {
     const t = setup({ liveMigrations: [...MIGRATIONS, '20261108140000_admin_audit_event'] });
     await t.mode.activate('restore');

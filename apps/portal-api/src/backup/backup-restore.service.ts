@@ -359,6 +359,7 @@ export class BackupRestoreService {
     let started = false;
     const notStarted = (msg: string) => new RestoreNotStartedError(msg);
     let stageDir: string | null = null;
+    let history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>> | null = null;
     let filename = '';
 
     try {
@@ -436,7 +437,7 @@ export class BackupRestoreService {
 
       // 3. Backup history lives in the database the restore replaces.
       //    Keep the live rows: they describe the archives on disk.
-      const history = await this.snapshotBackupHistory();
+      history = await this.snapshotBackupHistory();
 
       // 4. Hold maintenance through the whole restore. The local hold
       //    covers this replica, the marker file covers the other one
@@ -500,6 +501,21 @@ export class BackupRestoreService {
       const msg = e instanceof Error ? e.message : String(e);
       this.log.error(`RESTORE FAILED: ${msg}`);
       if (started) {
+        // The database may hold the archive's off-site settings and its
+        // older record of mirrored files. Put the live settings back and
+        // empty the record, so off-site clean-up never works from it.
+        if (history) {
+          const kept = history;
+          await this.prisma
+            .$transaction(this.keptOffsiteOps(kept))
+            .catch((err: unknown) => {
+              this.log.error(
+                `Could not put the off-site settings back after the failed restore: ${
+                  err instanceof Error ? err.message : err
+                }`,
+              );
+            });
+        }
         // Keep the marker: the database may be half restored.
         await this.mode.endRestoreHold(false);
         throw new Error(msg);
@@ -588,14 +604,25 @@ export class BackupRestoreService {
           summary: t.summary === null ? Prisma.DbNull : (t.summary as Prisma.InputJsonValue),
         })),
       }),
-      // The archive's record of mirrored files is older than the bucket:
-      // trusting it could let clean-up remove files newer runs still
-      // use. Empty means "upload everything again", never a delete.
+      ...this.keptOffsiteOps(history),
+    ]);
+  }
+
+  /**
+   * The live off-site settings, and an empty record of mirrored files.
+   * The archive's record is older than the bucket: trusting it could
+   * let clean-up remove files newer runs still use. Empty means
+   * "upload everything again", never a delete.
+   */
+  private keptOffsiteOps(
+    history: Awaited<ReturnType<BackupRestoreService['snapshotBackupHistory']>>,
+  ) {
+    return [
       this.prisma.backupOffsiteObject.deleteMany({}),
       ...(history.offsite
         ? [this.prisma.backupConfig.updateMany({ data: history.offsite })]
         : []),
-    ]);
+    ];
   }
 
   private async assertSchemaMatches(

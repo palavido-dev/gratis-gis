@@ -3563,7 +3563,7 @@ export const fr: Partial<CatalogShape> = {
       helpLink: 'Notes de configuration pour chaque fournisseur',
       statusKey: 'clé {fingerprint}',
       problemsTitle: 'Ces réglages ont été refusés et ne sont pas utilisés :',
-      folderHint: 'Un dossier par portail. Notez-le : une restauration sur un nouveau serveur en a besoin.',
+      folderHint: 'Un dossier par portail, par exemple gratisgis-main/. Utilisez les lettres A-Z et a-z sans accents, les chiffres 0-9, les points, les tirets bas et les tirets, avec « / » entre les dossiers. Notez-le : une restauration sur un nouveau serveur en a besoin.',
       prefixRequired: 'Donnez un nom au dossier. Le bucket entier ne peut pas être le dossier.',
       keyChanged: 'Clé modifiée le {when} par {who}.',
       keyChangedSomeone: 'un administrateur',
