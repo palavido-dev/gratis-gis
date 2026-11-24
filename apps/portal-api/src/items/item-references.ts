@@ -311,18 +311,20 @@ export function withoutReferences(data: unknown, drop: ReadonlySet<string>): unk
       // layer, so an entry naming a dropped layer is left out whole.
       return value.filter((v) => !namesDroppedLayer(v, drop)).map((v) => visit(v, depth + 1));
     }
-    const out: Record<string, unknown> = {};
+    // Built from entries, so a key such as "__proto__" in the payload
+    // becomes an ordinary own property and never touches a prototype.
+    const kept: Array<[string, unknown]> = [];
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
       if (REFERENCE_KEYS.has(key) && typeof v === 'string' && drop.has(referenceKey(v))) {
         continue;
       }
       if (REFERENCE_LIST_KEYS.has(key) && Array.isArray(v)) {
-        out[key] = v.filter((id) => !(typeof id === 'string' && drop.has(referenceKey(id))));
+        kept.push([key, v.filter((id) => !(typeof id === 'string' && drop.has(referenceKey(id))))]);
         continue;
       }
-      out[key] = visit(v, depth + 1);
+      kept.push([key, visit(v, depth + 1)]);
     }
-    return out;
+    return Object.fromEntries(kept);
   };
   return visit(data, 0);
 }
