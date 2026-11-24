@@ -939,6 +939,9 @@ export const es: Partial<CatalogShape> = {
     saving: 'Guardando...',
     cancel: 'Cancelar',
     failed: 'No se pudo guardar la copia',
+    omittedTitle: 'Guardado sin algunas referencias',
+    omittedBody: 'No se encontraron estos elementos, así que la copia no los incluye:',
+    openCopy: 'Abrir la copia',
   },
   mapMeasure: {
     title: 'Medir',

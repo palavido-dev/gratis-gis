@@ -937,6 +937,9 @@ export const de: Partial<CatalogShape> = {
     saving: 'Wird gespeichert...',
     cancel: 'Abbrechen',
     failed: 'Die Kopie konnte nicht gespeichert werden',
+    omittedTitle: 'Ohne einige Verweise gespeichert',
+    omittedBody: 'Diese Elemente wurden nicht gefunden, daher fehlen sie in der Kopie:',
+    openCopy: 'Kopie öffnen',
   },
   mapMeasure: {
     title: 'Messen',

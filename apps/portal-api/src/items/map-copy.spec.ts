@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { mapDataForCopy } from './map-copy.js';
+import { mapDataForCopy, mapDataWithoutReferences } from './map-copy.js';
 
 const customAccess = {
   policy: 'custom',
@@ -76,5 +76,61 @@ describe('mapDataForCopy', () => {
     >;
     const out = mapDataForCopy(bad, { includeMarkup: false, sourceEditable: true });
     expect(out.layers).toEqual([{ id: 'ok' }]);
+  });
+});
+
+describe('mapDataWithoutReferences', () => {
+  const HIDDEN = '00000000-0000-4000-8000-0000000000a1';
+  const SEEN = '00000000-0000-4000-8000-0000000000b1';
+  const OTHER = '00000000-0000-4000-8000-0000000000c1';
+
+  it('leaves out what names a dropped id and keeps the rest', () => {
+    const out = mapDataWithoutReferences(
+      {
+        basemap: HIDDEN,
+        clipBoundaryId: HIDDEN,
+        defaultExtentBoundaryId: SEEN,
+        geocoderId: HIDDEN,
+        terrain: {
+          itemId: HIDDEN,
+          tileUrl: 'hidden',
+          stack: [
+            { itemId: HIDDEN, tileUrl: 'hidden' },
+            { itemId: OTHER, tileUrl: 'other' },
+          ],
+        },
+        layers: [
+          { id: 'gone', source: { kind: 'data-layer', itemId: HIDDEN, layerKey: 'k' } },
+          { id: 'clipped', source: { kind: 'data-layer', itemId: SEEN }, boundaryFilterItemId: HIDDEN },
+          {
+            id: 'arcgis',
+            source: { kind: 'arcgis-rest', url: 'https://example.test/FeatureServer/0', sourceItemId: HIDDEN },
+          },
+          { id: 'kept', source: { kind: 'data-layer', itemId: SEEN, layerKey: 'k' } },
+        ],
+      },
+      new Set([HIDDEN]),
+    );
+    expect(out.basemap).toBe('');
+    expect(out).not.toHaveProperty('clipBoundaryId');
+    expect(out).not.toHaveProperty('geocoderId');
+    expect(out.defaultExtentBoundaryId).toBe(SEEN);
+    expect(out.terrain).toEqual({
+      itemId: OTHER,
+      tileUrl: 'other',
+      stack: [{ itemId: OTHER, tileUrl: 'other' }],
+    });
+    const layers = out.layers as Array<{ id: string; source: Record<string, unknown> }>;
+    expect(layers.map((l) => l.id)).toEqual(['arcgis', 'kept']);
+    expect(layers[0]!.source).not.toHaveProperty('sourceItemId');
+    expect(JSON.stringify(out)).not.toContain(HIDDEN);
+  });
+
+  it('removes terrain when nothing in it remains', () => {
+    const out = mapDataWithoutReferences(
+      { terrain: { itemId: HIDDEN, tileUrl: 'x', stack: [{ itemId: HIDDEN, tileUrl: 'x' }] } },
+      new Set([HIDDEN]),
+    );
+    expect(out).not.toHaveProperty('terrain');
   });
 });

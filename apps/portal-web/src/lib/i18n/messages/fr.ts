@@ -937,6 +937,9 @@ export const fr: Partial<CatalogShape> = {
     saving: 'Enregistrement...',
     cancel: 'Annuler',
     failed: 'Impossible d’enregistrer la copie',
+    omittedTitle: 'Enregistré sans certaines références',
+    omittedBody: 'Ces éléments sont introuvables, la copie ne les inclut donc pas :',
+    openCopy: 'Ouvrir la copie',
   },
   mapMeasure: {
     title: 'Mesurer',

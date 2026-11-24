@@ -51,6 +51,9 @@ export function SaveMapCopyDialog({
   const [includeMarkup, setIncludeMarkup] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when the copy was saved without some references the caller
+  // cannot open: the dialog lists their ids before moving on.
+  const [omitted, setOmitted] = useState<{ id: string; itemIds: string[] } | null>(null);
   // A held Enter fires submit again before `saving` re-renders, which
   // would create two copies.
   const inFlight = useRef(false);
@@ -60,11 +63,17 @@ export function SaveMapCopyDialog({
     setTitle(t('mapSaveAs.defaultTitle', { title: sourceTitle }).slice(0, TITLE_MAX));
     setIncludeMarkup(true);
     setError(null);
+    setOmitted(null);
   }, [open, sourceTitle, t]);
+
+  function openCopy(id: string) {
+    onBeforeNavigate?.();
+    window.location.assign(`/items/${id}?view=configure`);
+  }
 
   async function submit() {
     const name = title.trim();
-    if (!name || inFlight.current) return;
+    if (!name || inFlight.current || omitted) return;
     inFlight.current = true;
     let leaving = false;
     setSaving(true);
@@ -84,10 +93,16 @@ export function SaveMapCopyDialog({
         setError(await parseApiError(res, t('mapSaveAs.failed')));
         return;
       }
-      const created = (await res.json()) as { id: string };
-      onBeforeNavigate?.();
+      const created = (await res.json()) as { id: string; omittedItemIds?: unknown };
+      const left = Array.isArray(created.omittedItemIds)
+        ? created.omittedItemIds.filter((v): v is string => typeof v === 'string')
+        : [];
+      if (left.length > 0) {
+        setOmitted({ id: created.id, itemIds: left });
+        return;
+      }
       leaving = true;
-      window.location.assign(`/items/${created.id}?view=configure`);
+      openCopy(created.id);
     } finally {
       if (!leaving) {
         inFlight.current = false;
@@ -144,7 +159,33 @@ export function SaveMapCopyDialog({
             ) : null}
             <p className="text-xs text-muted">{t('mapSaveAs.layersNote')}</p>
             {error ? <p className="text-xs text-danger">{error}</p> : null}
+            {omitted ? (
+              <div
+                role="status"
+                className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-ink-0"
+              >
+                <p className="font-medium">{t('mapSaveAs.omittedTitle')}</p>
+                <p className="mt-1 text-muted">{t('mapSaveAs.omittedBody')}</p>
+                <ul className="mt-1 list-disc pl-4 font-mono">
+                  {omitted.itemIds.map((itemId) => (
+                    <li key={itemId}>{itemId}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
+          {omitted ? (
+            <DialogFooter>
+              <button
+                type="button"
+                autoFocus
+                onClick={() => openCopy(omitted.id)}
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:opacity-90"
+              >
+                {t('mapSaveAs.openCopy')}
+              </button>
+            </DialogFooter>
+          ) : (
           <DialogFooter>
             <button
               type="button"
@@ -163,6 +204,7 @@ export function SaveMapCopyDialog({
               {saving ? t('mapSaveAs.saving') : t('mapSaveAs.submit')}
             </button>
           </DialogFooter>
+          )}
         </form>
       </DialogContent>
     </Dialog>

@@ -986,6 +986,9 @@ export const en = {
     saving: 'Saving...',
     cancel: 'Cancel',
     failed: 'Could not save the copy',
+    omittedTitle: 'Saved without some references',
+    omittedBody: 'These items could not be found, so the copy leaves them out:',
+    openCopy: 'Open the copy',
   },
   mapMeasure: {
     title: 'Measure',

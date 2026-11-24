@@ -34,7 +34,7 @@ import { stampFormEngineVersion } from '../forms/form-engine-stamp.js';
 import { assertFormPatternsCompile } from '../forms/form-pattern-check.js';
 import { assertFormNotifyLimits } from '../forms/form-notify-limits.js';
 import { pickDefaultBasemap } from './default-basemap.js';
-import { mapDataForCopy } from './map-copy.js';
+import { mapDataForCopy, mapDataWithoutReferences } from './map-copy.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { effectiveCapabilities, hasCapability } from '../auth/capabilities.js';
 import {
@@ -160,6 +160,12 @@ import { DerivedLayersService } from '../derived-layers/derived-layers.service.j
 import { assertCurrentDataLayerVersion } from '../features/legacy-feature-tables.js';
 import { isMultiTenant } from '../common/tenancy.js';
 import { isUuidShape } from '../common/uuid-shape.js';
+import {
+  assertAddedReferencesReadable,
+  mapLayerBackingItemId,
+  referencedItemIds,
+  type ReferenceSource,
+} from './item-references.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
 import {
@@ -601,6 +607,9 @@ export interface ClientWriteOptions {
   clientKeys?: boolean;
   /** Note on the snapshot a data_layer save takes first. */
   snapshotNote?: string;
+  /** Internal: reference ids the caller has just found readable
+   *  (Save as), so create() does not look them up again. */
+  checkedReferenceIds?: readonly string[];
 }
 
 /**
@@ -1760,6 +1769,14 @@ export class ItemsService {
     // An install that serves many orgs keeps every data layer in the
     // shared observation table (version 3), never in a per-item table.
     assertCurrentDataLayerVersion(input.type, input.data);
+    // Every item the new data refers to must be readable by its author.
+    await this.assertNewReferencesReadable(
+      user,
+      null,
+      { type: input.type, data: input.data },
+      input.id,
+      opts.checkedReferenceIds,
+    );
 
     // For map items, resolve the empty-string basemap sentinel from
     // DEFAULT_MAP to the org's default seeded basemap (OpenStreetMap,
@@ -1786,7 +1803,6 @@ export class ItemsService {
       )) as Prisma.InputJsonValue;
     }
     if (input.type === 'map') {
-      await this.assertAddedMapLayersReadable(user, resolvedData, null);
       resolvedData = (await this.resolveMapExpressionSources(
         user,
         resolvedData,
@@ -2067,6 +2083,8 @@ export class ItemsService {
     rawData: Prisma.InputJsonValue,
     /** The org that owns (or will own) the derived layer. */
     orgId: string,
+    /** The recipe as stored, null for a new derived layer. */
+    prevData: unknown = null,
   ): Promise<Prisma.JsonValue> {
     if (!rawData || typeof rawData !== 'object') {
       throw new BadRequestException('derived_layer data must be an object');
@@ -2079,22 +2097,31 @@ export class ItemsService {
         'derived_layer.source.itemId is required',
       );
     }
+    // Same rule as every other reference (item-references.ts): inputs
+    // the stored recipe already had are not checked again, so the
+    // author can still edit a derived layer whose source was unshared
+    // since. Every read of it still checks the reader's access to
+    // each input (derivedInputScopeLimit), the author's included.
+    // New inputs were checked for readability by the save before
+    // this runs; a new source also has its whole chain checked here.
+    const stored = new Set(
+      prevData === null
+        ? []
+        : extractDependencies({ type: 'derived_layer', data: prevData }).itemIds.map((id) =>
+            id.toLowerCase(),
+          ),
+    );
     const source = await this.assertReadableDerivedLayerChain(
       user,
       sourceRef.itemId,
+      !stored.has(sourceRef.itemId.toLowerCase()),
     );
-    // SEC-otherSource-acl: pipeline tools (clip/erase/join/filter)
-    // may reference a second data_layer. Those ids must be readable
-    // too, or a shared derived layer becomes an IDOR oracle.
-    const pipelineDeps = extractDependencies({
-      type: 'derived_layer',
-      data: rawData,
-    });
-    for (const depId of pipelineDeps.itemIds) {
-      if (depId === sourceRef.itemId) continue;
-      await this.assertReadableDerivedLayerInput(user, depId);
+    const added = extractDependencies({ type: 'derived_layer', data: rawData })
+      .itemIds.map((id) => id.toLowerCase())
+      .filter((id) => !stored.has(id));
+    if (added.length > 0) {
+      await this.assertDerivedInputsUnscoped(user, rawData, new Set(added));
     }
-    await this.assertDerivedInputsUnscoped(user, rawData);
     const expressionData = await this.recipeExpressionData(user, source, rawData);
     const enriched = await this.derivedLayers.validateAndEnrich(
       rawData,
@@ -2119,6 +2146,9 @@ export class ItemsService {
     user: AuthUser,
     rootData: unknown,
     nodes: DerivedNodeCache = new Map(),
+    /** Walk only these of the recipe's own inputs (and everything
+     *  under them). Unset walks every input. */
+    rootOnly?: ReadonlySet<string>,
   ): Promise<string | null> {
     const visited = new Set<string>();
     const queue: unknown[] = [rootData];
@@ -2131,6 +2161,7 @@ export class ItemsService {
       if (walked > 1 + MAX_DERIVED_CHAIN_DEPTH * 4) return DERIVED_WALK_CAPPED;
       const deps = extractDependencies({ type: 'derived_layer', data });
       for (const depId of deps.itemIds) {
+        if (walked === 1 && rootOnly && !rootOnly.has(depId.toLowerCase())) continue;
         if (visited.has(depId)) continue;
         visited.add(depId);
         let node = nodes.get(depId);
@@ -2210,11 +2241,22 @@ export class ItemsService {
     if (!base || typeof base !== 'object' || Array.isArray(base)) {
       throw new BadRequestException('Map data must be an object.');
     }
-    const data = mapDataForCopy(base as Record<string, unknown>, {
+    const copied = mapDataForCopy(base as Record<string, unknown>, {
       includeMarkup: input.includeMarkup,
       sourceEditable: this.sharing.canEdit(user, source, source.shares),
     });
-    return this.create(
+    // The copy is a new item, so every reference in it is new to it and
+    // must be readable by the person saving it. Rather than refuse the
+    // whole copy, leave out what they cannot read and say which ids,
+    // nothing more about those items, as the web map import does.
+    const refs = referencedItemIds({ type: 'map', data: copied });
+    const hidden = refs.length > 0 ? await this.unreadableItemIds(user, refs) : new Set<string>();
+    const omittedItemIds = refs.filter((ref) => hidden.has(ref));
+    const data =
+      omittedItemIds.length > 0
+        ? mapDataWithoutReferences(copied, new Set(omittedItemIds))
+        : copied;
+    const created = await this.create(
       user,
       {
         type: 'map',
@@ -2227,8 +2269,18 @@ export class ItemsService {
           (source.thumbnailDesign as Prisma.InputJsonValue | null) ?? null,
         license: source.license,
       },
-      { clientKeys: true },
+      {
+        clientKeys: true,
+        checkedReferenceIds: refs.filter((ref) => !hidden.has(ref)),
+      },
     );
+    return {
+      ...created,
+      omittedItemIds,
+      warnings: omittedItemIds.map(
+        (ref) => `A reference to item ${ref} was left out: the item was not found.`,
+      ),
+    };
   }
 
   /**
@@ -2400,33 +2452,36 @@ export class ItemsService {
   }
 
   /**
-   * A map save may only add layers whose items the author can read.
-   * Layers already in the stored map are not checked again: an item
-   * may have been unshared since, and the author must still be able
-   * to edit and save the map. Reads through the map are filtered for
-   * each viewer either way (filterMapForViewer).
+   * The save rule for references between items (item-references.ts):
+   * every reference new in this save must name an item the author can
+   * read. `stored` is the item as it is now, null for a new item. The
+   * item's own id is never a reference to check. `alreadyChecked`
+   * lists ids a caller has just checked itself (Save as), so the save
+   * does not look them up a second time.
    */
-  private async assertAddedMapLayersReadable(
+  private async assertNewReferencesReadable(
     user: AuthUser,
-    nextData: unknown,
-    prevData: unknown,
+    stored: ReferenceSource | null,
+    incoming: ReferenceSource,
+    selfId?: string,
+    alreadyChecked: readonly string[] = [],
   ): Promise<void> {
-    const before = new Set(mapLayerBackingItemIds(prevData));
-    const added = mapLayerBackingItemIds(nextData).filter((id) => !before.has(id));
-    if (added.length === 0) return;
-    const unreadable = await this.unreadableItemIds(user, added);
-    const first = added.find((id) => unreadable.has(id));
-    if (first !== undefined) {
-      throw new BadRequestException(`Map layer item ${first} was not found.`);
-    }
+    const self = selfId?.toLowerCase();
+    await assertAddedReferencesReadable(
+      (author: AuthUser, ids: string[]) => this.unreadableItemIds(author, ids),
+      user,
+      [...referencedItemIds(stored), ...alreadyChecked.map((id) => id.toLowerCase())],
+      referencedItemIds(incoming).filter((id) => id !== self),
+    );
   }
 
   /** Save and preview form of derivedInputScopeLimit: refuse. */
   private async assertDerivedInputsUnscoped(
     user: AuthUser,
     rootData: unknown,
+    rootOnly?: ReadonlySet<string>,
   ): Promise<void> {
-    if ((await this.derivedInputScopeLimit(user, rootData)) !== null) {
+    if ((await this.derivedInputScopeLimit(user, rootData, new Map(), rootOnly)) !== null) {
       throw new ForbiddenException(
         'A layer this recipe reads is shared to you with a row or area limit, which a derived layer cannot honour.',
       );
@@ -2473,6 +2528,10 @@ export class ItemsService {
   private async assertReadableDerivedLayerChain(
     user: AuthUser,
     startId: string,
+    /** False for a source the recipe already stored: the save rule
+     *  checks only new references, so the author may keep a source
+     *  they can no longer read. The shape checks still apply. */
+    checkRead = true,
   ): Promise<
     Prisma.ItemGetPayload<{ include: { shares: true } }>
   > {
@@ -2490,7 +2549,7 @@ export class ItemsService {
       if (
         !node ||
         node.deletedAt !== null ||
-        !this.sharing.canRead(user, node, node.shares)
+        (checkRead && !this.sharing.canRead(user, node, node.shares))
       ) {
         throw new BadRequestException(
           'derived_layer.source.itemId does not point at an accessible data layer',
@@ -2943,6 +3002,32 @@ export class ItemsService {
         );
       }
     }
+    // A save may keep the references the item already holds, even to
+    // an item the author can no longer read; every new one must be
+    // readable by the author (item-references.ts).
+    if (
+      input.data !== undefined ||
+      input.publicGeoBoundaryId !== undefined ||
+      input.orgGeoBoundaryId !== undefined
+    ) {
+      await this.assertNewReferencesReadable(
+        user,
+        tierFields,
+        {
+          type: item.type,
+          data: input.data !== undefined ? input.data : item.data,
+          publicGeoBoundaryId:
+            input.publicGeoBoundaryId !== undefined
+              ? input.publicGeoBoundaryId
+              : (tierFields.publicGeoBoundaryId ?? null),
+          orgGeoBoundaryId:
+            input.orgGeoBoundaryId !== undefined
+              ? input.orgGeoBoundaryId
+              : (tierFields.orgGeoBoundaryId ?? null),
+        },
+        id,
+      );
+    }
     const prevLayers =
       item.type === 'data_layer' ? readV3Layers(item.data) : null;
     // If this update replaces the data blob, snapshot what was there
@@ -3008,13 +3093,13 @@ export class ItemsService {
         user,
         input.data,
         item.orgId,
+        item.data,
       )) as Prisma.InputJsonValue;
     }
     if (nextData !== undefined && item.type === 'report_template') {
       nextData = reportTemplateDataOrThrow(nextData) as unknown as Prisma.InputJsonValue;
     }
     if (nextData !== undefined && item.type === 'map') {
-      await this.assertAddedMapLayersReadable(user, nextData, item.data);
       nextData = (await this.resolveMapExpressionSources(
         user,
         nextData,
@@ -3299,6 +3384,16 @@ export class ItemsService {
           }`,
         );
       }
+    }
+    // A derived layer saved by an author who can no longer read one of
+    // its inputs answers like a read would: no extent and no cached
+    // values taken from that input's rows.
+    if (
+      updated.type === 'derived_layer' &&
+      nextData !== undefined &&
+      (await this.derivedInputScopeLimit(user, updated.data)) !== null
+    ) {
+      return redactDerivedExtent(updated);
     }
     return updated;
   }
@@ -5379,47 +5474,7 @@ function assertCanShare(user: AuthUser): void {
 /** Input items read while walking derived recipes, by id. */
 type DerivedNodeCache = Map<string, (Item & { shares: ItemShare[] }) | null>;
 
-/** The backing item ids of every layer in a map's data. */
-export function mapLayerBackingItemIds(data: unknown): string[] {
-  const layers = (data as { layers?: unknown } | null | undefined)?.layers;
-  if (!Array.isArray(layers)) return [];
-  const out = new Set<string>();
-  for (const layer of layers) {
-    const id = mapLayerBackingItemId(layer);
-    if (id !== null) out.add(id);
-  }
-  return [...out];
-}
-
-/**
- * The portal item a map layer reads through, or null for a url or
- * inline source. Each source kind names its item in its own field
- * (shared-types MapLayerSource). The old check looked for an
- * `arcgis_service` kind that no stored layer has, so ArcGIS, tile,
- * point-cloud and PostGIS Live layers backed by a private item were
- * never dropped for a viewer who cannot read that item.
- */
-export function mapLayerBackingItemId(layer: unknown): string | null {
-  const src = (layer as { source?: Record<string, unknown> } | null)?.source;
-  if (!src || typeof src !== 'object') return null;
-  let id: unknown;
-  switch (src.kind) {
-    case 'data-layer':
-    case 'tile':
-    case 'point-cloud':
-      id = src.itemId;
-      break;
-    case 'arcgis-rest':
-      id = src.sourceItemId;
-      break;
-    case 'postgis-live':
-      id = src.serviceItemId;
-      break;
-    default:
-      return null;
-  }
-  return typeof id === 'string' && id.length > 0 ? id : null;
-}
+export { mapLayerBackingItemId, mapLayerBackingItemIds } from './item-references.js';
 
 /** tile_layer data keys only the server writes. */
 const TILE_WORKER_KEYS = [

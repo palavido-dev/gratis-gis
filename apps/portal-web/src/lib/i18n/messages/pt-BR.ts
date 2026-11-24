@@ -935,6 +935,9 @@ export const ptBR: Partial<CatalogShape> = {
     saving: 'Salvando...',
     cancel: 'Cancelar',
     failed: 'Não foi possível salvar a cópia',
+    omittedTitle: 'Salvo sem algumas referências',
+    omittedBody: 'Estes itens não foram encontrados, então a cópia os deixa de fora:',
+    openCopy: 'Abrir a cópia',
   },
   mapMeasure: {
     title: 'Medir',
