@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -15,9 +16,14 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
+import {
+  publicListScope,
+  scopedWhere,
+  type ItemListScope,
+} from '../../common/list-scope.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { rejectUnknownParams } from '../ogc/features-core.js';
-import { absoluteBase } from '../ogc/url.js';
+import { absoluteBase, withOrgLinks } from '../ogc/url.js';
 import {
   ITEMS_PARAM_NAMES,
   RASTER_COLLECTION_ID,
@@ -33,6 +39,20 @@ import {
   rejectUnknownMembers,
   type StacItemRow,
 } from './stac-core.js';
+
+/** Paths of the public STAC lists and catalog documents. */
+const STAC_LIST_PATHS = [
+  '/api/public/stac',
+  '/api/public/stac/',
+  '/api/public/stac/collections',
+  `/api/public/stac/collections/${RASTER_COLLECTION_ID}`,
+  `/api/public/stac/collections/${RASTER_COLLECTION_ID}/items`,
+  '/api/public/stac/search',
+] as const;
+
+/** The public lists also take `org`, which names the organization. */
+const PUBLIC_ITEMS_PARAM_NAMES = [...ITEMS_PARAM_NAMES, 'org'] as const;
+const PUBLIC_SEARCH_PARAM_NAMES = [...SEARCH_PARAM_NAMES, 'org'] as const;
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -60,9 +80,9 @@ const UUID_RE =
 export class PublicStacController {
   constructor(private readonly prisma: PrismaService) {}
 
-  private rows(): Promise<StacItemRow[]> {
+  private rows(scope: ItemListScope): Promise<StacItemRow[]> {
     return this.prisma.item.findMany({
-      where: { type: 'tile_layer', access: 'public', deletedAt: null },
+      where: scopedWhere({ type: 'tile_layer', access: 'public', deletedAt: null }, scope),
       select: STAC_ITEM_SELECT,
       orderBy: { updatedAt: 'desc' },
     });
@@ -72,14 +92,15 @@ export class PublicStacController {
   // Static catalogue doc (SEC-stac-ogc-landing-doc-throttle).
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
-  landing(@Req() req: Request) {
+  async landing(@Req() req: Request, @Query('org') orgSlug?: string) {
+    const { org, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
     const root = `${base}/api/public/stac`;
-    return {
+    return withOrgLinks({
       type: 'Catalog',
       stac_version: STAC_VERSION,
       id: 'gratisgis',
-      title: 'GratisGIS STAC API',
+      title: org ? `${org.name} STAC API` : 'GratisGIS STAC API',
       description:
         'SpatioTemporal Asset Catalog over the publicly-shared raster ' +
         'layers hosted by this GratisGIS portal. Signed-in users can ' +
@@ -87,7 +108,7 @@ export class PublicStacController {
         'document shapes.',
       conformsTo: STAC_CONFORMANCE,
       links: stacLandingLinks(root),
-    };
+    }, slug, STAC_LIST_PATHS);
   }
 
   @Public()
@@ -111,10 +132,11 @@ export class PublicStacController {
   // (SEC-stac-collections-throttle; same 60/min as STAC items/search).
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('collections')
-  async collections(@Req() req: Request) {
+  async collections(@Req() req: Request, @Query('org') orgSlug?: string) {
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const root = `${absoluteBase(req)}/api/public/stac`;
-    const rows = await this.rows();
-    return {
+    const rows = await this.rows(scope);
+    return withOrgLinks({
       collections: [buildRasterCollection(rows, root)],
       links: [
         {
@@ -124,7 +146,7 @@ export class PublicStacController {
         },
         { href: `${root}/`, rel: 'root', type: 'application/json' },
       ],
-    };
+    }, slug, STAC_LIST_PATHS);
   }
 
   @Public()
@@ -134,10 +156,16 @@ export class PublicStacController {
   async collection(
     @Req() req: Request,
     @Param('collectionId') collectionId: string,
+    @Query('org') orgSlug?: string,
   ) {
     requireRasterCollection(collectionId);
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const root = `${absoluteBase(req)}/api/public/stac`;
-    return buildRasterCollection(await this.rows(), root);
+    return withOrgLinks(
+      buildRasterCollection(await this.rows(scope), root),
+      slug,
+      STAC_LIST_PATHS,
+    );
   }
 
   @Public()
@@ -150,22 +178,28 @@ export class PublicStacController {
   async items(
     @Req() req: Request,
     @Param('collectionId') collectionId: string,
+    @Query('org') orgSlug?: string,
   ) {
     requireRasterCollection(collectionId);
-    rejectUnknownParams(Object.keys(req.query), ITEMS_PARAM_NAMES);
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
+    rejectUnknownParams(Object.keys(req.query), PUBLIC_ITEMS_PARAM_NAMES);
     const params = parseSearchParams(
       req.query as Record<string, unknown>,
     );
     const base = absoluteBase(req);
     const root = `${base}/api/public/stac`;
-    return buildItemCollection({
-      rows: await this.rows(),
-      params,
-      base,
-      apiRoot: root,
-      selfUrl: `${root}/collections/${RASTER_COLLECTION_ID}/items`,
-      extraQuery: passthroughQuery(req.query, ITEMS_PARAM_NAMES),
-    });
+    return withOrgLinks(
+      buildItemCollection({
+        rows: await this.rows(scope),
+        params,
+        base,
+        apiRoot: root,
+        selfUrl: `${root}/collections/${RASTER_COLLECTION_ID}/items`,
+        extraQuery: passthroughQuery(req.query, ITEMS_PARAM_NAMES),
+      }),
+      slug,
+      STAC_LIST_PATHS,
+    );
   }
 
   @Public()
@@ -201,19 +235,24 @@ export class PublicStacController {
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('search')
   @Header('Content-Type', STAC_GEOJSON_MEDIA_TYPE)
-  async searchGet(@Req() req: Request) {
-    rejectUnknownParams(Object.keys(req.query), SEARCH_PARAM_NAMES);
+  async searchGet(@Req() req: Request, @Query('org') orgSlug?: string) {
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
+    rejectUnknownParams(Object.keys(req.query), PUBLIC_SEARCH_PARAM_NAMES);
     const params = parseSearchParams(req.query as Record<string, unknown>);
     const base = absoluteBase(req);
     const root = `${base}/api/public/stac`;
-    return buildItemCollection({
-      rows: await this.rows(),
-      params,
-      base,
-      apiRoot: root,
-      selfUrl: `${root}/search`,
-      extraQuery: passthroughQuery(req.query, SEARCH_PARAM_NAMES),
-    });
+    return withOrgLinks(
+      buildItemCollection({
+        rows: await this.rows(scope),
+        params,
+        base,
+        apiRoot: root,
+        selfUrl: `${root}/search`,
+        extraQuery: passthroughQuery(req.query, SEARCH_PARAM_NAMES),
+      }),
+      slug,
+      STAC_LIST_PATHS,
+    );
   }
 
   /**
@@ -228,19 +267,27 @@ export class PublicStacController {
   async searchPost(
     @Req() req: Request,
     @Body() body: Record<string, unknown>,
+    @Query('org') orgSlug?: string,
   ) {
+    // The organization is named in the query string (`?org=`), not
+    // the body, so the body keeps the standard STAC search members.
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     rejectUnknownMembers(body ?? {}, SEARCH_PARAM_NAMES);
     const params = parseSearchParams(body ?? {});
     const base = absoluteBase(req);
     const root = `${base}/api/public/stac`;
-    return buildItemCollection({
-      rows: await this.rows(),
-      params,
-      base,
-      apiRoot: root,
-      selfUrl: `${root}/search`,
-      postBody: body ?? {},
-    });
+    return withOrgLinks(
+      buildItemCollection({
+        rows: await this.rows(scope),
+        params,
+        base,
+        apiRoot: root,
+        selfUrl: `${root}/search`,
+        postBody: body ?? {},
+      }),
+      slug,
+      STAC_LIST_PATHS,
+    );
   }
 }
 

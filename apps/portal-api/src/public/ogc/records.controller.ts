@@ -13,7 +13,8 @@ import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { absoluteBase } from './url.js';
+import { OGC_LIST_PATHS, absoluteBase, withOrgLinks } from './url.js';
+import { publicListScope, scopedWhere } from '../../common/list-scope.js';
 import {
   ITEM_SELECT,
   UUID_RE,
@@ -66,7 +67,9 @@ export class OgcRecordsController {
     @Query('type') typeParam?: string,
     @Query('sortby') sortbyParam?: string,
     @Query('bbox') bboxParam?: string,
+    @Query('org') orgSlug?: string,
   ) {
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
     const selfBase = `${base}/api/public/ogc/records`;
     const rootHref = `${base}/api/public/ogc/`;
@@ -85,7 +88,7 @@ export class OgcRecordsController {
       sortby: sortbyParam,
       bbox: bboxParam,
     });
-    const where = recordsWhere({ q, type: typeParam });
+    const where = scopedWhere(recordsWhere({ q, type: typeParam }), scope);
     const orderBy = parseSortby(sortbyParam);
 
     const { rows, total } = await queryPublicRecords(this.prisma, {
@@ -95,13 +98,10 @@ export class OgcRecordsController {
       limit,
       bbox: bboxParam,
     });
-    return buildRecordsPage(
-      rows,
-      total,
-      base,
-      selfBase,
-      params,
-      rootHref,
+    return withOrgLinks(
+      buildRecordsPage(rows, total, base, selfBase, params, rootHref),
+      slug,
+      OGC_LIST_PATHS,
     );
   }
 

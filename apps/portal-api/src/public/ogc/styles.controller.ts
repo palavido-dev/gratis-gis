@@ -5,6 +5,7 @@ import {
   Header,
   NotFoundException,
   Param,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -13,7 +14,12 @@ import type { Request } from 'express';
 
 import { Public } from '../../auth/public.decorator.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { absoluteBase } from './url.js';
+import { OGC_LIST_PATHS, absoluteBase, withOrgLinks } from './url.js';
+import {
+  publicListScope,
+  scopedWhere,
+  type ItemListScope,
+} from '../../common/list-scope.js';
 import { parseCollectionId, formatCollectionId } from './collection-id.js';
 
 /**
@@ -49,10 +55,11 @@ export class OgcStylesController {
   // as OGC Features / STAC list-class routes).
   @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Get('/')
-  async styles(@Req() req: Request) {
+  async styles(@Req() req: Request, @Query('org') orgSlug?: string) {
+    const { scope, slug } = await publicListScope(this.prisma, { slug: orgSlug });
     const base = absoluteBase(req);
-    const rows = await this.publicV3LayersForStyles();
-    return {
+    const rows = await this.publicV3LayersForStyles(scope);
+    return withOrgLinks({
       links: [
         {
           href: `${base}/api/public/ogc/styles`,
@@ -89,7 +96,7 @@ export class OgcStylesController {
           },
         ],
       })),
-    };
+    }, slug, OGC_LIST_PATHS);
   }
 
   @Public()
@@ -159,13 +166,16 @@ export class OgcStylesController {
    * plus the bare-UUID alias for the first layer (mirrors
    * Features controller listing).
    */
-  private async publicV3LayersForStyles(): Promise<StyleRow[]> {
+  private async publicV3LayersForStyles(scope: ItemListScope): Promise<StyleRow[]> {
     const rows = await this.prisma.item.findMany({
-      where: {
-        type: 'data_layer',
-        access: 'public',
-        deletedAt: null,
-      },
+      where: scopedWhere(
+        {
+          type: 'data_layer',
+          access: 'public',
+          deletedAt: null,
+        },
+        scope,
+      ),
       select: {
         id: true,
         title: true,
