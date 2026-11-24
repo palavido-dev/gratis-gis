@@ -982,6 +982,10 @@ model BackupRun {
   offsiteFinishedAt DateTime? @map("offsite_finished_at") @db.Timestamptz(6)
   /// Liveness beat while the upload runs, like heartbeatAt.
   offsiteHeartbeatAt DateTime? @map("offsite_heartbeat_at") @db.Timestamptz(6)
+  /// Upload speed sample: bytes the provider confirmed and the
+  /// milliseconds they took. Null for a copy that sent nothing.
+  offsiteSampleBytes BigInt? @map("offsite_sample_bytes")
+  offsiteSampleMs    Int?    @map("offsite_sample_ms")
 
   @@index([startedAt(sort: Desc)])
   /// Partial unique index `backup_run_one_running_idx` (see migration

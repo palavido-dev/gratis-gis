@@ -194,25 +194,33 @@ copy has succeeded for the number of days you set (3 by default).
 ### Very large backups
 
 **Longest upload** (20 hours unless you change it, from 1 to 72) is
-the most time one off-site upload may take. Before an upload starts,
-the portal estimates how long it will take: the size of the backup
-divided by the upload speed. The speed is the slowest of the last three
-successful uploads of at least 256 MB (size over the time from start to
-finish). Until there is one, it assumes 256 KiB/s (about 2 Mbit/s).
+the most time one off-site upload may take.
 
-- When the estimate is longer than **Longest upload**, the backup is
-  not sent. Its off-site copy fails at once with a message that says
-  so; the local backup is not affected.
-- Otherwise the upload is tried. If it is still running when
-  **Longest upload** runs out, it is stopped and marked failed.
+The portal measures the upload speed from what the provider confirmed
+and how long it took. A speed sample comes from each upload that sent
+at least 256 MB or ran at least 10 minutes, including one stopped
+because it ran out of time. A copy that was already complete in the
+bucket sends nothing and is not a sample. The speed in use is the
+slowest of the last three samples.
+
+- With a measured speed, the portal estimates the upload time: the
+  size of the backup divided by that speed. When the estimate is longer
+  than **Longest upload**, the backup is not sent. Its off-site copy
+  fails at once with a message that says so; the local backup is not
+  affected.
+- Otherwise, and always while no speed has been measured, the upload
+  is tried. If it is still running when **Longest upload** runs out, it
+  is stopped and marked failed, and what it sent so far becomes a speed
+  sample for the next backup.
 
 For these two failures the operator admins get one notice, not one a
 night. Another one goes out only after a good copy, or after you change
 **Longest upload**.
 
-The page shows the upload speed in use, the size of the newest backup
-with its estimated upload time, and the largest backup that fits, so
-you can see a backup growing towards that size. A **Longest upload**
+The page shows **Longest upload** and the measured speed, or "not
+measured yet". With a measured speed it also shows the newest backup's
+estimated upload time and the largest backup that fits, so you can see
+a backup growing towards that size. A **Longest upload**
 longer than the time between backups is allowed: a backup that
 finishes while an upload runs is skipped, as above.
 

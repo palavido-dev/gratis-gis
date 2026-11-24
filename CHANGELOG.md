@@ -28,13 +28,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   checksum, run one at a time per install, and keep the newest good
   copy whatever the retention. Each portal claims its own folder in the
   bucket. One upload may take at most "Longest upload" (20 hours by
-  default, 1 to 72, `BACKUP_OFFSITE_MAX_UPLOAD_HOURS`). A backup whose
-  estimated upload time (its size at the slowest of the last three
-  measured upload speeds, or 256 KiB/s before any) is longer is not
-  sent: its off-site copy fails with a message that says so. Any other
-  is tried and stopped when the time runs out. These two failures send
-  one notice until a good copy or a changed limit. The page shows the
-  speed, the newest backup's estimated upload time and the limit. A
+  default, 1 to 72, `BACKUP_OFFSITE_MAX_UPLOAD_HOURS`). Each upload,
+  finished or stopped for time, records the speed the provider
+  confirmed; a copy found already complete records none. Once a speed
+  is measured (the slowest of the last three), a backup whose estimated
+  upload time is longer than the limit is not sent and its off-site
+  copy fails with a message that says so. Any other backup, and every
+  backup before a speed is measured, is tried and stopped when the
+  time runs out. These two failures send one notice until a good copy
+  or a changed limit. The page shows the limit and the measured speed
+  ("not measured yet" before one), with the newest backup's estimated
+  upload time once there is a speed. A
   backup that finishes while another upload runs is marked as skipped,
   with "Upload again". Uploading a backup again reuses an earlier
   upload that is complete, signed and encrypted to the current public

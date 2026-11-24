@@ -1361,7 +1361,8 @@ describe('OffsiteService', () => {
 
   describe('a backup too large to upload in the time allowed', () => {
     const MiB = 1024 ** 2;
-    /** An earlier good upload of `bytes` that took `seconds`. */
+    const GiB = 1024 ** 3;
+    /** An earlier upload that left a speed sample of `bytes` in `seconds`. */
     function pastUpload(id: string, bytes: number, seconds: number, hoursAgo: number) {
       const finished = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
       runs.push({
@@ -1373,22 +1374,25 @@ describe('OffsiteService', () => {
         offsiteBytes: BigInt(bytes),
         offsiteStartedAt: new Date(finished.getTime() - seconds * 1000),
         offsiteFinishedAt: finished,
+        offsiteSampleBytes: BigInt(bytes),
+        offsiteSampleMs: seconds * 1000,
       });
     }
 
-    it('is refused up front when the estimate cannot fit; the local backup stands', async () => {
+    it('is refused up front when the estimate at the measured speed cannot fit; the local backup stands', async () => {
+      pastUpload('p1', 1000 * MiB, 1000, 1); // 1 MiB/s
       runs[0]!.sizeBytes = BigInt(Buffer.byteLength(archiveText));
-      // At 256 KiB/s this backup takes about 14 ms; allow 1 ms.
+      // At 1 MiB/s this backup takes about 4 ms; allow 1 ms.
       svc.uploadLimitMs = () => 1;
       await runUpload();
       const run = runs[0]!;
       expect(run.status).toBe('succeeded');
       expect(run.offsiteStatus).toBe('failed');
       expect(String(run.offsiteError)).toMatch(
-        /With no upload measured yet, at the assumed slowest speed \(0\.25 MB\/s\).*so no off-site copy was made\. The local backup is complete\./,
+        /At the measured speed of recent off-site uploads \(1\.00 MB\/s\).*so no off-site copy was made\. The local backup is complete\./,
       );
       expect(runs[0]!.offsiteVerifyFingerprint ?? null).toBeNull();
-      expect(notice.announceOffsite).toHaveBeenCalledWith('too-large:none:1', {
+      expect(notice.announceOffsite).toHaveBeenCalledWith('too-large:p1:1', {
         runId: 'run-1',
         kind: 'offsite_failed',
       });
@@ -1399,33 +1403,46 @@ describe('OffsiteService', () => {
         bytes: String(Buffer.byteLength(archiveText)),
         tooLarge: true,
       });
-      expect(status).toMatchObject({ maxUploadMs: 1, speedMeasured: false });
+      expect(status).toMatchObject({ maxUploadMs: 1, bytesPerSecond: MiB });
     });
 
-    it('plans with the slowest of the last three measured uploads, or 256 KiB/s without one', async () => {
-      const GiB = 1024 ** 3;
+    it('with no measured speed a large backup is attempted and stopped by the deadline', async () => {
       runs[0]!.sizeBytes = BigInt(30 * GiB);
-      let status = await svc.statusSummary();
-      // 30 GB at 256 KiB/s is about 34 hours: more than the 20 allowed.
+      const status = await svc.statusSummary();
       expect(status).toMatchObject({
-        speedMeasured: false,
-        bytesPerSecond: 256 * 1024,
+        bytesPerSecond: null,
+        maxArchiveBytes: null,
         maxUploadMs: 20 * 60 * 60 * 1000,
       });
-      expect(status.lastArchive!.tooLarge).toBe(true);
-      expect(Number(status.maxArchiveBytes) / GiB).toBeCloseTo(17.6, 1);
+      expect(status.lastArchive).toMatchObject({ estimateMs: null, tooLarge: false });
+      svc.uploadLimitMs = () => 60;
+      s3.hold();
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('failed');
+      expect(String(runs[0]!.offsiteError)).toMatch(/did not finish in the/);
+      // It was started: signed for, then stopped by the deadline.
+      expect(runs[0]!.offsiteVerifyFingerprint).toBeTruthy();
+      expect(notice.announceOffsite).toHaveBeenCalledWith('deadline:none:60', {
+        runId: 'run-1',
+        kind: 'offsite_failed',
+      });
+      // Nothing was confirmed, so there is still no sample.
+      expect(runs[0]!.offsiteSampleBytes ?? null).toBeNull();
+      expect(await svc.uploadSpeed()).toBeNull();
+    });
 
+    it('plans with the slowest of the last three samples', async () => {
+      runs[0]!.sizeBytes = BigInt(30 * GiB);
       pastUpload('p1', 1000 * MiB, 100, 1); // 10 MiB/s
       pastUpload('p2', 1000 * MiB, 500, 2); // 2 MiB/s, the slowest of the three
       pastUpload('p3', 1000 * MiB, 200, 3); // 5 MiB/s
       pastUpload('p4', 1000 * MiB, 10_000, 4); // older than the last three
-      pastUpload('p5', 10 * MiB, 1000, 0.5); // too small to measure
-      status = await svc.statusSummary();
-      expect(status.speedMeasured).toBe(true);
+      const status = await svc.statusSummary();
       expect(status.bytesPerSecond).toBe(2 * MiB);
       // 30 GB at 2 MiB/s is about 4.3 hours.
       expect(status.lastArchive!.tooLarge).toBe(false);
       expect(status.lastArchive!.estimateMs).toBe(30 * 512 * 1000);
+      expect(Number(status.maxArchiveBytes) / GiB).toBeCloseTo(140.6, 1);
     });
 
     it('a backup that fits the estimate is tried, with the hard limit as its deadline', async () => {
@@ -1434,8 +1451,80 @@ describe('OffsiteService', () => {
       s3.hold();
       await runUpload();
       expect(String(runs[0]!.offsiteError)).toMatch(/did not finish in the/);
-      // It was started: signed for, then stopped by the deadline.
       expect(runs[0]!.offsiteVerifyFingerprint).toBeTruthy();
+    });
+
+    it('a deadline failure leaves a speed sample and the next run is refused up front with that estimate', async () => {
+      // Two parts of 16 MiB and the rest; the second part never answers.
+      const big = 'backup-2026-11-24T05-00-00-000-dddddddd.tar.gz';
+      fs.writeFileSync(path.join(dir, big), randomBytes(20 * MiB));
+      runs.push({
+        id: 'run-big',
+        status: 'succeeded',
+        filename: big,
+        archiveDirectory: dir,
+        startedAt: new Date(),
+        sizeBytes: BigInt(20 * MiB),
+        offsiteStatus: null,
+      });
+      let parts = 0;
+      let gate: () => void = () => undefined;
+      const held = new Promise<void>((r) => (gate = r));
+      const send = s3.send.bind(s3);
+      jest.spyOn(s3, 'send').mockImplementation(async (c) => {
+        const cmd = c as { constructor: { name: string } };
+        if (cmd.constructor.name === 'UploadPartCommand' && ++parts === 2) await held;
+        return send(c as never);
+      });
+      // A part of 16 MiB counts as a sample here.
+      svc.minSampleBytes = MiB;
+      // Each reading of the clock is one minute later.
+      let t = 0;
+      svc.clock = () => (t += 60_000);
+      svc.uploadLimitMs = () => 3000;
+      await runUpload('run-big');
+      gate();
+      const run = runs.find((r) => r.id === 'run-big')!;
+      expect(String(run.offsiteError)).toMatch(/did not finish in the/);
+      // 16 MiB confirmed, over the two minutes spent sending.
+      expect(run.offsiteSampleBytes).toBe(BigInt(16 * MiB));
+      expect(run.offsiteSampleMs).toBe(120_000);
+      const speed = await svc.uploadSpeed();
+      expect(speed).toBeCloseTo((16 * MiB) / 120, 0);
+      // The next try is refused at once, with that speed in the message.
+      notice.announceOffsite.mockClear();
+      await runUpload('run-big');
+      expect(String(run.offsiteError)).toMatch(
+        /At the measured speed of recent off-site uploads \(0\.13 MB\/s\).*about 1 hours/,
+      );
+      expect(notice.announceOffsite).toHaveBeenCalledWith('too-large:none:3000', {
+        runId: 'run-big',
+        kind: 'offsite_failed',
+      });
+      // A refused run sends nothing and keeps the figure it had.
+      expect(run.offsiteSampleBytes).toBe(BigInt(16 * MiB));
+      expect(run.offsiteStatus).toBe('failed');
+    });
+
+    it('a reused copy is not a sample', async () => {
+      svc.minSampleBytes = 1;
+      await runUpload();
+      expect(Number(runs[0]!.offsiteSampleBytes)).toBe(Number(runs[0]!.offsiteBytes));
+      expect(await svc.uploadSpeed()).not.toBeNull();
+      // Marked failed after its copy was complete: the next try finds
+      // the copy in the bucket and sends nothing.
+      runs[0]!.offsiteStatus = 'failed';
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(logged.join('\n')).toMatch(/already complete and signed in the bucket/);
+      expect(runs[0]!.offsiteSampleBytes ?? null).toBeNull();
+      expect(await svc.uploadSpeed()).toBeNull();
+    });
+
+    it('a small, quick upload is not a sample', async () => {
+      await runUpload();
+      expect(runs[0]!.offsiteStatus).toBe('succeeded');
+      expect(runs[0]!.offsiteSampleBytes ?? null).toBeNull();
     });
   });
 

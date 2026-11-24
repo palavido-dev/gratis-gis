@@ -437,13 +437,19 @@ a large part) until the answer starts. A whole upload may take the
 "longest upload" setting (`backup_config.offsite_max_upload_hours` or
 `BACKUP_OFFSITE_MAX_UPLOAD_HOURS`, 1 to 72 hours, 20 when unset); past
 that it is stopped and marked failed, and the next upload can start.
-Before it starts, the upload time is estimated as the archive size
-divided by a speed: the slowest of the last three successful uploads
-of at least 256 MiB (`offsite_bytes` over `offsite_finished_at` minus
-`offsite_started_at`), or 256 KiB/s when there are none. A backup whose
-estimate is longer than the setting is not sent: its off-site copy
-fails at once with a message that says so. Every other backup is
-tried. Both failures use the notice key
+Each upload that sends bytes records a speed sample on its run:
+`offsite_sample_bytes` (bytes the provider confirmed, counted after
+each part) and `offsite_sample_ms` (for a finished upload, the time
+from its first request to its last confirmed part; for one stopped by
+the deadline, the whole time it spent sending). Uploads that finish
+and uploads stopped by the deadline record one; a copy found complete in the bucket sends
+nothing and records none. A sample counts only with at least 256 MiB
+or 10 minutes. The measured speed is the slowest of the three newest
+samples. With a measured speed, a backup whose estimate (archive size
+over that speed) is longer than the setting is not sent: its off-site
+copy fails at once with a message that says so. Every other backup is
+tried, and with no measured speed every backup is tried; the deadline
+is then the only limit. Both failures use the notice key
 `too-large:<last good run id or none>:<limit in ms>` or
 `deadline:<...>:<...>`, so one notice goes out per run of such
 failures, and another only after a good copy or a changed limit. The S3 client

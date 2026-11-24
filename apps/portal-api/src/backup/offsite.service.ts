@@ -108,17 +108,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
 /**
- * The upload speed assumed while no upload has been measured: 256 KiB/s
- * (about 2 Mbit/s).
- */
-export const FLOOR_BYTES_PER_SECOND = 256 * 1024;
-/**
- * Uploads smaller than this do not count towards the measured speed:
- * the fixed steps of an upload (the folder check, the clean-up) take
- * most of their time.
+ * A speed sample counts when it sent at least this many bytes or ran at
+ * least MIN_MEASURED_MS: below both, the fixed steps of an upload take
+ * most of its time.
  */
 export const MIN_MEASURED_BYTES = 256 * 1024 ** 2;
-/** The measured speed is the slowest of this many recent uploads. */
+export const MIN_MEASURED_MS = 10 * 60 * 1000;
+/** The measured speed is the slowest of this many recent samples. */
 export const MEASURED_UPLOADS = 3;
 
 /** The time an upload of `bytes` is expected to take at `bytesPerSecond`. */
@@ -153,12 +149,9 @@ export function tooLargeMessage(
   bytes: number,
   estimateMs: number,
   limitMs: number,
-  speed: { bytesPerSecond: number; measured: boolean },
+  bytesPerSecond: number,
 ): string {
-  const at = speed.measured
-    ? `At the speed of recent off-site uploads (${speedText(speed.bytesPerSecond)})`
-    : `With no upload measured yet, at the assumed slowest speed (${speedText(speed.bytesPerSecond)})`;
-  return `This backup is ${gigabytes(bytes)} GB. ${at} its upload would take about ${Math.ceil(estimateMs / HOUR_MS)} hours, more than the ${Math.round(limitMs / HOUR_MS)} hours allowed for one upload, so no off-site copy was made. The local backup is complete. Raise "Longest upload" on the Backup page to allow longer uploads.`;
+  return `This backup is ${gigabytes(bytes)} GB. At the measured speed of recent off-site uploads (${speedText(bytesPerSecond)}) its upload would take about ${Math.ceil(estimateMs / HOUR_MS)} hours, more than the ${Math.round(limitMs / HOUR_MS)} hours allowed for one upload, so no off-site copy was made. The local backup is complete. Raise "Longest upload" on the Backup page to allow longer uploads.`;
 }
 
 /** Why an upload that ran out of time was stopped. */
@@ -250,17 +243,17 @@ export interface OffsiteStatusSummary {
   lastArchive: {
     runId: string;
     bytes: string;
-    estimateMs: number;
+    /** Null while no upload speed has been measured. */
+    estimateMs: number | null;
+    /** Refused up front: only with a measured speed. */
     tooLarge: boolean;
   } | null;
-  /** The largest backup that can be copied off-site at that speed, in bytes. */
-  maxArchiveBytes: string;
+  /** The largest backup that fits at the measured speed; null without one. */
+  maxArchiveBytes: string | null;
   /** The longest one upload may take (the setting), in milliseconds. */
   maxUploadMs: number;
-  /** The upload speed the estimate uses, in bytes a second. */
-  bytesPerSecond: number;
-  /** True when that speed was measured; false for the assumed slowest speed. */
-  speedMeasured: boolean;
+  /** The measured upload speed in bytes a second; null until there is one. */
+  bytesPerSecond: number | null;
 }
 
 /**
@@ -301,6 +294,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   beatEveryMs = 10_000;
   /** Swapped in tests: the longest one upload may take, in milliseconds. */
   uploadLimitMs: (s: OffsiteSettings) => number = (s) => s.maxUploadHours * HOUR_MS;
+  /** Swapped in tests: the clock speed samples are timed with. */
+  clock: () => number = () => Date.now();
+  /** Swapped in tests: what a speed sample needs to count. */
+  minSampleBytes = MIN_MEASURED_BYTES;
+  minSampleMs = MIN_MEASURED_MS;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1342,6 +1340,13 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     timer.unref?.();
     let deadline: ReturnType<typeof setTimeout> | undefined;
     const limit = this.uploadLimitMs(s);
+    // Bytes the provider confirmed so far, the time they took, and
+    // when sending started.
+    const progress: { bytes: number; ms: number; start: number | null } = {
+      bytes: 0,
+      ms: 0,
+      start: null,
+    };
     const armDeadline = () => {
       deadline = setTimeout(() => {
         abort.abort(new UploadStop(deadlineMessage(limit), 'deadline'));
@@ -1358,14 +1363,17 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       const dir = run.archiveDirectory ?? (await this.backup.getConfig()).archiveDirectory;
       const archivePath = path.join(dir, run.filename!);
       const size = (await fs.stat(archivePath)).size;
-      // A backup whose upload is expected to take longer than allowed
-      // (at the measured speed, or the assumed slowest one) is not sent
-      // at all: the copy fails with a message that says so. Any other
-      // is tried, and stopped when the time allowed runs out.
+      // With a measured speed, a backup whose upload would take longer
+      // than allowed is not sent at all: the copy fails with a message
+      // that says so. Any other is tried, and stopped when the time
+      // allowed runs out; without a measured speed that is the only
+      // limit.
       const speed = await this.uploadSpeed();
-      const estimate = estimateUploadMs(size, speed.bytesPerSecond);
-      if (estimate > limit) {
-        throw new UploadStop(tooLargeMessage(size, estimate, limit, speed), 'too-large');
+      if (speed !== null) {
+        const estimate = estimateUploadMs(size, speed);
+        if (estimate > limit) {
+          throw new UploadStop(tooLargeMessage(size, estimate, limit, speed), 'too-large');
+        }
       }
       const policy = this.policy();
       await this.endpointCheck(s.endpoint!, policy);
@@ -1393,6 +1401,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
 
       const s3 = this.clientFactory(s);
       const signal = abort.signal;
+
       // Every step waits on the signal too: a request that never
       // answers cannot keep the upload, and its claim, alive.
       const result = await untilAborted(
@@ -1407,6 +1416,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             archivePath,
             size,
             signal,
+            progress,
           });
           // Clean up while this upload still holds the install-wide
           // claim, so no other upload can be using what is removed.
@@ -1431,6 +1441,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
           offsiteVerifyFingerprint: result.verifyFingerprint,
           offsiteFinishedAt: new Date(),
           offsiteError: null,
+          // A copy found complete in the bucket sent nothing: no sample.
+          ...this.sampleData(result.reused ? null : progress),
         },
       });
       this.log.log(
@@ -1452,6 +1464,12 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             offsiteStatus: 'failed',
             offsiteError: msg.slice(0, 500),
             offsiteFinishedAt: new Date(),
+            // Out of time: the bytes confirmed so far over the whole
+            // time spent sending are a speed sample, so the next plan
+            // has a real figure.
+            ...(stop?.limit === 'deadline' && progress.start !== null
+              ? this.sampleData({ bytes: progress.bytes, ms: this.clock() - progress.start })
+              : {}),
           },
         })
         .catch(() => undefined);
@@ -1491,6 +1509,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     archivePath: string;
     size: number;
     signal: AbortSignal;
+    progress: { bytes: number; ms: number; start: number | null };
   }): Promise<{
     key: string;
     bytes: number;
@@ -1525,12 +1544,18 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     }
     const name = copyObjectName(archive, attempt);
     const objectKey = `${archivesPrefix}${name}`;
+    const sendStart = this.clock();
+    a.progress.start = sendStart;
     const up = await uploadStream(a.s3, {
       bucket: a.s.bucket!,
       key: objectKey,
       body: sealStream(readLazily(a.archivePath), a.publicKey),
       expectedBytes: sealedSize(a.size),
       signal: a.signal,
+      onPart: (bytesSoFar) => {
+        a.progress.bytes = bytesSoFar;
+        a.progress.ms = this.clock() - sendStart;
+      },
     });
     // Written last: its presence is what marks the copy complete.
     const sidecar = {
@@ -1838,32 +1863,40 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
   }
 
   /**
-   * The upload speed to plan with: the slowest of the last few
-   * successful uploads of at least MIN_MEASURED_BYTES (bytes over the
-   * time from start to finish), or FLOOR_BYTES_PER_SECOND when there
-   * are none.
+   * The measured upload speed, in bytes a second: the slowest of the
+   * last few speed samples (bytes the provider confirmed over the time
+   * they took, from finished uploads and from uploads stopped for
+   * time), or null when there is none. A copy found complete in the
+   * bucket sent nothing and leaves no sample.
    */
-  async uploadSpeed(): Promise<{ bytesPerSecond: number; measured: boolean }> {
+  async uploadSpeed(): Promise<number | null> {
     const recent = await this.prisma.backupRun.findMany({
-      where: {
-        offsiteStatus: 'succeeded',
-        offsiteBytes: { gte: BigInt(MIN_MEASURED_BYTES) },
-        offsiteStartedAt: { not: null },
-        offsiteFinishedAt: { not: null },
-      },
+      where: { offsiteSampleBytes: { not: null }, offsiteSampleMs: { not: null } },
       orderBy: { offsiteFinishedAt: 'desc' },
       take: MEASURED_UPLOADS,
-      select: { offsiteBytes: true, offsiteStartedAt: true, offsiteFinishedAt: true },
+      select: { offsiteSampleBytes: true, offsiteSampleMs: true },
     });
-    const measured = slowestSpeed(
+    return slowestSpeed(
       recent.map((r) => ({
-        bytes: Number(r.offsiteBytes ?? 0),
-        ms: (r.offsiteFinishedAt?.getTime() ?? 0) - (r.offsiteStartedAt?.getTime() ?? 0),
+        bytes: Number(r.offsiteSampleBytes ?? 0),
+        ms: r.offsiteSampleMs ?? 0,
       })),
     );
-    return measured === null
-      ? { bytesPerSecond: FLOOR_BYTES_PER_SECOND, measured: false }
-      : { bytesPerSecond: measured, measured: true };
+  }
+
+  /** The sample columns for `progress`, or cleared when it is too small to count. */
+  private sampleData(progress: { bytes: number; ms: number } | null): {
+    offsiteSampleBytes: bigint | null;
+    offsiteSampleMs: number | null;
+  } {
+    const counts =
+      progress !== null &&
+      progress.bytes > 0 &&
+      progress.ms > 0 &&
+      (progress.bytes >= this.minSampleBytes || progress.ms >= this.minSampleMs);
+    return counts
+      ? { offsiteSampleBytes: BigInt(progress.bytes), offsiteSampleMs: Math.round(progress.ms) }
+      : { offsiteSampleBytes: null, offsiteSampleMs: null };
   }
 
   /**
@@ -1924,7 +1957,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const limit = this.uploadLimitMs(settings);
     const speed = await this.uploadSpeed();
     const newestEstimate =
-      newestBytes === null ? null : estimateUploadMs(newestBytes, speed.bytesPerSecond);
+      newestBytes === null || speed === null ? null : estimateUploadMs(newestBytes, speed);
     return {
       lastSuccess: last?.offsiteFinishedAt
         ? {
@@ -1947,18 +1980,17 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       daysSinceSuccess: days,
       alert: settings.enabled && (days === null ? failed !== null : days > settings.alertDays),
       lastArchive:
-        newest && newestBytes !== null && newestEstimate !== null
+        newest && newestBytes !== null
           ? {
               runId: newest.id,
               bytes: String(newestBytes),
               estimateMs: newestEstimate,
-              tooLarge: newestEstimate > limit,
+              tooLarge: newestEstimate !== null && newestEstimate > limit,
             }
           : null,
-      maxArchiveBytes: String(Math.floor((limit / 1000) * speed.bytesPerSecond)),
+      maxArchiveBytes: speed === null ? null : String(Math.floor((limit / 1000) * speed)),
       maxUploadMs: limit,
-      bytesPerSecond: Math.floor(speed.bytesPerSecond),
-      speedMeasured: speed.measured,
+      bytesPerSecond: speed === null ? null : Math.floor(speed),
     };
   }
 

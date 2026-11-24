@@ -11,7 +11,12 @@ ALTER TABLE "backup_run"
   ADD COLUMN "offsite_error" TEXT,
   ADD COLUMN "offsite_started_at" TIMESTAMPTZ(6),
   ADD COLUMN "offsite_finished_at" TIMESTAMPTZ(6),
-  ADD COLUMN "offsite_heartbeat_at" TIMESTAMPTZ(6);
+  ADD COLUMN "offsite_heartbeat_at" TIMESTAMPTZ(6),
+  -- Upload speed sample: bytes the provider confirmed and the
+  -- milliseconds they took, from a finished upload or one stopped for
+  -- time. Null for a copy that sent nothing.
+  ADD COLUMN "offsite_sample_bytes" BIGINT,
+  ADD COLUMN "offsite_sample_ms" INTEGER;
 
 -- At most one off-site upload at a time for the whole install, so two
 -- uploads (or an upload and its clean-up) never overlap. Not

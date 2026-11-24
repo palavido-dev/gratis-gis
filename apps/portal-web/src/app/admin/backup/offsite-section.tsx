@@ -65,17 +65,16 @@ interface OffsiteConfig {
     lastArchive?: {
       runId: string;
       bytes: string;
-      estimateMs: number;
+      /** Null while no upload speed has been measured. */
+      estimateMs: number | null;
       tooLarge: boolean;
     } | null;
-    /** The largest backup that can be copied off-site at that speed. */
-    maxArchiveBytes?: string;
+    /** The largest backup that fits at the measured speed; null without one. */
+    maxArchiveBytes?: string | null;
     /** The longest one upload may take, in milliseconds. */
     maxUploadMs?: number;
-    /** The upload speed the estimate uses, in bytes a second. */
-    bytesPerSecond?: number;
-    /** False when no upload was measured and the slowest speed is assumed. */
-    speedMeasured?: boolean;
+    /** The measured upload speed in bytes a second; null until there is one. */
+    bytesPerSecond?: number | null;
   };
 }
 
@@ -381,34 +380,40 @@ export function OffsiteSection() {
             </p>
           ) : null}
           {st.running ? <p>{t('adminBackup.offsite.uploading')}</p> : null}
-          {st.bytesPerSecond ? (
+          {st.maxUploadMs ? (
             <p>
-              {t(
-                st.speedMeasured
-                  ? 'adminBackup.offsite.uploadSpeed'
-                  : 'adminBackup.offsite.uploadSpeedAssumed',
-                { speed: formatBytes(BigInt(st.bytesPerSecond)) },
-              )}
+              {st.bytesPerSecond
+                ? t('adminBackup.offsite.uploadSpeed', {
+                    speed: formatBytes(BigInt(st.bytesPerSecond)),
+                  })
+                : t('adminBackup.offsite.uploadSpeedUnmeasured', {
+                    hours: Math.round(st.maxUploadMs / HOUR_MS),
+                  })}
             </p>
           ) : null}
-          {st.lastArchive && st.maxArchiveBytes && st.maxUploadMs ? (
+          {st.lastArchive && st.maxUploadMs ? (
             <p
               role={st.lastArchive.tooLarge ? 'status' : undefined}
               className={st.lastArchive.tooLarge ? 'text-danger' : undefined}
             >
-              {t(
-                st.lastArchive.tooLarge
-                  ? 'adminBackup.offsite.lastArchiveTooLarge'
-                  : 'adminBackup.offsite.lastArchive',
-                {
-                  size: formatBytes(BigInt(st.lastArchive.bytes)),
-                  estimate: fmt.number(Math.max(0.1, st.lastArchive.estimateMs / HOUR_MS), {
-                    maximumFractionDigits: 1,
-                  }),
-                  hours: Math.round(st.maxUploadMs / HOUR_MS),
-                  max: formatBytes(BigInt(st.maxArchiveBytes)),
-                },
-              )}
+              {st.lastArchive.estimateMs === null || !st.maxArchiveBytes
+                ? t('adminBackup.offsite.lastArchiveUnmeasured', {
+                    size: formatBytes(BigInt(st.lastArchive.bytes)),
+                    hours: Math.round(st.maxUploadMs / HOUR_MS),
+                  })
+                : t(
+                    st.lastArchive.tooLarge
+                      ? 'adminBackup.offsite.lastArchiveTooLarge'
+                      : 'adminBackup.offsite.lastArchive',
+                    {
+                      size: formatBytes(BigInt(st.lastArchive.bytes)),
+                      estimate: fmt.number(Math.max(0.1, st.lastArchive.estimateMs / HOUR_MS), {
+                        maximumFractionDigits: 1,
+                      }),
+                      hours: Math.round(st.maxUploadMs / HOUR_MS),
+                      max: formatBytes(BigInt(st.maxArchiveBytes)),
+                    },
+                  )}
             </p>
           ) : null}
         </div>
