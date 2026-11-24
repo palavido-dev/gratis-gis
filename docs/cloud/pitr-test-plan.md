@@ -27,7 +27,9 @@ only these ran:
 - `systemd-analyze verify` and `systemd-analyze calendar` on the new
   units: only "file not found" for `/opt/gratis-gis` paths.
 
-Not checked: the image build, any pgBackRest command, any restore.
+Not checked: the image build, any pgBackRest command, any restore,
+and `.github/workflows/postgres-image.yml` (it runs on GitHub when a
+pull request touches `infra/postgres/**`; only its YAML was parsed).
 
 ## B. Local proof with MinIO (any Docker host)
 
@@ -46,7 +48,7 @@ grep -oE '\$\{[A-Z0-9_]+:\?' infra/docker-compose.prod.yml | sort -u \
 
 # 2. Build the image and check pgBackRest is in it.
 $C build postgres
-docker run --rm gratis-gis-postgres:prod pgbackrest version   # 2.59.3 or newer
+docker run --rm -u postgres gratis-gis-postgres:prod pgbackrest version   # 2.59.3 or newer
 
 # 3. MinIO with TLS (pgBackRest's S3 driver connects over HTTPS).
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=pitr-minio \
@@ -95,10 +97,15 @@ PITR_PROD_ENV=/tmp/pitr-proof/env.prod infra/pitr-status.sh   # WAL waiting: 0
 
 PITR_PROD_ENV=/tmp/pitr-proof/env.prod \
   infra/pitr-restore.sh --confirm-project gratis-gis-prod --time "$T"   # type RESTORE <T>
+P "SELECT pg_get_wal_replay_pause_state()"                              # expect paused
 P "SELECT count(*), max(id) FROM pitr_mark"                             # expect 50|50
+P "SELECT pg_wal_replay_resume()"
+sleep 5; P "SELECT pg_is_in_recovery()"                                 # expect f
+P "INSERT INTO pitr_mark (id) VALUES (51)"                              # writes work again
 ```
 
-Pass: exactly `50|50`. Any row 51 or above is a failure.
+Pass: paused at the target, exactly `50|50` while paused, and writable
+after resume. Any row 51 or above before the insert is a failure.
 
 ### B2. Losing the volume and the server process loses under 5 minutes
 
@@ -180,8 +187,9 @@ restricted keys. Full stack, so Keycloak sign-in can be tested.
    changing before going further.
 4. **Both databases come back.** Create a test user in Keycloak and an
    item in the portal; note time T; delete both; restore to T with
-   `infra/pitr-restore.sh --time`; start the stack. Pass: the user can
-   sign in and sees the item.
+   `infra/pitr-restore.sh --time`; follow "Inspect before opening" in
+   the runbook, resume, then start the stack. Pass: the user can sign
+   in and sees the item.
 5. **Missing objects.** Upload an attachment before T, delete it after
    T, restore to T, run the "Missing objects" steps of the runbook.
    Pass: the script lists the key, un-hiding it makes the attachment
@@ -208,7 +216,8 @@ RB-18 step 7 schedules this from the cloud repo. Manual version:
 3. Build images (runbook part C, step 5).
 4. `infra/pitr-restore.sh --confirm-project gratis-gis-prod --drill --time "<now minus 1 hour, UTC>+00"`.
    `--drill` turns archiving off on the restored server and skips the
-   typed confirmation.
+   typed confirmation. The database stays paused (read-only) at the
+   target, which is all the checks below need.
 5. Checks: migrations count matches production; row counts of
    `organization`, `item`, `feature_attachment` within a few percent
    of production; `SELECT postgis_full_version()` works; newest

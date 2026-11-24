@@ -1,7 +1,11 @@
 # Continuous backups and point-in-time restore
 
-Status: draft for review (RB-18 stage 1). Nothing here is turned on for
-any install until the owner approves it and runs `infra/pitr-setup.sh`.
+> **Status: draft. No backup or restore has been executed. Do not rely
+> on this until [docs/cloud/pitr-test-plan.md](pitr-test-plan.md) part
+> B has passed on a staging server.**
+
+RB-18 stage 1. Nothing here is turned on for any install until the
+owner runs `infra/pitr-setup.sh`.
 
 Goal (D10): restore the database to any minute in the last 14 days,
 from backups kept at a different company than the server. Losing the
@@ -9,6 +13,28 @@ server loses at most about 5 minutes of writes.
 
 Related: [restore runbook](restore-runbook.md),
 [test plan](pitr-test-plan.md).
+
+## Decisions
+
+Decided by the owner on 2026-11-23.
+
+1. **Retention by time, 14 days** (`repo1-retention-full-type=time`).
+   Keeping exactly two full sets would shrink the restore window to 7
+   days right after each weekly full. See "Retention".
+2. **A restore to a time pauses by default.** The database stops at
+   the target in read-only mode so it can be checked before it is
+   opened for writes. `--promote` skips the pause. See the runbook.
+3. **Object lock: governance mode, 14 days.** Compliance mode cannot
+   be shortened or removed by anyone, the owner included, so a mistake
+   in its settings could not be undone. Governance blocks every key
+   without the bypass capability, which the server key does not have.
+4. **`archive-push-queue-max=8GiB`, for now.** Revisit after the first
+   staging drill. Alerts fire well before the limit; see "Archiving
+   settings".
+5. **`infra/wal` stays for now.** It is removed once test plan part B
+   has passed on staging.
+6. **CI builds the Postgres image** on pull requests that change it
+   (`.github/workflows/postgres-image.yml`), without pushing.
 
 ## Decision: pgBackRest
 
@@ -107,6 +133,8 @@ over.
 | `infra/pitr-restore.sh` | restore to latest or to a time |
 | `infra/pitr-missing-objects.sh` | after a restore, keys the database needs that the bucket lacks |
 | `infra/systemd/gg-pitr-*` | timers for backups, status and check |
+| `.github/workflows/postgres-image.yml` | builds the image on pull requests, no push |
+| `infra/wal/` | old local-folder WAL drill; removed once test plan part B passes on staging |
 
 Self-hosted installs: nothing changes unless `infra/.env.pitr` exists.
 `deploy.sh` adds the overlay only then. The NAS compose file is not
@@ -131,10 +159,21 @@ pgBackRest settings (`infra/pitr/pgbackrest.conf`):
 
 - Async archiving, 2 parallel uploads. A bulk import does not wait on
   one upload per WAL file.
-- `archive-push-queue-max=8GiB`: if the bucket is unreachable long
-  enough that 8 GB of WAL is waiting, pgBackRest drops WAL instead of
-  letting the disk fill and the database stop. The restore chain is
-  then broken until the next full backup. Alerts fire long before.
+- `archive-push-queue-max=8GiB` (decision 4, to revisit after the
+  first staging drill): if the bucket is unreachable long enough that
+  8 GiB of WAL is waiting, pgBackRest drops WAL instead of letting the
+  disk fill and the database stop. The restore chain is then broken
+  until the next full backup.
+- Two alerts come first (`infra/pitr-status.sh`, every 5 minutes):
+  - **time**: the oldest waiting WAL file is over 10 minutes old.
+    On a normal day this fires first, with almost nothing queued.
+  - **size**: 128 or more WAL files waiting, which is 2 GiB, a
+    quarter of the limit. This catches a bulk import during an outage,
+    when the queue grows faster than 10 minutes would show. At that
+    point 6 GiB of headroom is left.
+  - `infra/test_prod_config.py` fails if the queue limit in
+    `pgbackrest.conf` changes without the alert constant in
+    `infra/pitr/lib-pitr.sh`.
 - zstd compression, bundling of small files, block incremental.
 
 ## Schedule
@@ -157,11 +196,11 @@ pgBackRest settings (`infra/pitr/pgbackrest.conf`):
 - Differential backups are kept with their full backup.
 - Expiry runs after each successful backup.
 
-**Differs from the runbook.** RB-18 says "2 full sets, 14 days of
-WAL". With weekly fulls, keeping exactly 2 full sets gives a window
-that shrinks to 7 days right after a new full. Retention by time
-guarantees the 14 days D10 promises, at the cost of sometimes storing
-a third full set. Owner to confirm.
+**Differs from the runbook, decided by the owner on 2026-11-23.**
+RB-18 says "2 full sets, 14 days of WAL". With weekly fulls, keeping
+exactly 2 full sets gives a window that shrinks to 7 days right after
+a new full. Retention by time guarantees the 14 days D10 promises, at
+the cost of sometimes storing a third full set.
 
 ## Encryption and where the key lives
 
@@ -190,9 +229,11 @@ in a US region, private.
   pgBackRest expires (or an attacker "deletes") is hidden, and stays
   recoverable for 14 more days.
 - **Object lock:** enable it when creating the bucket. Default
-  retention: governance mode, 14 days. A locked version cannot be
-  deleted by anyone without the bypass capability, even with the
-  master key, until the 14 days pass.
+  retention: governance mode, 14 days (decision 3, 2026-11-23). A
+  locked version cannot be deleted by a key without the
+  `bypassGovernance` capability until the 14 days pass. Not compliance
+  mode: that cannot be shortened or removed by anyone, the owner
+  included, so a wrong setting would be permanent.
 - **Application key for the server:** restricted to this bucket, with
   `listBuckets, listFiles, readFiles, writeFiles` only. Not
   `deleteFiles`, `writeBuckets`, `writeBucketRetentions`,
@@ -260,7 +301,7 @@ With `--textfile` it writes Prometheus text-format metrics to
 
 | Signal | Alert when | Metric |
 | --- | --- | --- |
-| WAL waiting to be archived | oldest waiting file over 10 minutes | `gg_pitr_wal_ready_files`, `gg_pitr_wal_ready_oldest_seconds` |
+| WAL waiting to be archived | oldest waiting file over 10 minutes, or 128 files (2 GiB, a quarter of the 8 GiB queue limit) | `gg_pitr_wal_ready_files`, `gg_pitr_wal_ready_oldest_seconds` |
 | Archive failing | last failure newer than last success | `gg_pitr_last_archive_failed_timestamp_seconds`, `gg_pitr_last_archived_timestamp_seconds` |
 | Archiving turned off | `archive_mode` not on (stack started without the overlay) | `gg_pitr_archive_mode_on` |
 | Full backup age | over 8 days 6 hours | `gg_pitr_last_backup_timestamp_seconds{type="full"}` |

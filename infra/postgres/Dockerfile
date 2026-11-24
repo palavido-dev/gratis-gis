@@ -61,13 +61,15 @@ RUN apt-get update \
 # repository. It comes from the PGDG repository the base image already
 # uses; Debian's own trixie package is older. Releases before 2.59.3
 # made weak encryption salts (pgBackRest security notice, 2026-10-04),
-# so the build stops on anything older. The directories are created
+# so the build stops on anything older. The version is read from dpkg,
+# not by running pgbackrest: 2.59 and later refuse most commands as
+# root, and the build runs as root. The directories are created
 # here so the postgres user can write its queue and lock files.
 RUN set -eu; \
     apt-get update; \
     apt-get install -y --no-install-recommends pgbackrest; \
     rm -rf /var/lib/apt/lists/*; \
-    v="$(pgbackrest version | awk '{print $2}')"; \
+    v="$(dpkg-query -W -f='${Version}' pgbackrest)"; \
     if ! dpkg --compare-versions "$v" ge 2.59.3; then \
       echo "pgbackrest $v is older than 2.59.3" >&2; exit 1; \
     fi; \

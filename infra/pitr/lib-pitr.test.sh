@@ -91,6 +91,10 @@ out="$(pitr_verdict $n on 3 $((n - 700)) $((n - 700)) 0 $((n - 86400)) $((n - 36
 has "stuck archive after 10 minutes" "$out" "3 WAL file(s) waiting; the oldest for 11 minutes"
 out="$(pitr_verdict $n on 0 $n 0 0 $((n - 86400)) $((n - 3600)) false || true)"
 if [[ -z "$out" ]]; then ok "quiet database with no waiting WAL does not alert"; else bad "quiet database: $out"; fi
+out="$(pitr_verdict $n on 130 $((n - 120)) $((n - 120)) 0 $((n - 86400)) $((n - 3600)) false || true)"
+has "big queue alerts before the time limit" "$out" "130 WAL files (2080 MiB) are waiting. pgBackRest starts dropping WAL at 8192 MiB"
+out="$(pitr_verdict $n on 127 $((n - 120)) $((n - 120)) 0 $((n - 86400)) $((n - 3600)) false || true)"
+if [[ -z "$out" ]]; then ok "queue under a quarter of the limit is quiet"; else bad "queue under limit: $out"; fi
 out="$(pitr_verdict $n off 0 $n 0 0 $((n - 86400)) $((n - 3600)) false || true)"
 has "archive_mode off" "$out" "archive_mode is 'off'"
 out="$(pitr_verdict $n on 0 $n $((n - 600)) $((n - 10)) $((n - 86400)) $((n - 3600)) false || true)"

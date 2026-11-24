@@ -23,6 +23,12 @@ PITR_WAL_MAX_AGE="${PITR_WAL_MAX_AGE:-600}"
 PITR_FULL_MAX_AGE="${PITR_FULL_MAX_AGE:-$((8 * 86400 + 6 * 3600))}"
 PITR_ANY_MAX_AGE="${PITR_ANY_MAX_AGE:-$((30 * 3600))}"
 
+# pgBackRest drops WAL once 8 GiB is waiting (archive-push-queue-max in
+# pgbackrest.conf). Alert at a quarter of that: 128 WAL files of 16 MiB
+# is 2 GiB. Change both together.
+PITR_QUEUE_LIMIT_BYTES=$((8 * 1073741824))
+PITR_QUEUE_WARN_FILES="${PITR_QUEUE_WARN_FILES:-128}"
+
 # Variables infra/.env.pitr must set, with a non-placeholder value.
 PITR_REQUIRED_VARS=(
   PGBACKREST_REPO1_S3_ENDPOINT
@@ -145,6 +151,10 @@ pitr_verdict() {
   fi
   if ((ready > 0 && now - ready_oldest > PITR_WAL_MAX_AGE)); then
     echo "ALERT $ready WAL file(s) waiting; the oldest for $(((now - ready_oldest) / 60)) minutes. Archiving is stuck. The disk will fill if this continues."
+    bad=1
+  fi
+  if ((ready >= PITR_QUEUE_WARN_FILES)); then
+    echo "ALERT $ready WAL files ($((ready * 16)) MiB) are waiting. pgBackRest starts dropping WAL at $((PITR_QUEUE_LIMIT_BYTES / 1048576)) MiB, which breaks the restore chain."
     bad=1
   fi
   if ((failed > 0 && failed > archived)); then

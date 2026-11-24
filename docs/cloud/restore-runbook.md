@@ -1,8 +1,10 @@
 # Restore runbook: database point-in-time recovery
 
-Status: draft for review (RB-18 stage 1). Not yet proven on a real
-server; see [pitr-test-plan.md](pitr-test-plan.md). Design:
-[backup-design.md](backup-design.md).
+> **Status: draft. No backup or restore has been executed. Do not rely
+> on this until [pitr-test-plan.md](pitr-test-plan.md) part B has
+> passed on a staging server.**
+
+RB-18 stage 1. Design: [backup-design.md](backup-design.md).
 
 All commands run on the server, as root, from `/opt/gratis-gis`.
 Times are UTC. Each restore brings back the **whole cluster**: the
@@ -62,21 +64,63 @@ What the script does:
    reached the bucket, so the writes after your target time are kept
    in the repository (needed to undo, below).
 4. Stops the whole stack (`docker compose stop`).
-5. Runs `pgbackrest --delta --type=time --target=... --target-action=promote restore`
+5. Runs `pgbackrest --delta --type=time --target=... --target-action=pause restore`
    in a one-off container on the same data volume.
-6. Starts postgres alone and waits for WAL replay to finish (up to 4
-   hours, progress every minute).
-7. Prints quick checks (timeline, migrations, newest change, PostGIS,
-   Keycloak users).
+6. Starts postgres alone and waits until replay reaches the target
+   (up to 4 hours, progress every minute).
+7. Prints quick checks (migrations, newest change, PostGIS, Keycloak
+   users) and stops. The database is **paused at the target,
+   read-only**, and the rest of the stack is still stopped.
 
-To look before opening the database for writes, add `--pause`.
-Postgres stops at the target in read-only mode. Check the data with
-`docker exec -it gratis-gis-prod-postgres psql -U gratisgis gratisgis`,
-then either:
+Pausing is the default (owner decision, 2026-11-23). To open for
+writes at once, without inspecting, add `--promote`. Use that only
+when the target was already checked, for example on a second try.
 
-- accept: `SELECT pg_wal_replay_resume();`
-- or pick another time: run the script again with a different
-  `--time`.
+### Inspect before opening
+
+While paused, nothing can write, and choosing another time costs
+nothing. Open a read-only session:
+
+```sh
+docker exec -it gratis-gis-prod-postgres psql -U gratisgis gratisgis
+```
+
+Check, in this order:
+
+1. **Where it stopped.**
+   `SELECT pg_is_in_recovery(), pg_get_wal_replay_pause_state(), pg_last_xact_replay_timestamp();`
+   Expect `t`, `paused`, and a timestamp at or just before your target.
+2. **The bad change is gone.** Look for the rows, layer or
+   organization the incident was about. For a bad import, the import's
+   item or row count from before it ran.
+3. **The good data just before it is there.** The newest edits you
+   expect to keep:
+   `SELECT max(updated_at) FROM item;`
+   It should be a little before the target, not hours before.
+4. **Sign-in data.** `\c keycloak` then
+   `SELECT count(*) FROM user_entity;` is not 0, and recently added
+   users you expect are there (`SELECT username FROM user_entity ORDER BY created_timestamp DESC LIMIT 5;`).
+
+Then either:
+
+- **Right: open for writes.** This ends recovery and starts a new
+  timeline. It cannot be paused again afterwards.
+  ```sh
+  docker exec -u postgres gratis-gis-prod-postgres \
+    psql -U gratisgis -d postgres -c 'SELECT pg_wal_replay_resume()'
+  # within a few seconds:
+  docker exec -u postgres gratis-gis-prod-postgres \
+    psql -At -U gratisgis -d postgres -c 'SELECT pg_is_in_recovery()'   # f
+  ```
+  Then go to "After every restore".
+- **Wrong: pick another time.** Run `infra/pitr-restore.sh` again with
+  a different `--time`. Nothing was written, so nothing is lost.
+
+Do not start the rest of the stack while paused: the portal cannot
+write and its startup migrations would fail.
+
+`--latest` (parts A and C) does not pause. PostgreSQL has no stopping
+point without a target, so it replays all WAL and opens for writes.
 
 ### Undo a restore to a time
 
@@ -133,7 +177,8 @@ Use when the server is lost. D12: expect hours, not minutes.
 
 ## After every restore
 
-1. **Read the quick checks** the script printed:
+1. **Read the quick checks** the script printed. For a time restore
+   you have done the inspection above and opened the database:
    - timeline went up by one (for a time restore);
    - migrations applied matches the release you expect;
    - newest item change is just before your target (time restore) or

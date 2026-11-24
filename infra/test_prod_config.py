@@ -131,6 +131,14 @@ class PitrOverlayTests(unittest.TestCase):
         )
         self.assertEqual(ignored.returncode, 0, "infra/.env.pitr must be git-ignored")
 
+    def test_queue_limit_and_alert_agree(self):
+        # The status alert is set at a quarter of the queue limit. If one
+        # changes without the other, the alert may come too late.
+        conf = (INFRA / "pitr" / "pgbackrest.conf").read_text(encoding="utf-8")
+        lib = (INFRA / "pitr" / "lib-pitr.sh").read_text(encoding="utf-8")
+        self.assertIn("\narchive-push-queue-max=8GiB\n", conf)
+        self.assertIn("PITR_QUEUE_LIMIT_BYTES=$((8 * 1073741824))", lib)
+
     def test_deploy_keeps_the_overlay(self):
         deploy = (INFRA / "deploy.sh").read_text(encoding="utf-8")
         self.assertIn("if [[ -f infra/.env.pitr ]]; then", deploy)

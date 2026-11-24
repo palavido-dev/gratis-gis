@@ -11,9 +11,12 @@
 # Options:
 #   --latest          replay every archived WAL file (after losing the
 #                     server or the data volume)
-#   --time T          stop at time T; T needs a zone, e.g. +00
-#   --pause           with --time: stop in read-only mode at T so it can
-#                     be inspected; then SELECT pg_wal_replay_resume();
+#   --time T          stop at time T; T needs a zone, e.g. +00.
+#                     By default the database then PAUSES at T in
+#                     read-only mode for inspection. Open it for writes
+#                     with: SELECT pg_wal_replay_resume();
+#   --promote         with --time: open for writes at T without pausing
+#                     (owner decision 2026-11-23: pause is the default)
 #   --new-server      this server has no running database to protect
 #   --drill           throwaway server: do not archive the restored
 #                     database into the real repository, no typed
@@ -28,18 +31,19 @@ set -euo pipefail
 # shellcheck source=infra/pitr/common.sh
 . "$(cd "$(dirname "$0")" && pwd)/pitr/common.sh"
 
-CONFIRM="" MODE="" TARGET="" PAUSE=0 NEW_SERVER=0 DRILL=0 SET="" ACCEPT_UNARCHIVED=0
+CONFIRM="" MODE="" TARGET="" PROMOTE=0 NEW_SERVER=0 DRILL=0 SET="" ACCEPT_UNARCHIVED=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --confirm-project) CONFIRM="${2:-}"; shift 2 ;;
     --latest) MODE="latest"; shift ;;
     --time) MODE="time"; TARGET="${2:-}"; shift 2 ;;
-    --pause) PAUSE=1; shift ;;
+    --promote) PROMOTE=1; shift ;;
+    --pause) echo "pitr-restore: pausing is the default now; --pause is not needed." >&2; shift ;;
     --new-server) NEW_SERVER=1; shift ;;
     --drill) DRILL=1; NEW_SERVER=1; shift ;;
     --set) SET="${2:-}"; shift 2 ;;
     --accept-unarchived) ACCEPT_UNARCHIVED=1; shift ;;
-    -h|--help) sed -n '4,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '4,30p' "$0"; exit 0 ;;
     *) echo "pitr-restore: unknown argument $1" >&2; exit 1 ;;
   esac
 done
@@ -55,8 +59,8 @@ if [[ "$MODE" == time ]]; then
     echo "pitr-restore: $problem" >&2
     exit 1
   fi
-elif [[ "$PAUSE" -eq 1 ]]; then
-  echo "pitr-restore: --pause only applies to --time." >&2
+elif [[ "$PROMOTE" -eq 1 ]]; then
+  echo "pitr-restore: --promote only applies to --time. --latest always opens at the end of the WAL." >&2
   exit 1
 fi
 if ! problems="$(pitr_env_problems "$PITR_ENV_FILE")"; then
@@ -81,6 +85,8 @@ cat <<EOF
 #    database. It stays in the repository on the old timeline for
 #    14 days, so this can be undone by restoring again with --latest
 #    and --set/--target-timeline (see the runbook).
+#  - A restore to a time PAUSES at the target, read-only, so you can
+#    check it before anything writes (--promote skips this).
 #  - Files in object storage are NOT rolled back. Follow the
 #    missing-objects step in docs/cloud/restore-runbook.md after.
 #  - If another server still runs this database, stop it first, or
@@ -133,7 +139,7 @@ fi
 args=(--stanza="$PITR_STANZA" --delta)
 if [[ "$MODE" == time ]]; then
   args+=(--type=time "--target=$TARGET")
-  if [[ "$PAUSE" -eq 1 ]]; then args+=(--target-action=pause); else args+=(--target-action=promote); fi
+  if [[ "$PROMOTE" -eq 1 ]]; then args+=(--target-action=promote); else args+=(--target-action=pause); fi
 fi
 [[ -n "$SET" ]] && args+=("--set=$SET")
 # A drill server must never write into the production repository.
@@ -168,6 +174,7 @@ fi
 echo "Restore and replay took $(( ($(date -u +%s) - started) / 60 )) minutes. State: $state."
 
 db="$(docker exec "$PITR_CONTAINER" printenv POSTGRES_DB 2>/dev/null || echo gratisgis)"
+pg_user="$(docker exec "$PITR_CONTAINER" printenv POSTGRES_USER 2>/dev/null || echo gratisgis)"
 q() { docker exec -u postgres "$PITR_CONTAINER" sh -c 'psql -X -At -U "$POSTGRES_USER" -d "$1" -c "$2"' q "$@" 2>&1 || true; }
 echo "=== Quick checks ==="
 echo "timeline:              $(q postgres "SELECT timeline_id FROM pg_control_checkpoint()")"
@@ -176,14 +183,32 @@ echo "newest item change:    $(q "$db" "SELECT max(updated_at) FROM item")"
 echo "PostGIS:               $(q "$db" "SELECT postgis_full_version()" | cut -c1-60)"
 echo "Keycloak users:        $(q keycloak "SELECT count(*) FROM user_entity")"
 
-cat <<EOF
+if [[ "$state" == "paused" ]]; then
+  cat <<EOF
 
-Database restored. The rest of the stack is still stopped.
-Next, in order (docs/cloud/restore-runbook.md):
-  1. Look at the checks above. With --pause, inspect now, then run
-     SELECT pg_wal_replay_resume(); to open the database for writes.
+Database restored and PAUSED at $TARGET. It is read-only and the rest
+of the stack is still stopped. Nothing has been written yet.
+
+1. Inspect first (docs/cloud/restore-runbook.md, "Inspect before
+   opening"). Is the bad change gone? Is the good data just before it
+   there?
+     docker exec -it $PITR_CONTAINER psql -U $pg_user $db
+2. If right, open the database for writes. This ends recovery and
+   starts a new timeline; it cannot be paused again:
+     docker exec -u postgres $PITR_CONTAINER psql -U $pg_user -d postgres -c 'SELECT pg_wal_replay_resume()'
+   If wrong, run this script again with another --time. Nothing is lost.
+3. Then: start the stack (infra/deploy.sh), tombstones (RB-21), the
+   missing-objects check, and a new full backup: infra/pitr-backup.sh full
+EOF
+else
+  cat <<EOF
+
+Database restored and open for writes. The rest of the stack is still
+stopped. Next, in order (docs/cloud/restore-runbook.md):
+  1. Look at the checks above.
   2. Start the stack: infra/deploy.sh (or docker compose ... up -d).
   3. Re-apply deleted-organization tombstones (runbook step; RB-21).
   4. Run the missing-objects check.
   5. Take a new full backup: infra/pitr-backup.sh full
 EOF
+fi

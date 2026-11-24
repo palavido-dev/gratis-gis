@@ -20,7 +20,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   to an S3-compatible bucket with pgBackRest, plus setup, status and
   restore scripts. Restores the portal and Keycloak databases to any
   minute in the last 14 days. Off unless `infra/.env.pitr` exists. See
-  `docs/cloud/backup-design.md`.
+  `docs/cloud/backup-design.md`. The Postgres image now includes
+  pgBackRest, so the next update restarts the database once.
 
 ## [1.7.0] - 2026-11-23
 
