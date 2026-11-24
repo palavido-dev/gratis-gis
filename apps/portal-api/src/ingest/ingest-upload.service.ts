@@ -37,6 +37,7 @@ import {
   verifyUploadHandle,
   type UploadClaims,
 } from './ingest-upload-handle.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /** Most part URLs one sign request may ask for. */
 export const MAX_SIGN_BATCH = 100;
@@ -373,6 +374,7 @@ export class IngestUploadService {
    * handles unfinished multipart uploads on its own (see above).
    */
   @Cron(CronExpression.EVERY_HOUR)
+  @RunAsSystem('cron:ingest-upload-sweep')
   async sweepLeftoverObjects(): Promise<void> {
     if (this.leader && !this.leader.shouldRun()) return;
     await this.sweepLeftoverObjectsNow();

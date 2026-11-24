@@ -14,6 +14,7 @@ import { isTileLayerData } from '@gratis-gis/shared-types';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { isOwnStorageUrl, storageBasesFromEnv } from './pyramid-storage-url.js';
+import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Background worker that builds a PMTiles raster pyramid from
@@ -107,7 +108,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
     // another replica is not stolen. Boot still runs a sweep so a
     // restart recovers abandoned claims without waiting for the
     // first loop tick.
-    await this.reclaimStaleTilings('boot');
+    await runAsSystem('job-recover', () => this.reclaimStaleTilings('boot'));
     this.running = true;
     void this.loop();
     this.log.log(
@@ -121,11 +122,17 @@ export class TileLayerPyramidWorker implements OnModuleInit {
         // Periodic reclaim so a hung child without a container
         // restart still gets swept (#232); boot-only was not enough.
         if (Date.now() - this.lastReclaimAt >= 60_000) {
-          await this.reclaimStaleTilings('loop');
+          await runAsSystem('job-recover', () =>
+            this.reclaimStaleTilings('loop'),
+          );
         }
-        const claim = await this.claimNext();
+        // Claiming reads tile layers across every org; the build then
+        // runs as the org that owns the item.
+        const claim = await runAsSystem('job-claim', () => this.claimNext());
         if (claim) {
-          await this.buildPyramid(claim).catch((err) => {
+          await runAsOrg(claim.orgId, () =>
+            this.buildPyramid(claim),
+          ).catch((err) => {
             this.log.error(
               `Pyramid build failed for item ${claim.itemId}: ${err instanceof Error ? err.message : err}`,
             );
@@ -206,10 +213,11 @@ export class TileLayerPyramidWorker implements OnModuleInit {
    */
   private async claimNext(): Promise<{
     itemId: string;
+    orgId: string;
     data: TileLayerData;
   } | null> {
     const rows = await this.prisma.$queryRaw<
-      Array<{ id: string; data: Prisma.JsonValue }>
+      Array<{ id: string; org_id: string; data: Prisma.JsonValue }>
     >`
       WITH picked AS (
         SELECT id
@@ -230,7 +238,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       )
       FROM picked
       WHERE i.id = picked.id
-      RETURNING i.id, i."data_json" AS data
+      RETURNING i.id, i."org_id", i."data_json" AS data
     `;
     const row = rows[0];
     if (!row) return null;
@@ -238,7 +246,7 @@ export class TileLayerPyramidWorker implements OnModuleInit {
       this.log.warn(`Claimed item ${row.id} has invalid TileLayerData; skipping`);
       return null;
     }
-    return { itemId: row.id, data: row.data };
+    return { itemId: row.id, orgId: row.org_id, data: row.data };
   }
 
   /** Stamp tilingHeartbeatAt so reclaim does not steal a live claim. */

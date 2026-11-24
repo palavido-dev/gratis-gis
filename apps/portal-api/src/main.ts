@@ -14,6 +14,7 @@ import {
 } from './common/body-limits.js';
 import { installMetrics } from './metrics/install-metrics.js';
 import { writeStartupStatus } from './startup-status.js';
+import { logTenancyMode } from './common/tenancy.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
 // uncaughtException OR an unhandledRejection by default; in prod that
@@ -38,6 +39,7 @@ process.on('uncaughtException', (err) => {
 });
 
 async function bootstrap() {
+  logTenancyMode(processLogger);
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // Flush in-memory work (bbox windows, in-flight jobs) on SIGTERM
   // instead of dropping it when a deploy stops the container.

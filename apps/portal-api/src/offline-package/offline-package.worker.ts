@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from './offline-package.service.js';
 import { isReachable, resolveBasemapSource } from './basemap-source.js';
+import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Builds offline basemap packages (#70).
@@ -69,9 +70,11 @@ export class OfflinePackageWorker implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.packages.recoverStale().catch((err) => {
-      this.log.warn(`Stale-build recovery on boot failed: ${msg(err)}`);
-    });
+    await runAsSystem('job-recover', () => this.packages.recoverStale()).catch(
+      (err) => {
+        this.log.warn(`Stale-build recovery on boot failed: ${msg(err)}`);
+      },
+    );
     this.running = true;
     // Detached: the loop lives as long as the process.
     void this.loop();
@@ -84,16 +87,24 @@ export class OfflinePackageWorker implements OnModuleInit {
         this.ticksSinceSweep += 1;
         if (this.ticksSinceSweep >= SWEEP_EVERY_TICKS) {
           this.ticksSinceSweep = 0;
-          await this.packages.recoverStale().catch((err) => {
+          await runAsSystem('job-recover', () =>
+            this.packages.recoverStale(),
+          ).catch((err) => {
             this.log.warn(`Periodic stale-build recovery failed: ${msg(err)}`);
           });
-          await this.queueDueRefreshes().catch((err) => {
+          await runAsSystem('cron:offline-package-refresh', () =>
+            this.queueDueRefreshes(),
+          ).catch((err) => {
             this.log.warn(`Automatic refresh sweep failed: ${msg(err)}`);
           });
         }
-        const job = await this.packages.claimNext();
+        const job = await runAsSystem('job-claim', () =>
+          this.packages.claimNext(),
+        );
         if (job) {
-          await this.build(job).catch(async (err) => {
+          await runAsOrg(job.orgId, () =>
+            this.build(job),
+          ).catch(async (err) => {
             // build() flips the row itself. Anything escaping here is
             // the markFailed call having thrown; keep the loop alive.
             this.log.error(

@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * OSM cache-scrub cron (#100, wave 2).
@@ -67,6 +68,7 @@ export class OsmScrubService implements OnApplicationBootstrap {
    * gets picked up on the next tick.
    */
   @Cron(CronExpression.EVERY_HOUR, { name: 'osm-cache-scrub' })
+  @RunAsSystem('cron:osm-cache-scrub')
   async scrubExpired(): Promise<void> {
     if (!this.leader.shouldRun()) return;
     const now = new Date();

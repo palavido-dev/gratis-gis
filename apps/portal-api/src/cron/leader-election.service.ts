@@ -6,6 +6,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * Process-wide leader election via PostgreSQL session-level
@@ -72,6 +73,9 @@ export class LeaderElectionService implements OnModuleInit, OnModuleDestroy {
   private pollTimer: NodeJS.Timeout | null = null;
   private readonly pauseProbes: Array<() => boolean> = [];
 
+  // The lock connection and the reconcile timer started here inherit
+  // this system context.
+  @RunAsSystem('leader-election')
   async onModuleInit(): Promise<void> {
     // Some non-prod / test boots set ENABLE_CRONS=false explicitly
     // because they don't want cron side-effects regardless of

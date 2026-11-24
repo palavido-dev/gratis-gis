@@ -10,6 +10,7 @@ import { EmailTransport } from './email-transport.js';
 import { NotificationTemplateService } from './notification-template.service.js';
 import { renderNotification, type RenderContext } from './templates.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { RunAsSystem, runAsOrg } from '../common/tenant-context.js';
 
 /**
  * Drains the notification queue in batches. Runs on a 30-second
@@ -89,7 +90,10 @@ export class NotificationsWorker {
     };
   }
 
+  // The sweeps and the claim read the queue across every org; each row
+  // is then sent as its recipient's org (drainBatch).
   @Cron(CronExpression.EVERY_30_SECONDS, { name: 'notifications-drain' })
+  @RunAsSystem('cron:notifications-drain')
   async tick() {
     // Multi-replica safety: only the leader drains the queue. Without
     // this every replica's tick would race the same submitted-rows
@@ -236,12 +240,16 @@ export class NotificationsWorker {
       },
       orderBy: { scheduledAt: 'asc' },
       take: this.batchSize,
+      // The recipient's org, for the tenant context the send runs in.
+      include: { user: { select: { orgId: true } } },
     });
     if (due.length === 0) return;
     this.log.debug(`Draining ${due.length} notification(s)`);
     for (const row of due) {
       try {
-        await this.processOne(row.id);
+        const orgId = row.user?.orgId;
+        const send = () => this.processOne(row.id);
+        await (orgId ? runAsOrg(orgId, send) : send());
       } catch (err) {
         // One row must not stop the rest of the batch.
         this.log.warn(

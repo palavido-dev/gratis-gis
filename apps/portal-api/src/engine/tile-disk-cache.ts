@@ -12,6 +12,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
+import { runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Second tier of the tile cache: MVT buffers kept on disk so a restart
@@ -269,8 +270,12 @@ export class TileDiskCache {
         this.scanning = null;
       });
       if (this.sweepIntervalMs > 0) {
+        // Started by whichever request first used the cache, so the
+        // sweep sets its own context rather than keeping that one.
         this.sweepTimer = setInterval(() => {
-          void this.sweepOnce();
+          void runAsSystem('cron:tile-disk-cache-sweep', () =>
+            this.sweepOnce(),
+          );
         }, this.sweepIntervalMs);
         this.sweepTimer.unref();
       }

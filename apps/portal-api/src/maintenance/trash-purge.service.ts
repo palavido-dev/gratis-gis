@@ -10,6 +10,7 @@ import { trashRetentionDays } from './trash-retention.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { purgeGroups } from '../groups/groups.service.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /** Teardown of one large layer can take minutes; the row lock waits. */
 const ITEM_PURGE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -42,6 +43,7 @@ export class TrashPurgeService {
   // 3am UTC keeps it off peak traffic for most deployments. Cron syntax
   // from @nestjs/schedule: "second minute hour day-of-month month day-of-week".
   @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'purge-trash', timeZone: 'UTC' })
+  @RunAsSystem('cron:purge-trash')
   async handleCron() {
     // Multi-replica safety: only the leader runs this. Otherwise N
     // replicas would each fire deleteMany at 3am.

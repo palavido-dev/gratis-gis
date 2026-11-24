@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 
 import { WorkerAppModule } from './worker.module.js';
+import { logTenancyMode } from './common/tenancy.js';
 
 /**
  * portal-worker entry point (#115 P8).
@@ -34,6 +35,7 @@ import { WorkerAppModule } from './worker.module.js';
  */
 async function bootstrap() {
   const log = new Logger('Worker');
+  logTenancyMode(log);
   const app = await NestFactory.createApplicationContext(WorkerAppModule, {
     bufferLogs: false,
   });

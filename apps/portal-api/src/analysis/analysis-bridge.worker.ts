@@ -9,6 +9,7 @@ import {
   cancelLinkedImport,
   stampAnalysisTargetFailed,
 } from './analysis-target-stamp.js';
+import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Analysis-to-import bridge (contours and future vector analysis
@@ -76,9 +77,12 @@ export class AnalysisBridgeWorker implements OnModuleInit {
     if (this.running) return; // no overlapping ticks
     this.running = true;
     try {
-      await this.reclaimStaleJobs();
-      await this.claimIngestJobs();
-      await this.settleImportingJobs();
+      // Each step sweeps the shared queue across every org. The
+      // hand-off of one claimed job runs as that job's org (see
+      // claimIngestJobs).
+      await runAsSystem('job-recover', () => this.reclaimStaleJobs());
+      await runAsSystem('job-claim', () => this.claimIngestJobs());
+      await runAsSystem('job-settle', () => this.settleImportingJobs());
     } catch (err) {
       this.log.error(
         `bridge tick failed: ${err instanceof Error ? err.message : err}`,
@@ -216,84 +220,86 @@ export class AnalysisBridgeWorker implements OnModuleInit {
         data: { state: 'importing', progress: 82, heartbeatAt: new Date() },
       });
       if (claimed.count === 0) continue; // another replica took it
-      try {
-        const params = (job.params ?? {}) as {
-          artifactKey?: string;
-          layerId?: string;
-          featureCount?: number;
-        };
-        if (!params.artifactKey || !params.layerId || !job.targetItemId) {
-          throw new Error(
-            'The analysis result is missing its file reference.',
-          );
-        }
-        // Pull the artifact out of MinIO and into the staging area
-        // the import worker reads from (shared volume). Piped, not
-        // buffered: a large contour set is hundreds of MB, and the
-        // old collect-into-one-Buffer approach held all of it in
-        // this process's heap for no benefit (the import worker
-        // reads the staged FILE, never the bytes in memory).
-        const obj = await this.storage.streamObject(params.artifactKey);
-        const staged = await this.staging.stageStream({
-          stream: obj.body,
-          // Kind-neutral name: contours, zonal-stats, and future
-          // vector analysis outputs all hand off GeoJSON here.
-          originalName: 'analysis-result.geojson',
-          ownerId: job.userId,
-        });
-        const importJob = await this.importJobs.enqueue({
-          itemId: job.targetItemId,
-          layerId: params.layerId,
-          stagingId: staged.stagingId,
-          sourceFileName: staged.originalName,
-          // Empty layer name = "use the file's only layer". A
-          // GeoJSON file always has exactly one, and this avoids
-          // guessing what OGR will call it.
-          sourceLayerName: '',
-          mode: 'replace',
-          totalFeatures: params.featureCount ?? null,
-          userId: job.userId,
-          orgId: job.orgId,
-        });
-        const recorded = await this.prisma.analysisJob.updateMany({
-          where: { id: job.id, state: 'importing' },
-          data: {
-            params: { ...params, importJobId: importJob.id },
-            progress: 85,
-          },
-        });
-        if (recorded.count === 0) {
-          // Cancelled while we were staging: the cancel could not see
-          // this import yet, so stop it here.
-          await cancelLinkedImport(this.prisma, importJob.id);
-        }
-        // The artifact has served its purpose; the staged copy is
-        // what the import reads. Best-effort cleanup.
+      await runAsOrg(job.orgId, async () => {
         try {
-          await this.storage.deleteObject(params.artifactKey);
-        } catch {
-          /* orphaned artifacts are harmless and tiny */
+          const params = (job.params ?? {}) as {
+            artifactKey?: string;
+            layerId?: string;
+            featureCount?: number;
+          };
+          if (!params.artifactKey || !params.layerId || !job.targetItemId) {
+            throw new Error(
+              'The analysis result is missing its file reference.',
+            );
+          }
+          // Pull the artifact out of MinIO and into the staging area
+          // the import worker reads from (shared volume). Piped, not
+          // buffered: a large contour set is hundreds of MB, and the
+          // old collect-into-one-Buffer approach held all of it in
+          // this process's heap for no benefit (the import worker
+          // reads the staged FILE, never the bytes in memory).
+          const obj = await this.storage.streamObject(params.artifactKey);
+          const staged = await this.staging.stageStream({
+            stream: obj.body,
+            // Kind-neutral name: contours, zonal-stats, and future
+            // vector analysis outputs all hand off GeoJSON here.
+            originalName: 'analysis-result.geojson',
+            ownerId: job.userId,
+          });
+          const importJob = await this.importJobs.enqueue({
+            itemId: job.targetItemId,
+            layerId: params.layerId,
+            stagingId: staged.stagingId,
+            sourceFileName: staged.originalName,
+            // Empty layer name = "use the file's only layer". A
+            // GeoJSON file always has exactly one, and this avoids
+            // guessing what OGR will call it.
+            sourceLayerName: '',
+            mode: 'replace',
+            totalFeatures: params.featureCount ?? null,
+            userId: job.userId,
+            orgId: job.orgId,
+          });
+          const recorded = await this.prisma.analysisJob.updateMany({
+            where: { id: job.id, state: 'importing' },
+            data: {
+              params: { ...params, importJobId: importJob.id },
+              progress: 85,
+            },
+          });
+          if (recorded.count === 0) {
+            // Cancelled while we were staging: the cancel could not see
+            // this import yet, so stop it here.
+            await cancelLinkedImport(this.prisma, importJob.id);
+          }
+          // The artifact has served its purpose; the staged copy is
+          // what the import reads. Best-effort cleanup.
+          try {
+            await this.storage.deleteObject(params.artifactKey);
+          } catch {
+            /* orphaned artifacts are harmless and tiny */
+          }
+          this.log.log(
+            `analysis ${job.id}: staged ${staged.sizeBytes} B, import ${importJob.id} queued`,
+          );
+        } catch (err) {
+          const msg =
+            err instanceof Error
+              ? err.message
+              : 'The analysis result could not be imported.';
+          // Only while still 'importing': a job the user cancelled during
+          // staging stays cancelled.
+          await this.prisma.analysisJob.updateMany({
+            where: { id: job.id, state: 'importing' },
+            data: {
+              state: 'failed',
+              error: msg.slice(0, 2000),
+              finishedAt: new Date(),
+            },
+          });
+          this.log.error(`analysis ${job.id}: bridge failed: ${msg}`);
         }
-        this.log.log(
-          `analysis ${job.id}: staged ${staged.sizeBytes} B, import ${importJob.id} queued`,
-        );
-      } catch (err) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : 'The analysis result could not be imported.';
-        // Only while still 'importing': a job the user cancelled during
-        // staging stays cancelled.
-        await this.prisma.analysisJob.updateMany({
-          where: { id: job.id, state: 'importing' },
-          data: {
-            state: 'failed',
-            error: msg.slice(0, 2000),
-            finishedAt: new Date(),
-          },
-        });
-        this.log.error(`analysis ${job.id}: bridge failed: ${msg}`);
-      }
+      });
     }
   }
 

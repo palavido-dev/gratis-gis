@@ -13,6 +13,7 @@ import {
   type HousekeepingConfig,
 } from './housekeeping-schedule.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { RunAsSystem, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Registers the scheduled-housekeeping cron job and keeps it in
@@ -79,8 +80,9 @@ export class HousekeepingCronService
     // that landed on the other one still takes effect here.
     this.configTimer = setInterval(() => {
       void this.sweepInterruptedRuns();
-      void this.schedule
-        .getConfig()
+      void runAsSystem('cron:housekeeping-config', () =>
+        this.schedule.getConfig(),
+      )
         .then((next) => this.apply(next))
         .catch((e: unknown) =>
           this.log.warn(
@@ -95,6 +97,7 @@ export class HousekeepingCronService
    * Once, on the leader, soon after boot: fail housekeeping runs a
    * dead process left 'running' (03-12).
    */
+  @RunAsSystem('cron:housekeeping-sweep')
   async sweepInterruptedRuns(): Promise<void> {
     if (this.interruptedSwept) return;
     if (Date.now() - this.bootedAt > HousekeepingCronService.SWEEP_WINDOW_MS) {
@@ -184,6 +187,10 @@ export class HousekeepingCronService
     }
   }
 
+  // The job can be (re)built while an admin's config save is being
+  // handled, and its timers would then carry that request's tenant
+  // context. Each tick sets its own.
+  @RunAsSystem('cron:housekeeping')
   private async runSafely() {
     // Leadership is checked per tick: it can move at runtime.
     if (!this.leader.shouldRun()) return;

@@ -18,6 +18,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CopyWriter } from '../engine/copy-writer.js';
 import { dataLayerScope } from '../engine/data-layer.js';
+import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * In-process worker for ImportJob rows (#115).
@@ -79,7 +80,9 @@ export class ImportJobsWorker implements OnModuleInit {
     // outage); a fast docker restart leaves the crashed job's
     // heartbeat fresh, which the periodic sweep in the loop picks
     // up once the threshold elapses.
-    await this.jobs.recoverStaleRunning().catch((err) => {
+    await runAsSystem('job-recover', () =>
+      this.jobs.recoverStaleRunning(),
+    ).catch((err) => {
       this.log.warn(
         `Stale-job recovery on boot failed: ${
           err instanceof Error ? err.message : err
@@ -106,7 +109,9 @@ export class ImportJobsWorker implements OnModuleInit {
         this.ticksSinceRecovery += 1;
         if (this.ticksSinceRecovery >= this.RECOVERY_EVERY_TICKS) {
           this.ticksSinceRecovery = 0;
-          await this.jobs.recoverStaleRunning().catch((err) => {
+          await runAsSystem('job-recover', () =>
+            this.jobs.recoverStaleRunning(),
+          ).catch((err) => {
             this.log.warn(
               `Periodic stale-job recovery failed: ${
                 err instanceof Error ? err.message : err
@@ -114,9 +119,15 @@ export class ImportJobsWorker implements OnModuleInit {
             );
           });
         }
-        const job = await this.jobs.claimNext();
+        // Claiming reads the shared queue across every org; the job
+        // itself then runs as the org it belongs to.
+        const job = await runAsSystem('job-claim', () =>
+          this.jobs.claimNext(),
+        );
         if (job) {
-          await this.runJobWithHeartbeat(job).catch((err) => {
+          await runAsOrg(job.orgId, () =>
+            this.runJobWithHeartbeat(job),
+          ).catch((err) => {
             // runJob has its own error handling that flips the row
             // to 'failed'. Anything that escapes here is exotic
             // (the markFailed call itself threw); log and keep the

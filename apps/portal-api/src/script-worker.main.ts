@@ -5,6 +5,7 @@ import { Logger } from '@nestjs/common';
 import { ScriptWorkerAppModule } from './script-worker.module.js';
 import { ScriptRunnerWorker } from './scripts/script-runner.worker.js';
 import { isScriptsEnabled } from './scripts/scripts-config.js';
+import { logTenancyMode } from './common/tenancy.js';
 
 /**
  * script-runner entry point (#221).
@@ -29,6 +30,7 @@ import { isScriptsEnabled } from './scripts/scripts-config.js';
  */
 async function bootstrap() {
   const log = new Logger('ScriptRunner');
+  logTenancyMode(log);
   const app = await NestFactory.createApplicationContext(
     ScriptWorkerAppModule,
     { bufferLogs: false },

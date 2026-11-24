@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 import { HealthController } from './health.controller.js';
@@ -50,6 +50,7 @@ import { ScriptScheduleModule } from './scripts/script-schedule.module.js';
 import { LeaderElectionModule } from './cron/leader-election.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
+import { TenantContextInterceptor } from './common/tenant-context.interceptor.js';
 
 @Module({
   imports: [
@@ -124,6 +125,9 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Global auth guard; opt out per-route with @Public()
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Which org each request is for (common/tenant-context.ts).
+    // Interceptors run after the guards, so req.user is set by then.
+    { provide: APP_INTERCEPTOR, useClass: TenantContextInterceptor },
   ],
 })
 export class AppModule {}

@@ -15,6 +15,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   records to add and can wait for them, and the install ends by waiting
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
+- `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
 
 ## [1.7.0] - 2026-11-23
 

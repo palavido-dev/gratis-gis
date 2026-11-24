@@ -31,6 +31,7 @@ import {
 import { cleanSubmission } from './submission-clean.js';
 import { isPlainEmailAddress } from '../notifications/email-address.js';
 import { formExtraRecipients } from './form-notify-limits.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * Persistence and access control for form submissions (#131).
@@ -96,6 +97,8 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
    * is unref'd so a test process that constructs the service and
    * starts it does not hold the event loop open.
    */
+  // The repair timer started here inherits this system context.
+  @RunAsSystem('cron:form-mirror-repair')
   onApplicationBootstrap(): void {
     this.repairTimer = setInterval(() => {
       void this.repairSafely();

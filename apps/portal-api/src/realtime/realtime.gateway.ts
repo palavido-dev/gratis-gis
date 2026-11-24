@@ -10,6 +10,10 @@ import type { WebSocket } from 'ws';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import {
+  runInTenantContext,
+  tenantContextForCaller,
+} from '../common/tenant-context.js';
+import {
   PRESENCE_WS_MAX_PAYLOAD_BYTES,
   isPresenceFrameWithinBudget,
 } from './presence-frame.js';
@@ -96,14 +100,21 @@ export class RealtimeGateway
       frameTimes: [],
     });
 
+    // Frames arrive on the raw socket, outside Nest's interceptors, so
+    // each one sets the tenant context for the user who opened it.
+    const tenant = tenantContextForCaller(user);
     client.on('message', (raw) => {
-      void this.onMessage(client, raw);
+      runInTenantContext(tenant, () => {
+        void this.onMessage(client, raw);
+      });
     });
 
     try {
-      const roster = await this.realtime.heartbeat(user, mapId, {
-        connectionId,
-      });
+      const roster = await runInTenantContext(tenant, () =>
+        this.realtime.heartbeat(user, mapId, {
+          connectionId,
+        }),
+      );
       this.send(client, { type: 'roster', members: roster.members });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Join failed';
@@ -115,13 +126,13 @@ export class RealtimeGateway
     const st = this.state.get(client);
     if (!st) return;
     st.unsubscribe();
-    void this.realtime
-      .leave(st.user, st.mapId, st.connectionId)
-      .catch((err) => {
-        this.log.warn(
-          `leave on disconnect failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      });
+    void runInTenantContext(tenantContextForCaller(st.user), () =>
+      this.realtime.leave(st.user, st.mapId, st.connectionId),
+    ).catch((err) => {
+      this.log.warn(
+        `leave on disconnect failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
     this.state.delete(client);
   }
 
