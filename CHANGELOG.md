@@ -59,6 +59,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Map Save as no longer fails when the map refers to items the person
   saving cannot open: the copy leaves those references out and the
   answer lists their ids (`omittedItemIds`, `warnings`).
+- A map layer's elevation hint (`source.preferredElevationItemId`,
+  copied from its tile or point cloud item) never blocks a save: a new
+  hint the author cannot read is left out of the saved layer.
+- Creating an app from a saved app template no longer fails when the
+  template names items the person cannot open: the app is made without
+  them and the answer lists their ids. The new-item wizard sends the
+  template id (`fromTemplateId` on `POST /api/items`) and shows the list.
 - A derived layer whose source was unshared from its author can still
   be edited and saved; the save answers without the extent or cached
   values taken from that source, and reads stay empty for the author.
