@@ -19,11 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type * as maplibregl from 'maplibre-gl';
 import { Pentagon, Ruler, X } from 'lucide-react';
-import {
-  defaultDrawingSetTitle,
-  type DrawingFeature,
-  type DrawingSet,
-} from '@gratis-gis/shared-types';
+import type { DrawingFeature } from '@gratis-gis/shared-types';
 
 import {
   AREA_UNIT_LABELS,
@@ -42,7 +38,7 @@ import {
 import { flattenPitchForMeasure } from '@/lib/measure-camera';
 import { dimensionLabelFeatures, scaleRingToArea } from '@/lib/measure-labels';
 import { dimensionLabelLayout, dimensionLabelPaint } from '@/lib/drawings-overlay';
-import { portalJson } from '@/lib/portal-json';
+import { appendToMarkup, type MarkupSaveContext } from '@/lib/markup-append';
 import { clientUuid } from '@/lib/uuid';
 import { useT } from '@/lib/i18n/locale-context';
 import {
@@ -66,14 +62,7 @@ export interface MeasureToolProps {
   save?: MeasureSaveContext | undefined;
 }
 
-export interface MeasureSaveContext {
-  mapId: string;
-  currentUser: { id: string; displayName: string };
-  /** Map editors may add to any markup set; others only to their own. */
-  canEditMap: boolean;
-  drawings: DrawingSet[];
-  onDrawingsChange: (next: DrawingSet[]) => void;
-}
+export type MeasureSaveContext = MarkupSaveContext;
 
 type MeasureMode = 'distance' | 'area';
 type MeasuredGeometry =
@@ -370,22 +359,6 @@ export function MeasureTool({
     setSaving(true);
     setNotice(null);
     try {
-      const base = `/api/portal/items/${ctx.mapId}/drawings`;
-      const mine = ctx.drawings
-        .filter((s) => s.visible && (ctx.canEditMap || s.authorId === ctx.currentUser.id))
-        .sort((a, b) => {
-          const own = Number(b.authorId === ctx.currentUser.id) - Number(a.authorId === ctx.currentUser.id);
-          return own !== 0 ? own : b.updatedAt.localeCompare(a.updatedAt);
-        });
-      let target = mine[0] ?? null;
-      let sets = ctx.drawings;
-      if (!target) {
-        target = await portalJson<DrawingSet>(base, {
-          method: 'POST',
-          body: JSON.stringify({ title: defaultDrawingSetTitle(ctx.currentUser.displayName) }),
-        });
-        sets = [...sets, target];
-      }
       const now = new Date().toISOString();
       const feature: DrawingFeature = {
         id: clientUuid(),
@@ -404,12 +377,7 @@ export function MeasureTool({
         createdAt: now,
         updatedAt: now,
       };
-      const updated = await portalJson<DrawingSet>(`${base}/${target.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ appendFeatures: [feature] }),
-      });
-      const targetId = target.id;
-      ctx.onDrawingsChange(sets.map((s) => (s.id === targetId ? updated : s)));
+      const updated = await appendToMarkup(ctx, feature);
       // The saved shape now draws from markup; clear the sketch so
       // there are not two on top of each other.
       try {

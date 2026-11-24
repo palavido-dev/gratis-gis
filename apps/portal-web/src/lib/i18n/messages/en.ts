@@ -1055,6 +1055,10 @@ export const en = {
     uploadTooMany: 'That file has more than {max} shapes. Upload just the area you want to check.',
     uploadFailed: 'Could not read that file',
     downloadArea: 'Download the area (GeoJSON)',
+    saveToMarkup: 'Save the area to markup',
+    markupSaved: 'Saved to {title}.',
+    markupFailed: 'Could not save to markup',
+    markupTooDetailed: 'This area is too detailed for markup. Download it instead.',
     report: {
       button: 'PDF',
       title: "What's here report",

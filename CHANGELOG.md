@@ -48,6 +48,8 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   shapefile or a GeoPackage, up to 2,000 shapes (#796).
 - What's Here downloads the area it checked as GeoJSON, distance included,
   to keep, open in desktop GIS or upload again later (#796).
+- What's Here saves the checked area to the map's markup, with its size
+  shown in the middle (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 

@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type * as maplibregl from 'maplibre-gl';
 import {
+  BookmarkPlus,
   Circle as CircleIcon,
   Download,
   FileText,
@@ -41,7 +42,14 @@ import {
 import type { MapLayer } from '@gratis-gis/shared-types';
 
 import { useLocale, useT } from '@/lib/i18n/locale-context';
+import {
+  appendToMarkup,
+  MAX_MARKUP_VERTICES,
+  vertexCount,
+  type MarkupSaveContext,
+} from '@/lib/markup-append';
 import { importSpatialFile } from '@/lib/spatial-import';
+import { clientUuid } from '@/lib/uuid';
 import {
   AREA_UNIT_LABELS,
   DISTANCE_UNIT_LABELS,
@@ -123,6 +131,9 @@ export interface WhatsHereToolProps {
   /** An area from a share link (useSharedWhatsHere). Applied once,
    *  the first time the panel is open with it. */
   shared?: SharedArea | null;
+  /** Lets the area be saved to the map's markup. Left out where there
+   *  is no markup to save to (apps, a signed-out viewer). */
+  markup?: MarkupSaveContext | undefined;
 }
 
 /**
@@ -132,15 +143,23 @@ export interface WhatsHereToolProps {
 export function useSharedWhatsHere(): SharedArea | null {
   const [shared, setShared] = useState<SharedArea | null>(null);
   useEffect(() => {
-    const code = readShareHash();
-    if (!code) return;
     let live = true;
-    void decodeSharedArea(code).then((area) => {
-      if (live) setShared(area);
-      if (!area) clearShareHash();
-    });
+    const check = () => {
+      const code = readShareHash();
+      if (!code) return;
+      void decodeSharedArea(code).then((area) => {
+        if (!live) return;
+        // A fresh object each time, so a link pasted into a tab that
+        // already shows this map applies again.
+        if (area) setShared({ ...area });
+        else clearShareHash();
+      });
+    };
+    check();
+    window.addEventListener('hashchange', check);
     return () => {
       live = false;
+      window.removeEventListener('hashchange', check);
     };
   }, []);
   return shared;
@@ -186,6 +205,7 @@ export function WhatsHereTool({
   defaultAreaUnit,
   defaultLengthUnit,
   shared,
+  markup,
 }: WhatsHereToolProps) {
   const t = useT();
   const locale = useLocale();
@@ -232,6 +252,8 @@ export function WhatsHereTool({
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  const [savingMarkup, setSavingMarkup] = useState(false);
+  const [markupNote, setMarkupNote] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
 
   const { layers, loading: layersLoading } = useScreenLayers(mapLayers, open);
   const layersRef = useRef(layers);
@@ -705,6 +727,7 @@ export function WhatsHereTool({
     setLinkFallback(null);
     setGivenNote(null);
     setUploadError(null);
+    setMarkupNote(null);
   }, [clearDrawing]);
 
   function switchMode(next: AreaMode) {
@@ -940,6 +963,36 @@ export function WhatsHereTool({
       setReportError(err instanceof Error ? err.message : t('whatsHere.report.failed'));
     } finally {
       setReporting(false);
+    }
+  }
+
+  /** The area as checked (distance included) as a markup shape, with
+   *  its size shown in the middle in the panel's area unit. */
+  async function saveToMarkup() {
+    if (!markup || !area) return;
+    if (vertexCount(area.geometry) > MAX_MARKUP_VERTICES) {
+      setMarkupNote({ tone: 'error', text: t('whatsHere.markupTooDetailed') });
+      return;
+    }
+    setSavingMarkup(true);
+    setMarkupNote(null);
+    try {
+      const now = new Date().toISOString();
+      const label = (mode === 'address' || mode === 'link') && placeLabel ? placeLabel : undefined;
+      const set = await appendToMarkup(markup, {
+        id: clientUuid(),
+        kind: 'polygon',
+        geometry: area.geometry,
+        ...(label ? { label: label.slice(0, 200) } : {}),
+        dimensions: { area: true, areaUnit },
+        createdAt: now,
+        updatedAt: now,
+      });
+      setMarkupNote({ tone: 'ok', text: t('whatsHere.markupSaved', { title: set.title }) });
+    } catch {
+      setMarkupNote({ tone: 'error', text: t('whatsHere.markupFailed') });
+    } finally {
+      setSavingMarkup(false);
     }
   }
 
@@ -1274,6 +1327,22 @@ export function WhatsHereTool({
                   </p>
                 </div>
                 {resolving ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : null}
+                {markup ? (
+                  <button
+                    type="button"
+                    onClick={() => void saveToMarkup()}
+                    disabled={!area || savingMarkup}
+                    aria-label={t('whatsHere.saveToMarkup')}
+                    title={t('whatsHere.saveToMarkup')}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    {savingMarkup ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <BookmarkPlus className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={downloadArea}
@@ -1285,6 +1354,14 @@ export function WhatsHereTool({
                   <Download className="h-3.5 w-3.5" />
                 </button>
               </div>
+              {markupNote ? (
+                <p
+                  role={markupNote.tone === 'error' ? 'alert' : 'status'}
+                  className={`mt-1 text-2xs ${markupNote.tone === 'error' ? 'text-danger' : 'text-success'}`}
+                >
+                  {markupNote.text}
+                </p>
+              ) : null}
               {/* Both units in one place: they apply to every card and to
                   the spreadsheet, and each user's choice is remembered. */}
               <div className="mt-1 flex gap-1">

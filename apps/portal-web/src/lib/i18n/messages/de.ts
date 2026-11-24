@@ -1007,6 +1007,10 @@ export const de: Partial<CatalogShape> = {
     uploadTooMany: 'Diese Datei hat mehr als {max} Formen. Laden Sie nur das Gebiet hoch, das Sie prüfen möchten.',
     uploadFailed: 'Datei konnte nicht gelesen werden',
     downloadArea: 'Gebiet herunterladen (GeoJSON)',
+    saveToMarkup: 'Gebiet in Markierungen speichern',
+    markupSaved: 'Gespeichert in {title}.',
+    markupFailed: 'Konnte nicht in Markierungen gespeichert werden',
+    markupTooDetailed: 'Dieses Gebiet ist für Markierungen zu detailliert. Laden Sie es stattdessen herunter.',
     report: {
       button: 'PDF',
       title: 'Bericht: Was ist hier',
