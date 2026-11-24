@@ -3,7 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
-import { parseObjectKey, type ObjectKind } from './object-keys.js';
+import type { ObjectKind } from './object-keys.js';
 
 /**
  * Kinds that are not counted as stored data: resumable import uploads
@@ -278,9 +278,4 @@ async function addToTotals(tx: Tx, orgId: string, bytes: bigint, objects: bigint
       SET bytes = org_storage_usage.bytes + EXCLUDED.bytes,
           objects = org_storage_usage.objects + EXCLUDED.objects,
           updated_at = now()`);
-}
-
-/** The kind of a key for the ledger, or null when the key is not ours. */
-export function ledgerKindOf(key: string): string | null {
-  return parseObjectKey(key)?.kind ?? null;
 }
