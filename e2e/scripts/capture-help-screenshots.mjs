@@ -222,8 +222,8 @@ const SHOTS = [
       await go(page, `/items/${ID.explorerMap}?view=configure`, 6000);
       await page.getByRole('button', { name: "What's here" }).first().click();
       await page.getByRole('radio', { name: 'Address' }).click();
-      await page.getByPlaceholder('Search for an address or place').fill('Elkins, WV');
-      await page.getByText(/^Elkins, Randolph County/).first().click({ timeout: 15_000 });
+      await page.getByPlaceholder('Search for an address or place').fill('Beverly, WV');
+      await page.getByText(/^Beverly, Randolph County/).first().click({ timeout: 15_000 });
       await page.getByRole('button', { name: '1 mi', exact: true }).click();
       await page.waitForTimeout(6000);
     },
