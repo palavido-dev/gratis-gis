@@ -50,14 +50,46 @@ expect_true "env value missing is empty" '[[ -z "$(ggo_env_value "$tmp/env" NOPE
 expect_true "archive name ok" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12.tar.gz'
 expect_false "archive name traversal" 'ggo_valid_archive ../backup-x.tar.gz'
 expect_false "archive name other file" 'ggo_valid_archive notes.txt'
-expect_true "mirror run ok" 'ggo_valid_mirror_run 2026-11-24T02-00-00-000-abcdef12'
-expect_false "mirror run bad" 'ggo_valid_mirror_run "2026-11-24; rm -rf /"'
+expect_true "copy uploaded again ok" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12-r2.tar.gz'
+expect_true "copy attempt 999 ok" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12-r999.tar.gz'
+expect_false "copy attempt 1 is the plain name" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12-r1.tar.gz'
+expect_false "copy attempt 1000" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12-r1000.tar.gz'
 expect_true "identifier ok" 'ggo_valid_identifier gratisgis'
 expect_false "identifier quote" 'ggo_valid_identifier "a\"b"'
 expect_true "kv reads a key" '[[ "$(printf "a=1\nb=2\n" | ggo_kv b)" == 2 ]]'
 expect_false "archive name loose" 'ggo_valid_archive backup-x.tar.gz'
 expect_false "archive name with a folder" 'ggo_valid_archive backup-2026-11-24T02-00-00-000-abcdef12.tar.gz/x'
-expect_false "mirror run loose" 'ggo_valid_mirror_run 2026-11-24T0-abcdef12'
+VK_A=ggver1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+VK_B=ggver1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+VK_C=ggver1:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+FP_A=aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa-aaaa
+expect_true "verify key ok" 'ggo_valid_verify_key "$VK_A"'
+expect_false "verify key with a quote" "ggo_valid_verify_key \"ggver1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'\""
+expect_true "fingerprint ok" 'ggo_valid_fingerprint "$FP_A"'
+expect_false "fingerprint loose" 'ggo_valid_fingerprint aaaa-aaaa'
+kept_keys() { printf '%s\n' "${@:6}" | ggo_kept_verify_keys "$1" "$2" "$3" "$4" "$5" | tr '\n' ' '; }
+expect_true "verified, signed by the backup's key: earlier keys and the backup's key kept" \
+  '[[ "$(kept_keys verified "$FP_A" "$VK_A" "$VK_A" "$FP_A" "$VK_B")" == "$VK_B $VK_A " ]]'
+expect_true "foreign, signed by the backup's key: kept too" \
+  '[[ "$(kept_keys foreign "$FP_A" "$VK_A" "$VK_A" "$FP_A")" == "$VK_A " ]]'
+expect_true "the backup's key kept once, in its newest place" \
+  '[[ "$(kept_keys verified "$FP_A" "$VK_A" "$VK_A" "$FP_A" "$VK_A" "$VK_B")" == "$VK_B $VK_A " ]]'
+expect_true "the checking key is added when it differs from the backup's" \
+  '[[ "$(kept_keys verified "$FP_A" "$VK_C" "$VK_A" "$FP_A" "$VK_B")" == "$VK_B $VK_A $VK_C " ]]'
+expect_true "nothing kept when another key signed the copy" \
+  '[[ -z "$(kept_keys verified bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb-bbbb "$VK_B" "$VK_A" "$FP_A" "$VK_C")" ]]'
+for state in untrusted unsigned bad; do
+  expect_true "nothing kept for a $state copy" \
+    "[[ -z \"\$(kept_keys $state \"\$FP_A\" \"\$VK_A\" \"\$VK_A\" \"\$FP_A\" \"\$VK_B\")\" ]]"
+done
+expect_true "nothing kept without a backup verify key" \
+  '[[ -z "$(kept_keys verified "$FP_A" "$VK_A" "" "" "$VK_B")" ]]'
+many=()
+for i in $(seq 1 25); do many+=("ggver1:$(printf 'K%02d' "$i")$(printf 'k%.0s' $(seq 1 45))"); done
+expect_true "at most 20 kept, the newest" \
+  '[[ "$(kept_keys verified "$FP_A" "$VK_A" "$VK_A" "$FP_A" "${many[@]}" | wc -w)" -eq 20 ]] && [[ "$(kept_keys verified "$FP_A" "$VK_A" "$VK_A" "$FP_A" "${many[@]}" | cut -d" " -f1)" == "${many[6]}" ]]'
+expect_true "damaged earlier keys are dropped" \
+  '[[ "$(kept_keys verified "$FP_A" "$VK_A" "$VK_A" "$FP_A" "x'"'"'; DROP TABLE y" "$VK_B")" == "$VK_B $VK_A " ]]'
 expect_true "prefix ok" 'ggo_valid_prefix gratisgis-0f1e2d3c/'
 expect_true "nested prefix ok" 'ggo_valid_prefix backups/site-a/portal/'
 expect_false "prefix with a quote" "ggo_valid_prefix \"a'b/\""
@@ -83,7 +115,7 @@ case "$args" in
     printf 'fingerprint=8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184\nverifyKeys=%s\n' "${FAKE_VERIFY_COUNT:-1}"
     [ "${FAKE_VERIFY_COUNT:-1}" != 0 ] && printf 'verifyKey=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\n'
     true ;;
-  *"offsite-cli.js list "*) printf 'prefix=gratisgis-0f1e2d3c/\nlatest=%s\n' "$FAKE_LATEST"; [ -n "${FAKE_LATEST_MIRROR:-}" ] && printf 'latestMirror=%s\n' "$FAKE_LATEST_MIRROR"; true ;;
+  *"offsite-cli.js list "*) printf 'prefix=gratisgis-0f1e2d3c/\nlatest=%s\n' "$FAKE_LATEST" ;;
   *"offsite-cli.js describe "*)
     stdin_if_any
     sig="${FAKE_SIG:-verified}"
@@ -100,23 +132,20 @@ case "$args" in
         *) echo "offsite: No verified copy was found. To restore it anyway, pass $flag." >&2; printf 'needs=%s\n' "$sig"; exit 3 ;;
       esac
     fi
-    kind=archive; name="$FAKE_LATEST"
+    name="$FAKE_LATEST"
     case "$args" in
       *" --name "*) name="${args#* --name }"; name="${name%% *}" ;;
-      *" --run "*) kind=mirror; name="${args#* --run }"; name="${name%% *}" ;;
-      *) [ -n "${FAKE_LATEST_MIRROR:-}" ] && { kind=mirror; name="$FAKE_LATEST_MIRROR"; } ;;
     esac
-    printf 'prefix=gratisgis-0f1e2d3c/\nkind=%s\nname=%s\ncreated=2026-11-24T02:00:00.000Z\nuploaded=2026-11-24T02:05:00.000Z\nbytes=3221225472\nfingerprint=%s\n' \
-      "$kind" "$name" "${FAKE_COPY_FP:-8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184}"
+    printf 'prefix=gratisgis-0f1e2d3c/\nname=%s\ncreated=2026-11-24T02:00:00.000Z\nuploaded=2026-11-24T02:05:00.000Z\nbytes=3221225472\nfingerprint=%s\n' \
+      "$name" "${FAKE_COPY_FP:-8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184}"
     printf 'signature=%s\n' "$sig"
     [ "$sig" = untrusted ] && [ -n "${FAKE_SIGNER:-}" ] && printf 'claimedSigner=%s\n' "$FAKE_SIGNER"
-    [ "$sig" = verified ] && printf 'signedBy=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\ninstall=0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0\n'
-    [ "$sig" = foreign ] && printf 'signedBy=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\ninstall=99998888-4b5a-4978-8695-a4b3c2d1e0f0\n'
+    signer_key="${FAKE_SIGNER_KEY:-ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX}"
+    [ "$sig" = verified ] && printf 'signedBy=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\nsignedByKey=%s\ninstall=0f1e2d3c-4b5a-4978-8695-a4b3c2d1e0f0\n' "$signer_key"
+    [ "$sig" = foreign ] && printf 'signedBy=058d-7940-89ab-a15b-eb25-76ac-2168-1b43\nsignedByKey=%s\ninstall=99998888-4b5a-4978-8695-a4b3c2d1e0f0\n' "$signer_key"
     [ -n "${FAKE_SUSPECT:-}" ] && printf 'suspect=%s\n' "$FAKE_SUSPECT"
     true ;;
-  *"offsite-cli.js fetch-mirror "*) stdin_if_any; [ -n "${FAKE_FETCH_FAILS:-}" ] && { echo "offsite: The run's file x.enc is not in the bucket. Nothing was restored; choose another copy." >&2; exit 1; }; printf 'run=%s\ndump=/app/backups/offsite-restore/%s/database.dump\ndatabase=gratisgis\nobjects=7\n' "$FAKE_LATEST_MIRROR" "$FAKE_LATEST_MIRROR" ;;
   *"offsite-cli.js fetch "*) stdin_if_any; printf 'archive=/app/backups/offsite-restore/%s\ndatabase=gratisgis\nobjects=5\n' "$FAKE_LATEST" ;;
-  *"offsite-cli.js put-mirror-objects "*) stdin_if_any; printf 'objects=7\n' ;;
   *"offsite-cli.js put-objects "*) printf 'objects=5\n' ;;
   *"offsite-cli.js count-objects "*) printf 'objects=5\n' ;;
   *"FROM pg_database WHERE datname"*) printf '%s\n' "${FAKE_DB_EXISTS:-1}" ;;
@@ -126,6 +155,9 @@ case "$args" in
   *"pg_restore -l"*) cat >/dev/null; [ -n "${FAKE_SAFETY_UNREADABLE:-}" ] && exit 1; true ;;
   *" pg_restore "*) cat >/dev/null ;;
   *"SELECT count(*)"*) printf '3\n' ;;
+  *"SELECT offsite_verify_key FROM"*) printf '%s\n' "${FAKE_DUMP_KEY-ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX}" ;;
+  *"verify-key-fingerprint-v1"*) printf '%s\n' "${FAKE_DUMP_FP_HEX:-058d794089aba15beb2576ac21681b43}" ;;
+  *"unnest(COALESCE(offsite_previous_verify_keys"*) printf '%s\n' ${FAKE_DUMP_PREVIOUS:-} ;;
   *) [ -t 0 ] || cat >/dev/null ;;
 esac
 EOF
@@ -152,7 +184,7 @@ expect_not_in "nothing stopped without confirmation" "$(cat "$tmp/log")" " stop 
 expect_in "prints the target" "$out" "Database:  portal_db (user gis_user)"
 expect_in "prints the counts" "$out" "It holds 1 organization(s), 0 user(s) and 25 item(s)."
 
-expect_in "shows the copy before asking" "$out" "Copy:      $A (archive)"
+expect_in "shows the copy before asking" "$out" "Copy:      $A"
 expect_in "shows the copy date" "$out" "Made:      2026-11-24T02:00:00.000Z"
 expect_in "shows the copy size" "$out" "Size:      3.0 GB encrypted"
 expect_in "shows the copy key" "$out" "Key:       8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184"
@@ -165,7 +197,7 @@ expect_in "refuses a confirmation for another database" "$out" "does not match t
 
 FLOW_ARGS=(--confirm-database portal_db)
 out="$(run_flow FAKE_LATEST=$A)"
-expect_in "without a terminal the copy must be named" "$out" "name the copy with --archive or --mirror-run"
+expect_in "without a terminal the copy must be named" "$out" "name the copy with --archive (see --list)"
 expect_not_in "nothing fetched when the copy is not named" "$(cat "$tmp/log")" "offsite-cli.js fetch"
 
 FLOW_ARGS=(--confirm-database portal_db --archive "$A")
@@ -213,18 +245,18 @@ expect_in "creates it owned by the env user" "$log" 'CREATE DATABASE "portal_db"
 expect_in "streams the dump out of the archive" "$log" "--entrypoint tar portal-api -xzOf /app/backups/offsite-restore/$A postgres/gratisgis.dump"
 expect_in "restores in one transaction" "$log" "pg_restore --no-owner --no-privileges --exit-on-error --single-transaction -U gis_user -d portal_db"
 expect_in "runs migrations" "$log" "run --rm portal-migrate"
-expect_in "empties the local index of mirrored files and runs" "$log" "TRUNCATE backup_offsite_object, backup_offsite_mirror_run"
 expect_in "turns off-site copies off on the new server" "$log" "UPDATE backup_config SET offsite_enabled = false"
 expect_in "gives the new server a new install id" "$log" "offsite_install_id = NULL"
 expect_in "never keeps the signing key from the backup" "$log" "offsite_signing_key_encrypted = NULL, offsite_signing_key_iv = NULL, offsite_verify_key = NULL"
-expect_in "keeps the old verify key as an earlier key" "$log" "offsite_previous_verify_keys = array_append("
+expect_in "keeps the verify key that checked the copy as an earlier key" "$log" "offsite_previous_verify_keys = ARRAY['ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX']::text[]"
+expect_in "says the earlier key was kept" "$out" "Kept 1 earlier verify key(s) of this portal"
 expect_in "says to add the new verify key" "$out" "This server makes its own signing key"
 expect_in "keeps the folder it restored from" "$log" "offsite_prefix = COALESCE(offsite_prefix, 'gratisgis-0f1e2d3c/')"
 expect_in "says how to take over the folder" "$out" "Take over this folder"
 expect_in "puts files back" "$log" "offsite-cli.js put-objects --archive /app/backups/offsite-restore/$A"
 expect_in "starts everything" "$log" "up -d"
 expect_in "prints counts" "$out" "stored files         5 (the backup recorded 5)"
-order="$(grep -n -E 'check-key|describe| stop |pg_dump -Fc|pg_restore -l|DROP DATABASE|pg_restore --no-owner|portal-migrate|TRUNCATE|put-objects|up -d$' "$tmp/log" | cut -d: -f1 | tr '\n' ' ')"
+order="$(grep -n -E 'check-key|describe| stop |pg_dump -Fc|pg_restore -l|DROP DATABASE|pg_restore --no-owner|portal-migrate|offsite_enabled = false|put-objects|up -d$' "$tmp/log" | cut -d: -f1 | tr '\n' ' ')"
 sorted="$(tr ' ' '\n' <<<"$order" | grep . | sort -n | tr '\n' ' ')"
 expect_true "steps run in order" '[[ "$order" == "$sorted" ]]'
 expect_true "every step ran" '[[ "$(wc -w <<<"$order")" -eq 11 ]]'
@@ -242,18 +274,21 @@ out="$(run_flow FAKE_LATEST=$A FAKE_DB_EXISTS=0)"
 expect_in "a new database is said to be new" "$out" "It does not exist yet."
 expect_not_in "no safety dump of a database that does not exist" "$(cat "$tmp/log")" "pg_dump -Fc"
 
-FLOW_ARGS=(--confirm-database portal_db --mirror-run 2026-11-21T02-00-00-000-bbbbbbbb)
-out="$(run_flow FAKE_LATEST=backup-2026-11-20T02-00-00-000-aaaaaaaa.tar.gz FAKE_LATEST_MIRROR=2026-11-21T02-00-00-000-bbbbbbbb)"
-log="$(cat "$tmp/log")"
-expect_in "mirror: the named run is described" "$log" "offsite-cli.js describe --key-stdin --run 2026-11-21T02-00-00-000-bbbbbbbb"
-expect_in "mirror run is fetched once confirmed" "$log" "offsite-cli.js fetch-mirror --key-stdin --out /app/backups/offsite-restore --run 2026-11-21T02-00-00-000-bbbbbbbb --confirm-copy 2026-11-21T02-00-00-000-bbbbbbbb"
-expect_in "mirror: dump read from the fetched file" "$log" "--entrypoint cat portal-api /app/backups/offsite-restore/2026-11-21T02-00-00-000-bbbbbbbb/database.dump"
-expect_in "mirror: files streamed from the bucket" "$log" "offsite-cli.js put-mirror-objects --key-stdin --run 2026-11-21T02-00-00-000-bbbbbbbb --work /app/backups/offsite-restore"
-out="$(run_flow FAKE_LATEST=backup-2026-11-20T02-00-00-000-aaaaaaaa.tar.gz FAKE_LATEST_MIRROR=2026-11-21T02-00-00-000-bbbbbbbb FAKE_FETCH_FAILS=1)"
-log="$(cat "$tmp/log")"
-expect_in "mirror: a run with a missing file stops at the fetch" "$out" "is not in the bucket. Nothing was restored"
-expect_not_in "mirror: nothing stopped when a file is missing" "$log" " stop "
-expect_not_in "mirror: nothing dropped when a file is missing" "$log" "DROP DATABASE"
+FLOW_ARGS=(--confirm-database portal_db --archive "$A")
+out="$(run_flow FAKE_LATEST=$A FAKE_DUMP_PREVIOUS="$VK_B $VK_B")"
+expect_in "a verified copy keeps the backup's earlier keys once, then its verify key" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['$VK_B','ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX']::text[]"
+out="$(run_flow FAKE_LATEST=$A FAKE_DUMP_FP_HEX=ffffffffffffffffffffffffffffffff FAKE_DUMP_PREVIOUS="$VK_B")"
+expect_in "a backup verify key that did not sign the copy is not kept" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY[]::text[]"
+expect_in "says no key was kept" "$out" "No verify key from the backup was kept"
+out="$(run_flow FAKE_LATEST=$A FAKE_SIGNER_KEY="$VK_C" FAKE_DUMP_PREVIOUS="$VK_B")"
+expect_in "the checking key is kept too when it differs" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['$VK_B','ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX','$VK_C']::text[]"
+out="$(run_flow FAKE_LATEST=$A FAKE_DUMP_KEY= FAKE_DUMP_PREVIOUS="$VK_B")"
+expect_in "a backup without a verify key keeps none" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY[]::text[]"
+
+A2=backup-2026-11-24T02-00-00-000-aaaaaaaa-r2.tar.gz
+FLOW_ARGS=(--confirm-database portal_db --archive "$A2")
+out="$(run_flow FAKE_LATEST=$A2)"
+expect_in "a copy uploaded again under a new name is fetched by that name" "$(cat "$tmp/log")" "offsite-cli.js fetch --key-stdin --out /app/backups/offsite-restore --name $A2 --confirm-copy $A2"
 
 # --- signatures ---------------------------------------------------
 FLOW_ARGS=(--confirm-database portal_db --archive "$A")
@@ -278,6 +313,7 @@ expect_in "with the flag, the state is named" "$out" "State:     NOT SIGNED"
 expect_in "with the flag, says what was not checked" "$out" "Not checked: who made it. Nothing proves your portal made this copy."
 expect_in "with the flag, fetch checks again with the flag" "$log" "offsite-cli.js fetch --key-stdin --out /app/backups/offsite-restore --name $A --confirm-copy $A --allow-unsigned-copy"
 expect_in "with the flag, the restore goes on" "$log" "pg_restore --no-owner"
+expect_in "an unsigned copy keeps no verify key from the backup" "$log" "offsite_previous_verify_keys = ARRAY[]::text[]"
 
 FLOW_ARGS=(--confirm-database portal_db --archive "$A")
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=untrusted FAKE_SIGNER=aaaa-bbbb-cccc-dddd-eeee-ffff-0000-1111)"
@@ -296,9 +332,10 @@ expect_in "a copy for another install is refused without its flag" "$out" "pass 
 FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-foreign-install)
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=foreign)"
 expect_in "a foreign copy names its state" "$out" "State:     SIGNED FOR ANOTHER PORTAL INSTALL"
-expect_in "a foreign copy is checked against the signed record" "$out" "Checked:   size and SHA-256 of every file, against the signed record"
+expect_in "a foreign copy is checked against the signed record" "$out" "Checked:   size and SHA-256 of the copy, against the signed record"
 expect_in "a foreign copy says what was not checked" "$out" "Not checked: that the portal this folder belongs to made it"
 expect_in "a foreign copy restores with its flag" "$(cat "$tmp/log")" "pg_restore --no-owner"
+expect_in "a foreign copy keeps the key that checked it" "$(cat "$tmp/log")" "offsite_previous_verify_keys = ARRAY['ggver1:6kpsY-KcUgq-9VB7Ey7F-ZVHdq6-vnuSQh7qaRRG0iyRs4KX']::text[]"
 
 FLOW_ARGS=(--confirm-database portal_db --archive "$A" --allow-foreign-install --allow-untrusted-signer --allow-unsigned-copy)
 out="$(run_flow FAKE_LATEST=$A FAKE_SIG=bad)"

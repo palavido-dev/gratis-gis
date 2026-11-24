@@ -31,12 +31,11 @@
 // verify keys stay, so older copies still check. Do it after setting
 // off-site copies up and after every signing key change.
 //
-// verify checks a copy's signature (in its sidecar, or a mirror run's
-// done.json) against the verify keys in the key file, and with the
-// copy itself also its exact size and SHA-256. decrypt with --sidecar
-// checks the signature first, then reads the copy once: its size and
-// SHA-256 are checked while it is decrypted into a temporary file next
-// to the output, and the output file appears only when they matched
+// verify checks a copy's signature (in its sidecar) against the verify
+// keys in the key file, and with the copy itself also its exact size
+// and SHA-256. decrypt with --sidecar checks the signature first, then
+// reads the copy once: its size and SHA-256 are checked while it is
+// decrypted into a temporary file next to the output, and the output file appears only when they matched
 // the signed record and every record decrypted. Otherwise the
 // temporary file is removed and no output is left.
 //
@@ -103,25 +102,6 @@ const ARCHIVE_FIELDS = [
   'sha256',
   'key',
   'created',
-];
-const MIRROR_FIELDS = [
-  'kind',
-  'format',
-  'install',
-  'prefix',
-  'run',
-  'created',
-  'key',
-  'dump.name',
-  'dump.bytes',
-  'dump.sha256',
-  'manifest.name',
-  'manifest.bytes',
-  'manifest.sha256',
-  'index.name',
-  'index.bytes',
-  'index.sha256',
-  'index.files',
 ];
 
 // ---- GRCV2 (the sealed key file) -----------------------------------
@@ -256,26 +236,16 @@ const isTime = (s) => {
   const d = new Date(s);
   return !Number.isNaN(d.getTime()) && d.toISOString() === s;
 };
-const isRun = (s) =>
-  s.length === 32 &&
-  s[10] === 'T' &&
-  [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 22].every(
-    (i) => s[i] >= '0' && s[i] <= '9',
-  ) &&
-  [4, 7, 13, 16, 19, 23].every((i) => s[i] === '-') &&
-  isHex(s.slice(24), 8);
-
 function checkField(kind, f, v) {
   if (f === 'kind') return v === kind;
   if (f === 'format') return v === 'GROF1';
   if (f === 'install') return isUuid(v);
   if (f === 'prefix') return isPrefix(v);
-  if (f === 'run') return isRun(v);
   if (f === 'key') return isFp(v);
   if (f === 'created') return isTime(v);
-  if (f === 'name' || f.endsWith('.name')) return isObjectName(v);
-  if (f === 'bytes' || f.endsWith('.bytes') || f === 'index.files') return isDecimal(v);
-  if (f === 'sha256' || f.endsWith('.sha256')) return isHex(v, 64);
+  if (f === 'name') return isObjectName(v);
+  if (f === 'bytes') return isDecimal(v);
+  if (f === 'sha256') return isHex(v, 64);
   return false;
 }
 
@@ -285,7 +255,7 @@ function parseManifest(text) {
   const lines = text.slice(0, -1).split('\n');
   if (lines[0] !== SIGNED_HEADER || lines.length < 2) return null;
   const kind = lines[1].startsWith('kind=') ? lines[1].slice(5) : '';
-  const fields = kind === 'archive' ? ARCHIVE_FIELDS : kind === 'mirror' ? MIRROR_FIELDS : null;
+  const fields = kind === 'archive' ? ARCHIVE_FIELDS : null;
   if (!fields || lines.length !== fields.length + 1) return null;
   const out = {};
   for (let i = 0; i < fields.length; i += 1) {
@@ -302,7 +272,7 @@ function parseManifest(text) {
 }
 
 /**
- * Check a sidecar's (or done.json's) signature against the trusted
+ * Check a sidecar's signature against the trusted
  * verify keys. Returns { ok, manifest, signer, reason }.
  */
 function checkSidecar(j, trusted) {
@@ -808,25 +778,17 @@ async function verifyCopy(key, sidecarPath, copyPath, { hash = true } = {}) {
   if (!r.ok) throw new Fail(`NOT VERIFIED: ${r.reason}`);
   const m = r.manifest;
   const sideName = basename(sidecarPath);
-  if (m.kind === 'archive' && sideName !== `${basename(m.name)}.json`) {
+  if (sideName !== `${basename(m.name)}.json`) {
     throw new Fail(
       `NOT VERIFIED: the sidecar is named ${sideName}; its signature is for ${basename(m.name)}`,
     );
   }
   let checked = null;
   if (copyPath) {
-    const want =
-      m.kind === 'archive'
-        ? [{ name: m.name, bytes: m.bytes, sha256: m.sha256 }]
-        : ['dump', 'manifest', 'index'].map((p) => ({
-            name: m[`${p}.name`],
-            bytes: m[`${p}.bytes`],
-            sha256: m[`${p}.sha256`],
-          }));
-    const hit = want.find((w) => basename(w.name) === basename(copyPath));
-    if (!hit) {
+    const hit = { name: m.name, bytes: m.bytes, sha256: m.sha256 };
+    if (basename(hit.name) !== basename(copyPath)) {
       throw new Fail(
-        `NOT VERIFIED: ${basename(copyPath)} is not the file this signature is for (${want.map((w) => basename(w.name)).join(', ')})`,
+        `NOT VERIFIED: ${basename(copyPath)} is not the file this signature is for (${basename(hit.name)})`,
       );
     }
     if (hash) checkMatch(await sizeAndHash(copyPath), hit);
@@ -840,8 +802,7 @@ function printVerified(v) {
   process.stdout.write(
     [
       `Verified: signed by the verify key ${v.signer}`,
-      `Kind:     ${m.kind}`,
-      `Copy:     ${m.kind === 'archive' ? m.name : `mirror run ${m.run}`}`,
+      `Copy:     ${m.name}`,
       `Folder:   ${m.prefix}`,
       `Portal:   install ${m.install}`,
       `Made:     ${m.created}`,

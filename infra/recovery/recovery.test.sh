@@ -469,4 +469,39 @@ code=$?
 set -e
 [[ "$code" -ne 0 ]] || fail 'an oversize member was extracted'
 
+# The off-site reset restore.sh runs on the restored portal database.
+reset_sql="$(recovery_offsite_reset_sql)"
+for want in 'offsite_enabled = false' 'offsite_install_id = NULL' \
+  'offsite_signing_key_encrypted = NULL' 'offsite_verify_key = NULL' 'LIMIT 20'; do
+  grep -qF -- "$want" <<<"$reset_sql" || fail "the off-site reset does not set: $want"
+done
+grep -q 'recovery_offsite_reset_sql' "$HERE/restore.sh" || fail 'restore.sh does not reset the off-site state'
+# Against a real Postgres when TEST_DATABASE_URL is set and psql is on
+# PATH; skipped otherwise.
+if [[ -n "${TEST_DATABASE_URL:-}" ]] && command -v psql >/dev/null 2>&1; then
+  schema="recovery_offsite_$$"
+  pg() { PGOPTIONS="-c search_path=$schema" psql "${TEST_DATABASE_URL%%\?*}" -X -A -t -q -v ON_ERROR_STOP=1 "$@"; }
+  pg -c "CREATE SCHEMA $schema"
+  offsite_case() {
+    pg -c "DROP TABLE IF EXISTS backup_config" -c "CREATE TABLE backup_config (
+      offsite_enabled boolean, offsite_prefix text, offsite_install_id text,
+      offsite_previous_verify_keys text[] DEFAULT ARRAY[]::text[], offsite_verify_key text,
+      offsite_signing_key_encrypted text, offsite_signing_key_iv text,
+      offsite_signing_key_changed_at timestamptz, offsite_signing_key_changed_by uuid)" \
+      -c "INSERT INTO backup_config VALUES (true, $1, '0f1e2d3c-aaaa-4bbb-8ccc-000000000001', $2, $3, 'sealed', 'iv', now(), NULL)"
+    recovery_offsite_reset_sql | pg -v keep_prefix="$4" -f -
+    pg -c "SELECT offsite_enabled, coalesce(offsite_prefix, '-'), coalesce(offsite_install_id, '-'), array_to_string(offsite_previous_verify_keys, ','), coalesce(offsite_verify_key, '-'), coalesce(offsite_signing_key_encrypted, '-') FROM backup_config"
+  }
+  got="$(offsite_case NULL "ARRAY['a','b']" "'a'" 1)"
+  [[ "$got" == "f|gratisgis-0f1e2d3c/|-|b,a|-|-" ]] || { pg -c "DROP SCHEMA $schema CASCADE"; fail "off-site reset: $got"; }
+  got="$(offsite_case "'mine/'" "ARRAY[]::text[]" NULL 1)"
+  [[ "$got" == "f|mine/|-||-|-" ]] || { pg -c "DROP SCHEMA $schema CASCADE"; fail "off-site reset without a verify key: $got"; }
+  got="$(offsite_case NULL "ARRAY(SELECT 'k' || lpad(g::text, 2, '0') FROM generate_series(1, 21) g)" "'new'" 0)"
+  want="f|-|-|$(printf 'k%02d,' $(seq 3 21))new|-|-"
+  [[ "$got" == "$want" ]] || { pg -c "DROP SCHEMA $schema CASCADE"; fail "off-site reset cap: $got"; }
+  pg -c "DROP SCHEMA $schema CASCADE"
+else
+  printf 'recovery-test: skipping the off-site reset against Postgres (set TEST_DATABASE_URL)\n'
+fi
+
 printf 'recovery-test: guards passed\n'

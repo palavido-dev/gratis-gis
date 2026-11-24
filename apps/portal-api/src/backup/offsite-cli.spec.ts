@@ -279,6 +279,7 @@ describe('offsite-cli', () => {
       expect.arrayContaining([
         'signature=verified',
         `signedBy=${signer.verifyKey.fingerprintText}`,
+        `signedByKey=${signer.verifyKey.text}`,
         `install=${INSTALL}`,
       ]),
     );

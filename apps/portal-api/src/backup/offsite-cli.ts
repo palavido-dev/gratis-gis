@@ -376,6 +376,8 @@ interface ChosenCopy {
    * it; then nothing unsigned is used for integrity.
    */
   signed: ArchiveManifest | null;
+  /** The verify key (text) in the key file that checked the signature, when one did. */
+  signerKey: string | null;
   /** The sidecar, as read. Only its signed manifest is trusted. */
   marker: Record<string, unknown> | null;
 }
@@ -535,6 +537,9 @@ async function chooseCopy(
     suspect: suspectDate(pick, now),
     check,
     signed: m,
+    signerKey: m
+      ? (key.verifyKeys.find((k) => k.fingerprintText === check.signer)?.text ?? null)
+      : null,
     marker: checked.marker,
   };
 }
@@ -579,8 +584,11 @@ function printCopy(io: CliIo, c: ChosenCopy) {
   result(io, 'fingerprint', c.fingerprint);
   result(io, 'signature', c.check.trust);
   // A signer is named as checked only when its signature verified.
-  if (c.signed && c.check.signer) result(io, 'signedBy', c.check.signer);
-  else if (c.check.trust === 'untrusted' && c.check.signer)
+  if (c.signed && c.check.signer) {
+    result(io, 'signedBy', c.check.signer);
+    // The restore keeps it as one of the portal's earlier verify keys.
+    if (c.signerKey) result(io, 'signedByKey', c.signerKey);
+  } else if (c.check.trust === 'untrusted' && c.check.signer)
     result(io, 'claimedSigner', c.check.signer);
   if (c.signed) result(io, 'install', c.signed.install);
   if (c.suspect) result(io, 'suspect', c.suspect);
