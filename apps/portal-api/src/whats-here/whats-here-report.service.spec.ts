@@ -141,3 +141,23 @@ describe('WhatsHereReportService (#796)', () => {
     expect(pdf.toString()).toContain('unavailable Parcels');
   });
 });
+
+describe('WhatsHereReportService with many layers (#796)', () => {
+  it('reads all 49 layers of a screening map, in order', async () => {
+    const { svc, v3 } = setup();
+    const titles = Array.from({ length: 49 }, (_, i) => `Layer ${i + 1}`);
+    const { pdf } = await svc.pdf({ id: 'u1' } as never, {
+      ...body(PUBLIC_ITEM),
+      layers: titles.map((title) => ({ itemId: PUBLIC_ITEM, layerKey: 'parcels', title })),
+    });
+    // Count plus breakdown per layer would be 98; no breakdown asked here.
+    expect(v3.aggregateFeatures).toHaveBeenCalledTimes(49);
+    const html = pdf.toString();
+    let last = -1;
+    for (const t of titles) {
+      const at = html.indexOf(`<td>${t}</td>`);
+      expect(at).toBeGreaterThan(last);
+      last = at;
+    }
+  });
+});

@@ -68,6 +68,7 @@ import {
   readShareHash,
   shareUrl,
   MAX_DISTANCE_METERS,
+  MAX_REPORT_LAYERS,
   MAX_SUM_FIELDS,
   POINT_DEFAULT_METERS,
   initialUnits,
@@ -947,7 +948,7 @@ export function WhatsHereTool({
       const body = (areaId: string) => ({
         areaId,
         distanceMeters,
-        layers: layers.slice(0, 30).map((l) => {
+        layers: layers.slice(0, MAX_REPORT_LAYERS).map((l) => {
           const field = breakdowns[l.mapLayerId];
           const added = sums[l.mapLayerId] ?? [];
           return {

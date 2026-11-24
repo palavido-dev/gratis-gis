@@ -26,8 +26,10 @@ export const REPORT_LENGTH_UNITS = ['meters', 'kilometers', 'feet', 'miles'] as 
 export type ReportAreaUnit = (typeof REPORT_AREA_UNITS)[number];
 export type ReportLengthUnit = (typeof REPORT_LENGTH_UNITS)[number];
 
-/** Layers one report covers. A screen of more is not a site screen. */
-export const MAX_REPORT_LAYERS = 30;
+/** Layers one report covers. Real screening maps run to dozens of
+ *  layers (49 in #796), so this guards against abuse rather than
+ *  limiting a real report. Same value as in lib/whats-here.ts. */
+export const MAX_REPORT_LAYERS = 200;
 /** Largest map picture, as a data URL. A 1600 px JPEG is ~400 KB. */
 export const MAX_MAP_IMAGE_CHARS = 6 * 1024 * 1024;
 /** Picked shapes named in the report. */
