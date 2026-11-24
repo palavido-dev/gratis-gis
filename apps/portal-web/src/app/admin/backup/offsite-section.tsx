@@ -44,6 +44,8 @@ interface OffsiteConfig {
   complete: boolean;
   missing: string[];
   problems: string[];
+  /** The last change of the saved public key. */
+  keyChange: { at: string; by: string | null; previousFingerprint: string | null } | null;
   status: {
     lastSuccess: {
       runId: string;
@@ -129,6 +131,9 @@ export function OffsiteSection() {
   const [checkValue, setCheckValue] = useState('');
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [takeOverValue, setTakeOverValue] = useState('');
+  const [takingOver, setTakingOver] = useState(false);
+  const [takeOverResult, setTakeOverResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -162,6 +167,11 @@ export function OffsiteSection() {
     if (!draft || !config) return;
     if (newKey && !draft.keyStored) {
       setMessage({ ok: false, text: t('adminBackup.offsite.keyStoredRequired') });
+      return;
+    }
+    // The server refuses it too; this only saves a round trip.
+    if (draft.prefix.replace(/[\s/]+/g, '') === '') {
+      setMessage({ ok: false, text: t('adminBackup.offsite.prefixRequired') });
       return;
     }
     setSaving(true);
@@ -221,6 +231,32 @@ export function OffsiteSection() {
       setMessage({ ok: body.ok, text: body.message });
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function takeOver() {
+    setTakingOver(true);
+    setTakeOverResult(null);
+    try {
+      const res = await fetch('/api/portal/admin/backup/offsite/take-over', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ owner: takeOverValue.trim() }),
+      });
+      if (!res.ok) {
+        setTakeOverResult({
+          ok: false,
+          text: (await serverMessage(res)) ?? t('adminBackup.offsite.takeOverFailed'),
+        });
+        return;
+      }
+      setTakeOverResult({ ok: true, text: t('adminBackup.offsite.takenOver') });
+      setTakeOverValue('');
+      await load();
+    } catch {
+      setTakeOverResult({ ok: false, text: t('adminBackup.offsite.takeOverFailed') });
+    } finally {
+      setTakingOver(false);
     }
   }
 
@@ -456,6 +492,19 @@ export function OffsiteSection() {
               {t('adminBackup.offsite.keyNone')}
             </p>
           )}
+          {config.keyChange ? (
+            <p role="status" className="mt-1 text-xs font-medium text-ink-0">
+              {t('adminBackup.offsite.keyChanged', {
+                when: fmt.dateTime(config.keyChange.at),
+                who: config.keyChange.by ?? t('adminBackup.offsite.keyChangedSomeone'),
+              })}{' '}
+              {config.keyChange.previousFingerprint
+                ? t('adminBackup.offsite.keyChangedPrevious', {
+                    fingerprint: config.keyChange.previousFingerprint,
+                  })
+                : null}
+            </p>
+          ) : null}
           {config.publicKey ? (
             <p className="mt-1 text-xs text-ink-1">{t('adminBackup.offsite.keyRotation')}</p>
           ) : null}
@@ -530,6 +579,44 @@ export function OffsiteSection() {
             ) : null}
           </div>
         </div>
+
+        <details className="rounded-md border border-border px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium text-ink-0">
+            {t('adminBackup.offsite.takeOverTitle')}
+          </summary>
+          <p className="mt-1 text-xs text-ink-1">{t('adminBackup.offsite.takeOverHint')}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <input
+              className={`${inputClass} mt-0 flex-1 font-mono`}
+              value={takeOverValue}
+              onChange={(e) => setTakeOverValue(e.target.value)}
+              placeholder={t('adminBackup.offsite.takeOverPlaceholder')}
+              aria-label={t('adminBackup.offsite.takeOverTitle')}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={40}
+            />
+            <button
+              type="button"
+              onClick={takeOver}
+              disabled={takingOver || takeOverValue.trim() === ''}
+              className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm text-ink-0 hover:bg-surface-2 disabled:opacity-60"
+            >
+              {takingOver ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {takingOver ? t('adminBackup.offsite.takingOver') : t('adminBackup.offsite.takeOver')}
+            </button>
+          </div>
+          {takeOverResult ? (
+            <p
+              role="status"
+              className={
+                takeOverResult.ok ? 'mt-2 text-xs text-emerald-700' : 'mt-2 text-xs text-danger'
+              }
+            >
+              {takeOverResult.text}
+            </p>
+          ) : null}
+        </details>
 
         <div className="grid gap-3 md:grid-cols-3">
           <label className="block">
