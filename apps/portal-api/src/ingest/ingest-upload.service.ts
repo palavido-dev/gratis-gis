@@ -40,7 +40,7 @@ import {
   type UploadClaims,
 } from './ingest-upload-handle.js';
 import { RunAsSystem } from '../common/tenant-context.js';
-import { isLowerUuid, keyOrgId, orgOwner, systemOwner } from '../storage/object-keys.js';
+import { isKeyOfKind, isLowerUuid, keyOrgId, orgOwner, systemOwner } from '../storage/object-keys.js';
 
 /** The hourly sweep of finished uploads that were never staged. */
 const UPLOAD_SWEEP = systemOwner('cron:ingest-upload-sweep');
@@ -238,7 +238,11 @@ export class IngestUploadService {
     // when present, is checked again by the storage owner check.
     const org = keyOrgId(claims.key);
     const prefixes = org ? userUploadPrefixes(org, userId) : [`${INGEST_UPLOAD_PREFIX}${userId}/`];
-    if (claims.uid !== userId || !prefixes.some((p) => claims.key.startsWith(p))) {
+    if (
+      claims.uid !== userId ||
+      !isKeyOfKind(claims.key, 'ingest-upload') ||
+      !prefixes.some((p) => claims.key.startsWith(p))
+    ) {
       throw new ForbiddenException('This upload was started by another user.');
     }
     return claims;

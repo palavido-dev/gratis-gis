@@ -1,0 +1,4 @@
+# Justified exceptions for scripts/check-storage-keys.mjs, one per line:
+#   <path> | <text on the flagged line> | <reason>
+# Keep this short. Prefer the shared key modules.
+apps/portal-api/src/ingest/ingest-upload-handle.ts | INGEST_UPLOAD_PREFIX = 'ingest-upload/' | Listing prefix for older resumable uploads (`ingest-upload/<userId>/`), used only by the sweep and the free-space count, which run as system work; it builds no key.
