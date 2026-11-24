@@ -46,8 +46,31 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   to keep, open in desktop GIS or upload again later (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
+- Storage usage: the server keeps a running total of the bytes each
+  organization stores in object storage (thumbnails, files, tile
+  layers, point clouds, attachments, map icons, offline packages) and
+  an estimate of its feature data (live feature count times average
+  feature size; edit history and indexes are not counted). An org
+  admin reads it at `GET /api/admin/storage-usage`. A daily job checks
+  the totals against the bucket and repairs them; it never deletes
+  anything. `node dist/storage/storage-usage-backfill.main.js` fills
+  the totals for files stored before this release (dry run unless
+  `--apply`); the daily job does the same on its own.
+- Migration `storage_usage_ledger`: three new, empty tables. Nothing to
+  do on upgrade.
+
+### Changed
+
+- New uploads are stored under a key that names their organization
+  (`<kind>/o/<orgId>/<id>`). Existing files keep their keys and stay
+  readable; nothing is moved.
 
 ### Security
+
+- Every storage read, write, delete and signed upload URL now checks
+  that the object belongs to the organization of the item that
+  authorised it. A key, id or crafted path that names an object of
+  another organization answers 404.
 
 - Installs with more than one organization: a layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature
