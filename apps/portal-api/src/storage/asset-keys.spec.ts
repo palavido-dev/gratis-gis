@@ -71,6 +71,26 @@ describe('asset-keys', () => {
       }
     });
 
+    it('accepts the org key layout for the matching kind only', () => {
+      const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+      const uuid = '8f14e45f-ceea-467a-9a3e-6b5d7c9f0a11';
+      expect(isValidAssetKey(`item-point-cloud/o/${org}/${uuid}`, 'item-point-cloud')).toBe(true);
+      expect(isValidAssetKey(`item-thumb/o/${org}/${uuid}`, 'item-thumb')).toBe(true);
+      for (const bad of [
+        `item-file/o/${org}/${uuid}`,
+        `item-point-cloud/o/${org}/../${uuid}`,
+        `item-point-cloud/o/${org.toUpperCase()}/${uuid}`,
+        `item-point-cloud/o/${org}`,
+        `item-point-cloud/o/${org}%2F${uuid}`,
+      ]) {
+        expect({ bad, ok: isValidAssetKey(bad, 'item-point-cloud') }).toEqual({ bad, ok: false });
+      }
+      expect(assetKeyFor('point_cloud', `item-point-cloud/o/${org}/${uuid}`)).toEqual({
+        ok: true,
+        key: `item-point-cloud/o/${org}/${uuid}`,
+      });
+    });
+
     it('allows sub-paths under the right prefix', () => {
       // Mosaic sources legitimately live deeper than <kind>/<uuid>.
       expect(

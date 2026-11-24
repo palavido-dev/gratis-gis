@@ -21,7 +21,9 @@ function key(n: number): string {
   return `item-tile-layer/${String(n).padStart(8, '0')}-2222-4222-8222-222222222222`;
 }
 
-function service(opts: { jobsInFlight?: number; storedSize?: number | null; existing?: number } = {}) {
+function service(
+  opts: { jobsInFlight?: number; storedSize?: number | null; existing?: number; orgId?: string } = {},
+) {
   const sources = Array.from({ length: opts.existing ?? 0 }, (_, i) => ({
     storageKey: key(i + 1000),
     fileName: `e${i}.tif`,
@@ -30,6 +32,7 @@ function service(opts: { jobsInFlight?: number; storedSize?: number | null; exis
   }));
   const item = {
     id: ITEM,
+    orgId: opts.orgId,
     type: 'tile_layer',
     data: {
       version: 1,
@@ -106,5 +109,16 @@ describe('imagery mosaic admission', () => {
       jobId: 'job-1',
     });
     expect(prisma.analysisJob.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a build whose source image names another organization', async () => {
+    const own = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const other = '0a1b2c3d-0000-4000-8000-00000000000b';
+    const { svc, prisma } = service({ storedSize: 10, orgId: own });
+    const foreign = { ...one, storageKey: `item-tile-layer/o/${other}/00000001-2222-4222-8222-222222222222` };
+    await expect(svc.mosaicBuild(user, ITEM, { sources: [foreign] })).rejects.toThrow(/not stored where/);
+    expect(prisma.analysisJob.create).not.toHaveBeenCalled();
+    const mine = { ...one, storageKey: `item-tile-layer/o/${own}/00000001-2222-4222-8222-222222222222` };
+    await expect(svc.mosaicBuild(user, ITEM, { sources: [mine] })).resolves.toMatchObject({ jobId: 'job-1' });
   });
 });

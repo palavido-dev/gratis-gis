@@ -21,7 +21,12 @@ import { isPointCloudData } from '@gratis-gis/shared-types';
 import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
-import { orgOwner, type ObjectOwner } from '../storage/object-keys.js';
+import {
+  assertKeysMayBelongToOrg,
+  isKeyOfKind,
+  orgOwner,
+  type ObjectOwner,
+} from '../storage/object-keys.js';
 import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
 import {
   assertKeysAttachable,
@@ -206,7 +211,7 @@ export class PointCloudService {
     if (
       existingSources.length === 0 &&
       prev?.storageKey &&
-      prev.storageKey.startsWith('item-point-cloud/')
+      isKeyOfKind(prev.storageKey, 'item-point-cloud')
     ) {
       existingSources.push({
         storageKey: prev.storageKey,
@@ -235,9 +240,15 @@ export class PointCloudService {
    */
   private async enqueueBuild(
     user: AuthUser,
-    item: { id: string; data: unknown },
+    item: { id: string; orgId: string; data: unknown },
     sources: PointCloudSource[],
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    // The worker reads every source with the server's credentials, so
+    // each must belong to this item's organization.
+    assertKeysMayBelongToOrg(
+      sources.map((s) => s.storageKey),
+      item.orgId,
+    );
     await this.assertNoBuildInFlight(item.id);
     // #205: refuse a merge that cannot finish inside the worker's
     // wall BEFORE queueing it, so nobody waits hours for a timeout.
@@ -460,13 +471,22 @@ export class PointCloudService {
       previous.storageKey &&
       previous.storageKey !== input.storageKey
     ) {
-      await deleteIfUnreferenced(
-        this.prisma,
-        this.storage,
-        previous.storageKey,
-        orgOwner(item.orgId),
-        { itemId },
-      );
+      // Best effort, like the tile-layer finalize: the item already
+      // points at the new file, so a failed delete leaks bytes but
+      // must not fail the finalize.
+      try {
+        await deleteIfUnreferenced(
+          this.prisma,
+          this.storage,
+          previous.storageKey,
+          orgOwner(item.orgId),
+          { itemId },
+        );
+      } catch (err) {
+        this.log.warn(
+          `Failed to delete the previous upload ${previous.storageKey}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
     this.log.log(
       `point_cloud ${itemId}: finalized ${input.fileName} (${parsed.pointCount} pts, LAS ${parsed.lasVersion}, pdrf ${parsed.pointFormat})`,

@@ -20,7 +20,7 @@ import {
   StorageService,
 } from '../storage/storage.service.js';
 import { DataLayerEngine } from '../engine/data-layer.js';
-import { orgOwner, type ObjectOwner } from '../storage/object-keys.js';
+import { isKeyOfKind, orgOwner, type ObjectOwner } from '../storage/object-keys.js';
 import { visibleFeatureIds, type AttachmentAccess } from './attachments-access.js';
 
 /**
@@ -31,7 +31,6 @@ import { visibleFeatureIds, type AttachmentAccess } from './attachments-access.j
  * turning attachment delete into arbitrary-MinIO-object delete,
  * and served through the private-asset route under the wrong ACL.
  */
-const ATTACHMENT_KEY_PREFIX = 'feature-attachment/';
 
 /** Columns exposed on every public attachment record (#226). */
 const ATTACHMENT_PUBLIC_SELECT = {
@@ -199,7 +198,7 @@ export class DataLayerAttachmentsService {
   ): Promise<FeatureAttachment> {
     if (
       typeof input.storageKey !== 'string' ||
-      !input.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)
+      !isKeyOfKind(input.storageKey, 'feature-attachment')
     ) {
       throw new BadRequestException(
         'storageKey is not an attachment upload',
@@ -285,7 +284,7 @@ export class DataLayerAttachmentsService {
       ? { storageKey: found.storageKey, fileName: found.fileName, owner: orgOwner(found.item.orgId) }
       : null;
     if (!row) throw new NotFoundException('Attachment not found');
-    if (!row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
+    if (!isKeyOfKind(row.storageKey, 'feature-attachment')) {
       // Pre-guard rows with arbitrary keys must not be streamed —
       // same failure mode as remove().
       throw new NotFoundException('Attachment not found');
@@ -315,7 +314,7 @@ export class DataLayerAttachmentsService {
     // before the guard above landed could carry an arbitrary key,
     // and deleting one verbatim is exactly the primitive we are
     // closing. A leaked object is the safe failure mode.
-    if (row.storageKey.startsWith(ATTACHMENT_KEY_PREFIX)) {
+    if (isKeyOfKind(row.storageKey, 'feature-attachment')) {
       // Another row may share the key (registered before attach paths
       // checked ownership). Leave the object to it.
       await deleteIfUnreferenced(

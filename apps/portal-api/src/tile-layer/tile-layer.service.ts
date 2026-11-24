@@ -26,7 +26,12 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
-import { orgOwner, type ObjectOwner } from '../storage/object-keys.js';
+import {
+  assertKeysMayBelongToOrg,
+  isKeyOfKind,
+  orgOwner,
+  type ObjectOwner,
+} from '../storage/object-keys.js';
 import {
   assertKeysAttachable,
   deleteIfUnreferenced,
@@ -65,16 +70,15 @@ const RAW_RASTER_HEADROOM = 2.5;
 const PRE_TILED_HEADROOM = 1.5;
 
 /**
- * Storage-key prefix the presign path mints for tile-layer uploads
- * (StorageService composes keys as `<kind>/<uuid>` and the upload
- * kind here is `item-tile-layer`).  Every client-supplied or
- * item-data-supplied key must sit under it before we read or
- * delete through it with portal-api's credentials: the serve proxy
- * is @Public, so an unpinned key would let any MinIO object
- * (feature-attachment/..., item-file/...) be exfiltrated through a
- * tile_layer item.  Mirrors the point-cloud finalize guard.
+ * Every client-supplied or item-data-supplied key must be an
+ * `item-tile-layer` key (either layout, read with the shared parser
+ * in object-keys.ts) before we read or delete through it with
+ * portal-api's credentials: the serve proxy is @Public, so an
+ * unpinned key would let any MinIO object (attachments, file items)
+ * be read through a tile_layer item. Mirrors the point-cloud
+ * finalize guard.
  */
-const TILE_LAYER_KEY_PREFIX = 'item-tile-layer/';
+const TILE_LAYER_KIND = 'item-tile-layer';
 
 /**
  * How many open PMTiles archives the XYZ endpoint keeps around.
@@ -201,7 +205,7 @@ export class TileLayerService {
     // client-supplied, and a key pointing into another prefix
     // (attachments, file items) must not become readable through
     // the public tile-layer proxy.
-    if (!input.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
+    if (!isKeyOfKind(input.storageKey, TILE_LAYER_KIND)) {
       throw new BadRequestException('storageKey is not a tile-layer upload');
     }
     // The prefix alone does not make the key this caller's: another
@@ -515,7 +519,7 @@ export class TileLayerService {
     // prefix's objects with portal-api's credentials.  A
     // non-conforming key is treated as absent.
     const tileKey = (v: unknown): string | null =>
-      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+      isKeyOfKind(v, TILE_LAYER_KIND) ? v : null;
     // #185: an explicit format pins the bytes a client gets. Map
     // layers stamp a format-suffixed URL at add time; without the
     // pin, a layer stamped cog:// during the pre-pyramid window
@@ -597,7 +601,7 @@ export class TileLayerService {
     // escaped the finalize check must never make this @Public route
     // read another prefix with portal-api's credentials.
     const tileKey = (v: unknown): string | null =>
-      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+      isKeyOfKind(v, TILE_LAYER_KIND) ? v : null;
     const bbox =
       Array.isArray(d.bbox) &&
       d.bbox.length === 4 &&
@@ -761,7 +765,7 @@ export class TileLayerService {
       throw new NotFoundException('Not an elevation layer.');
     }
     const tileKey = (v: unknown): string | null =>
-      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+      isKeyOfKind(v, TILE_LAYER_KIND) ? v : null;
     const storageKey = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
     if (!storageKey) {
       throw new NotFoundException('This layer has no elevation file.');
@@ -852,10 +856,9 @@ export class TileLayerService {
     // fold in, so extending it is refused with guidance.
     if (existingSources.length === 0 && prev?.storageKey) {
       const originalKey =
-        typeof prev.cogStorageKey === 'string' &&
-        prev.cogStorageKey.startsWith(TILE_LAYER_KEY_PREFIX)
+        isKeyOfKind(prev.cogStorageKey, TILE_LAYER_KIND)
           ? prev.cogStorageKey
-          : prev.storageKey.startsWith(TILE_LAYER_KEY_PREFIX) &&
+          : isKeyOfKind(prev.storageKey, TILE_LAYER_KIND) &&
               prev.format === 'cog'
             ? prev.storageKey
             : null;
@@ -979,9 +982,15 @@ export class TileLayerService {
    */
   private async enqueueMosaic(
     user: AuthUser,
-    item: { id: string; data: unknown },
+    item: { id: string; orgId: string; data: unknown },
     sources: TileLayerSource[],
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    // The worker reads every source with the server's credentials, so
+    // each must belong to this item's organization.
+    assertKeysMayBelongToOrg(
+      sources.map((s) => s.storageKey),
+      item.orgId,
+    );
     await this.assertNoMosaicInFlight(item.id);
     const totalBytes = sources.reduce((n, s) => n + s.sizeBytes, 0);
     const estimate = estimateMosaic(totalBytes, sources.length);

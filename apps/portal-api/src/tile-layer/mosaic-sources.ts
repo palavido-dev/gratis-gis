@@ -35,11 +35,6 @@ import { ITEM_ASSET_KIND, isValidAssetKey } from '../storage/asset-keys.js';
  *  answer is separate mosaics, not one heroic job. */
 export const MOSAIC_MAX_SOURCES = 500;
 
-/** Storage-key prefix every client-supplied source must sit under
- *  (the body is client-supplied; an unpinned key would let the
- *  worker read arbitrary MinIO objects with its credentials). */
-export const MOSAIC_SOURCE_PREFIX = 'item-tile-layer/';
-
 export function mosaicCostModel(): MergeCostCoefficients {
   // Mirror the worker's MOSAIC_TIMEOUT_SEC default (4h); ceiling at
   // 90% of the wall so a borderline estimate is refused, not

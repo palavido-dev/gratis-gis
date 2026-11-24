@@ -170,7 +170,7 @@ import {
   withoutReferences,
   type ReferenceSource,
 } from './item-references.js';
-import { orgOwner } from '../storage/object-keys.js';
+import { orgOwner, privatePathForBareUrl } from '../storage/object-keys.js';
 import { forgetItemFeatureUsage } from '../storage/feature-usage.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
@@ -604,6 +604,24 @@ export function itemDataStorageKeys(data: unknown): string[] {
     }
   }
   return keys;
+}
+
+/**
+ * `data` with every string value that is a bare bucket URL of a
+ * private object replaced by its API path (see privatePathForBareUrl).
+ * Returns `data` itself when nothing changes.
+ */
+export function rewriteBareStorageUrls(data: Prisma.InputJsonValue): Prisma.InputJsonValue {
+  let changed = false;
+  const text = JSON.stringify(data);
+  const next = JSON.parse(text, (_k, v: unknown) => {
+    if (typeof v !== 'string') return v;
+    const path = privatePathForBareUrl(v);
+    if (path === null) return v;
+    changed = true;
+    return path;
+  }) as Prisma.InputJsonValue;
+  return changed ? next : data;
 }
 
 /** Options for writes whose `data` came straight from an HTTP body. */
@@ -3242,7 +3260,8 @@ export class ItemsService {
 
     // Round-trip footgun normalizer: any bare-MinIO URL pointing at
     // a private-prefix object (`item-file`, `item-tile-layer`,
-    // `feature-attachment`) inside data_json gets rewritten to the
+    // `feature-attachment`, in either key layout) inside data_json
+    // gets rewritten to the
     // api-mediated download path on save.  Migration
     // `20260518230000_rewrite_storage_urls_to_api` (+ its nested
     // follow-up) did this once at the bucket-split rollover, but
@@ -3258,14 +3277,7 @@ export class ItemsService {
     // direct MinIO URL because the bucket policy still allows
     // anonymous GET on those.
     if (nextData !== undefined) {
-      const asText = JSON.stringify(nextData);
-      const rewritten = asText.replace(
-        /"https?:\/\/[^/"]+\/[^/"]+\/(item-file|item-tile-layer|feature-attachment)\/([0-9a-f-]+)"/g,
-        '"/api/portal/storage/private/$1/$2"',
-      );
-      if (rewritten !== asText) {
-        nextData = JSON.parse(rewritten) as Prisma.InputJsonValue;
-      }
+      nextData = rewriteBareStorageUrls(nextData);
     }
 
     // Last transform before the row is written, so nothing downstream

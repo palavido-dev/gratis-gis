@@ -33,9 +33,9 @@ const ITEM = '11111111-1111-4111-8111-111111111111';
 const KEY = 'item-point-cloud/22222222-2222-4222-8222-222222222222';
 const user = { id: 'u1', orgId: 'o1' } as never;
 
-function service(opts: { jobsInFlight?: number; storedSize?: number | null } = {}) {
+function service(opts: { jobsInFlight?: number; storedSize?: number | null; orgId?: string } = {}) {
   const calls: string[] = [];
-  const item = { id: ITEM, type: 'point_cloud', data: { version: 1, format: 'copc', storageKey: 'item-point-cloud/old', storageUrl: '', fileName: 'a', sizeBytes: 1, uploadedAt: '' } };
+  const item = { id: ITEM, orgId: opts.orgId, type: 'point_cloud', data: { version: 1, format: 'copc', storageKey: 'item-point-cloud/old', storageUrl: '', fileName: 'a', sizeBytes: 1, uploadedAt: '' } };
   const items = {
     get: jest.fn(async () => item),
     update: jest.fn(async () => {
@@ -100,6 +100,30 @@ describe('point cloud builds', () => {
       busy.svc.finalizeUpload(user, ITEM, { storageKey: KEY, storageUrl: 'u', fileName: 'b.copc.laz', sizeBytes: 10 }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(busy.items.update).not.toHaveBeenCalled();
+  });
+
+  it('finalize still succeeds when deleting the previous file fails', async () => {
+    const { svc, calls } = service({ storedSize: 10 });
+    (deleteIfUnreferenced as jest.Mock).mockImplementationOnce(async () => {
+      calls.push('delete-old');
+      throw new Error('store unavailable');
+    });
+    await expect(
+      svc.finalizeUpload(user, ITEM, { storageKey: KEY, storageUrl: 'u', fileName: 'b.copc.laz', sizeBytes: 10 }),
+    ).resolves.toMatchObject({ storageKey: KEY });
+    expect(calls).toEqual(['update', 'delete-old']);
+  });
+
+  it('refuses a build whose source tile names another organization', async () => {
+    const own = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const other = '0a1b2c3d-0000-4000-8000-00000000000b';
+    const { svc, prisma } = service({ storedSize: 10, orgId: own });
+    const foreign = { ...tile, storageKey: `item-point-cloud/o/${other}/22222222-2222-4222-8222-222222222222` };
+    await expect(svc.buildFromSources(user, ITEM, { sources: [foreign] })).rejects.toThrow(/not stored where/);
+    expect(prisma.analysisJob.create).not.toHaveBeenCalled();
+    // Its own org's tile, and an older tile, still queue.
+    const mine = { ...tile, storageKey: `item-point-cloud/o/${own}/22222222-2222-4222-8222-222222222222` };
+    await expect(svc.buildFromSources(user, ITEM, { sources: [mine, tile] })).resolves.toMatchObject({ jobId: 'job-1' });
   });
 
   it('answers 404 for a malformed id on the public file route', async () => {

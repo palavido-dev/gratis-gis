@@ -42,7 +42,7 @@ import {
   recordUploadGrant,
 } from './key-ownership.js';
 import { contentDisposition } from '../common/content-disposition.js';
-import { ORG_SEGMENT, isLowerUuid, orgOwner } from './object-keys.js';
+import { ORG_SEGMENT, isLowerUuid, orgOwner, parseKeyOfKind } from './object-keys.js';
 
 // Kinds the browser may request a presigned PUT for. `map-icon` is
 // deliberately absent (its upload path sanitizes server-side and
@@ -234,8 +234,12 @@ export class StorageController {
     }
 
     // Composed storage key the same way the mint path does, so the
-    // SDK can find the right object.
+    // SDK can find the right object, then read back through the shared
+    // parser so the route and the store agree on what the key is.
     const storageKey = `${kind}/${orgPart}${key}`;
+    if (!parseKeyOfKind(storageKey, kind)) {
+      throw new BadRequestException('Invalid key');
+    }
 
     // Sharing check + filename for content-disposition. `ownerOrg` is
     // the org of the item that authorised the read; the storage owner

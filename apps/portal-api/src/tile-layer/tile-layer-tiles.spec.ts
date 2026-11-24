@@ -238,6 +238,15 @@ describe('TileLayerService.resolveStorageKey (pmtiles pin)', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('serves a key in the org layout and refuses traversal inside it', async () => {
+    const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const key = `item-tile-layer/o/${org}/0f8fad5b-d9cb-469f-a165-70867728950e`;
+    const ok = makeService({ version: 1, format: 'pmtiles', storageKey: key });
+    await expect(ok.service.resolveStorageKey(user, ITEM_ID, 'pmtiles')).resolves.toBe(key);
+    const bad = makeService({ version: 1, format: 'pmtiles', storageKey: `item-tile-layer/o/${org}/../x` });
+    await expect(bad.service.resolveStorageKey(user, ITEM_ID, 'pmtiles')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('keeps the storage-key prefix pinned on the pass-through path', async () => {
     // item.data is owner-writable through the generic items PATCH,
     // so a key edited to point outside our prefix must read as

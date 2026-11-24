@@ -1,14 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { Logger } from '@nestjs/common';
+
 import { resetTenancyModeForTests } from '../common/tenancy.js';
 import {
+  KIND_SUFFIXES,
+  OBJECT_KINDS,
   ObjectKeyRefusedError,
+  assertKeysMayBelongToOrg,
   assertObjectOwner,
+  isKeyOfKind,
+  keyMayBelongToOrg,
   keyOrgId,
+  legacyKeyCounters,
+  objectKeyInStoredUrl,
   orgPrefix,
   parseObjectKey,
+  privatePathForBareUrl,
+  publicUrlObject,
   samEmbedKeys,
   storageKey,
+  suffixesOf,
   systemOwner,
+  type LegacyOwnerLookup,
+  type ObjectKind,
 } from './object-keys.js';
 
 const A = '0a1b2c3d-0000-4000-8000-00000000000a';
@@ -176,6 +193,198 @@ describe('assertObjectOwner', () => {
     withMode('multi', async () => {
       const shot = `feedback-screenshot/o/${A}/${U}`;
       await expect(assertObjectOwner(shot, { orgId: B }, noLedger)).rejects.toBeInstanceOf(
+        ObjectKeyRefusedError,
+      );
+    }),
+  );
+});
+
+describe('shared key cases', () => {
+  // The same file is read by the web mirror and the worker mirror, so
+  // all three parsers agree on every case.
+  const doc = JSON.parse(readFileSync(join(__dirname, 'object-key-cases.json'), 'utf8')) as {
+    cases: Array<{ key: string; parsed: [string, string | null, string] | null }>;
+  };
+
+  it('parses every case as recorded', () => {
+    expect(doc.cases.length).toBeGreaterThan(20);
+    for (const c of doc.cases) {
+      const got = parseObjectKey(c.key);
+      const want = c.parsed ? { kind: c.parsed[0], orgId: c.parsed[1], rest: c.parsed[2] } : null;
+      expect({ key: c.key, got }).toEqual({ key: c.key, got: want });
+    }
+  });
+});
+
+describe('suffixes per kind', () => {
+  it('lets only map icons end in .png and analysis results in .geojson', () => {
+    expect(storageKey('map-icon', A, '.png').endsWith('.png')).toBe(true);
+    expect(storageKey('analysis-artifact', A, '.geojson').endsWith('.geojson')).toBe(true);
+    expect(() => storageKey('item-file', A, '.png')).toThrow(TypeError);
+    expect(() => storageKey('item-tile-layer', A, '.geojson')).toThrow(TypeError);
+    expect(() => storageKey('map-icon', A, '.geojson')).toThrow(TypeError);
+    for (const kind of OBJECT_KINDS) {
+      expect(suffixesOf(kind as ObjectKind)).toContain('');
+    }
+    expect([...KIND_SUFFIXES.keys()].sort()).toEqual(['analysis-artifact', 'map-icon']);
+  });
+});
+
+describe('kind and org helpers', () => {
+  it('reads either layout through the parser', () => {
+    expect(isKeyOfKind(`item-tile-layer/${U}`, 'item-tile-layer')).toBe(true);
+    expect(isKeyOfKind(`item-tile-layer/o/${A}/${U}`, 'item-tile-layer')).toBe(true);
+    expect(isKeyOfKind(`item-tile-layer/o/${A}/../${U}`, 'item-tile-layer')).toBe(false);
+    expect(isKeyOfKind(`item-tile-layerx/${U}`, 'item-tile-layer')).toBe(false);
+    expect(isKeyOfKind(`item-file/o/${A}/${U}`, 'item-tile-layer')).toBe(false);
+    expect(isKeyOfKind(42, 'item-file')).toBe(false);
+  });
+
+  it('a key may belong to an org when it names that org or names none', () => {
+    expect(keyMayBelongToOrg(`item-file/o/${A}/${U}`, A)).toBe(true);
+    expect(keyMayBelongToOrg(`item-file/o/${A}/${U}`, B)).toBe(false);
+    expect(keyMayBelongToOrg(`item-file/${U}`, B)).toBe(true);
+    expect(keyMayBelongToOrg('not a key', A)).toBe(false);
+  });
+
+  it('refuses a job source that names another org, and passes older keys', () => {
+    expect(() => assertKeysMayBelongToOrg([`item-tile-layer/o/${A}/${U}`, `item-tile-layer/${U}`, '', null], A)).not.toThrow();
+    expect(() => assertKeysMayBelongToOrg([`item-tile-layer/o/${B}/${U}`], A)).toThrow(/not stored where/);
+  });
+});
+
+describe('publicUrlObject', () => {
+  const base = { publicBase: 'https://files.example.org/', bucket: 'gg' };
+  const at = (rest: string) => `https://files.example.org/gg/${rest}`;
+
+  it('reads one object of the kind in either layout', () => {
+    expect(publicUrlObject(at(`user-avatar/${U}`), base, 'user-avatar')).toMatchObject({ orgId: null, key: `user-avatar/${U}` });
+    expect(publicUrlObject(at(`user-avatar/o/${A}/${U}`), base, 'user-avatar')).toMatchObject({ orgId: A });
+    expect(publicUrlObject(at(`user-avatar/${U}.png`), base, 'user-avatar')).not.toBeNull();
+  });
+
+  it('refuses another host, kind, nesting, traversal, encoding or query', () => {
+    for (const url of [
+      `https://other.example/gg/user-avatar/${U}`,
+      at(`item-thumb/o/${A}/${U}`),
+      at(`user-avatar/o/${A}/x/${U}`),
+      at(`user-avatar/o/${A}/../${U}`),
+      at(`user-avatar/o/${A}%2F${U}`),
+      at(`user-avatar/${U}?x=1`),
+      at(`user-avatar/${U}#x`),
+      at('user-avatar/not-a-uuid'),
+      at(`user-avatar/${U}${'a'.repeat(80)}`),
+      at(`user-avatar/o/${A}`),
+    ]) {
+      expect({ url, got: publicUrlObject(url, base, 'user-avatar') }).toEqual({ url, got: null });
+    }
+  });
+});
+
+describe('objectKeyInStoredUrl', () => {
+  it('finds the key under any host in either layout', () => {
+    expect(objectKeyInStoredUrl(`http://old-host:9000/b/item-thumb/${U}`)).toBe(`item-thumb/${U}`);
+    expect(objectKeyInStoredUrl(`https://cdn.example/b/group-thumb/o/${A}/${U}?v=2`)).toBe(`group-thumb/o/${A}/${U}`);
+    expect(objectKeyInStoredUrl(`https://cdn.example/b/org-hero/o/${A}/../${U}`)).toBeNull();
+    expect(objectKeyInStoredUrl('https://cdn.example/no-key-here.png')).toBeNull();
+  });
+});
+
+describe('privatePathForBareUrl', () => {
+  it('maps a bare bucket URL of a private object to its API path, both layouts', () => {
+    expect(privatePathForBareUrl(`http://minio:9000/gratisgis/item-file/${U}`)).toBe(
+      `/api/portal/storage/private/item-file/${U}`,
+    );
+    expect(privatePathForBareUrl(`https://files.example/b/feature-attachment/o/${A}/${U}`)).toBe(
+      `/api/portal/storage/private/feature-attachment/o/${A}/${U}`,
+    );
+  });
+
+  it('leaves public kinds, other shapes and non-URLs alone', () => {
+    for (const v of [
+      `https://files.example/b/item-thumb/${U}`,
+      `https://files.example/b/item-file/${U}?x=1`,
+      `https://files.example/b/item-file/o/${A}/x/${U}`,
+      `https://files.example/b/item-file/o/${B.toUpperCase()}/${U}`,
+      `https://files.example/item-file/${U}`,
+      `ftp://files.example/b/item-file/${U}`,
+      `/api/portal/storage/private/item-file/${U}`,
+      'plain text',
+    ]) {
+      expect({ v, got: privatePathForBareUrl(v) }).toEqual({ v, got: null });
+    }
+  });
+});
+
+describe('older keys before and after the first ledger fill', () => {
+  const lookup = (filled: boolean, org: string | null = null): LegacyOwnerLookup => ({
+    orgOf: async () => org,
+    ledgerFilled: async () => filled,
+  });
+
+  it(
+    'multi mode, ledger not filled: a key with no row passes and is counted',
+    withMode('multi', async () => {
+      const before = legacyKeyCounters.passedBeforeFill;
+      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(false))).resolves.toBeUndefined();
+      expect(legacyKeyCounters.passedBeforeFill).toBe(before + 1);
+    }),
+  );
+
+  it(
+    'multi mode, ledger not filled: a row for another org still refuses',
+    withMode('multi', async () => {
+      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(false, B))).rejects.toBeInstanceOf(
+        ObjectKeyRefusedError,
+      );
+    }),
+  );
+
+  it(
+    'multi mode, ledger filled: a key with no row is refused, counted and logged at most once a minute',
+    withMode('multi', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        const before = legacyKeyCounters.refusedNoRow;
+        for (let i = 0; i < 3; i += 1) {
+          await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(true))).rejects.toBeInstanceOf(
+            ObjectKeyRefusedError,
+          );
+        }
+        expect(legacyKeyCounters.refusedNoRow).toBe(before + 3);
+        const lines = warn.mock.calls.filter((c) => String(c[0]).includes('no usage ledger row'));
+        expect(lines.length).toBeLessThanOrEqual(1);
+      } finally {
+        warn.mockRestore();
+      }
+    }),
+  );
+
+  it(
+    'switches over as soon as the ledger reports filled',
+    withMode('multi', async () => {
+      let filled = false;
+      const l: LegacyOwnerLookup = { orgOf: async () => null, ledgerFilled: async () => filled };
+      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, l)).resolves.toBeUndefined();
+      filled = true;
+      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, l)).rejects.toBeInstanceOf(ObjectKeyRefusedError);
+    }),
+  );
+
+  it(
+    'single mode never reads the ledger, filled or not',
+    withMode('single', async () => {
+      const l = { orgOf: jest.fn(async () => null), ledgerFilled: jest.fn(async () => true) };
+      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, l)).resolves.toBeUndefined();
+      expect(l.orgOf).not.toHaveBeenCalled();
+      expect(l.ledgerFilled).not.toHaveBeenCalled();
+    }),
+  );
+
+  it(
+    'a new-layout key never depends on the fill',
+    withMode('multi', async () => {
+      await expect(assertObjectOwner(`item-file/o/${B}/${U}`, { orgId: A }, lookup(false))).rejects.toBeInstanceOf(
         ObjectKeyRefusedError,
       );
     }),

@@ -135,6 +135,38 @@ describe('attachment scope', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('register reads the key with the shared parser, in both layouts', async () => {
+    const engine = engineSeeing([VISIBLE]);
+    const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const newKey = `feature-attachment/o/${org}/0f8fad5b-d9cb-469f-a165-70867728950e`;
+    const prisma = {
+      storageUploadGrant: { findMany: jest.fn(async () => [{ key: newKey }]) },
+      item: { findUnique: jest.fn(async () => ({ orgId: org })) },
+    };
+    const svc = new DataLayerAttachmentsService(
+      prisma as never,
+      { headObjectSize: jest.fn() } as never,
+      engine as never,
+    );
+    const input = (storageKey: string) => ({
+      fileName: 'x.jpg',
+      mime: 'image/jpeg',
+      sizeBytes: 1,
+      storageKey,
+      storageUrl: 'https://x.test/abc',
+    });
+    // A key of another kind, or one the parser refuses, is not an attachment upload.
+    for (const bad of [`item-file/o/${org}/abc`, `feature-attachment/o/${org}/../abc`, 'feature-attachmentx/abc']) {
+      await expect(
+        svc.register('item', 'layer', HIDDEN, input(bad), 'u', { ...limited, user: { id: 'u', orgId: org } } as never),
+      ).rejects.toThrow(/not an attachment upload/);
+    }
+    // The new layout passes the kind check and reaches the scope check.
+    await expect(
+      svc.register('item', 'layer', HIDDEN, input(newKey), 'u', { ...limited, user: { id: 'u', orgId: org } } as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('access resolves the edit scope with the layer policy on writes', async () => {
     const featureScopeFor = jest.fn(async () => ({
       geoLimit: null,

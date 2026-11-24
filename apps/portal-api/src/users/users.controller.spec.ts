@@ -208,6 +208,29 @@ describe('UsersController avatar and Keycloak lookups', () => {
     expect(update).toHaveBeenCalledTimes(2);
   });
 
+  it('accepts an upload in the org key layout for the caller org only', async () => {
+    const { controller, update } = controllerWith();
+    const own = userWithRole('contributor');
+    const base = 'https://files.example.org/gg/user-avatar';
+    const name = '00000000-0000-4000-8000-000000000001';
+    await controller.updateMe(own, { avatarUrl: `${base}/o/${own.orgId}/${name}` });
+    expect(update).toHaveBeenCalledTimes(1);
+    const other = '00000000-0000-0000-0000-0000000000cc';
+    for (const avatarUrl of [
+      `${base}/o/${other}/${name}`,
+      `${base}/o/${own.orgId.toUpperCase()}/${name}`,
+      `${base}/o/${own.orgId}/../${other}/${name}`,
+      `${base}/o/${own.orgId}/x/${name}`,
+      `${base}/o/${own.orgId}/${name}?v=1`,
+      `${base}/o/${own.orgId}%2F${name}`,
+      `${base}/o/${own.orgId}`,
+      `https://files.example.org/gg/item-thumb/o/${own.orgId}/${name}`,
+    ]) {
+      await expect(controller.updateMe(own, { avatarUrl })).rejects.toThrow(/uploaded to this portal/);
+    }
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
   it('asks Keycloak for names once, with a timeout, not on every /me', async () => {
     const { controller, kcGetUser } = controllerWith();
     const u = userWithRole('contributor');
