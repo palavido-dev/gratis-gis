@@ -902,6 +902,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /api/public/stac/search': pubNone(),
   'POST /api/public/stac/search': pubNone({ body: () => ({}) }),
   'POST /api/feedback': skip('no-tenant-data', 'anonymous feedback form; sends mail'),
+  'POST /api/areas-of-interest': skip('no-tenant-data', "What's Here area resolve (#796): stores a shape only, no org, reads no table"),
 
   // ---------------------------------------------------------------- users, keys, preferences
   'GET /api/users': list(),

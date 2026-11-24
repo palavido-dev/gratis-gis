@@ -96,6 +96,7 @@ d('embed origins upgrade', () => {
         prisma as unknown as PrismaService,
         {} as never,
         {} as never,
+        {} as never,
       );
       await expect(controller.embedOrigins()).resolves.toEqual({
         origins: ['https://dash.example.org', 'https://b.example.org'],

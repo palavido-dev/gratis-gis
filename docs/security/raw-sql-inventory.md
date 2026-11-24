@@ -16,18 +16,18 @@ builds on it.
 
 ## Totals
 
-**211 sites** in 51 files. The guard counts the same 211.
+**213 sites** in 52 files. The guard counts the same 213.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
-| `prisma` | 157 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
+| `prisma` | 159 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
 | `pg` | 37 | node-postgres calls on connections outside Prisma (`client.query`, `admin.query`, `writer.query`, the CopyWriter `this.query<>` passthrough) |
 | `raw` | 17 | `Prisma.raw(...)` fragments, which put text into SQL unescaped |
 
 | Class | Sites |
 | --- | ---: |
 | item-scoped | 124 |
-| system | 75 |
+| system | 77 |
 | external | 9 |
 | org-scoped | 3 |
 | user-scoped | 0 |
@@ -229,6 +229,7 @@ From `apps/portal-api/prisma/migrations` and `infra/`.
 | `gg_record_dismissed_seed_kind()` + trigger `item_record_dismissed_seed_kind` | `AFTER DELETE` trigger on `item` | `20261113131000_org_dismissed_seed_kinds` | Updates `organization` for `OLD.org_id`. Under RLS the deleting session must be allowed to update its own org row, or the trash purge cron must run as system. |
 | `gg_expr_num`, `gg_expr_bool`, `gg_expr_ts`, `gg_expr_ts_text`, `gg_expr_list`, `gg_expr_month_diff` | SQL helper functions | `20261124090000_expression_functions` | Pure, no table access. `app` role needs `EXECUTE`. |
 | `gg_try_timestamptz`, `gg_try_int` | plpgsql helper functions | `20261112190500_safe_text_casts` | Pure. `EXECUTE` grant. |
+| `area_of_interest` | table with no `org_id` | `20261124130000_area_of_interest` | What's Here areas (#796), shared across orgs by design: shapes only, content addressed, pruned after a week unused. Needs no org policy; the `app` role needs SELECT, INSERT, UPDATE and DELETE. |
 | `pg_temp.gg_sanitize_id` | temp function | `20260507230000_drop_fs_tables` | Migration only, gone after the session. |
 | `pg_partman` extension in schema `partman`; `create_parent('public.observation', ...)` monthly on `tx_time` | partitioning | `20260508081000_partition_observation_table`, `20260726150000_observation_partman_premake_tuning` | New partitions are created by the owner. Policies on the parent apply to queries through the parent only. |
 | `pg_partman_bgw` background worker, `pg_partman_bgw.role=gratisgis` | maintenance | `infra/docker-compose.yml` (also `.prod`, `.nas`) | Runs as the owner role. Keep it on the owner. |
@@ -349,7 +350,7 @@ the statement they set up.
 | 88 | `engine/data-layer.ts:3583` | raw | `aggregateFeaturesUncached` | observation | scope from caller | **item-scoped** | CH-V3R (`aggregate`), CH-PUB. The `Prisma.raw` sites are generated aliases (`g0`, `a0`, bin alias); field names go in as params. |
 | 89 | `engine/data-layer.ts:3586` | raw | `aggregateFeaturesUncached` | observation | scope from caller | **item-scoped** | CH-V3R (`aggregate`), CH-PUB. The `Prisma.raw` sites are generated aliases (`g0`, `a0`, bin alias); field names go in as params. |
 | 90 | `engine/data-layer.ts:3638` | raw | `aggregateFeaturesUncached` | observation | scope from caller | **item-scoped** | CH-V3R (`aggregate`), CH-PUB. The `Prisma.raw` sites are generated aliases (`g0`, `a0`, bin alias); field names go in as params. |
-| 91 | `engine/data-layer.ts:3713` | prisma | `aggregateFeaturesUncached` | observation | scope from caller | **item-scoped** | CH-V3R (`aggregate`), CH-PUB. The `Prisma.raw` sites are generated aliases (`g0`, `a0`, bin alias); field names go in as params. |
+| 91 | `engine/data-layer.ts:3713` | prisma | `aggregateFeaturesUncached` | observation; area_of_interest by `area` id | scope from caller; area id checked by AreaOfInterestService.touch | **item-scoped** | CH-V3R (`aggregate`), CH-PUB. The `Prisma.raw` sites are generated aliases (`g0`, `a0`, bin alias); field names go in as params. |
 | 92 | `engine/data-layer.ts:3937` | prisma | `searchFeatures` | observation | scope from caller | **item-scoped** | CH-V3R (`features-search`), CH-PUB, CH-SVC (AiFeaturesService). |
 | 93 | `engine/data-layer.ts:4074` | prisma | `selectionExtent` | observation | scope from caller | **item-scoped** | CH-V3R (`selection-extent`). |
 | 94 | `engine/data-layer.ts:4230` | prisma | `filteredExtent` | observation | scope from caller | **item-scoped** | CH-V3R (`filtered-extent`), CH-PUB. |
@@ -470,6 +471,8 @@ the statement they set up.
 | 209 | `tools/recipe-runner.service.ts:1209` | prisma | `buildAnchorBuffers` | none (PostGIS on bound values) | none | **system** | Pure computation. Reads no table. |
 | 210 | `tools/recipe-runner.service.ts:1334` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
 | 211 | `tools/recipe-runner.service.ts:1352` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
+| 212 | `area-of-interest/area-of-interest.service.ts:62` | prisma | `register` | none (PostGIS on bound values) | none | **system** | What's Here area resolve (#796): union, make valid, buffer the caller's own shape. Reads no table. Public endpoint; input size checked first. |
+| 213 | `area-of-interest/area-of-interest.service.ts:103` | prisma | `register` | area_of_interest (INSERT ... ON CONFLICT) | hash of the resolved shape | **system** | Stores a shape only, no org and no feature data. Shared across orgs by design: the row reveals nothing, and every read that names it runs under the caller's own layer access. |
 
 ## Keeping this up to date
 

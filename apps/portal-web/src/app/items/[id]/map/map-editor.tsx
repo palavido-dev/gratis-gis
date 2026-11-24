@@ -61,11 +61,12 @@ import { SelectToolbar, type SelectToolMode } from './select-tool';
 import { useFeatureEditing, type EditableLayerInfo } from './feature-editing';
 import type { DrawGeometryType } from './use-terra-draw';
 import { BuilderShell } from '@/components/builder-shell/builder-shell';
-import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Ruler, Settings as SettingsIcon } from 'lucide-react';
+import { ChartSpline, Layers as LayersIcon, MessageSquare, PencilLine, Printer, Ruler, ScanSearch, Settings as SettingsIcon } from 'lucide-react';
 import { MarkupPanel } from './markup-panel';
 import { SaveMapCopyDialog } from './save-map-copy-dialog';
 import { ElevationProfileTool } from './elevation-profile';
 import { MeasureTool } from './measure-tool';
+import { WhatsHereTool } from './whats-here/whats-here-tool';
 import { VisibilityTool } from './visibility-tool';
 import { mapHasElevationSource, resolveDemForBbox } from '@/lib/dem-resolver';
 import {
@@ -494,6 +495,8 @@ export function MapEditor({
   // Measure tool: distance + area sketches on the map canvas.
   // Local only — nothing persists to a layer.
   const [measureOpen, setMeasureOpen] = useState(false);
+  // #796 What's Here. Owns map clicks while open, like Measure.
+  const [whatsHereOpen, setWhatsHereOpen] = useState(false);
   // #154: Markup panel + per-map drawing sets. Hydrated from the
   // initial map data so a fresh page-load renders existing
   // drawings on the canvas immediately. The panel manages writes
@@ -1185,6 +1188,7 @@ export function MapEditor({
   useEffect(() => {
     if (!featureEditing.active) return;
     setMeasureOpen(false);
+    setWhatsHereOpen(false);
     setMarkupStandDown((n) => n + 1);
   }, [featureEditing.active]);
 
@@ -2029,6 +2033,26 @@ export function MapEditor({
               if (markupOpen) setMarkupOpen(false);
               if (profileOpen) setProfileOpen(false);
               if (visibilityOpen) setVisibilityOpen(false);
+              if (whatsHereOpen) setWhatsHereOpen(false);
+            }
+            return next;
+          });
+        }}
+      />
+      <ToolbarIconToggle
+        Icon={ScanSearch}
+        label={t('whatsHere.button')}
+        active={whatsHereOpen}
+        onClick={() => {
+          setWhatsHereOpen((v) => {
+            const next = !v;
+            if (next) {
+              if (featureEditing.active) featureEditing.deactivate();
+              if (selectTool !== 'off') setSelectTool('off');
+              if (markupOpen) setMarkupOpen(false);
+              if (measureOpen) setMeasureOpen(false);
+              if (profileOpen) setProfileOpen(false);
+              if (visibilityOpen) setVisibilityOpen(false);
             }
             return next;
           });
@@ -2330,6 +2354,7 @@ export function MapEditor({
               profileOpen ||
               visibilityOpen ||
               measureOpen ||
+              whatsHereOpen ||
               featureEditing.canvasProps.suppressPopup
             }
             editClaimedLayerIds={featureEditing.canvasProps.editClaimedLayerIds}
@@ -2351,6 +2376,13 @@ export function MapEditor({
                   }
                 : undefined
             }
+          />
+          <WhatsHereTool
+            map={mapLibre}
+            open={whatsHereOpen}
+            onClose={() => setWhatsHereOpen(false)}
+            mapLayers={map.layers}
+            onDrawActiveChange={onClickToolActive}
           />
           {hasElevation ? (
             <ElevationProfileTool
@@ -2378,6 +2410,7 @@ export function MapEditor({
               if (next !== 'off') {
                 featureEditing.deactivate();
                 setMeasureOpen(false);
+                setWhatsHereOpen(false);
                 setMarkupStandDown((n) => n + 1);
               }
               setSelectTool(next);

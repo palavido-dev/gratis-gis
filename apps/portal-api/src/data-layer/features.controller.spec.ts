@@ -101,6 +101,7 @@ function makeController(opts: { canDownload: boolean }) {
     {} as ConstructorParameters<typeof DataLayerFeaturesController>[3],
     {} as ConstructorParameters<typeof DataLayerFeaturesController>[4],
     {} as ConstructorParameters<typeof DataLayerFeaturesController>[5],
+    {} as ConstructorParameters<typeof DataLayerFeaturesController>[6],
   );
   return { controller, items, sharing, iterateFeatures };
 }

@@ -394,3 +394,32 @@ describe('numeric checks refuse blank values', () => {
     expect(() => parseAggregateQuery({ agg: 'count', bbox: ',,,' })).toThrow(BadRequestException);
   });
 });
+
+describe("What's Here measures and area (#796)", () => {
+  it('parses area and length as fieldless ops keyed by their name', () => {
+    const p = parseAggregateQuery({ agg: 'count,area,length', groupBy: 'class' });
+    expect(p.aggs).toEqual([
+      { op: 'count', as: 'count' },
+      { op: 'area', as: 'area' },
+      { op: 'length', as: 'length' },
+    ]);
+  });
+
+  it('refuses a field on area, which would read as sum of that field', () => {
+    expect(() => parseAggregateQuery({ agg: 'area:acres' })).toThrow(/sum:acres/);
+    expect(() => parseAggregateQuery({ agg: 'length:feet' })).toThrow(BadRequestException);
+  });
+
+  it('takes an area id and refuses a malformed one', () => {
+    const id = '0123456789abcdef0123456789abcdef';
+    expect(parseAggregateQuery({ agg: 'count', area: id }).areaId).toBe(id);
+    expect(parseAggregateQuery({ agg: 'count' }).areaId).toBeUndefined();
+    expect(() => parseAggregateQuery({ agg: 'count', area: 'nope' })).toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('lists area among the known parameters', () => {
+    expect(() => rejectUnknownAggregateParams(['agg', 'area'])).not.toThrow();
+  });
+});

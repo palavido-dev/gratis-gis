@@ -36,6 +36,11 @@
       "pg": 0,
       "raw": 0
     },
+    "apps/portal-api/src/area-of-interest/area-of-interest.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
     "apps/portal-api/src/backup/backup.service.ts": {
       "prisma": 1,
       "pg": 0,

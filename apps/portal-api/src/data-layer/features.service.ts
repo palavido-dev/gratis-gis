@@ -43,6 +43,7 @@ import {
 import {
   DataLayerEngine,
   type AggregateBin,
+  type AggregateOp,
   type AggregateVia,
   type CreateFeatureArgs,
   type DeltaChange,
@@ -1037,13 +1038,20 @@ export class DataLayerFeaturesService {
     args: {
       groupBy?: string[];
       aggs: Array<{
-        op: 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
+        op: AggregateOp;
         field?: string;
         as: string;
       }>;
       bbox?: [number, number, number, number];
       geoLimit?: unknown;
       boundaryClip?: unknown;
+      /**
+       * What's Here (#796) area id, already checked by
+       * AreaOfInterestService.touch. Same both-places rule as `where`
+       * below: named here AND spread into the engine call, or a
+       * screen reports the whole layer.
+       */
+      areaOfInterestId?: string;
       ownRowsOnly?: { userId: string };
       /**
        * Attribute predicate. Forwarded, not interpreted: the caller
@@ -1102,6 +1110,9 @@ export class DataLayerFeaturesService {
         : {}),
       ...(args.boundaryClip !== undefined
         ? { boundaryClip: args.boundaryClip as GeoJsonGeometry }
+        : {}),
+      ...(args.areaOfInterestId !== undefined
+        ? { areaOfInterestId: args.areaOfInterestId }
         : {}),
       ...(args.ownRowsOnly !== undefined
         ? { ownRowsOnly: args.ownRowsOnly }
