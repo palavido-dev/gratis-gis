@@ -346,6 +346,32 @@ describe('interop with infra/recovery/offsite-key.mjs', () => {
     expect(r.stderr.toString()).not.toContain('not the right passphrase');
   }, 30_000);
 
+  it('a passphrase typed in another Unicode form opens the file on either side', async () => {
+    const nfd = 'Cafe\u0301 au lait, sans sucre';
+    const nfc = 'Caf\u00e9 au lait, sans sucre';
+    fs.writeFileSync(path.join(dir, 'nfd'), `${nfd}\n`);
+    fs.writeFileSync(path.join(dir, 'nfc'), nfc);
+    const gen = node([
+      'generate',
+      path.join(dir, 'k.ggkey'),
+      '--passphrase-file',
+      path.join(dir, 'nfd'),
+    ]);
+    expect(gen.status).toBe(0);
+    const fp = /Fingerprint: +(\S+)/.exec(gen.stdout.toString())![1]!;
+    expect(
+      (await openKeyFile(fs.readFileSync(path.join(dir, 'k.ggkey')), nfc)).publicKey
+        .fingerprintText,
+    ).toBe(fp);
+    const pub = node([
+      'public',
+      path.join(dir, 'k.ggkey'),
+      '--passphrase-file',
+      path.join(dir, 'nfc'),
+    ]);
+    expect(pub.stdout.toString()).toContain(fp);
+  }, 30_000);
+
   it('the script refuses to replace an existing key file', () => {
     fs.writeFileSync(path.join(dir, 'pass'), PASS);
     fs.writeFileSync(path.join(dir, 'k.ggkey'), 'keep me');

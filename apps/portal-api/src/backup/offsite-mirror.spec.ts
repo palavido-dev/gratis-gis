@@ -346,6 +346,19 @@ describe('off-site mirror mode', () => {
     expect(files()).toHaveLength(1);
   });
 
+  it('"Upload again" in mirror mode only for the newest backup', async () => {
+    await sourcePut('a.txt', 'a', 'text/plain');
+    const older = addRun('12121212-0000-4000-8000-000000000012', new Date(Date.now() - 2 * DAY));
+    const newest = addRun('13131313-0000-4000-8000-000000000013', new Date(Date.now() - DAY));
+    await expect(svc.retry(older.id as string)).rejects.toThrow(/only the newest backup/);
+    await expect(svc.retry(newest.id as string)).resolves.toBeUndefined();
+    // Let the started upload finish before the test cleans up.
+    for (let i = 0; i < 100 && newest.offsiteStatus === 'running'; i += 1) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(newest.offsiteStatus).toBe('succeeded');
+  });
+
   it('checks each mirrored file against the size the source reported', async () => {
     await sourcePut('a.txt', 'abc', 'text/plain');
     source.lieAboutGetLength = true;
