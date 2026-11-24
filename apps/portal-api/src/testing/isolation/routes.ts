@@ -786,6 +786,11 @@ export const ROUTES: Record<string, RouteEntry> = {
     control: 'skip',
     reason: 'the attachment bytes are not in storage here',
   }),
+  'GET /api/storage/private/:kind/o/:org/:key': pub({
+    params: { kind: '=feature-attachment', org: 'orgId', key: 'attachmentKey' },
+    control: 'skip',
+    reason: 'objects in this layout are probed by the storage topics',
+  }),
   'POST /api/storage/presign-upload': own({
     body: () => ({ kind: 'item-thumb', contentType: 'image/png', sizeBytes: 10 }),
   }),

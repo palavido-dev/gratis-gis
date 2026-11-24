@@ -13,7 +13,8 @@
 // - The passport `jwt` strategy verifies tokens with a key made for
 //   this run instead of Keycloak's JWKS. Its `validate` is the real
 //   JwtStrategy.validate, so the azp check and AuthSyncService run.
-// - Object storage is an in-memory map (no S3 server here).
+// - Object storage is an in-memory S3 behind the real StorageService
+//   (no S3 server here); see testing/memory-s3.ts.
 // - Lifecycle hooks (onModuleInit and friends) are switched off except
 //   on the database client and the import staging folder, so no
 //   worker loop, cron, Keycloak call or bucket check runs. Requests
@@ -25,7 +26,6 @@ import { generateKeyPairSync, createSign, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
 
 import { NotFoundException, ValidationPipe, type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -51,6 +51,8 @@ import { resetTenancyModeForTests, type TenancyMode } from '../../common/tenancy
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { IngestStagingService } from '../../ingest/ingest-staging.service.js';
 import { StorageService } from '../../storage/storage.service.js';
+import { StorageLedgerService } from '../../storage/storage-ledger.service.js';
+import { withMemoryS3 } from '../memory-s3.js';
 import { applyTestMigrations } from '../apply-test-migrations.js';
 
 export const TEST_ISSUER = 'http://isolation.test/realms/gratis-gis';
@@ -162,67 +164,13 @@ class TestJwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 // In-memory object storage
 
 /**
- * StorageService with an in-memory object map in place of S3. Only the
- * methods that move bytes are replaced; key building, signing and
- * validation stay real.
+ * The real StorageService with an in-memory S3 behind it (see
+ * testing/memory-s3.ts). Key building, the owner check, signing and
+ * the usage ledger all run as in production; only the bytes live in a
+ * map. Topics reach the map with `memoryS3Of(app.get(StorageService))`.
  */
 export function memoryStorage(real: StorageService): StorageService {
-  const objects = new Map<string, Buffer>();
-  const overrides: Record<string, unknown> = {
-    objects,
-    async onModuleInit() {},
-    async uploadBuffer(key: string, body: Buffer) {
-      objects.set(key, Buffer.from(body));
-      return key;
-    },
-    async uploadLocalFile(key: string) {
-      objects.set(key, Buffer.alloc(0));
-      return key;
-    },
-    async streamObject(key: string) {
-      const v = objects.get(key);
-      if (!v) throw Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' });
-      return {
-        body: Readable.from(v),
-        contentType: 'application/octet-stream',
-        contentLength: v.length,
-      };
-    },
-    async objectExists(key: string) {
-      return objects.has(key);
-    },
-    async headObjectSize(key: string) {
-      return objects.get(key)?.length ?? null;
-    },
-    async deleteObject(key: string) {
-      return objects.delete(key);
-    },
-    async listObjectsUnder(prefix: string) {
-      return [...objects.entries()]
-        .filter(([k]) => k.startsWith(prefix))
-        .map(([key, v]) => ({ key, size: v.length, lastModified: new Date() }));
-    },
-    async listMultipartUploadsUnder() {
-      return [];
-    },
-    async createMultipartUpload() {
-      return `upload-${randomUUID()}`;
-    },
-    async abortMultipartUpload() {},
-    async getBucketUsage() {
-      return {
-        objects: objects.size,
-        bytes: [...objects.values()].reduce((n, b) => n + b.length, 0),
-      };
-    },
-  };
-  return new Proxy(real, {
-    get(target, prop, receiver) {
-      if (typeof prop === 'string' && prop in overrides) return overrides[prop];
-      const v = Reflect.get(target, prop, receiver) as unknown;
-      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
-    },
-  });
+  return withMemoryS3(real);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,8 +351,9 @@ export async function bootIsolationApp(opts: HarnessOptions): Promise<IsolationA
     })
     .overrideProvider(StorageService)
     .useFactory({
-      factory: (cfg: ConfigService) => memoryStorage(new StorageService(cfg)),
-      inject: [ConfigService],
+      factory: (cfg: ConfigService, ledger: StorageLedgerService) =>
+        memoryStorage(new StorageService(cfg, ledger)),
+      inject: [ConfigService, StorageLedgerService],
     })
     .compile();
 

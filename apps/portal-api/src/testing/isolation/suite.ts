@@ -69,6 +69,8 @@ export function resolveRef(ref: Ref, victim: OrgFixture, caller: OrgFixture): st
       return victim.notificationId || fail();
     case 'attachmentKey':
       return victim.attachmentKey || fail();
+    case 'orgId':
+      return victim.orgId || fail();
     default:
       break;
   }

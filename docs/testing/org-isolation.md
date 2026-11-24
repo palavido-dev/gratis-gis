@@ -15,6 +15,7 @@ The files live in `apps/portal-api/src/testing/isolation/`:
 | `isolation.multi.pg.spec.ts`  | The probe with `GRATIS_TENANCY=multi`.                               |
 | `isolation.single.pg.spec.ts` | The same probe in single mode, the self-hosted default.              |
 | `topics.ts`                   | Cases that are not one route: clips, map extents, sockets and so on. |
+| `storage-topics.ts`           | Object storage: keys, crafted paths and every storage call, per org. |
 | `harness.ts`, `seed.ts`       | Starting the app and creating the two orgs.                          |
 
 ## Running it
@@ -36,9 +37,15 @@ failure. The whole run takes well under a minute.
 
 Sign-in does not need Keycloak. The suite signs its own tokens with a
 key made for the run, and the real auth guard checks them, so `@Public`
-handling, API keys and the claims sync are the real code. Object
-storage and the Keycloak admin API are in-memory stand-ins, and the
-app cannot make outside HTTP calls.
+handling, API keys and the claims sync are the real code. The Keycloak
+admin API is an in-memory stand-in, and the app cannot make outside
+HTTP calls.
+
+Object storage is the real `StorageService` with an in-memory S3
+client behind it (`src/testing/memory-s3.ts`), so key building, the
+owner check and the usage ledger run as in production. A topic that
+uploads writes the bytes with `memoryS3Of(storage).put(key, ...)`,
+where the browser's presigned PUT would put them.
 
 ## Adding a route
 
