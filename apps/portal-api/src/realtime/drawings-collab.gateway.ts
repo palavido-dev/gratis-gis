@@ -13,11 +13,17 @@ import {
   isDrawingsFrameWithinBudget,
 } from './drawings-collab-frame.js';
 import { DrawingsCollabService } from './drawings-collab.service.js';
+import {
+  runInTenantContext,
+  tenantContextForCaller,
+  type TenantContext,
+} from '../common/tenant-context.js';
 
 interface SocketState {
   mapId: string;
   drawingSetId: string;
   connectionId: string;
+  tenant: TenantContext;
 }
 
 /**
@@ -62,26 +68,34 @@ export class DrawingsCollabGateway
       return;
     }
 
+    // Frames arrive on the raw socket, outside Nest's interceptors, so
+    // each one sets the tenant context for the user who opened it.
+    const tenant = tenantContextForCaller(rec.user);
     client.on('message', (raw) => {
-      void this.onMessage(client, raw);
+      runInTenantContext(tenant, () => {
+        void this.onMessage(client, raw);
+      });
     });
 
     try {
-      const joined = await this.collab.join(
-        rec,
-        (msg) => this.send(client, msg),
-        () => {
-          try {
-            client.close();
-          } catch {
-            /* ignore */
-          }
-        },
+      const joined = await runInTenantContext(tenant, () =>
+        this.collab.join(
+          rec,
+          (msg) => this.send(client, msg),
+          () => {
+            try {
+              client.close();
+            } catch {
+              /* ignore */
+            }
+          },
+        ),
       );
       this.state.set(client, {
         mapId,
         drawingSetId,
         connectionId: joined.connectionId,
+        tenant,
       });
       // The socket may have closed while the room was loading. Its
       // disconnect then found no state and did nothing, which left a
@@ -97,7 +111,9 @@ export class DrawingsCollabGateway
   handleDisconnect(client: WebSocket): void {
     const st = this.state.get(client);
     if (!st) return;
-    this.collab.leave(st.mapId, st.drawingSetId, st.connectionId);
+    runInTenantContext(st.tenant, () =>
+      this.collab.leave(st.mapId, st.drawingSetId, st.connectionId),
+    );
     this.state.delete(client);
   }
 

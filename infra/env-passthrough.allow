@@ -152,3 +152,8 @@ PORTAL_AI_BOOTSTRAP_ORG_SLUG nas demo key re-apply after the nightly reset; NAS 
 # (Caddy shows it when the portal does not answer); unset elsewhere
 # means no file is written.
 GG_STATUS_FILE prod status page progress file; only the NAS stack has the status page
+
+# Hosted service only. A NAS install always serves one organization,
+# which is what these mean when unset.
+GRATIS_TENANCY nas hosted service only; a NAS install is single-org
+GRATIS_TENANCY_STRICT nas debug aid for multi mode, which a NAS install never runs

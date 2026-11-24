@@ -13,6 +13,7 @@ import {
 
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * Flag that the restore flow raises while it is actively rewriting
@@ -100,6 +101,8 @@ export class MaintenanceModeService implements OnModuleInit, OnModuleDestroy {
     @Optional() private readonly leader?: LeaderElectionService,
   ) {}
 
+  // The poll timer started here inherits this system context.
+  @RunAsSystem('cron:maintenance-mode-poll')
   async onModuleInit(): Promise<void> {
     // Leader crons pause while maintenance is on (restore running or
     // a failed restore holding the portal).

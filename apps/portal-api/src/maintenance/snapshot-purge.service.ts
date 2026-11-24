@@ -4,6 +4,7 @@ import { Cron } from '@nestjs/schedule';
 
 import { DataSnapshotService } from '../items/data-snapshot.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * Nightly sweep that drops ItemDataSnapshot rows past their TTL or
@@ -29,6 +30,7 @@ export class SnapshotPurgeService {
   // both wake the DB at the same instant. The time zone is explicit so
   // "UTC" holds whatever the container clock is set to.
   @Cron('0 15 3 * * *', { name: 'purge-snapshots', timeZone: 'UTC' })
+  @RunAsSystem('cron:purge-snapshots')
   async handleCron() {
     if (!this.leader.shouldRun()) return;
     const res = await this.snapshots.purge();

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { SearchIndexJobsService } from './search-index-jobs.service.js';
+import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
 
 /** Builds are rare and admin-clicked, so a slow poll is fine. */
 const POLL_INTERVAL_MS = 5_000;
@@ -27,7 +28,9 @@ export class SearchIndexWorker implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly jobs: SearchIndexJobsService) {}
 
   async onModuleInit() {
-    const n = await this.jobs.failInterrupted().catch((err) => {
+    const n = await runAsSystem('job-recover', () =>
+      this.jobs.failInterrupted(),
+    ).catch((err) => {
       this.log.warn(`Could not clear interrupted builds: ${String(err)}`);
       return 0;
     });
@@ -43,9 +46,11 @@ export class SearchIndexWorker implements OnModuleInit, OnModuleDestroy {
   private async loop(): Promise<void> {
     while (this.running) {
       try {
-        const job = await this.jobs.claimNext();
+        const job = await runAsSystem('job-claim', () =>
+          this.jobs.claimNext(),
+        );
         if (job) {
-          await this.jobs.run(job);
+          await runAsOrg(job.orgId, () => this.jobs.run(job));
         } else {
           await sleep(POLL_INTERVAL_MS);
         }

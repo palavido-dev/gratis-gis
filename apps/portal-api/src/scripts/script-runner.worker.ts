@@ -11,6 +11,7 @@ import {
 
 import { ApiKeyService } from '../auth/api-key.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Claims queued `script` runs and hands them to the executor (#221).
@@ -92,14 +93,18 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     if (this.busy) return;
     this.busy = true;
     try {
-      await this.reclaimStale();
+      await runAsSystem('job-recover', () => this.reclaimStale());
       if (Date.now() - this.lastPruneAt >= PRUNE_EVERY_MS) {
         this.lastPruneAt = Date.now();
-        const removed = await this.pruneOldRuns();
+        const removed = await runAsSystem('cron:script-run-prune', () =>
+          this.pruneOldRuns(),
+        );
         if (removed > 0) this.log.log(`pruned ${removed} old script runs`);
       }
-      const claimed = await this.claimOne();
-      if (claimed) await this.dispatch(claimed);
+      // Claiming reads the shared queue across every org; the run
+      // itself then goes out as the org it belongs to.
+      const claimed = await runAsSystem('job-claim', () => this.claimOne());
+      if (claimed) await runAsOrg(claimed.orgId, () => this.dispatch(claimed));
     } catch (err) {
       this.log.error(
         `script poll failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -166,6 +171,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
 
   private async claimOne(): Promise<{
     id: string;
+    orgId: string;
     userId: string;
     scriptId?: string;
     source: string;
@@ -174,6 +180,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     const rows = await this.prisma.$queryRaw<
       Array<{
         id: string;
+        org_id: string;
         user_id: string;
         script_id: string;
         source_snapshot: string | null;
@@ -188,7 +195,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       )
-      RETURNING id, user_id, script_id, source_snapshot
+      RETURNING id, org_id, user_id, script_id, source_snapshot
     `);
     const row = rows[0];
     if (!row) return null;
@@ -207,6 +214,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     // carry a second column that could disagree with the first.
     return {
       id: row.id,
+      orgId: row.org_id,
       userId: row.user_id,
       scriptId: row.script_id,
       source: row.source_snapshot,

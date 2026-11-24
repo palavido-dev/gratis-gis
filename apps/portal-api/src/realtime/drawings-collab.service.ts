@@ -15,6 +15,7 @@ import { DrawingsService } from '../items/drawings.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { DRAWINGS_WS_MAX_UPDATES_PER_SEC } from './drawings-collab-frame.js';
+import { runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Ephemeral Yjs rooms for markup co-editing
@@ -340,8 +341,10 @@ export class DrawingsCollabService {
   }
 
   private startReauth(room: CollabRoom): void {
+    // Started inside the first joiner's request, so the sweep sets its
+    // own context rather than keeping that one.
     const timer = setInterval(() => {
-      void this.reauthorize(room);
+      void runAsSystem('collab-reauth', () => this.reauthorize(room));
     }, COLLAB_REAUTH_MS);
     timer.unref?.();
     room.reauthTimer = timer;

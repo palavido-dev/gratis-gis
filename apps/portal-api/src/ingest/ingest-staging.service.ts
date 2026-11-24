@@ -29,6 +29,7 @@ import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { containedPayloadFile, payloadFileName } from './ingest-disk-path.js';
+import { RunAsSystem, runAsSystem } from '../common/tenant-context.js';
 
 /**
  * Staged-upload service. The data_layer create wizard uploads a
@@ -138,7 +139,9 @@ export class IngestStagingService implements OnModuleInit {
     // Per-request upload dirs live in this container's own temp dir,
     // so every process sweeps its own (not just the leader).
     const sweep = (): void => {
-      void sweepStaleIngestTempDirs(INGEST_TEMP_MAX_AGE_MS)
+      void runAsSystem('cron:ingest-temp-sweep', () =>
+        sweepStaleIngestTempDirs(INGEST_TEMP_MAX_AGE_MS),
+      )
         .then((n) => {
           if (n > 0) this.log.log(`Removed ${n} stale ingest upload dir(s).`);
         })
@@ -461,6 +464,7 @@ export class IngestStagingService implements OnModuleInit {
    * an import the user was already told was queued.
    */
   @Cron(CronExpression.EVERY_30_MINUTES)
+  @RunAsSystem('cron:ingest-staging-cleanup')
   async cleanupStaleScheduled(): Promise<void> {
     // Multi-replica safety: only the leader sweeps. The staging volume
     // is shared so any replica's cleanup would scan the same set, but

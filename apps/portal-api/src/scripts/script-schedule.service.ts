@@ -17,6 +17,11 @@ import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ScriptsService } from './scripts.service.js';
 import { isScriptsEnabled } from './scripts-config.js';
+import {
+  RunAsSystem,
+  runAsOrg,
+  runAsSystem,
+} from '../common/tenant-context.js';
 
 /** How often we re-read schedules from the database. */
 const RECONCILE_MS = 60_000;
@@ -112,6 +117,7 @@ export class ScriptScheduleService
     }
   }
 
+  @RunAsSystem('cron:script-schedule')
   private async reconcileSafely(): Promise<void> {
     if (this.stopping) return;
     try {
@@ -151,20 +157,23 @@ export class ScriptScheduleService
     // to kebab-case, so the parameter would otherwise be compared as
     // text and error. Mirrors items.service.ts.
     const rows = await this.prisma.$queryRaw<
-      Array<{ id: string; title: string; schedule: unknown }>
+      Array<{ id: string; org_id: string; title: string; schedule: unknown }>
     >(Prisma.sql`
-      SELECT id, title, data_json -> 'schedule' AS schedule
+      SELECT id, org_id, title, data_json -> 'schedule' AS schedule
         FROM item
        WHERE type = 'script'::"ItemType"
          AND deleted_at IS NULL
     `);
 
-    const desired = new Map<string, { expr: string; title: string }>();
+    const desired = new Map<
+      string,
+      { expr: string; title: string; orgId: string }
+    >();
     for (const row of rows) {
       const schedule = normalizeScriptSchedule(row.schedule);
       const expr = buildScriptCron(schedule);
       if (!expr) continue;
-      desired.set(row.id, { expr, title: row.title });
+      desired.set(row.id, { expr, title: row.title, orgId: row.org_id });
     }
 
     // Drop anything gone or changed. Snapshot the keys first: unregister
@@ -178,14 +187,27 @@ export class ScriptScheduleService
 
     for (const [scriptId, want] of desired) {
       if (this.jobs.has(scriptId)) continue;
-      this.register(scriptId, want.expr, want.title);
+      this.register(scriptId, want.expr, want.title, want.orgId);
     }
   }
 
-  private register(scriptId: string, expr: string, title: string): void {
+  private register(
+    scriptId: string,
+    expr: string,
+    title: string,
+    orgId?: string,
+  ): void {
     let job: CronJob;
     try {
-      job = new CronJob(expr, () => void this.fire(scriptId, title));
+      // Each fire queues a run for the script's own org. The tick sets
+      // its context itself: the job's timers would otherwise carry
+      // whatever context register() was called in.
+      job = new CronJob(expr, () => {
+        const fire = () => this.fire(scriptId, title);
+        void (orgId
+          ? runAsOrg(orgId, fire)
+          : runAsSystem('cron:script-schedule', fire));
+      });
     } catch (err) {
       // Should be unreachable: the expression is synthesized from
       // clamped integers rather than typed by a human. Logged rather

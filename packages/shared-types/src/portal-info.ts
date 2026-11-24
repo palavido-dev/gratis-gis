@@ -80,6 +80,14 @@ export interface PortalInfo {
   };
 
   /**
+   * Whether this install serves one organization (`single`, every
+   * self-hosted install) or many (`multi`, the hosted service). Set by
+   * `GRATIS_TENANCY` on the server. Absent on older servers; treat as
+   * `single`.
+   */
+  tenancy?: 'single' | 'multi';
+
+  /**
    * Optional capabilities this portal has switched on. Absent members
    * mean "off", so a client reading a portal that predates a given
    * feature behaves the same as one reading a portal that has it

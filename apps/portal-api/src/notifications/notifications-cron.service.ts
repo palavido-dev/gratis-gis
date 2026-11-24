@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from './notifications.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * Periodic notification triggers that don't have a natural API
@@ -101,6 +102,7 @@ export class NotificationsCron {
    * not delivery is enabled, since the table grows either way.
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM, { name: 'notifications-retention' })
+  @RunAsSystem('cron:notifications-retention')
   async prune(): Promise<number> {
     if (!this.leader.shouldRun()) return 0;
     const cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000);
@@ -124,6 +126,7 @@ export class NotificationsCron {
   @Cron(CronExpression.EVERY_30_MINUTES, {
     name: 'notifications-trigger-sweep',
   })
+  @RunAsSystem('cron:notifications-trigger-sweep')
   async tick() {
     // Multi-replica safety: only the leader sweeps. Otherwise N
     // replicas would each pump the same expiring-share + auto-

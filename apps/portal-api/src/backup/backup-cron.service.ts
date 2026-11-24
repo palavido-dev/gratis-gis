@@ -10,6 +10,7 @@ import { CronJob } from 'cron';
 
 import { BackupService, type BackupConfig } from './backup.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 /**
  * Registers the scheduled backup job and keeps it in sync with the
@@ -55,6 +56,8 @@ export class BackupCronService
     private readonly leader: LeaderElectionService,
   ) {}
 
+  // The sweep and poll timers started here inherit this system context.
+  @RunAsSystem('cron:backup-sweep')
   async onApplicationBootstrap() {
     // Periodic dead-run sweep, registered on EVERY replica and gated
     // per tick. Leadership is re-verified continuously and can move
@@ -208,6 +211,10 @@ export class BackupCronService
    * Guarded wrapper so a thrown error inside runBackup doesn't kill
    * the cron timer.
    */
+  // The job can be (re)built while an admin's config save is being
+  // handled, and its timers would then carry that request's tenant
+  // context. Each tick sets its own.
+  @RunAsSystem('cron:backup')
   private async runSafely() {
     // Leadership is checked per tick: it can move at runtime.
     if (!this.leader.shouldRun()) return;

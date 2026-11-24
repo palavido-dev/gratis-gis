@@ -636,6 +636,11 @@ services:
       # .env.prod left /portal-info reporting `scripts: false` with no
       # indication why. Found by setting it and watching nothing happen.
       PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # One organization (unset, every self-hosted install) or many
+      # (`multi`, the hosted service). Leave unset when self-hosting.
+      # GRATIS_TENANCY_STRICT=1 only adds debug logging in multi mode.
+      GRATIS_TENANCY: ${GRATIS_TENANCY:-}
+      GRATIS_TENANCY_STRICT: ${GRATIS_TENANCY_STRICT:-}
       # Unpaged feature reads. Empty keeps the full stream; `required`
       # refuses a read without limit and cursor and points at the csv
       # export instead.
@@ -807,6 +812,9 @@ services:
       ENABLE_CRONS: "false"
       # No PORTAL_SCRIPTS_ENABLED here: this process never claims
       # script runs (worker.main.ts). script-runner is the only claimer.
+      # Must match portal-api (see the note there).
+      GRATIS_TENANCY: ${GRATIS_TENANCY:-}
+      GRATIS_TENANCY_STRICT: ${GRATIS_TENANCY_STRICT:-}
       # Cap the Prisma pool below the API default (25). The worker does
       # not serve tiles, so it does not need a wide pool, and this keeps
       # total DB demand (portal-api 2x25 + this + script-runner +
@@ -899,6 +907,9 @@ services:
       # before it starts polling; without it here, a queued run would be
       # executed even with the feature turned off everywhere else.
       PORTAL_SCRIPTS_ENABLED: ${PORTAL_SCRIPTS_ENABLED:-}
+      # Must match portal-api (see the note there).
+      GRATIS_TENANCY: ${GRATIS_TENANCY:-}
+      GRATIS_TENANCY_STRICT: ${GRATIS_TENANCY_STRICT:-}
       # Small Prisma pool: the script claimer is a light poll loop. See
       # the portal-worker note above on the shared max_connections budget.
       DB_POOL_MAX: "4"

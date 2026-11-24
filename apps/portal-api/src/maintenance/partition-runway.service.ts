@@ -10,6 +10,7 @@ import {
   type PartitionSetState,
   type RunwayFinding,
 } from './partition-runway.js';
+import { RunAsSystem } from '../common/tenant-context.js';
 
 type SetRow = {
   parent_table: string;
@@ -60,6 +61,7 @@ export class PartitionRunwayService {
   // Fifteen minutes after pg_partman's worker would have run (its
   // interval counts from server start, so this is only roughly after).
   @Cron('0 40 * * * *', { name: 'partition-runway', timeZone: 'UTC' })
+  @RunAsSystem('cron:partition-runway')
   async handleCron(): Promise<void> {
     if (!this.leader.shouldRun()) return;
     try {

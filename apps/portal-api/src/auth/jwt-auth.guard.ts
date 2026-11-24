@@ -18,6 +18,7 @@ import {
   PRINT_READABLE_KEY,
   type PrintReadableRule,
 } from './print-readable.decorator.js';
+import { runAsSystem } from '../common/tenant-context.js';
 
 /**
  * JWT auth guard with proper @Public() semantics.
@@ -66,7 +67,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     if (bearer !== null && looksLikeApiKey(bearer)) {
       let user: Awaited<ReturnType<ApiKeyService['resolve']>>;
       try {
-        user = await this.apiKeys.resolve(bearer);
+        user = await runAsSystem('auth-sync', () =>
+          this.apiKeys.resolve(bearer),
+        );
       } catch (err) {
         // On a public route a bad key reads as anonymous, the same as
         // an expired or invalid JWT does there. A 401 here refused
@@ -113,13 +116,15 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       const routeAllowed =
         rule !== undefined &&
         (rule.path === undefined || rule.path.test(req.path ?? ''));
-      req.user = await this.printRead.resolve(bearer, {
-        routeAllowed,
-        allowedMethod: rule?.method ?? 'GET',
-        method: req.method ?? 'GET',
-        itemId: rule ? req.params?.[rule.idParam] : undefined,
-        clip: req.query?.clip,
-      });
+      req.user = await runAsSystem('auth-sync', () =>
+        this.printRead.resolve(bearer, {
+          routeAllowed,
+          allowedMethod: rule?.method ?? 'GET',
+          method: req.method ?? 'GET',
+          itemId: rule ? req.params?.[rule.idParam] : undefined,
+          clip: req.query?.clip,
+        }),
+      );
       return true;
     }
 
@@ -151,8 +156,15 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     // Awaiting inside an explicit try/catch attaches a rejection handler
     // in our own scope, so any error becomes a normal Nest HttpException
     // that the global exception filter turns into a 401 / 403 response.
+    //
+    // Guards run before TenantContextInterceptor, so nothing has set a
+    // tenant context yet. Resolving who the caller is (the key lookup
+    // above, the JWT strategy's user sync here) is not work for any one
+    // org, so it runs as system work.
     try {
-      const result = await super.canActivate(ctx);
+      const result = await runAsSystem('auth-sync', () =>
+        super.canActivate(ctx),
+      );
       return Boolean(result);
     } catch (err) {
       if (err instanceof HttpException) throw err;
