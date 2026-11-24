@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-24 - Encrypted off-site backups
+Backups can now be copied to storage at another provider, such as Backblaze B2, Cloudflare R2, AWS S3 or Hetzner, encrypted before they leave your server. A new Test latest backup button checks that the newest backup really restores, and a script brings a portal back on a new server from the off-site copy alone.
+
 ## [1.7.0] - 2026-11-23
 
 ## 2026-11-23 - Reports for each feature or form submission

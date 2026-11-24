@@ -199,6 +199,55 @@ gg_docker_state() {
   echo ok
 }
 
+# Whether an existing install copies its backups off-site. Never a
+# stop: a new server has nothing to back up yet. Reads the env file
+# (BACKUP_OFFSITE_*), then the saved setting in the database when the
+# stack is running. Test hooks: GG_TEST_ENV_FILE, GG_TEST_OFFSITE_DB
+# (on, off or unknown).
+gg_env_get() {
+  grep -E "^[[:space:]]*$2=" "$1" 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"'"'"'\r'
+}
+gg_check_offsite() {
+  local env_file="${GG_TEST_ENV_FILE:-${GRATIS_DIR:-/opt/gratis-gis}/infra/.env.prod}"
+  if [ ! -f "$env_file" ]; then
+    gg_ok "Off-site backups: set them up after installing (Admin, Backup, Off-site copies)"
+    return 0
+  fi
+  local enabled bucket
+  enabled="$(gg_env_get "$env_file" BACKUP_OFFSITE_ENABLED | tr '[:upper:]' '[:lower:]')"
+  bucket="$(gg_env_get "$env_file" BACKUP_OFFSITE_BUCKET)"
+  if [ "$enabled" = "true" ] && [ -n "$bucket" ]; then
+    gg_ok "Off-site backups are on in the env file (bucket ${bucket})"
+    return 0
+  fi
+  local db="${GG_TEST_OFFSITE_DB:-}"
+  if [ -z "$db" ]; then
+    db=unknown
+    if command -v docker >/dev/null 2>&1; then
+      local user name answer
+      user="$(gg_env_get "$env_file" POSTGRES_USER)"
+      name="$(gg_env_get "$env_file" POSTGRES_DB)"
+      answer="$(docker exec gratis-gis-prod-postgres psql -X -A -t -U "${user:-gratisgis}" -d "${name:-gratisgis}" \
+        -c "SELECT coalesce((SELECT coalesce(offsite_enabled, false) AND offsite_bucket IS NOT NULL FROM backup_config LIMIT 1), false)" 2>/dev/null || true)"
+      case "$answer" in
+        t) db=on ;;
+        f) db=off ;;
+      esac
+    fi
+  fi
+  case "$db" in
+    on) gg_ok "Off-site backups are on (set on Admin, Backup)" ;;
+    off)
+      gg_caution "Off-site backups are not set up. If this server is lost, its backups are lost with it." \
+        "Turn on Off-site copies on Admin, Backup, or set BACKUP_OFFSITE_* in ${env_file}."
+      ;;
+    *)
+      gg_caution "Could not tell whether off-site backups are set up (the portal database did not answer)." \
+        "Check Admin, Backup, Off-site copies once the portal is running."
+      ;;
+  esac
+}
+
 # Run every check and print a summary. Returns 1 when anything must
 # be fixed before installing.
 gg_check_server() {
@@ -227,6 +276,7 @@ gg_check_server() {
         "run the installer as root (sudo -i first), or add this user to the docker group and log in again."
       ;;
   esac
+  gg_check_offsite
   echo ""
   if [ "$GG_PROBLEMS" -gt 0 ]; then
     echo "${GG_PROBLEMS} thing(s) above need fixing before GratisGIS can be installed."

@@ -248,3 +248,6 @@ The format is described in `docs/operations/offsite-backup-format.md`.
 
 The endpoint must use `https`. `BACKUP_OFFSITE_ALLOW_HTTP=true` allows
 plain `http`, for a test store on a private network only.
+
+`infra/install.sh --check` says whether off-site backups are set up on
+an existing install.

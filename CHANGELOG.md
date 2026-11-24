@@ -16,6 +16,21 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
 - `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
+- **Off-site backups.** Each backup can be copied to an S3-compatible
+  bucket at another provider (Backblaze B2, Cloudflare R2, AWS S3,
+  Hetzner Object Storage and others), encrypted on the server before
+  upload with a passphrase the admin keeps. Uploads stream in parts,
+  are checked by size and checksum, and keep the newest good copy
+  whatever the retention. Large object stores are mirrored file by
+  file instead of re-uploaded nightly. A failed copy, or no good copy
+  for a set number of days, raises a notice. Set it on Admin, Backup
+  (operator admins) or with `BACKUP_OFFSITE_*` variables.
+- **Test latest backup** on Admin, Backup restores the newest
+  backup's database into a scratch database, counts the main tables
+  and drops it, with a reminder when no test passed in 30 days.
+- `infra/restore-from-offsite.sh` brings a portal back on a new server
+  from the bucket alone, and `install.sh --check` says whether
+  off-site backups are set up.
 
 ### Security
 
