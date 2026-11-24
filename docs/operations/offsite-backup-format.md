@@ -166,8 +166,9 @@ valid file. The signature below does.
 Each copy is signed by the portal with Ed25519 (RFC 8032, Node's
 built-in `crypto`). The signing key is made on the portal server the
 first time off-site copies are set up, or when an operator admin asks
-for a new one, and is stored there only (see "Where key material and
-secrets live"). Its public half, the **verify key**, goes into the
+for a new one, and is stored there, encrypted (see "Where key material
+and secrets live"; the database dump in every copy holds it, still
+encrypted under `CREDENTIAL_ENCRYPTION_KEY`, which is not in the copy). Its public half, the **verify key**, goes into the
 admin's key file. What is signed is a short manifest that names the
 copy, not the copy itself; the manifest holds the SHA-256 of the
 encrypted bytes, so the copy is bound through it.
@@ -256,8 +257,10 @@ The sidecar (`archives/<archive>.enc.json`) and a mirror run's
 ```
 
 Only the signed manifest is trusted. The other fields of the sidecar
-(`sealedSha256` and so on) are informational and are not used once a
-signature verified.
+or `done.json` (`sealedSha256`, `database.name` and so on) are
+informational. They are never used for a size or checksum check, or
+for the database name, when the signature verified with a key in the
+key file, whatever the copy's install id.
 
 ### Checking a copy
 
@@ -274,15 +277,31 @@ Then, before decrypting, every object is downloaded and its size and
 SHA-256 compared with the signed values: the archive with `bytes` and
 `sha256`; a mirror run's dump, manifest and file index with theirs; and
 each mirrored file with the `z` and `h` of its line in the file index,
-which is itself bound by `index.sha256`. The checked bytes are the ones
-decrypted (the helper reads them back through the same open file).
+which is itself bound by `index.sha256`. A download stops as soon as it
+is larger than the signed size. The checked bytes are the ones
+decrypted (the helper reads them back through the same open file). For
+a mirror run, `fetch-mirror` also lists the bucket and checks that
+every file the index names is there with its `z` size, before the
+restore script changes anything; each file's SHA-256 is checked again
+when it is put back.
 
-Readers tell apart: **verified**; **unsigned** (no block, as copies
-made before signing); **untrusted** (signed by a verify key the reader
-does not hold); **foreign** (verified, but for another install); and
-**bad** (anything else). The restore uses only verified copies unless
-`--allow-unverified-copy` is given (or `UNVERIFIED` typed in a
-terminal), which allows unsigned, untrusted and foreign copies. A bad
+Readers tell apart: **verified**; **foreign** (the signature verified
+with a trusted verify key, but for another install); **untrusted**
+(names a verify key the reader does not hold, so the signature is not
+checked and the named key is only a claim); **unsigned** (no block, as
+copies made before signing); and **bad** (anything else). A foreign
+copy is checked against its signed manifest exactly like a verified
+one: only its install id is in doubt. Untrusted and unsigned copies
+have only the unsigned fields to check against, which catches damage
+but not a deliberate change.
+
+The restore uses a verified copy without asking. With none, it offers
+the newest foreign copy, then the newest untrusted one, then the newest
+unsigned one, and uses it only with that state's own flag, or after its
+word is typed in a terminal: `--allow-foreign-install` (`FOREIGN`),
+`--allow-untrusted-signer` (`UNTRUSTED`), `--allow-unsigned-copy`
+(`UNSIGNED`). A flag admits only its own state. The helper exits with
+status 3 and prints `needs=<state>` when the flag is missing. A bad
 copy is never used.
 
 **What signing covers.** Binding the name, folder, install id, size,
@@ -324,9 +343,12 @@ node offsite-key.mjs decrypt my-portal.ggkey \
 
 With `--sidecar backup-....tar.gz.enc.json` it first checks the
 signature against the verify keys in the key file and the sidecar's
-name against the signed name, then checks the size and SHA-256 while
-it reads the copy once; the output file appears only when all of that
-matched and every record verified. `verify KEYFILE SIDECAR [COPY]` does
+name against the signed name. Then it reads the copy once: the size and
+SHA-256 are checked while the copy is decrypted into a temporary file
+next to the output, and the output file appears (by rename) only when
+they matched the signed record and every record decrypted. Otherwise
+the temporary file is removed and no output is left. `-` is not
+accepted for the copy or the output with `--sidecar`. `verify KEYFILE SIDECAR [COPY]` does
 the checks without decrypting; for a mirror run give its `done.json`
 and one of its three files.
 
@@ -400,7 +422,19 @@ Each line of `objects.jsonl` is
 In a signed run every line has `z` and `h`; the restore refuses a line
 without them.
 
-The name of a mirrored file is
+The name of a mirrored file is 32 random bytes in hex, drawn new for
+every upload and never one the bucket listing already shows. An
+uploaded file is never replaced: a file that is new, changed, encrypted
+to a new public key, or missing from the local index is uploaded again
+under a new name, and whatever an earlier run refers to stays as it
+was. The name says nothing about the file.
+
+The server cannot read the bucket back, so it keeps its own record of
+what it uploaded: the `backup_offsite_object` table (one row per
+uploaded file: folder hash, name, source, key fingerprint, sizes,
+SHA-256 of the encrypted file, content type, and the newest run that
+referred to it). `source` says which stored file and version a row
+holds:
 
 ```
 HMAC-SHA-256(nameKey, "v1" 0x00 | hex(fingerprint) 0x00 | key 0x00 | size 0x00 | etag)
@@ -408,23 +442,41 @@ HMAC-SHA-256(nameKey, "v1" 0x00 | hex(fingerprint) 0x00 | key 0x00 | size 0x00 |
 
 in hex, where `nameKey` is 32 random bytes made once per portal and
 stored with the credential cipher (`backup_config.offsite_name_key_*`).
-Without that key a name says nothing about the file: it is not a hash
-of the content or of the file's key. A changed file, or a new public
-key, gives a new name, so older runs keep the version they recorded and
-nothing is overwritten with a file encrypted to another key.
+It is never written to the bucket. A file is reused only when the
+newest row for its source matches the current key and size, has its
+SHA-256 recorded, and the bucket listing shows that row's name with the
+recorded encrypted size. A missing or emptied table means "upload
+everything again under new names", never a failure or a replaced file.
+The `backup_offsite_mirror_run` table lists the mirror runs this
+server started, written before a run uploads anything.
 
-The server cannot read the bucket back, so it keeps its own record of
-what it uploaded: the `backup_offsite_object` table (one row per file:
-folder hash, name, key fingerprint, sizes, SHA-256 of the encrypted
-file, content type, and the newest run that referred to it). A file is
-reused only when its row matches the current key and size, has its
-SHA-256 recorded, and the bucket listing shows it with the recorded
-encrypted size. A missing or emptied table means "upload
-everything again", never a failure. Clean-up works from the bucket
-listing and this table only: a file is removed when its newest run is
-older than every retained complete run, and the row goes before the
-file. Files the table does not know (after a restore, for example) are
-kept and counted in the log; a bucket lifecycle rule can expire them.
+Clean-up works from the bucket listing and these tables only. Every
+sidecar and `done.json` it needs is read first; one that cannot be read
+or parsed stops the pass with nothing deleted, and the operator admins
+are told (at most once a day). Then:
+
+- A file with a row is removed when its newest run is older than every
+  retained complete run; the row goes before the file.
+- A file the table does not know (left by a lost or emptied index, a
+  restore, or a run stopped half way) may still be named by a run made
+  before the index was lost. It is removed only when every run folder
+  in the bucket is listed in `backup_offsite_mirror_run`, so that no
+  run in the bucket can name it, and only when the bucket dates it more
+  than 7 days back; at most 1000 such files per pass. Until the older
+  runs age out of the retention window, these files are kept and
+  counted in the log. No bucket lifecycle rule is needed for them; do
+  not add one that deletes `mirror/objects/` by age, since a file can
+  stay in use by new runs long after it was uploaded.
+- No file is collected while another upload may be running, or while
+  copies were left unchecked in the pass (below).
+
+Copies set aside (dated in the future, or more than an hour after the
+provider's date, or with a bad signature) are kept and never counted as
+the newest. Each pass reads at most 100 badly signed sidecars or
+`done.json` files of each kind, newest first; older complete copies are
+then left for a later pass (kept, not deleted) and no file is
+collected. One summary notice per pass gives the counts and up to 20
+names; the same set of copies is not announced twice.
 
 ## Integrity checks on upload
 
@@ -466,17 +518,21 @@ The copy itself is encrypted to the admin's key on top of that.
 
 A stored signing key that no longer opens (the server key changed) or
 does not match its verify key is replaced by a new one, and the
-operator admins are told, as for a new key made on request. Old verify
-keys are kept (the last 20) so the server's retention still counts the
-copies they signed.
+operator admins are told that the server replaced it by itself. Its
+stored verify key is not kept as an earlier key, since nothing shows it
+belonged to the key in use. A key replaced by an admin keeps its verify
+key in the earlier keys (the last 20), so the server's retention still
+counts the copies it signed. A replacement is written only if the
+stored key is still the one read, so two at once cannot lose a key.
 
 A restore inside the portal keeps the live server's off-site settings
 (public key, bucket settings, install id, naming key, signing key and
 verify keys) instead of the archive's, and empties
-`backup_offsite_object`, since the archive's copy of it is older than
-the bucket. A signing key from an archive is never kept: when the live
-server had none, the columns stay empty and it makes a new one.
-`restore-from-offsite.sh` also empties it, turns off-site copies off,
+`backup_offsite_object` and `backup_offsite_mirror_run`, since the
+archive's copy of them is older than the bucket. A signing key from an
+archive is never kept: when the live server had none, the columns stay
+empty and it makes a new one.
+`restore-from-offsite.sh` also empties both, turns off-site copies off,
 clears the install id, and removes the signing key that came with the
 dump (moving its verify key to the earlier keys), so the restored
 server makes its own signing key and a new install id, and does not

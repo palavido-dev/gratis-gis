@@ -83,7 +83,10 @@ could add a copy that opens with your key file. To tell your portal's
 copies from any others, the portal signs every copy with a **signing
 key** that only it holds. It makes that key itself the first time
 off-site copies are set up, and stores it encrypted with the server's
-`CREDENTIAL_ENCRYPTION_KEY`; it is never shown, logged or uploaded.
+`CREDENTIAL_ENCRYPTION_KEY`; it is never shown or logged. It is never
+uploaded on its own, but the database dump inside every copy holds it,
+still encrypted with `CREDENTIAL_ENCRYPTION_KEY`, which is not in the
+copy.
 
 The page shows the matching **verify key** (`ggver1:...`) and its
 fingerprint. Add it to your key file, on your own computer:
@@ -120,6 +123,13 @@ think the old one was exposed. The operator admins get a notice and the
 change goes into the audit log. Copies signed with the old key stay
 valid. A server restored from an off-site copy makes its own new
 signing key; add that one too.
+
+If the stored signing key can no longer be opened (for example because
+`CREDENTIAL_ENCRYPTION_KEY` changed), the portal makes a new one by
+itself and the notice says so. The portal then no longer counts copies
+signed with the old key as its own good copies; they are set aside and
+kept, not deleted. A restore with a key file that holds the old verify
+key still checks them.
 
 Copies made before signing existed, and every copy while your key file
 has no verify key yet, cannot be checked. The restore uses such a copy
@@ -176,10 +186,16 @@ stay in the bucket until no copy inside the retention window refers to
 them. The backup history says which mode ran.
 
 The portal cannot read its own copies, so it keeps a record of what it
-uploaded in its database. If that record is lost, the next run simply
-uploads every file again. After a restore on a new server, files the
-new server's record does not know are left in the bucket rather than
-deleted; a lifecycle rule at the provider can expire them.
+uploaded in its database. Every file it uploads gets a new random name,
+and no file in the bucket is ever replaced. If the record is lost (for
+example after a restore), the next run uploads every file again under
+new names, and the older copies keep the files they refer to. Files the
+record does not know are kept while any copy made before the record was
+lost is still in the bucket. Once those copies have aged out of the
+retention window, retention removes such files by itself, up to 1000 a
+pass, and only files more than 7 days old. Do not add a lifecycle rule
+that deletes files in `mirror/objects/` by age: a file can stay in use
+by new copies long after it was uploaded.
 
 Mirror mode needs `CREDENTIAL_ENCRYPTION_KEY` (set by the installer):
 it keeps the key that names the files in the bucket with it.
@@ -210,11 +226,19 @@ folder down: a restore looks for it.
 Only files named the way the portal names them count as copies. A copy
 whose name is dated in the future, or more than an hour after the
 provider recorded it, is kept but set aside: it is never treated as the
-newest copy and never deleted by retention, and the operator admins get
-a notice. The same happens to a copy whose signature does not check
-with this portal's verify keys. Retention counts a signed copy as the
-newest good one; copies made before signing existed count until the
-first signed copy is there, then age out as usual.
+newest copy and never deleted by retention. The same happens to a copy
+whose signature does not check with this portal's verify keys. The
+operator admins get one notice per retention pass with how many copies
+were set aside and why; the same copies are not announced twice. Each
+pass reads at most 100 badly signed copies of each kind; older copies
+then wait for a later pass, and nothing older is deleted in that pass.
+Retention counts a signed copy as the newest good one; copies made
+before signing existed count until the first signed copy is there, then
+age out as usual.
+
+Retention reads the record of every copy before it deletes anything.
+If one cannot be read, it deletes nothing in that pass and the operator
+admins get a notice (at most once a day).
 
 | Path | What it is |
 | --- | --- |
@@ -224,9 +248,8 @@ first signed copy is there, then age out as usual.
 | `mirror/runs/<time>-<id>/` | Database dump, file index and manifest of one mirrored run, encrypted; `done.json` holds their sizes and SHA-256, signed by the portal |
 | `mirror/objects/<name>.enc` | One stored file, encrypted |
 
-File names inside `mirror/objects/` are made with a key only the portal
-has, so the bucket shows neither the names nor anything about the
-content of your uploads.
+File names inside `mirror/objects/` are random, so the bucket shows
+neither the names nor anything about the content of your uploads.
 
 ## Protect the copies
 
@@ -367,7 +390,8 @@ working, the original `CREDENTIAL_ENCRYPTION_KEY`.
 
 The script opens the key file first and stops if it does not open, and
 lists the verify keys the key file holds. It checks the signature of
-each copy against them and uses the newest copy that verifies. It then
+each copy against them and uses the newest copy that verifies and was
+made by the portal the folder belongs to. It then
 shows the copy it will use (its name, the date it was made, when the
 provider received it, its size, the fingerprint of the key it was made
 for and the verify key that signed it) and the project, the database and how many organizations,
@@ -378,19 +402,30 @@ users) unless you add `--replace-existing`. In a script,
 `--confirm-database NAME` replaces the typing, and then the copy must be
 named with `--archive` or `--mirror-run`.
 
-A copy that is not signed (made before signing existed), or signed by a
-verify key your key file does not hold, is used only when you add
-`--allow-unverified-copy`, or, in a terminal, type `UNVERIFIED` when
-asked. Nothing then proves your portal made that copy. A copy whose
-signature does not verify, or that was signed for another name, folder
-or portal, is never restored.
+When no copy verifies, the script offers the best one left, in this
+order, and uses it only with that kind's own option, or when you type
+its word in a terminal. Each option allows only its own kind:
+
+| The copy | Option | Word | What is checked |
+| --- | --- | --- | --- |
+| Signed with a verify key in your key file, but for another portal install | `--allow-foreign-install` | `FOREIGN` | The signature, and the size and SHA-256 of every file against the signed record. Not checked: that this folder's portal made it. |
+| Names a verify key your key file does not hold | `--allow-untrusted-signer` | `UNTRUSTED` | Not who made it: the named verify key is only a claim. Sizes and SHA-256 only against plain records in the bucket, which catches damage but not a deliberate change. |
+| Not signed (made before signing existed) | `--allow-unsigned-copy` | `UNSIGNED` | Not who made it. Sizes and SHA-256 only against plain records in the bucket, where there are any. |
+
+The script shows which kind the chosen copy is and what was and was
+not checked. A copy whose signature does not verify, or that was signed
+for another name or folder, is never restored.
 
 It then downloads the copy into the backups volume, checks its size and
-SHA-256 against the signed record, and only then decrypts it. It stops
+SHA-256 against the signed record, and only then decrypts it. For a
+mirrored run it also checks that every file the run lists is in the
+bucket with the recorded size; if one is missing, it stops before
+anything is changed. It stops
 the portal, **saves the current database with `pg_dump`** in
 the backups volume and checks that the saved file reads back, replaces
 the portal database, runs the database migrations, empties the new
-server's record of mirrored files, puts the stored files back, starts
+server's record of mirrored files, puts the stored files back (checking
+each one's SHA-256 again), starts
 the portal, and prints the number of organizations, users, items and
 stored files next to the numbers recorded in the backup.
 
@@ -422,7 +457,9 @@ node offsite-key.mjs decrypt my-portal.ggkey \
 
 Add `--sidecar FILE` with the copy's `.json` file to check its
 signature first: the tool then decrypts only a copy signed by a verify
-key in your key file, with the exact size and SHA-256 that were signed.
+key in your key file. It checks the size and SHA-256 while it decrypts,
+into a temporary file next to the output, and the output file appears
+only when they matched what was signed.
 `node offsite-key.mjs verify my-portal.ggkey COPY.enc.json COPY.enc`
 checks a copy without decrypting it.
 

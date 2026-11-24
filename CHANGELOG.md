@@ -60,10 +60,26 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `decrypt --sidecar` checks before it decrypts. The restore checks the
   signature against the key file before it downloads or changes
   anything, checks every object's size and SHA-256 against the signed
-  record before decrypting, and uses an unsigned copy, or one signed by
-  a key the file does not hold, only with `--allow-unverified-copy`.
-  Retention never counts a badly signed copy as the newest good one; it
-  keeps and reports it. A restored server makes a new signing key.
+  record before decrypting. With no verified copy it offers, in order,
+  one signed for another portal install (checked against its signed
+  record), one naming a verify key the file does not hold (shown as an
+  unchecked claim), then an unsigned one, each used only with its own
+  option (`--allow-foreign-install`, `--allow-untrusted-signer`,
+  `--allow-unsigned-copy`) or its own typed word, and says which kind it
+  is and what was and was not checked. A mirror restore checks that
+  every file of the run is in the bucket with its size before it
+  changes anything. Mirrored files get a new random name on every
+  upload and are never replaced, so a lost local index never breaks an
+  older run; files the index does not know are removed once every run
+  in the bucket was started by this server, at most 1000 per pass.
+  Retention reads every copy's record before it deletes anything and
+  stops, deleting nothing, if one cannot be read. It never counts a
+  badly signed copy as the newest good one; it keeps it and sends one
+  summary notice per pass, reading at most 100 such copies of each kind
+  per pass. A signing key the server replaces by itself does not keep
+  the old verify key as trusted, and the notice says whether the server
+  or an admin made the change. A restored server makes a new signing
+  key.
   New routes: `POST /api/admin/backup/offsite/signing-key` and
   `POST /api/admin/backup/offsite/check-verify-key`, both operator only.
 - The help page and `docs/operations/offsite-backup-format.md` say
