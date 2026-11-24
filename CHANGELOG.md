@@ -32,6 +32,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   by any category. Units follow the profile's metric or imperial
   setting and each user's last choice. Exports a spreadsheet. Also an
   app widget, where authors can set the starting units (#796).
+- What's Here makes a PDF report: the facts, a map of the area, a summary
+  table, any breakdowns, and the shapes picked. Layers with nothing in
+  the area go on one line. The server reads every layer again under the
+  viewer's own access, so the report never shows more than they can
+  see. `POST /api/whats-here/report` (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 

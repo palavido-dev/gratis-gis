@@ -992,6 +992,17 @@ export const ptBR: Partial<CatalogShape> = {
     csvArea: 'Área',
     csvLength: 'Comprimento',
     csvPercent: 'Porcentagem da área',
+    report: {
+      button: 'PDF',
+      title: 'Relatório O que há aqui',
+      generated: 'Criado em',
+      place: 'Local',
+      picked: 'Formas escolhidas',
+      nothingIn: 'Nada encontrado em:',
+      by: 'por',
+      unavailable: 'Não foi possível ler:',
+      failed: 'Não foi possível criar o PDF',
+    },
   },
   mapSaveAs: {
     button: 'Salvar como',

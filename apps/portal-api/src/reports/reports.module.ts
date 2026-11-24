@@ -13,6 +13,7 @@ import { ReportsService } from './reports.service.js';
 @Module({
   imports: [ItemsModule, ExpressionsModule, DataLayerFeaturesModule, StorageModule],
   providers: [ReportsService],
+  exports: [ReportsService],
   controllers: [ReportsController],
 })
 export class ReportsModule {}

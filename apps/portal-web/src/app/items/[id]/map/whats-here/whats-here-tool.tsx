@@ -23,6 +23,7 @@ import type * as maplibregl from 'maplibre-gl';
 import {
   Circle as CircleIcon,
   Download,
+  FileText,
   Hexagon,
   Loader2,
   MapPin,
@@ -37,7 +38,7 @@ import {
 } from 'lucide-react';
 import type { MapLayer } from '@gratis-gis/shared-types';
 
-import { useT } from '@/lib/i18n/locale-context';
+import { useLocale, useT } from '@/lib/i18n/locale-context';
 import {
   AREA_UNIT_LABELS,
   DISTANCE_UNIT_LABELS,
@@ -58,8 +59,10 @@ import {
   percentOfArea,
   pickedAreaGeometry,
   registerArea,
+  requestReport,
   screenCsv,
   screenLayer,
+  snapshotMap,
   toMeters,
   type LayerScreen,
   type ResolvedArea,
@@ -139,6 +142,7 @@ export function WhatsHereTool({
   defaultLengthUnit,
 }: WhatsHereToolProps) {
   const t = useT();
+  const locale = useLocale();
   const [system] = useState<UnitSystem>(() => unitSystem ?? profileUnitSystem());
   const [mode, setMode] = useState<AreaMode>('draw');
   const [shape, setShape] = useState<DrawShape>('polygon');
@@ -173,6 +177,8 @@ export function WhatsHereTool({
   const [places, setPlaces] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [placeLabel, setPlaceLabel] = useState<string | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const { layers, loading: layersLoading } = useScreenLayers(mapLayers, open);
   const layersRef = useRef(layers);
@@ -736,6 +742,76 @@ export function WhatsHereTool({
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  async function makeReport() {
+    if (!map || !area || !source) return;
+    setReporting(true);
+    setReportError(null);
+    try {
+      const mapImage = await snapshotMap(map, area.bbox);
+      const body = (areaId: string) => ({
+        areaId,
+        distanceMeters,
+        layers: layers.slice(0, 30).map((l) => {
+          const field = breakdowns[l.mapLayerId];
+          return {
+            itemId: l.itemId,
+            layerKey: l.layerKey,
+            title: l.title,
+            ...(field ? { breakdownField: field } : {}),
+          };
+        }),
+        areaUnit,
+        lengthUnit,
+        // Letter where people print on it, A4 everywhere else.
+        paper: locale === 'en' ? ('letter' as const) : ('a4' as const),
+        locale,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        labels: {
+          title: t('whatsHere.report.title'),
+          generated: t('whatsHere.report.generated'),
+          area: t('whatsHere.areaLabel'),
+          distance: t('whatsHere.distanceHeading'),
+          onlyInside: t('whatsHere.distance.none'),
+          place: t('whatsHere.report.place'),
+          picked: t('whatsHere.report.picked'),
+          layer: t('whatsHere.csvLayer'),
+          count: t('whatsHere.csvCount'),
+          areaCol: t('whatsHere.csvArea'),
+          lengthCol: t('whatsHere.csvLength'),
+          percentCol: t('whatsHere.csvPercent'),
+          nothingIn: t('whatsHere.report.nothingIn'),
+          breakdownBy: t('whatsHere.report.by'),
+          noValue: t('whatsHere.noValue'),
+          unavailable: t('whatsHere.report.unavailable'),
+          truncated: t('whatsHere.breakdownTruncated'),
+        },
+        ...(mode === 'address' && placeLabel ? { place: placeLabel } : {}),
+        picked: mode === 'features' ? picked.slice(0, 200).map((p) => `${p.label} (${p.layerTitle})`) : [],
+        ...(mapImage ? { mapImage } : {}),
+      });
+      let blob: Blob;
+      try {
+        blob = await requestReport(body(area.id), t('whatsHere.report.failed'));
+      } catch (err) {
+        if (!(err instanceof AreaExpiredError)) throw err;
+        const again = await registerArea(source, distanceMeters, t('whatsHere.areaFailed'));
+        areaRef.current = again;
+        setArea(again);
+        blob = await requestReport(body(again.id), t('whatsHere.report.failed'));
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${t('whatsHere.fileName')}.pdf`;
+      a.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : t('whatsHere.report.failed'));
+    } finally {
+      setReporting(false);
+    }
+  }
+
   function zoomToArea() {
     if (!map || !area) return;
     const [w, s, e, n] = area.bbox;
@@ -1090,6 +1166,11 @@ export function WhatsHereTool({
         </section>
       </div>
 
+      {reportError ? (
+        <p role="alert" className="border-t border-border px-3 py-1.5 text-xs text-danger">
+          {reportError}
+        </p>
+      ) : null}
       <div className="flex items-center gap-1 border-t border-border px-2 py-1.5">
         <button
           type="button"
@@ -1099,6 +1180,20 @@ export function WhatsHereTool({
         >
           <Download className="h-3.5 w-3.5" />
           {t('whatsHere.exportCsv')}
+        </button>
+        <button
+          type="button"
+          onClick={() => void makeReport()}
+          disabled={!area || settled.length === 0 || reporting}
+          aria-busy={reporting}
+          className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+        >
+          {reporting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <FileText className="h-3.5 w-3.5" />
+          )}
+          {t('whatsHere.report.button')}
         </button>
         <button
           type="button"
