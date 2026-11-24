@@ -261,6 +261,48 @@ export const STORAGE_TOPICS: Topic[] = [
     },
   },
   {
+    name: 'storage usage: each org counts its own uploads; trash keeps them, purge removes them',
+    modes: BOTH,
+    async run(state) {
+      const { A, B } = state.fx;
+      const base = state.app.baseUrl;
+      const problems: string[] = [];
+      const usage = async (who: FixtureUser): Promise<{ objectBytes: number; text: string }> => {
+        const r = await api(base, who, 'GET', '/api/admin/storage-usage');
+        if (r.status !== 200) problems.push(`usage read failed for ${who.orgKey}: ${short(r)}`);
+        return { objectBytes: (r.body as { objectBytes?: number } | undefined)?.objectBytes ?? -1, text: r.text };
+      };
+      const a0 = await usage(A.users.admin);
+      const b0 = await usage(B.users.admin);
+      const body = 'x'.repeat(1234);
+      const file = await uploadFile(state, A.users.admin, body);
+      const a1 = await usage(A.users.admin);
+      const b1 = await usage(B.users.admin);
+      if (a1.objectBytes !== a0.objectBytes + 1234) {
+        problems.push(`org A usage moved by ${a1.objectBytes - a0.objectBytes}, expected 1234`);
+      }
+      if (b1.objectBytes !== b0.objectBytes) problems.push('org B usage moved on an org A upload');
+      if (b1.text.includes(A.orgId)) problems.push("org B's usage names org A");
+
+      // Org B cannot purge it; nothing moves.
+      const bPurge = await api(base, B.users.admin, 'DELETE', `/api/items/${file.itemId}/purge`);
+      if (bPurge.status < 300) problems.push(`org B purged org A's item: ${short(bPurge)}`);
+      // Trash and restore keep the bytes counted.
+      await api(base, A.users.admin, 'DELETE', `/api/items/${file.itemId}`);
+      if ((await usage(A.users.admin)).objectBytes !== a1.objectBytes) problems.push('trash changed usage');
+      await api(base, A.users.admin, 'POST', `/api/items/${file.itemId}/restore`);
+      if ((await usage(A.users.admin)).objectBytes !== a1.objectBytes) problems.push('restore changed usage');
+      // Purge deletes the object and takes it off.
+      await api(base, A.users.admin, 'DELETE', `/api/items/${file.itemId}`);
+      const purge = await api(base, A.users.admin, 'DELETE', `/api/items/${file.itemId}/purge`);
+      if (purge.status >= 300) problems.push(`org A purge failed: ${short(purge)}`);
+      const a2 = await usage(A.users.admin);
+      if (a2.objectBytes !== a0.objectBytes) problems.push(`purge left usage at ${a2.objectBytes}, expected ${a0.objectBytes}`);
+      if (memoryS3Of(storageOf(state)).objects.has(file.key)) problems.push('purge left the object in the store');
+      return { ok: problems.length === 0, problems };
+    },
+  },
+  {
     name: 'storage: an object under an older key still reads for its org only',
     modes: BOTH,
     async run(state) {

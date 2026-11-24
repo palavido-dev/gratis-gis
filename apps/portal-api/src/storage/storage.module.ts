@@ -4,6 +4,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { ItemsModule } from '../items/items.module.js';
 import { EngineModule } from '../engine/engine.module.js';
 import { StorageController } from './storage.controller.js';
+import { StorageUsageController } from './storage-usage.controller.js';
 import { StorageService } from './storage.service.js';
 import { StorageLedgerService } from './storage-ledger.service.js';
 import { StorageUsageReconcileService } from './storage-usage-reconcile.service.js';
@@ -15,7 +16,7 @@ import { StorageUsageReconcileService } from './storage-usage-reconcile.service.
   // imports StorageModule.
   imports: [forwardRef(() => ItemsModule), EngineModule],
   providers: [StorageService, StorageLedgerService, StorageUsageReconcileService],
-  controllers: [StorageController],
+  controllers: [StorageController, StorageUsageController],
   exports: [StorageService, StorageLedgerService, StorageUsageReconcileService],
 })
 export class StorageModule {}
