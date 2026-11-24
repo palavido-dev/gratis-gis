@@ -42,7 +42,6 @@ interface OffsiteConfig {
   publicKeySource: 'database' | 'environment' | null;
   retentionDays: number;
   alertDays: number;
-  mirrorThresholdBytes: number;
   complete: boolean;
   missing: string[];
   problems: string[];
@@ -54,7 +53,6 @@ interface OffsiteConfig {
     lastSuccess: {
       runId: string;
       finishedAt: string;
-      mode: string | null;
       bytes: string | null;
       keyFingerprint: string | null;
     } | null;
@@ -62,6 +60,17 @@ interface OffsiteConfig {
     running: { runId: string; startedAt: string | null } | null;
     daysSinceSuccess: number | null;
     alert: boolean;
+    /** The newest local backup's size and the time its upload may take. */
+    lastArchive?: {
+      runId: string;
+      bytes: string;
+      uploadLimitMs: number;
+      tooLarge: boolean;
+    } | null;
+    /** The largest backup that can be copied off-site. */
+    maxArchiveBytes?: string;
+    /** The longest upload time allowed, in milliseconds. */
+    maxUploadMs?: number;
   };
 }
 
@@ -78,10 +87,9 @@ interface Draft {
   keyStored: boolean;
   retentionDays: number;
   alertDays: number;
-  mirrorThresholdGb: number;
 }
 
-const GB = 1024 ** 3;
+const HOUR_MS = 60 * 60 * 1000;
 
 function toDraft(c: OffsiteConfig): Draft {
   return {
@@ -97,7 +105,6 @@ function toDraft(c: OffsiteConfig): Draft {
     keyStored: false,
     retentionDays: c.retentionDays,
     alertDays: c.alertDays,
-    mirrorThresholdGb: Math.round(c.mirrorThresholdBytes / GB),
   };
 }
 
@@ -191,7 +198,6 @@ export function OffsiteSection() {
         accessKeyId: draft.accessKeyId.trim() || null,
         retentionDays: draft.retentionDays,
         alertDays: draft.alertDays,
-        mirrorThresholdBytes: Math.round(draft.mirrorThresholdGb * GB),
       };
       // Secrets only when typed: a blank field keeps the saved one.
       if (draft.secretAccessKey) body.secretAccessKey = draft.secretAccessKey;
@@ -367,6 +373,24 @@ export function OffsiteSection() {
             </p>
           ) : null}
           {st.running ? <p>{t('adminBackup.offsite.uploading')}</p> : null}
+          {st.lastArchive && st.maxArchiveBytes && st.maxUploadMs ? (
+            <p
+              role={st.lastArchive.tooLarge ? 'status' : undefined}
+              className={st.lastArchive.tooLarge ? 'text-danger' : undefined}
+            >
+              {st.lastArchive.tooLarge
+                ? t('adminBackup.offsite.lastArchiveTooLarge', {
+                    size: formatBytes(BigInt(st.lastArchive.bytes)),
+                    max: formatBytes(BigInt(st.maxArchiveBytes)),
+                    hours: Math.round(st.maxUploadMs / HOUR_MS),
+                  })
+                : t('adminBackup.offsite.lastArchive', {
+                    size: formatBytes(BigInt(st.lastArchive.bytes)),
+                    hours: Math.ceil(st.lastArchive.uploadLimitMs / HOUR_MS),
+                    max: formatBytes(BigInt(st.maxArchiveBytes)),
+                  })}
+            </p>
+          ) : null}
         </div>
 
         {config.problems.length > 0 ? (
@@ -652,18 +676,6 @@ export function OffsiteSection() {
               onChange={(e) => set('alertDays', Number(e.target.value))}
             />
           </label>
-          <label className="block">
-            <span className="text-xs font-medium text-ink-1">
-              {t('adminBackup.offsite.mirrorThresholdGb')}
-            </span>
-            <input
-              className={inputClass}
-              type="number"
-              min={1}
-              value={draft.mirrorThresholdGb}
-              onChange={(e) => set('mirrorThresholdGb', Number(e.target.value))}
-            />
-          </label>
         </div>
 
         {message ? (
@@ -720,7 +732,6 @@ export function OffsiteRunBadge({
   run: {
     id: string;
     offsiteStatus?: string | null;
-    offsiteMode?: string | null;
     offsiteError?: string | null;
     offsiteKeyFingerprint?: string | null;
   };
@@ -729,7 +740,7 @@ export function OffsiteRunBadge({
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!run.offsiteStatus || run.offsiteStatus === 'skipped') return null;
+  if (!run.offsiteStatus) return null;
 
   async function retry() {
     setBusy(true);
@@ -761,9 +772,7 @@ export function OffsiteRunBadge({
       <span className="mt-1 flex flex-col text-2xs text-emerald-700">
         <span className="flex items-center gap-1">
           <ShieldCheck className="h-3 w-3" aria-hidden />
-          {run.offsiteMode === 'mirror'
-            ? t('adminBackup.offsite.statusMirror')
-            : t('adminBackup.offsite.statusSucceeded')}
+          {t('adminBackup.offsite.statusSucceeded')}
         </span>
         {run.offsiteKeyFingerprint ? (
           <span className="font-mono text-muted">

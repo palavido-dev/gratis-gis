@@ -962,8 +962,8 @@ model BackupRun {
   heartbeatAt DateTime? @map("heartbeat_at") @db.Timestamptz(6)
 
   /// Off-site copy of this run. Null status: off-site was not set up
-  /// when the run finished. Otherwise 'running', 'succeeded',
-  /// 'failed' or 'skipped'.
+  /// when the run finished. Otherwise 'running', 'succeeded' or
+  /// 'failed'.
   offsiteStatus     String?   @map("offsite_status")
   /// Object key of the encrypted archive in the off-site bucket.
   offsiteKey        String?   @map("offsite_key")

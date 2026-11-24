@@ -62,8 +62,7 @@ export interface BackupRun {
    */
   archiveOnDisk: boolean | null;
   /** Off-site copy: null when off-site was not set up for this run. */
-  offsiteStatus?: 'running' | 'succeeded' | 'failed' | 'skipped' | null;
-  offsiteMode?: 'archive' | 'mirror' | null;
+  offsiteStatus?: 'running' | 'succeeded' | 'failed' | null;
   offsiteError?: string | null;
   /** Fingerprint of the public key the off-site copy was encrypted to. */
   offsiteKeyFingerprint?: string | null;
