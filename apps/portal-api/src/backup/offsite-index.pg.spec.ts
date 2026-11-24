@@ -48,7 +48,7 @@ function databaseUrl(base: string, name: string): string {
 }
 
 d('off-site backups against Postgres', () => {
-  const dbUrl = databaseUrl(TEST_URL!, DB);
+  const dbUrl = TEST_URL ? databaseUrl(TEST_URL, DB) : '';
   let pool: Pool;
   let prisma: PrismaClient;
   let dir: string;
