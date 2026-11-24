@@ -1468,8 +1468,11 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
       'application/json',
       a.signal,
     );
+    const now = new Date();
     for (const c of earlier) {
-      if (c.complete) continue;
+      // A complete attempt, or one with a date that cannot be trusted,
+      // is never removed here.
+      if (c.complete || suspectDate(c, now)) continue;
       try {
         // Sidecar first, as retention does.
         const ordered = [...c.keys].sort(
@@ -1693,7 +1696,7 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const names = ids.slice(0, SET_ASIDE_NAMES).join(', ');
     const more = ids.length > SET_ASIDE_NAMES ? ` and ${ids.length - SET_ASIDE_NAMES} more` : '';
     this.log.warn(
-      `${copies.length} off-site copies were set aside (${badSignature} not signed by this portal or not matching their signature, ${dated} with a date that cannot be trusted): ${names}${more}. They were not used or deleted. Check who can write to the bucket.`,
+      `${copies.length} off-site copies were set aside (${badSignature} not signed by this portal or not matching their signature, ${dated} with a date that cannot be trusted): ${names}${more}. They were kept: not deleted and not counted as the newest copy. Check who can write to the bucket.`,
     );
     const digest = createHash('sha256').update(ids.join('\n')).digest('hex').slice(0, 32);
     try {

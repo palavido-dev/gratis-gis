@@ -715,7 +715,7 @@ const renderers: { [K in NotificationType]?: Renderer<unknown> } = {
       const line =
         `${count} off-site copies in the bucket were set aside: ${bad} not signed by this portal or not matching their signature, ` +
         `${dated} dated in the future or after the provider recorded them. ` +
-        `They are not used for restores or deleted by retention. Check who can write to the bucket.`;
+        `They are kept: retention does not delete them or count them as the newest copy. Check who can write to the bucket.`;
       const text = `${line}\nCopies: ${name}\n`;
       const html = `<p>${escapeHtml(line)}</p><p>Copies: ${escapeHtml(name)}</p>`;
       return { subject, text, html };
