@@ -1007,6 +1007,10 @@ export const fr: Partial<CatalogShape> = {
     uploadTooMany: 'Ce fichier contient plus de {max} formes. Importez seulement la zone à vérifier.',
     uploadFailed: 'Impossible de lire ce fichier',
     downloadArea: 'Télécharger la zone (GeoJSON)',
+    saveToMarkup: 'Enregistrer la zone dans les annotations',
+    markupSaved: 'Enregistrée dans {title}.',
+    markupFailed: 'Impossible d’enregistrer dans les annotations',
+    markupTooDetailed: 'Cette zone est trop détaillée pour les annotations. Téléchargez-la plutôt.',
     report: {
       button: 'PDF',
       title: 'Rapport Ce qui est ici',

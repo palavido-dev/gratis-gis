@@ -1009,6 +1009,10 @@ export const es: Partial<CatalogShape> = {
     uploadTooMany: 'Ese archivo tiene más de {max} formas. Suba solo el área que quiere revisar.',
     uploadFailed: 'No se pudo leer ese archivo',
     downloadArea: 'Descargar el área (GeoJSON)',
+    saveToMarkup: 'Guardar el área en las anotaciones',
+    markupSaved: 'Guardada en {title}.',
+    markupFailed: 'No se pudo guardar en las anotaciones',
+    markupTooDetailed: 'Esta área es demasiado detallada para las anotaciones. Descárguela en su lugar.',
     report: {
       button: 'PDF',
       title: 'Informe de qué hay aquí',
