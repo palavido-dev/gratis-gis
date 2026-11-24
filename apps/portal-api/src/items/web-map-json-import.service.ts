@@ -231,14 +231,19 @@ export class WebMapJsonImportService {
       layers.push(buildMapLayer({ lens, source: mapped, warnings }));
     }
 
-    // A map save refuses a layer whose item the caller cannot read.
-    // An ArcGIS layer keeps working from its URL without the item
-    // link; any other such layer is skipped, so the rest of the map
-    // still imports.
-    const unreadable = await this.items.unreadableItemIds(
-      user,
-      mapLayerBackingItemIds({ layers }),
-    );
+    // Resolve the basemap to a portal item by tileUrl match. No
+    // match -> empty string sentinel; the viewer falls back to
+    // the org default at render time.
+    let basemap = await this.resolveBasemap(user, webMap);
+
+    // A map save refuses a reference to an item the caller cannot
+    // read. An ArcGIS layer keeps working from its URL without the
+    // item link; any other such layer is skipped, so the rest of the
+    // map still imports. A matched basemap the caller cannot read is
+    // not used. One lookup covers the layers and the basemap.
+    const lookedUp = [...mapLayerBackingItemIds({ layers }), ...(basemap ? [basemap] : [])];
+    const unreadable = await this.items.unreadableItemIds(user, lookedUp);
+    if (basemap && unreadable.has(basemap)) basemap = '';
     if (unreadable.size > 0) {
       const kept: MapLayer[] = [];
       for (const layer of layers) {
@@ -274,11 +279,6 @@ export class WebMapJsonImportService {
     // stay in document order.
     layers.reverse();
 
-    // Resolve the basemap to a portal item by tileUrl match. No
-    // match -> empty string sentinel; the viewer falls back to
-    // the org default at render time.
-    const basemap = await this.resolveBasemap(user, webMap);
-
     // Build the canonical MapData payload. center / zoom come
     // from the WebMap's initialState if present; otherwise we
     // emit a defensible default so the resulting item renders.
@@ -303,6 +303,9 @@ export class WebMapJsonImportService {
       ...(args.description !== undefined && { description: args.description }),
       data: mapData as unknown as Prisma.InputJsonValue,
       access: args.access ?? 'private',
+    }, {
+      // Found readable above; the save does not look them up again.
+      checkedReferenceIds: lookedUp.filter((id) => !unreadable.has(id)),
     });
 
     this.log.log(

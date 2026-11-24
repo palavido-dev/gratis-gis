@@ -27,6 +27,12 @@
  *     starts private and its owner turns that on deliberately if they
  *     want it.
  */
+import {
+  mapLayerBackingItemId,
+  referenceKey,
+  withoutReferences,
+} from './item-references.js';
+
 export interface MapCopyOptions {
   includeMarkup: boolean;
   /** Whether the caller can edit the source map. */
@@ -73,4 +79,69 @@ export function mapDataForCopy(
     });
   }
   return out;
+}
+
+/**
+ * Map data without the references in `drop` (ids the person saving the
+ * copy cannot read), for "Save as". A layer that reads through a
+ * dropped item, or is clipped or related through one, is left out
+ * whole; an ArcGIS layer keeps working from its URL without the item
+ * link, as the web map import does. A dropped basemap goes back to the
+ * empty value that create() resolves to the org's default basemap.
+ * Terrain keeps the stack entries that remain. Anything else that names
+ * a dropped id loses that reference.
+ */
+export function mapDataWithoutReferences(
+  data: Record<string, unknown>,
+  drop: ReadonlySet<string>,
+): Record<string, unknown> {
+  if (drop.size === 0) return data;
+  const named = (v: unknown): boolean => typeof v === 'string' && drop.has(referenceKey(v));
+  const out: Record<string, unknown> = { ...data };
+  if (named(out.basemap)) out.basemap = '';
+  for (const key of ['defaultExtentBoundaryId', 'clipBoundaryId', 'geocoderId']) {
+    if (named(out[key])) delete out[key];
+  }
+  if (isRecord(out.terrain)) {
+    const terrain = { ...out.terrain };
+    const stack = Array.isArray(terrain.stack)
+      ? terrain.stack.filter((e) => !(isRecord(e) && named(e.itemId)))
+      : undefined;
+    if (stack !== undefined) terrain.stack = stack;
+    if (named(terrain.itemId)) {
+      const first = stack?.find(isRecord);
+      if (first && typeof first.itemId === 'string') {
+        terrain.itemId = first.itemId;
+        if (typeof first.tileUrl === 'string') terrain.tileUrl = first.tileUrl;
+      } else {
+        delete terrain.itemId;
+        delete terrain.tileUrl;
+      }
+    }
+    if (typeof terrain.itemId === 'string') out.terrain = terrain;
+    else delete out.terrain;
+  }
+  if (Array.isArray(out.layers)) {
+    const kept: unknown[] = [];
+    for (const layer of out.layers) {
+      if (!isRecord(layer)) {
+        kept.push(layer);
+        continue;
+      }
+      const via = isRecord(layer.via) ? layer.via : null;
+      if (named(layer.boundaryFilterItemId) || named(via?.parentItemId)) continue;
+      const backing = mapLayerBackingItemId(layer);
+      if (backing !== null && named(backing)) {
+        const source = isRecord(layer.source) ? layer.source : null;
+        if (source?.kind !== 'arcgis-rest') continue;
+        const { sourceItemId: _dropped, ...rest } = source;
+        void _dropped;
+        kept.push({ ...layer, source: rest });
+        continue;
+      }
+      kept.push(layer);
+    }
+    out.layers = kept;
+  }
+  return withoutReferences(out, drop) as Record<string, unknown>;
 }

@@ -157,6 +157,17 @@ export class AnalysisService {
     // cog-ready state and the pyramid pipeline takes over.
     const modeLabel = params.mode === 'dtm' ? 'terrain' : 'surface';
     await this.assertJobCapacity(user);
+    // #211: when the source cloud already has a derived DEM, the
+    // hillshade inherits it as its ground truth. A new item may only
+    // refer to items its author can read, so a DEM this user cannot
+    // read is not inherited.
+    const preferred =
+      typeof data.preferredElevationItemId === 'string' &&
+      !(await this.items.unreadableItemIds(user, [data.preferredElevationItemId])).has(
+        data.preferredElevationItemId,
+      )
+        ? data.preferredElevationItemId
+        : null;
     const target = await this.items.create(user, {
       type: 'tile_layer',
       title: `${source.title} hillshade (${modeLabel}, ${resolution}m)`,
@@ -171,13 +182,9 @@ export class AnalysisService {
         fileName: '',
         sizeBytes: 0,
         uploadedAt: new Date(0).toISOString(),
-        // #211: when the source cloud already has a derived DEM,
-        // the hillshade inherits it as its ground truth.
-        ...(typeof data.preferredElevationItemId === 'string'
-          ? { preferredElevationItemId: data.preferredElevationItemId }
-          : {}),
+        ...(preferred !== null ? { preferredElevationItemId: preferred } : {}),
       } as Prisma.InputJsonValue,
-    });
+    }, { checkedReferenceIds: preferred !== null ? [preferred] : [] });
 
     const job = await this.prisma.analysisJob.create({
       data: {

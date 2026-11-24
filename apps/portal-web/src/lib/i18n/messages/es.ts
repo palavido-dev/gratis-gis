@@ -224,6 +224,8 @@ export const es: Partial<CatalogShape> = {
   },
 
   newItem: {
+    templateOmitted:
+      'Aplicación creada. No se encontraron estos elementos de la plantilla, así que la aplicación no los incluye: {ids}',
     pageTitle: 'Crear un nuevo elemento',
     pageIntro:
       'Elige lo que vas a crear y luego completa los detalles. Para servicios y archivos subidos, recopilaremos lo necesario en la siguiente pantalla para que el elemento quede listo para usar.',
@@ -1009,6 +1011,9 @@ export const es: Partial<CatalogShape> = {
     saving: 'Guardando...',
     cancel: 'Cancelar',
     failed: 'No se pudo guardar la copia',
+    omittedTitle: 'Guardado sin algunas referencias',
+    omittedBody: 'No se encontraron estos elementos, así que la copia no los incluye:',
+    openCopy: 'Abrir la copia',
   },
   mapMeasure: {
     title: 'Medir',

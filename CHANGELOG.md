@@ -47,9 +47,28 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   changes and PostGIS Live service reads. Inside one organization a
   missing permission still answers 403. A private attachment or file
   link answers 404 to a caller who cannot read it.
-- Saving a map refuses a newly added layer whose item the author cannot
-  read. Layers already in the map keep saving after their item is
-  unshared. A web map import leaves such layers out with a warning.
+- Saving any item refuses a newly added reference to an item the author
+  cannot read: map layers, basemaps, boundaries, geocoders and terrain,
+  app and widget maps, folder contents, data collection maps and forms,
+  report template layers, elevation preferences, geocoder source
+  layers, derived layer inputs, tool targets and print template maps.
+  A missing id gets the same answer. References already stored keep
+  saving after their item is unshared, and reads through them are still
+  checked for each reader. A web map import leaves such layers out with
+  a warning.
+- Map Save as no longer fails when the map refers to items the person
+  saving cannot open: the copy leaves those references out and the
+  answer lists their ids (`omittedItemIds`, `warnings`).
+- A map layer's elevation hint (`source.preferredElevationItemId`,
+  copied from its tile or point cloud item) never blocks a save: a new
+  hint the author cannot read is left out of the saved layer.
+- Creating an app from a saved app template no longer fails when the
+  template names items the person cannot open: the app is made without
+  them and the answer lists their ids. The new-item wizard sends the
+  template id (`fromTemplateId` on `POST /api/items`) and shows the list.
+- A derived layer whose source was unshared from its author can still
+  be edited and saved; the save answers without the extent or cached
+  values taken from that source, and reads stay empty for the author.
 - The housekeeping extent recompute uses the same rule as the
   background refresh: a map's extent draws on layers from its own
   organization or public ones.

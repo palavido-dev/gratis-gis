@@ -220,6 +220,8 @@ export const ptBR: Partial<CatalogShape> = {
   },
 
   newItem: {
+    templateOmitted:
+      'Aplicativo criado. Estes itens do modelo não foram encontrados, então o aplicativo os deixa de fora: {ids}',
     pageTitle: 'Criar um novo item',
     pageIntro:
       'Escolha o que você está criando e preencha os detalhes. Para serviços e uploads, vamos coletar o necessário na próxima tela para que o item fique pronto para uso.',
@@ -1005,6 +1007,9 @@ export const ptBR: Partial<CatalogShape> = {
     saving: 'Salvando...',
     cancel: 'Cancelar',
     failed: 'Não foi possível salvar a cópia',
+    omittedTitle: 'Salvo sem algumas referências',
+    omittedBody: 'Estes itens não foram encontrados, então a cópia os deixa de fora:',
+    openCopy: 'Abrir a cópia',
   },
   mapMeasure: {
     title: 'Medir',
