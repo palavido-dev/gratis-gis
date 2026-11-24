@@ -58,7 +58,7 @@ export async function measureLayer(
     SELECT COUNT(*)::bigint AS n FROM (
       SELECT DISTINCT ON (entity) kind
         FROM observation
-       WHERE scope = ${scope}
+       WHERE scope = ${scope} AND valid_from <= now()
        ORDER BY entity, valid_from DESC, tx_time DESC, id DESC
     ) latest
     WHERE kind <> 'delete'`);
@@ -99,7 +99,8 @@ export async function measureLayer(
       sampled_count = EXCLUDED.sampled_count,
       est_bytes = EXCLUDED.est_bytes,
       sampled_at = EXCLUDED.sampled_at,
-      measured_at = EXCLUDED.measured_at`);
+      measured_at = EXCLUDED.measured_at,
+      measure_error = NULL`);
   await refreshOrgFeatureTotals(db, layer.orgId);
   return { featureCount, avgRowBytes, estBytes, sampled: stale };
 }
@@ -155,11 +156,12 @@ export async function queueLayers(db: Db): Promise<{ added: number; dropped: num
 export async function runFeatureUsagePass(
   db: Db,
   opts: { budgetMs: number; now?: () => number },
-): Promise<{ measured: number; remaining: number }> {
+): Promise<{ measured: number; failed: number; remaining: number }> {
   const now = opts.now ?? Date.now;
   const deadline = now() + opts.budgetMs;
   await queueLayers(db);
   let measured = 0;
+  let failed = 0;
   for (;;) {
     if (now() >= deadline) break;
     const next = await db.$queryRaw<Array<{ item_id: string; layer_key: string; org_id: string }>>(
@@ -173,12 +175,31 @@ export async function runFeatureUsagePass(
     if (next.length === 0) break;
     for (const l of next) {
       if (now() >= deadline) break;
-      await measureLayer(db, { itemId: l.item_id, layerKey: l.layer_key, orgId: l.org_id });
-      measured += 1;
+      try {
+        await measureLayer(db, { itemId: l.item_id, layerKey: l.layer_key, orgId: l.org_id });
+        measured += 1;
+      } catch (err) {
+        // One layer that always fails must not hold the queue: it is
+        // stamped as measured, with the error, and keeps its last
+        // numbers. The next nightly pass tries it again in turn.
+        failed += 1;
+        await markMeasureFailed(db, l.item_id, l.layer_key, err);
+      }
     }
   }
   const left = await db.$queryRaw<Array<{ n: bigint }>>(Prisma.sql`
     SELECT COUNT(*)::bigint AS n FROM layer_storage_usage
      WHERE measured_at IS NULL OR measured_at < ${new Date(deadline - opts.budgetMs)}`);
-  return { measured, remaining: Number(left[0]?.n ?? 0n) };
+  return { measured, failed, remaining: Number(left[0]?.n ?? 0n) };
+}
+
+/** Longest error text kept on a layer row. */
+const MAX_ERROR_LENGTH = 500;
+
+/** Stamp a layer whose measure failed, keeping its last numbers. */
+export async function markMeasureFailed(db: Db, itemId: string, layerKey: string, err: unknown): Promise<void> {
+  const message = (err instanceof Error ? err.message : String(err)).slice(0, MAX_ERROR_LENGTH);
+  await db.$executeRaw(Prisma.sql`
+    UPDATE layer_storage_usage SET measured_at = now(), measure_error = ${message}
+     WHERE item_id = ${itemId}::uuid AND layer_key = ${layerKey}`);
 }

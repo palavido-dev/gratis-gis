@@ -23,6 +23,7 @@ import { IMAGE_UPLOAD_MAX_BYTES } from '@gratis-gis/shared-types';
 import { deriveServerSigningKey } from './signing-key.js';
 import {
   assertObjectOwner,
+  parseKeyOfKind,
   parseObjectKey,
   storageKey,
   unownedKey,
@@ -467,8 +468,13 @@ export class StorageService implements OnModuleInit {
    * `owner`; see object-keys.ts.
    */
   async assertKeyOwner(key: string, owner: ObjectOwner): Promise<void> {
-    await assertObjectOwner(key, owner, (k) =>
-      this.ledger ? this.ledger.orgOfKey(k) : Promise.resolve(null),
+    const ledger = this.ledger;
+    await assertObjectOwner(
+      key,
+      owner,
+      ledger
+        ? { orgOf: (k) => ledger.orgOfKey(k), ledgerFilled: () => ledger.ledgerFilled() }
+        : async () => null,
     );
   }
 
@@ -502,6 +508,15 @@ export class StorageService implements OnModuleInit {
         `Usage ledger record for ${key} failed: ${err instanceof Error ? err.message : err}`,
       );
     }
+  }
+
+  /**
+   * Note that `key` was just served (cached embeddings are capped per
+   * item, least recently used first). Never fails the caller.
+   */
+  async noteRead(key: string): Promise<void> {
+    if (!this.ledger) return;
+    await this.ledger.touchRead(key);
   }
 
   /**
@@ -781,11 +796,14 @@ export class StorageService implements OnModuleInit {
 
   /** The api route that serves a private-kind key, with a sharing check. */
   static privateApiUrl(kind: AssetKind, key: string): string {
-    // Strip the kind prefix off the key for the api-side URL since
-    // the route segment already implies it.  E.g.
-    // `feature-attachment/abc...` -> `/api/portal/storage/private/feature-attachment/abc...`.
-    const bareKey = key.startsWith(`${kind}/`) ? key.slice(kind.length + 1) : key;
-    return `/api/portal/storage/private/${kind}/${bareKey}`;
+    // The route is `private/<kind>/<key after the kind>`, in either
+    // layout: `feature-attachment/abc...` and
+    // `feature-attachment/o/<org>/abc...` both map to their own path.
+    // A key that is not of `kind` is a caller bug; it is still placed
+    // under the kind, where the route refuses it.
+    const parsed = parseKeyOfKind(key, kind);
+    const rest = parsed ? key.slice(kind.length + 1) : key;
+    return `/api/portal/storage/private/${kind}/${rest}`;
   }
 
   /**
@@ -907,6 +925,24 @@ export class StorageService implements OnModuleInit {
       return typeof n === 'number' && Number.isFinite(n) ? n : 0;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Like headObjectSize, but only a missing object answers null. Any
+   * other failure (a timeout, a refused connection, a denied request)
+   * throws, so a caller that acts on "gone" never acts on a hiccup.
+   */
+  async headObjectSizeStrict(key: string, owner: ObjectOwner): Promise<number | null> {
+    await this.assertKeyOwner(key, owner);
+    const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+    try {
+      const res = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      const n = res.ContentLength;
+      return typeof n === 'number' && Number.isFinite(n) ? n : 0;
+    } catch (err) {
+      if (isMissingObjectError(err)) return null;
+      throw err;
     }
   }
 
@@ -1095,4 +1131,17 @@ export class StorageService implements OnModuleInit {
       return null;
     }
   }
+}
+
+/** True for the S3 answers that mean "no object under this key". */
+export function isMissingObjectError(err: unknown): boolean {
+  const e = err as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } } | null;
+  if (!e) return false;
+  return (
+    e.name === 'NotFound' ||
+    e.name === 'NoSuchKey' ||
+    e.Code === 'NoSuchKey' ||
+    e.Code === 'NotFound' ||
+    e.$metadata?.httpStatusCode === 404
+  );
 }

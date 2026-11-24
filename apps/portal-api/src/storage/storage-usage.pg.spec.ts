@@ -16,8 +16,9 @@ import { Pool } from 'pg';
 import { applyTestMigrations } from '../testing/apply-test-migrations.js';
 import { MemoryS3, withMemoryS3 } from '../testing/memory-s3.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { storageKey } from './object-keys.js';
-import { StorageLedgerService } from './storage-ledger.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
+import { ObjectKeyRefusedError, storageKey } from './object-keys.js';
+import { LEDGER_FILLED_SETTING, StorageLedgerService } from './storage-ledger.service.js';
 import { StorageUsageReconcileService } from './storage-usage-reconcile.service.js';
 import { StorageService } from './storage.service.js';
 
@@ -35,6 +36,7 @@ const ORG_A = '5a000000-0000-4000-8000-00000000000a';
 const ORG_B = '5b000000-0000-4000-8000-00000000000b';
 const USER_A = '5a000000-0000-4000-8000-0000000000a1';
 const ITEM_A = '5a000000-0000-4000-8000-0000000000f1';
+const USER_B = '5b000000-0000-4000-8000-0000000000b1';
 const DB = `gg_storage_usage_${process.pid}`;
 
 function databaseUrl(base: string, name: string): string {
@@ -234,5 +236,108 @@ d('storage usage ledger against Postgres', () => {
       [ORG_B, `%/o/${ORG_A}/%`],
     );
     expect(Number(keysB.rows[0]!.n)).toBe(0);
+  });
+
+  it('a completed real reconcile writes the fill marker; a dry run or a stopped walk does not', async () => {
+    await pool.query(`DELETE FROM system_setting WHERE key = $1`, [LEDGER_FILLED_SETTING]);
+    const freshLedger = new StorageLedgerService(prisma);
+    const fresh = new StorageUsageReconcileService(prisma, withMemoryS3(new StorageService(new ConfigService(), freshLedger), s3), freshLedger);
+    const marker = async () =>
+      (await pool.query(`SELECT 1 FROM system_setting WHERE key = $1`, [LEDGER_FILLED_SETTING])).rowCount;
+    await fresh.reconcile({ dryRun: true, log: () => undefined });
+    expect(await marker()).toBe(0);
+    s3.pageSize = 1;
+    try {
+      const stopped = await fresh.reconcile({ dryRun: false, maxPages: 1, log: () => undefined });
+      expect(stopped.resumeAfter).not.toBeNull();
+    } finally {
+      s3.pageSize = 1000;
+    }
+    expect(await marker()).toBe(0);
+    await expect(freshLedger.ledgerFilled()).resolves.toBe(false);
+    await fresh.reconcile({ dryRun: false, log: () => undefined });
+    expect(await marker()).toBe(1);
+    await expect(freshLedger.ledgerFilled()).resolves.toBe(true);
+  });
+
+  it('where an org is required, an older key with no row is served until the first fill, then refused', async () => {
+    const before = process.env.GRATIS_TENANCY;
+    process.env.GRATIS_TENANCY = 'multi';
+    resetTenancyModeForTests();
+    try {
+      await pool.query(`DELETE FROM system_setting WHERE key = $1`, [LEDGER_FILLED_SETTING]);
+      const l2 = new StorageLedgerService(prisma);
+      const st2 = withMemoryS3(new StorageService(new ConfigService(), l2), s3);
+      const r2 = new StorageUsageReconcileService(prisma, st2, l2);
+      const older = 'item-file/2f8fad5b-d9cb-469f-a165-70867728950e';
+      s3.put(older, Buffer.alloc(9));
+      // Not filled yet: the older behaviour (item checks only).
+      await expect(st2.headObjectSize(older, { orgId: ORG_A })).resolves.toBe(9);
+      // The first fill finds no owner for it, so it stays unknown.
+      await r2.reconcile({ dryRun: false, log: () => undefined });
+      await expect(l2.ledgerFilled()).resolves.toBe(true);
+      await expect(st2.headObjectSize(older, { orgId: ORG_A })).rejects.toBeInstanceOf(ObjectKeyRefusedError);
+      // Once an item names it, the next reconcile records its owner.
+      await pool.query(
+        `INSERT INTO item (id, org_id, owner_id, type, title, data_json, updated_at)
+         VALUES ('5a000000-0000-4000-8000-0000000000f2', $1, $2, 'file', 'older', $3::jsonb, now())`,
+        [ORG_A, USER_A, JSON.stringify({ storageKey: older })],
+      );
+      await r2.reconcile({ dryRun: false, log: () => undefined });
+      await expect(st2.headObjectSize(older, { orgId: ORG_A })).resolves.toBe(9);
+      await expect(st2.headObjectSize(older, { orgId: ORG_B })).rejects.toBeInstanceOf(ObjectKeyRefusedError);
+    } finally {
+      if (before === undefined) delete process.env.GRATIS_TENANCY;
+      else process.env.GRATIS_TENANCY = before;
+      resetTenancyModeForTests();
+    }
+  });
+
+  it('a store error while checking for missing objects marks nothing deleted', async () => {
+    const { key } = await storage.uploadBuffer('item-file', { orgId: ORG_B }, Buffer.alloc(31));
+    await pool.query(`UPDATE storage_object SET created_at = now() - interval '1 hour' WHERE key = $1`, [key]);
+    s3.objects.delete(key);
+    const send = s3.send.bind(s3);
+    s3.send = async (cmd: Parameters<MemoryS3['send']>[0]) => {
+      if (cmd.constructor.name === 'HeadObjectCommand') {
+        throw Object.assign(new Error('connect ETIMEDOUT'), { name: 'TimeoutError' });
+      }
+      return send(cmd);
+    };
+    try {
+      const r = await reconcile.reconcile({ dryRun: false, log: () => undefined });
+      expect(r.checkAborted).toContain(ORG_B);
+      const row = await pool.query(`SELECT deleted_at FROM storage_object WHERE key = $1`, [key]);
+      expect(row.rows[0]!.deleted_at).toBeNull();
+    } finally {
+      s3.send = send;
+    }
+    // With the store answering again, the gone object is marked deleted.
+    const r = await reconcile.reconcile({ dryRun: false, log: () => undefined });
+    expect(r.checkAborted ?? []).not.toContain(ORG_B);
+    const row = await pool.query(`SELECT deleted_at FROM storage_object WHERE key = $1`, [key]);
+    expect(row.rows[0]!.deleted_at).not.toBeNull();
+  });
+
+  it('a public image URL stored on two rows is counted for the row that stored it first', async () => {
+    await pool.query(
+      `INSERT INTO "user" (id, org_id, username, email, full_name, org_role)
+       VALUES ($1, $2, 'b', 'b@example.test', 'B', 'admin') ON CONFLICT DO NOTHING`,
+      [USER_B, ORG_B],
+    );
+    const thumb = 'item-thumb/3f8fad5b-d9cb-469f-a165-70867728950e';
+    const url = `http://localhost:9000/gratisgis/${thumb}`;
+    // The later row (org B) is inserted first, so table order alone
+    // would not decide.
+    await pool.query(
+      `INSERT INTO item (id, org_id, owner_id, type, title, thumbnail_url, created_at, updated_at)
+       VALUES ('5b000000-0000-4000-8000-0000000000f3', $1, $2, 'file', 'copy', $3, now(), now()),
+              ('5a000000-0000-4000-8000-0000000000f3', $4, $5, 'file', 'first', $3, now() - interval '1 day', now())`,
+      [ORG_B, USER_B, url, ORG_A, USER_A],
+    );
+    s3.put(thumb, Buffer.alloc(5));
+    await reconcile.reconcile({ dryRun: false, log: () => undefined });
+    const row = await pool.query<{ org_id: string }>(`SELECT org_id FROM storage_object WHERE key = $1`, [thumb]);
+    expect(row.rows[0]!.org_id).toBe(ORG_A);
   });
 });

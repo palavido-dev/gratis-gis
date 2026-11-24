@@ -391,8 +391,11 @@ model StorageObject {
   itemId    String?   @map("item_id") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Last time a cached image embedding was served (per-item cap order).
+  lastReadAt DateTime? @map("last_read_at") @db.Timestamptz(6)
 
   @@index([orgId, kind], map: "storage_object_org_kind_idx")
+  @@index([itemId, kind], map: "storage_object_item_kind_idx")
   @@map("storage_object")
 }
 
@@ -428,6 +431,8 @@ model LayerStorageUsage {
   estBytes     BigInt    @default(0) @map("est_bytes")
   sampledAt    DateTime? @map("sampled_at") @db.Timestamptz(6)
   measuredAt   DateTime? @map("measured_at") @db.Timestamptz(6)
+  /// Why the last measure failed, or null.
+  measureError String?   @map("measure_error")
 
   @@id([itemId, layerKey])
   @@index([orgId, measuredAt], map: "layer_storage_usage_org_measured_idx")

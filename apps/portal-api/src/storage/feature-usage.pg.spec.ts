@@ -20,6 +20,7 @@ import {
   forgetItemFeatureUsage,
   layerScope,
   measureLayer,
+  refreshOrgFeatureTotals,
   runFeatureUsagePass,
 } from './feature-usage.js';
 
@@ -139,15 +140,18 @@ d('feature data estimate against Postgres', () => {
       `SELECT entity FROM observation WHERE scope = $1 ORDER BY entity LIMIT 3`,
       [layerScope(SMALL_B, 'sites')],
     );
-    const [e1, e2] = entities.rows.map((r) => r.entity);
-    // An edit (a newer version of e1) and a delete of e2.
+    const [e1, e2, e3] = entities.rows.map((r) => r.entity);
+    // An edit (a newer version of e1) and a delete of e2, both already
+    // in effect, and a delete of e3 that only takes effect tomorrow.
     await pool.query(
       `INSERT INTO observation (id, valid_from, scope, entity, kind, attrs, author_sub, source)
-       VALUES (gen_random_uuid(), now() + interval '1 second', $1, $2, 'update', '{"name":"edited"}', 'seed', '{}'),
-              (gen_random_uuid(), now() + interval '1 second', $1, $3, 'delete', NULL, 'seed', '{}')`,
-      [layerScope(SMALL_B, 'sites'), e1, e2],
+       VALUES (gen_random_uuid(), clock_timestamp(), $1, $2, 'update', '{"name":"edited"}', 'seed', '{}'),
+              (gen_random_uuid(), clock_timestamp(), $1, $3, 'delete', NULL, 'seed', '{}'),
+              (gen_random_uuid(), now() + interval '1 day', $1, $4, 'delete', NULL, 'seed', '{}')`,
+      [layerScope(SMALL_B, 'sites'), e1, e2, e3],
     );
     const m = await measureLayer(prisma, { itemId: SMALL_B, layerKey: 'sites', orgId: ORG_B });
+    // e3's future delete is not in effect yet, so e3 still counts.
     expect(m.featureCount).toBe(9);
   });
 
@@ -167,6 +171,46 @@ d('feature data estimate against Postgres', () => {
     expect(stopped.measured).toBeLessThanOrEqual(1);
     const full = await runFeatureUsagePass(prisma, { budgetMs: 600_000 });
     expect(full.remaining).toBe(0);
+  });
+
+  it('a layer that fails to measure is stamped with its error and does not hold the queue', async () => {
+    // A queued layer whose count query always fails.
+    await pool.query(
+      `INSERT INTO layer_storage_usage (item_id, layer_key, org_id) VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [BIG, 'broken', ORG_A],
+    );
+    await pool.query(`UPDATE layer_storage_usage SET measured_at = now() - interval '2 days'`);
+    const db = {
+      $queryRaw: (q: Parameters<PrismaService['$queryRaw']>[0]) => {
+        const text = (q as unknown as { strings?: string[] }).strings?.join('?') ?? '';
+        const values = (q as unknown as { values?: unknown[] }).values ?? [];
+        if (text.includes('FROM observation') && values.some((v) => typeof v === 'string' && v.endsWith(':broken'))) {
+          return Promise.reject(new Error('simulated measure failure'));
+        }
+        return prisma.$queryRaw(q);
+      },
+      $executeRaw: (q: Parameters<PrismaService['$executeRaw']>[0]) => prisma.$executeRaw(q),
+    };
+    const r1 = await runFeatureUsagePass(db, { budgetMs: 600_000 });
+    expect(r1.failed).toBe(1);
+    expect(r1.remaining).toBe(0);
+    expect(r1.measured).toBeGreaterThanOrEqual(2);
+    const row = await pool.query<{ measured_at: Date | null; measure_error: string | null }>(
+      `SELECT measured_at, measure_error FROM layer_storage_usage WHERE item_id = $1 AND layer_key = 'broken'`,
+      [BIG],
+    );
+    expect(row.rows[0]!.measured_at).not.toBeNull();
+    expect(row.rows[0]!.measure_error).toContain('simulated measure failure');
+    // A later good measure clears the error.
+    await measureLayer(prisma, { itemId: BIG, layerKey: 'broken', orgId: ORG_A });
+    const cleared = await pool.query<{ measure_error: string | null }>(
+      `SELECT measure_error FROM layer_storage_usage WHERE item_id = $1 AND layer_key = 'broken'`,
+      [BIG],
+    );
+    expect(cleared.rows[0]!.measure_error).toBeNull();
+    await pool.query(`DELETE FROM layer_storage_usage WHERE item_id = $1 AND layer_key = 'broken'`, [BIG]);
+    await refreshOrgFeatureTotals(prisma, ORG_A);
   });
 
   it('purge takes a layer off its org only', async () => {

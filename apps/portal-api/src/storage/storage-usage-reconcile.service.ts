@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger, type OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 
@@ -7,7 +7,7 @@ import { RunAsSystem } from '../common/tenant-context.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { runFeatureUsagePass } from './feature-usage.js';
-import { parseObjectKey, systemOwner } from './object-keys.js';
+import { isLowerUuid, objectKeyInStoredUrl, parseObjectKey, systemOwner } from './object-keys.js';
 import { StorageLedgerService, isCountedKind } from './storage-ledger.service.js';
 import { StorageService } from './storage.service.js';
 
@@ -20,6 +20,9 @@ export const BACKFILL_CURSOR_SETTING = 'storage_usage.backfill_cursor';
 
 /** Keys kept in the summary as examples of objects no org could be found for. */
 const UNATTRIBUTED_SAMPLE = 20;
+
+/** A progress line every this many pages of a reconcile that asks for one. */
+const PROGRESS_EVERY_PAGES = 10;
 
 export interface ReconcileSummary {
   startedAt: string;
@@ -41,6 +44,8 @@ export interface ReconcileSummary {
   orgs: Array<{ orgId: string; bytesBefore: number; bytesAfter: number; drift: number }>;
   /** Set when the walk stopped early (backfill page limit). */
   resumeAfter: string | null;
+  /** Orgs whose missing-object check stopped on a store error; nothing was marked deleted for them. */
+  checkAborted?: string[];
 }
 
 type Attribution = { orgId: string; itemId: string | null };
@@ -66,8 +71,10 @@ type Attribution = { orgId: string; itemId: string | null };
  * backfill defaults to a dry run and can resume from a saved key.
  */
 @Injectable()
-export class StorageUsageReconcileService {
+export class StorageUsageReconcileService implements OnApplicationBootstrap {
   private readonly log = new Logger(StorageUsageReconcileService.name);
+  /** The reconcile running in this process, if any. One at a time. */
+  private running: Promise<ReconcileSummary> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -80,10 +87,65 @@ export class StorageUsageReconcileService {
   @RunAsSystem('cron:storage-usage-reconcile')
   async scheduled(): Promise<void> {
     if (this.leader && !this.leader.shouldRun()) return;
+    if (this.running) return;
     try {
       await this.reconcile({ dryRun: false });
     } catch (err) {
       this.log.error(`Storage usage reconcile failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /**
+   * On boot, start the first fill when the ledger has never been
+   * filled. Not awaited: the API serves while it runs, and older files
+   * stay readable under the earlier rules until it finishes.
+   */
+  onApplicationBootstrap(): void {
+    void this.ensureFirstFill();
+  }
+
+  /**
+   * Retry the first fill every five minutes until it has finished
+   * once: a replica that becomes the leader later, or a fill that
+   * failed, picks it up. A no-op (one cached flag) once filled.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'storage-usage-first-fill' })
+  async firstFillTick(): Promise<void> {
+    await this.ensureFirstFill();
+  }
+
+  /**
+   * Run the first full reconcile now, on the leader, when the durable
+   * fill marker is absent. Returns what happened.
+   */
+  @RunAsSystem('cron:storage-usage-first-fill')
+  async ensureFirstFill(): Promise<'filled' | 'ran' | 'skipped' | 'failed'> {
+    try {
+      if (await this.ledger.ledgerFilled()) return 'filled';
+    } catch {
+      return 'skipped';
+    }
+    if (this.leader && !this.leader.shouldRun()) return 'skipped';
+    if (this.running) return 'skipped';
+    this.log.warn(
+      'Storage usage ledger has not been filled on this install. Running the first fill now. ' +
+        'Until it finishes, files stored before the ledger existed are served under the item ' +
+        'permission checks alone.',
+    );
+    const t0 = Date.now();
+    try {
+      const s = await this.reconcile({ dryRun: false, progress: true });
+      this.log.log(
+        `Storage usage first fill finished in ${Math.round((Date.now() - t0) / 1000)} s: ` +
+          `${s.objectsSeen} objects, ${s.recorded} recorded, ${s.unattributed} with no owner. ` +
+          'Older files are now checked against the ledger.',
+      );
+      return 'ran';
+    } catch (err) {
+      this.log.error(
+        `Storage usage first fill failed; it is retried in a few minutes: ${err instanceof Error ? err.message : err}`,
+      );
+      return 'failed';
     }
   }
 
@@ -97,7 +159,9 @@ export class StorageUsageReconcileService {
     if (this.leader && !this.leader.shouldRun()) return;
     try {
       const r = await runFeatureUsagePass(this.prisma, { budgetMs: 15 * 60 * 1000 });
-      this.log.log(`feature usage: ${r.measured} layers measured, ${r.remaining} left for next time`);
+      this.log.log(
+        `feature usage: ${r.measured} layers measured, ${r.failed} failed, ${r.remaining} left for next time`,
+      );
     } catch (err) {
       this.log.error(`Feature usage pass failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -113,6 +177,25 @@ export class StorageUsageReconcileService {
     startAfter?: string;
     maxPages?: number;
     log?: (line: string) => void;
+    /** Log a line every few pages (the first fill). */
+    progress?: boolean;
+  }): Promise<ReconcileSummary> {
+    if (this.running) throw new Error('A storage usage reconcile is already running in this process.');
+    const run = this.reconcileOnce(opts);
+    this.running = run;
+    try {
+      return await run;
+    } finally {
+      this.running = null;
+    }
+  }
+
+  private async reconcileOnce(opts: {
+    dryRun: boolean;
+    startAfter?: string;
+    maxPages?: number;
+    log?: (line: string) => void;
+    progress?: boolean;
   }): Promise<ReconcileSummary> {
     const started = new Date();
     const say = opts.log ?? ((l: string) => this.log.log(l));
@@ -180,6 +263,9 @@ export class StorageUsageReconcileService {
         if (!opts.dryRun) await this.recordListed(obj.key, owner.orgId, obj.sizeBytes, owner.itemId);
       }
       lastKey = page.length > 0 ? page[page.length - 1]!.key : lastKey;
+      if (opts.progress && pages % PROGRESS_EVERY_PAGES === 0) {
+        say(`storage usage reconcile running: ${s.objectsSeen} objects so far, ${s.recorded} recorded`);
+      }
       if (opts.maxPages !== undefined && pages >= opts.maxPages) {
         s.resumeAfter = lastKey;
         break;
@@ -190,7 +276,19 @@ export class StorageUsageReconcileService {
       // Step 2: rows whose object was not listed.
       const orgs = new Set([...(await this.ledger.orgsWithUsage()), ...orgsTouched]);
       for (const orgId of orgs) {
-        const gone = await this.findMissing(orgId, started, seenPerOrg.get(orgId) ?? 0);
+        let gone: string[];
+        try {
+          gone = await this.findMissing(orgId, started, seenPerOrg.get(orgId) ?? 0);
+        } catch (err) {
+          // Only a missing object means gone. A store error leaves this
+          // org's rows as they are until the next run.
+          (s.checkAborted ??= []).push(orgId);
+          say(
+            `storage usage reconcile: missing-object check for org ${orgId} stopped on a store error; ` +
+              `nothing marked deleted: ${err instanceof Error ? err.message : err}`,
+          );
+          continue;
+        }
         s.markedDeleted += gone.length;
         for (const key of gone) {
           const delta = opts.dryRun ? 0 : await this.ledger.markDeleted(key, orgId);
@@ -214,7 +312,13 @@ export class StorageUsageReconcileService {
         `${s.recorded} recorded, ${s.resized} resized, ${s.markedDeleted} gone, ` +
         `${s.unattributed} with no owner`,
     );
-    if (!opts.dryRun && s.resumeAfter === null) await this.saveSummary(s);
+    if (!opts.dryRun && s.resumeAfter === null) {
+      await this.saveSummary(s);
+      // The whole bucket has been walked and recorded: from now on an
+      // older key the ledger does not know is refused where an org is
+      // required.
+      await this.ledger.markFilled();
+    }
     return s;
   }
 
@@ -255,7 +359,7 @@ export class StorageUsageReconcileService {
       const keys = await this.ledger.liveKeysOfOrg(orgId, started, after, 500);
       if (keys.length === 0) break;
       for (const key of keys) {
-        if ((await this.storage.headObjectSize(key, OWNER)) === null) gone.push(key);
+        if ((await this.storage.headObjectSizeStrict(key, OWNER)) === null) gone.push(key);
       }
       after = keys[keys.length - 1]!;
     }
@@ -269,34 +373,48 @@ export class StorageUsageReconcileService {
    */
   private async loadSmallReferenceMaps(): Promise<Map<string, Attribution>> {
     const out = new Map<string, Attribution>();
-    const icons = await this.prisma.mapIconUpload.findMany({ select: { storageKey: true, orgId: true } });
-    for (const r of icons) out.set(r.storageKey, { orgId: r.orgId, itemId: null });
+    // Oldest row first and the first row wins, so a key copied onto a
+    // later row (before attach paths checked ownership) stays with the
+    // row that first stored it, the same rule as attachments below.
+    const first = (key: string, a: Attribution): void => {
+      if (!out.has(key)) out.set(key, a);
+    };
+    const icons = await this.prisma.mapIconUpload.findMany({
+      select: { storageKey: true, orgId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const r of icons) first(r.storageKey, { orgId: r.orgId, itemId: null });
     const packages = await this.prisma.offlinePackage.findMany({
       where: { storageKey: { not: null } },
       select: { storageKey: true, orgId: true, itemId: true },
+      orderBy: { createdAt: 'asc' },
     });
-    for (const r of packages) if (r.storageKey) out.set(r.storageKey, { orgId: r.orgId, itemId: r.itemId });
+    for (const r of packages) if (r.storageKey) first(r.storageKey, { orgId: r.orgId, itemId: r.itemId });
     const shots = await this.prisma.feedback.findMany({
       where: { screenshotKey: { not: null }, orgId: { not: null } },
       select: { screenshotKey: true, orgId: true },
+      orderBy: { createdAt: 'asc' },
     });
-    for (const r of shots) if (r.screenshotKey && r.orgId) out.set(r.screenshotKey, { orgId: r.orgId, itemId: null });
+    for (const r of shots) if (r.screenshotKey && r.orgId) first(r.screenshotKey, { orgId: r.orgId, itemId: null });
     // Public images are stored as URLs ending in the key.
     const images = await this.prisma.$queryRaw<Array<{ url: string; org_id: string; item_id: string | null }>>(
       Prisma.sql`
-        SELECT thumbnail_url AS url, org_id::text AS org_id, id::text AS item_id
-          FROM item WHERE thumbnail_url LIKE ${'%/item-thumb/%'}
-        UNION ALL
-        SELECT thumbnail_url, org_id::text, NULL FROM "group" WHERE thumbnail_url LIKE ${'%/group-thumb/%'}
-        UNION ALL
-        SELECT avatar_url, org_id::text, NULL FROM "user" WHERE avatar_url LIKE ${'%/user-avatar/%'}
-        UNION ALL
-        SELECT landing_hero_image_url, id::text, NULL FROM organization
-         WHERE landing_hero_image_url LIKE ${'%/org-hero/%'}`,
+        SELECT url, org_id, item_id FROM (
+          SELECT thumbnail_url AS url, org_id::text AS org_id, id::text AS item_id, created_at
+            FROM item WHERE thumbnail_url LIKE ${'%/item-thumb/%'}
+          UNION ALL
+          SELECT thumbnail_url, org_id::text, NULL, created_at FROM "group" WHERE thumbnail_url LIKE ${'%/group-thumb/%'}
+          UNION ALL
+          SELECT avatar_url, org_id::text, NULL, created_at FROM "user" WHERE avatar_url LIKE ${'%/user-avatar/%'}
+          UNION ALL
+          SELECT landing_hero_image_url, id::text, NULL, created_at FROM organization
+           WHERE landing_hero_image_url LIKE ${'%/org-hero/%'}
+        ) images
+        ORDER BY created_at, url`,
     );
     for (const r of images) {
       const key = keyInUrl(r.url);
-      if (key) out.set(key, { orgId: r.org_id, itemId: r.item_id });
+      if (key) first(key, { orgId: r.org_id, itemId: r.item_id });
     }
     return out;
   }
@@ -356,7 +474,7 @@ export class StorageUsageReconcileService {
       embedItems.set(itemId, [...(embedItems.get(itemId) ?? []), key]);
     }
     if (embedItems.size > 0) {
-      const ids = [...embedItems.keys()].filter((id) => /^[0-9a-f-]{36}$/.test(id));
+      const ids = [...embedItems.keys()].filter((id) => isLowerUuid(id));
       const rows = await this.prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, orgId: true } });
       for (const r of rows) for (const key of embedItems.get(r.id) ?? []) out.set(key, { orgId: r.orgId, itemId: r.id });
     }
@@ -366,11 +484,5 @@ export class StorageUsageReconcileService {
 
 /** The object key at the end of a stored public URL, or null. */
 export function keyInUrl(url: string): string | null {
-  for (const kind of ['item-thumb', 'group-thumb', 'user-avatar', 'org-hero']) {
-    const at = url.lastIndexOf(`/${kind}/`);
-    if (at === -1) continue;
-    const key = url.slice(at + 1).split(/[?#]/, 1)[0]!;
-    return parseObjectKey(key) ? key : null;
-  }
-  return null;
+  return objectKeyInStoredUrl(url);
 }

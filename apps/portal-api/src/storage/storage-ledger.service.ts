@@ -38,6 +38,49 @@ export interface OrgUsage {
 
 type Tx = Prisma.TransactionClient;
 
+/** system_setting row written when a full reconcile has filled the ledger. */
+export const LEDGER_FILLED_SETTING = 'storage_usage.ledger_filled';
+
+/** Older-layout keys whose owner is kept in memory. */
+export const OWNER_CACHE_MAX = 10_000;
+
+/** While the ledger is not filled, its marker is re-read at most this often. */
+const FILLED_RECHECK_MS = 30_000;
+
+/** A served embedding's read time is written at most this often. */
+export const READ_TOUCH_EVERY_MS = 10 * 60 * 1000;
+
+/**
+ * A small least-recently-used map. Map keeps insertion order, so the
+ * first entry is the oldest; a hit moves its entry to the end.
+ */
+export class BoundedLru<V> {
+  private readonly map = new Map<string, V>();
+
+  constructor(private readonly max: number) {}
+
+  get(key: string): V | undefined {
+    const v = this.map.get(key);
+    if (v === undefined) return undefined;
+    this.map.delete(key);
+    this.map.set(key, v);
+    return v;
+  }
+
+  set(key: string, value: V): void {
+    this.map.delete(key);
+    this.map.set(key, value);
+    while (this.map.size > this.max) {
+      const oldest = this.map.keys().next().value as string;
+      this.map.delete(oldest);
+    }
+  }
+
+  get size(): number {
+    return this.map.size;
+  }
+}
+
 /**
  * The storage usage ledger: `storage_object` (one row per stored
  * object) and `org_storage_usage` (running totals per org).
@@ -56,16 +99,78 @@ type Tx = Prisma.TransactionClient;
 export class StorageLedgerService {
   private readonly log = new Logger(StorageLedgerService.name);
 
+  /**
+   * Owners of older-layout keys already looked up. A ledger row's org
+   * never changes (the first owner keeps the key), so a found owner
+   * stays true; a miss is not kept, as the key may be recorded later.
+   */
+  private readonly owners = new BoundedLru<string>(OWNER_CACHE_MAX);
+  private filled = false;
+  private filledCheckedAt = 0;
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
    * The org the ledger records for `key`, or null. Used by the owner
-   * check for keys in the older layout, which carry no org.
+   * check for keys in the older layout, which carry no org. Range
+   * reads of one file call this once per request, so found owners are
+   * kept in a bounded in-memory cache.
    */
   async orgOfKey(key: string): Promise<string | null> {
+    const hit = this.owners.get(key);
+    if (hit !== undefined) return hit;
     const rows = await this.prisma.$queryRaw<Array<{ org_id: string }>>(Prisma.sql`
       SELECT org_id::text AS org_id FROM storage_object WHERE key = ${key} LIMIT 1`);
-    return rows[0]?.org_id ?? null;
+    const org = rows[0]?.org_id ?? null;
+    if (org !== null) this.owners.set(key, org);
+    return org;
+  }
+
+  /**
+   * True once a full reconcile has filled the ledger on this install.
+   * Read from a durable marker, never from whether the table is empty.
+   * Once true it stays true for the life of the process.
+   */
+  async ledgerFilled(): Promise<boolean> {
+    if (this.filled) return true;
+    const now = Date.now();
+    if (now - this.filledCheckedAt < FILLED_RECHECK_MS && this.filledCheckedAt !== 0) return false;
+    this.filledCheckedAt = now;
+    try {
+      const row = await this.prisma.systemSetting.findUnique({ where: { key: LEDGER_FILLED_SETTING } });
+      this.filled = row !== null;
+    } catch (err) {
+      this.log.warn(`Could not read the ledger fill marker: ${err instanceof Error ? err.message : err}`);
+    }
+    return this.filled;
+  }
+
+  /** Write the durable marker that the ledger has been filled once. */
+  async markFilled(at: Date = new Date()): Promise<void> {
+    const value = { at: at.toISOString() } as Prisma.InputJsonValue;
+    await this.prisma.systemSetting.upsert({
+      where: { key: LEDGER_FILLED_SETTING },
+      create: { key: LEDGER_FILLED_SETTING, value },
+      update: { value },
+    });
+    this.filled = true;
+  }
+
+  /**
+   * Note that `key` was just served, for the per-item cap on cached
+   * embeddings (least recently used first). Written at most once per
+   * READ_TOUCH_EVERY_MS per key. Best effort.
+   */
+  async touchRead(key: string): Promise<void> {
+    const cutoff = new Date(Date.now() - READ_TOUCH_EVERY_MS);
+    try {
+      await this.prisma.$executeRaw(Prisma.sql`
+        UPDATE storage_object SET last_read_at = now()
+         WHERE key = ${key} AND deleted_at IS NULL
+           AND (last_read_at IS NULL OR last_read_at < ${cutoff})`);
+    } catch (err) {
+      this.log.warn(`Could not note a read of ${key}: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   /**
