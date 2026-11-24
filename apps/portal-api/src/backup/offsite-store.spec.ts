@@ -42,7 +42,12 @@ describe('uploadStream', () => {
     const s3 = new FakeS3();
     s3.lieAboutPartEtag = true;
     await expect(
-      uploadStream(s3, { bucket: 'b', key: 'k', body: pieces(randomBytes(10)), partSize: PART }),
+      uploadStream(s3, {
+        bucket: 'b',
+        key: 'k',
+        body: pieces(randomBytes(PART + 10)),
+        partSize: PART,
+      }),
     ).rejects.toBeInstanceOf(OffsiteVerifyError);
     expect(s3.aborted).toHaveLength(1);
     expect(s3.objects.has('k')).toBe(false);
@@ -73,7 +78,12 @@ describe('uploadStream', () => {
     const s3 = new FakeS3();
     s3.fail('UploadPartCommand', 'InvalidAccessKeyId', 403);
     await expect(
-      uploadStream(s3, { bucket: 'b', key: 'k', body: pieces(randomBytes(10)), partSize: PART }),
+      uploadStream(s3, {
+        bucket: 'b',
+        key: 'k',
+        body: pieces(randomBytes(PART + 10)),
+        partSize: PART,
+      }),
     ).rejects.toThrow();
     expect(s3.aborted).toHaveLength(1);
   });

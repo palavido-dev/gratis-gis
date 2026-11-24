@@ -199,7 +199,8 @@ original `CREDENTIAL_ENCRYPTION_KEY`.
      --passphrase-file /root/offsite.pass --list
    ```
 
-5. Restore the newest copy (or name one with `--archive`):
+5. Restore the newest copy (or name one with `--archive`, or a mirrored
+   run with `--mirror-run`, as `--list` prints them):
 
    ```bash
    sudo infra/restore-from-offsite.sh --env-file infra/.env.prod \

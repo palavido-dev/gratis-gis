@@ -53,6 +53,8 @@ d('backup_run archive_directory against Postgres', () => {
       `INSERT INTO backup_run (status, filename) VALUES ('succeeded', 'backup-old.tar.gz')`,
     );
     await admin.query(migration('20261113120000_backup_run_archive_directory'));
+    // Later columns, so the Prisma client's selects match the table.
+    await admin.query(migration('20261124130100_backup_offsite_runs'));
     const url = new URL(TEST_URL!);
     url.searchParams.set('options', `-c search_path=${schema}`);
     client = new PrismaClient({

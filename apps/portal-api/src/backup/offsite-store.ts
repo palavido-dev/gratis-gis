@@ -98,6 +98,58 @@ export async function uploadStream(
 ): Promise<UploadResult> {
   const partSize = args.partSize ?? partSizeFor(args.expectedBytes ?? null);
   const opts = args.signal ? { abortSignal: args.signal } : undefined;
+
+  // Read up to one part first. A body that ends inside it goes up as
+  // one PUT with Content-MD5: one request instead of four, which is
+  // what keeps mirror mode usable with many small files.
+  const iter = args.body[Symbol.asyncIterator]();
+  const first: Buffer[] = [];
+  let firstLen = 0;
+  let ended = false;
+  while (firstLen < partSize) {
+    const next = await iter.next();
+    if (next.done) {
+      ended = true;
+      break;
+    }
+    first.push(next.value);
+    firstLen += next.value.length;
+  }
+  if (ended) {
+    const data = Buffer.concat(first, firstLen);
+    const md5 = createHash('md5').update(data).digest();
+    const res = (await s3.send(
+      new PutObjectCommand({
+        Bucket: args.bucket,
+        Key: args.key,
+        Body: data,
+        ContentLength: data.length,
+        ContentMD5: md5.toString('base64'),
+        ContentType: args.contentType ?? 'application/octet-stream',
+        ...(args.metadata ? { Metadata: args.metadata } : {}),
+      }),
+      opts,
+    )) as { ETag?: string };
+    const plain = res.ETag ? MD5_ETAG.exec(res.ETag) : null;
+    if (plain && plain[1]!.toLowerCase() !== md5.toString('hex')) {
+      throw new OffsiteVerifyError('The stored file has a different checksum than the one sent.');
+    }
+    await verifyStored(s3, args, data.length, opts);
+    await args.onPart?.(data.length);
+    return {
+      bytes: data.length,
+      sha256: createHash('sha256').update(data).digest('hex'),
+      parts: 1,
+    };
+  }
+  async function* rest(): AsyncGenerator<Buffer> {
+    yield* first;
+    for (;;) {
+      const next = await iter.next();
+      if (next.done) return;
+      yield next.value;
+    }
+  }
   const created = (await s3.send(
     new CreateMultipartUploadCommand({
       Bucket: args.bucket,
@@ -147,7 +199,7 @@ export async function uploadStream(
   };
 
   try {
-    for await (const piece of args.body) {
+    for await (const piece of rest()) {
       sha.update(piece);
       pending.push(piece);
       pendingLen += piece.length;
@@ -188,6 +240,17 @@ export async function uploadStream(
     throw err;
   }
 
+  await verifyStored(s3, args, total, opts);
+  return { bytes: total, sha256: sha.digest('hex'), parts: completed.length };
+}
+
+/** Read the stored size back and compare it with what was sent. */
+async function verifyStored(
+  s3: S3Like,
+  args: { bucket: string; key: string; expectedBytes?: number | null | undefined },
+  total: number,
+  opts: { abortSignal: AbortSignal } | undefined,
+): Promise<void> {
   const head = (await s3.send(
     new HeadObjectCommand({ Bucket: args.bucket, Key: args.key }),
     opts,
@@ -206,7 +269,6 @@ export async function uploadStream(
   ) {
     throw new OffsiteVerifyError(`Sent ${total} bytes; expected ${args.expectedBytes}.`);
   }
-  return { bytes: total, sha256: sha.digest('hex'), parts: completed.length };
 }
 
 /** One small object, with Content-MD5. For sidecars and markers. */
@@ -233,6 +295,7 @@ export interface ListedObject {
   key: string;
   size: number;
   lastModified: Date | null;
+  etag: string | null;
 }
 
 export async function* listObjects(
@@ -249,13 +312,18 @@ export async function* listObjects(
         ...(token ? { ContinuationToken: token } : {}),
       }),
     )) as {
-      Contents?: Array<{ Key?: string; Size?: number; LastModified?: Date }>;
+      Contents?: Array<{ Key?: string; Size?: number; LastModified?: Date; ETag?: string }>;
       IsTruncated?: boolean;
       NextContinuationToken?: string;
     };
     for (const o of page.Contents ?? []) {
       if (!o.Key) continue;
-      yield { key: o.Key, size: Number(o.Size ?? 0), lastModified: o.LastModified ?? null };
+      yield {
+        key: o.Key,
+        size: Number(o.Size ?? 0),
+        lastModified: o.LastModified ?? null,
+        etag: o.ETag ?? null,
+      };
     }
     token = page.IsTruncated ? page.NextContinuationToken : undefined;
   } while (token);

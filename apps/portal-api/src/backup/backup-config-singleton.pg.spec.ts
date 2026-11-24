@@ -55,6 +55,8 @@ d('backup_config singleton against Postgres', () => {
         ('00000000-0000-0000-0000-000000000002', 30, now());
     `);
     await admin.query(migration('20261109100000_backup_config_singleton'));
+    // Later columns, so the Prisma client's selects match the table.
+    await admin.query(migration('20261124130000_backup_offsite_config'));
     const url = new URL(TEST_URL!);
     url.searchParams.set('options', `-c search_path=${schema}`);
     client = new PrismaClient({

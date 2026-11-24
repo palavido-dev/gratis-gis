@@ -194,12 +194,12 @@ export class BackupController {
     @Optional() private readonly restoreTestService?: RestoreTestService,
   ) {}
 
-  private get offsite(): OffsiteService {
+  private offsite(): OffsiteService {
     if (!this.offsiteService) throw new Error('Off-site backups are not available.');
     return this.offsiteService;
   }
 
-  private get restoreTest(): RestoreTestService {
+  private restoreTest(): RestoreTestService {
     if (!this.restoreTestService) throw new Error('Backup tests are not available.');
     return this.restoreTestService;
   }
@@ -283,12 +283,12 @@ export class BackupController {
   /** Settings and status. Secrets appear only as "set" flags. */
   @Get('offsite')
   getOffsite() {
-    return this.offsite.getPublicConfig();
+    return this.offsite().getPublicConfig();
   }
 
   @Patch('offsite')
   async updateOffsite(@CurrentUser() user: AuthUser, @Body() dto: UpdateOffsiteDto) {
-    const updated = await this.offsite.updateConfig(dto, user.id);
+    const updated = await this.offsite().updateConfig(dto, user.id);
     this.note(user, 'backup.offsite', user.orgId, 'succeeded');
     return updated;
   }
@@ -296,13 +296,13 @@ export class BackupController {
   /** Write, list and delete one small file in the bucket. */
   @Post('offsite/test')
   testOffsite() {
-    return this.offsite.testConnection();
+    return this.offsite().testConnection();
   }
 
   /** Upload one finished backup again. Answers once it has started. */
   @Post('runs/:id/offsite')
   async retryOffsite(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    await this.offsite.retry(id);
+    await this.offsite().retry(id);
     this.note(user, 'backup.offsite', id, 'succeeded');
     return { started: true };
   }
@@ -314,14 +314,14 @@ export class BackupController {
   /** Restore the newest archive's database into a scratch database. */
   @Post('restore-tests')
   async startRestoreTest(@CurrentUser() user: AuthUser) {
-    const test = await this.restoreTest.start(user.id);
+    const test = await this.restoreTest().start(user.id);
     this.note(user, 'backup.test', test.id, 'succeeded');
     return test;
   }
 
   @Get('restore-tests')
   listRestoreTests() {
-    return this.restoreTest.recent(10);
+    return this.restoreTest().recent(10);
   }
 
   /**

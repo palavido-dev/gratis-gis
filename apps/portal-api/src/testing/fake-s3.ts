@@ -9,7 +9,10 @@ import { Readable } from 'node:stream';
  * like the SDK's.
  */
 export class FakeS3 {
-  objects = new Map<string, { body: Buffer; lastModified: Date; etag: string }>();
+  objects = new Map<
+    string,
+    { body: Buffer; lastModified: Date; etag: string; contentType?: string }
+  >();
   uploads = new Map<string, { key: string; parts: Map<number, Buffer> }>();
   calls: string[] = [];
   aborted: string[] = [];
@@ -95,15 +98,31 @@ export class FakeS3 {
         return { ContentLength: o.body.length + (this.lieAboutSize ? 1 : 0), ETag: o.etag };
       }
       case 'PutObjectCommand': {
-        const body = input.Body as Buffer;
+        let body: Buffer;
+        if (Buffer.isBuffer(input.Body)) {
+          body = input.Body;
+        } else {
+          const parts: Buffer[] = [];
+          for await (const c of input.Body as AsyncIterable<Buffer>) parts.push(Buffer.from(c));
+          body = Buffer.concat(parts);
+        }
         if (
           input.ContentMD5 &&
           input.ContentMD5 !== createHash('md5').update(body).digest('base64')
         ) {
           throw Object.assign(new Error('BadDigest'), { name: 'BadDigest' });
         }
-        this.objects.set(key, { body: Buffer.from(body), lastModified: new Date(), etag: '"x"' });
-        return {};
+        this.objects.set(key, {
+          ...(typeof input.ContentType === 'string' ? { contentType: input.ContentType } : {}),
+          body: Buffer.from(body),
+          lastModified: new Date(),
+          etag: `"${createHash('md5').update(body).digest('hex')}"`,
+        });
+        const etag = this.lieAboutPartEtag
+          ? '"00000000000000000000000000000000"'
+          : this.objects.get(key)!.etag;
+        this.lieAboutPartEtag = false;
+        return { ETag: etag };
       }
       case 'GetObjectCommand': {
         const o = this.objects.get(key);
@@ -112,7 +131,11 @@ export class FakeS3 {
             name: 'NoSuchKey',
             $metadata: { httpStatusCode: 404 },
           });
-        return { Body: Readable.from([o.body]), ContentLength: o.body.length };
+        return {
+          Body: Readable.from([o.body]),
+          ContentLength: o.body.length,
+          ...(o.contentType ? { ContentType: o.contentType } : {}),
+        };
       }
       case 'DeleteObjectCommand':
         this.objects.delete(key);
@@ -125,6 +148,7 @@ export class FakeS3 {
             Key: k,
             Size: this.objects.get(k)!.body.length,
             LastModified: this.objects.get(k)!.lastModified,
+            ETag: this.objects.get(k)!.etag,
           })),
           IsTruncated: false,
         };

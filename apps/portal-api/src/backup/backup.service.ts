@@ -458,6 +458,11 @@ export class BackupService implements OnModuleInit {
     return effective;
   }
 
+  /** The portal's own object store, for the off-site mirror. */
+  sourceStore(): { s3: S3Client; bucket: string } {
+    return { s3: this.s3, bucket: this.bucket };
+  }
+
   /** The singleton backup_config row, created on first use. */
   configRow() {
     return this.ensureConfigRow();
