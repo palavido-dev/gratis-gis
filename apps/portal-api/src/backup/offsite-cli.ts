@@ -5,19 +5,25 @@
  * inside the portal-api image:
  *
  *   node dist/backup/offsite-cli.js list
- *   node dist/backup/offsite-cli.js check-key --key-file F --passphrase-stdin
- *   node dist/backup/offsite-cli.js fetch --key-file F --passphrase-stdin --out DIR [--name ARCHIVE]
- *   node dist/backup/offsite-cli.js fetch-mirror --key-file F --passphrase-stdin --out DIR [--run RUN]
+ *   node dist/backup/offsite-cli.js check-key KEY
+ *   node dist/backup/offsite-cli.js fetch KEY --out DIR [--name ARCHIVE]
+ *   node dist/backup/offsite-cli.js fetch-mirror KEY --out DIR [--run RUN]
  *   node dist/backup/offsite-cli.js put-objects --archive FILE
- *   node dist/backup/offsite-cli.js put-mirror-objects --key-file F --passphrase-stdin [--run RUN]
+ *   node dist/backup/offsite-cli.js put-mirror-objects KEY [--run RUN]
  *   node dist/backup/offsite-cli.js count-objects
  *
+ * where KEY is either `--key-file F --passphrase-stdin` (the passphrase
+ * alone on standard input) or `--key-stdin` (standard input holds the
+ * key file in base64 on its first line, then the passphrase; this is
+ * how restore-from-offsite.sh sends both into the container without a
+ * file the container's user would need to read).
+ *
  * Bucket settings come from the BACKUP_OFFSITE_* variables; the local
- * object store from MINIO_*. The private key file is the admin's
- * sealed key file (infra/recovery/offsite-key.mjs); its passphrase is
- * read from standard input, never from an argument, with one trailing
- * line break dropped and Unicode NFC applied. Results are printed as
- * key=value lines on stdout for the script; progress goes to stderr.
+ * object store from MINIO_*. The key file is the admin's sealed key
+ * file (infra/recovery/offsite-key.mjs). Its passphrase is never an
+ * argument; one trailing line break is dropped and Unicode NFC applied.
+ * Results are printed as key=value lines on stdout for the script;
+ * progress goes to stderr.
  */
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -137,23 +143,36 @@ async function settingsFrom(io: CliIo): Promise<OffsiteSettings> {
 }
 
 /**
- * The admin's private key: the sealed key file named by --key-file,
- * opened with the passphrase on standard input.
+ * The admin's private key: the sealed key file and its passphrase, as
+ * --key-file plus --passphrase-stdin, or both on standard input with
+ * --key-stdin.
  */
 async function privateKeyFrom(io: CliIo, args: string[]): Promise<OffsitePrivateKey> {
-  const file = arg(args, '--key-file');
-  if (!file) throw new Error('--key-file is required.');
-  if (!args.includes('--passphrase-stdin')) {
-    throw new Error('Give the key file passphrase on standard input with --passphrase-stdin.');
-  }
-  const pass = await io.stdin();
-  if (pass.replace(/\r?\n$/, '').length === 0) throw new Error('No passphrase on standard input.');
   let bytes: Buffer;
-  try {
-    bytes = await io.readFile(file);
-  } catch {
-    throw new Error('The key file could not be read.');
+  let pass: string;
+  if (args.includes('--key-stdin')) {
+    const input = await io.stdin();
+    const nl = input.indexOf('\n');
+    const first = (nl < 0 ? input : input.slice(0, nl)).trim();
+    if (!/^[A-Za-z0-9+/=]+$/.test(first)) {
+      throw new Error('Standard input must start with the key file in base64 on one line.');
+    }
+    bytes = Buffer.from(first, 'base64');
+    pass = nl < 0 ? '' : input.slice(nl + 1);
+  } else {
+    const file = arg(args, '--key-file');
+    if (!file) throw new Error('--key-file (or --key-stdin) is required.');
+    if (!args.includes('--passphrase-stdin')) {
+      throw new Error('Give the key file passphrase on standard input with --passphrase-stdin.');
+    }
+    pass = await io.stdin();
+    try {
+      bytes = await io.readFile(file);
+    } catch {
+      throw new Error('The key file could not be read.');
+    }
   }
+  if (pass.replace(/\r?\n$/, '').length === 0) throw new Error('No passphrase on standard input.');
   return openKeyFile(bytes, pass);
 }
 
@@ -434,7 +453,7 @@ if (require.main === module) {
     let n = 0;
     for await (const c of process.stdin) {
       n += (c as Buffer).length;
-      if (n > 4096) throw new Error('The passphrase on standard input is too long.');
+      if (n > 16 * 1024) throw new Error('Standard input is too long for a key and passphrase.');
       chunks.push(c as Buffer);
     }
     return Buffer.concat(chunks).toString('utf8');

@@ -262,7 +262,7 @@ kept and counted in the log; a bucket lifecycle rule can expire them.
 
 | What | Where | Never |
 | --- | --- | --- |
-| Private key and its passphrase | The admin's `.ggkey` file and their own records. On a server being restored, only for the duration of `restore-from-offsite.sh` (the key file mounted read-only into the helper, the passphrase on its standard input). | On the running portal, in its database, in the bucket, in the API, in logs |
+| Private key and its passphrase | The admin's `.ggkey` file and their own records. On a server being restored, only for the duration of `restore-from-offsite.sh`, which sends the key file and the passphrase to the restore helper on its standard input. | On the running portal, in its database, in the bucket, in the API, in logs |
 | Public key | `backup_config.offsite_public_key` or `BACKUP_OFFSITE_PUBLIC_KEY` | Treated as a secret |
 | Bucket secret access key | `backup_config.offsite_secret_encrypted`, AES-256-GCM under `CREDENTIAL_ENCRYPTION_KEY`, with a hash of the endpoint and access key id bound in as AAD; or `BACKUP_OFFSITE_SECRET_ACCESS_KEY(_FILE)` | Returned by the API, logged, written to the bucket |
 | Mirror naming key | `backup_config.offsite_name_key_encrypted`, same cipher, AAD `backup-offsite:mirror-name-key` | Returned by the API, logged, written to the bucket |

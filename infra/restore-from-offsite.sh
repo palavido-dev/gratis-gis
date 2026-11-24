@@ -36,9 +36,9 @@
 #   8. Put the stored files back into MinIO.
 #   9. Start everything and print counts next to the backup's own.
 #
-# The passphrase file is given to the restore helper on standard input.
-# Its text is never an argument, never in an environment variable and
-# never printed. One trailing line break (LF or CRLF) is ignored, and
+# The key file and the passphrase file are given to the restore helper
+# on standard input. Neither is ever an argument, an environment
+# variable or printed. One trailing line break (LF or CRLF) is ignored, and
 # the text is normalised to Unicode NFC, as offsite-key.mjs does. The
 # download and the unpacked files need about twice the archive size of
 # free disk in the backups volume.
@@ -55,7 +55,6 @@ ARCHIVE=""
 MIRROR_RUN=""
 LIST_ONLY=0
 OUT_DIR="/app/backups/offsite-restore"
-KEY_IN_CONTAINER="/run/gratisgis/offsite.ggkey"
 # Services this script stops and starts. The database, MinIO and the
 # proxy keep running.
 WRITERS="portal-api portal-worker script-runner script-executor pointcloud-worker portal-web"
@@ -125,16 +124,17 @@ ggo_cli() {
     portal-api dist/backup/offsite-cli.js "$@"
 }
 
-# The same, with the key file mounted read-only and the passphrase
-# file on standard input.
+# The same, with the key file (base64, one line) and then the
+# passphrase file on standard input. Nothing of either is an argument
+# or an environment variable, and the container's own user does not
+# need to read a file only root can.
 ggo_cli_key() {
   local cmd="$1"
   shift
-  ggo_compose run --rm -T --no-deps --entrypoint node \
-    -e MINIO_ENDPOINT=http://minio:9000 \
-    -v "${KEY_FILE}:${KEY_IN_CONTAINER}:ro" \
-    portal-api dist/backup/offsite-cli.js "$cmd" --key-file "$KEY_IN_CONTAINER" --passphrase-stdin "$@" \
-    <"$PASS_FILE"
+  { base64 -w0 <"$KEY_FILE"; printf '\n'; cat "$PASS_FILE"; } |
+    ggo_compose run --rm -T --no-deps --entrypoint node \
+      -e MINIO_ENDPOINT=http://minio:9000 \
+      portal-api dist/backup/offsite-cli.js "$cmd" --key-stdin "$@"
 }
 
 ggo_psql() {

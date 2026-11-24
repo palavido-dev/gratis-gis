@@ -160,6 +160,18 @@ describe('offsite-cli', () => {
     expect(out).toEqual([`fingerprint=${key.publicKey.fingerprintText}`]);
   });
 
+  it('takes the key file and passphrase together on standard input', async () => {
+    stdin = `${fs.readFileSync(keyFile).toString('base64')}\n${PASS}\r\n`;
+    expect(await runCli(['check-key', '--key-stdin'], io())).toBe(0);
+    expect(out).toEqual([`fingerprint=${key.publicKey.fingerprintText}`]);
+    out.length = 0;
+    stdin = `${fs.readFileSync(keyFile).toString('base64')}\nthe wrong passphrase entirely`;
+    expect(await runCli(['check-key', '--key-stdin'], io())).toBe(1);
+    expect(errs.join(' ')).toMatch(/did not open/);
+    stdin = `not base64 at all!\n${PASS}`;
+    expect(await runCli(['check-key', '--key-stdin'], io())).toBe(1);
+  });
+
   it('fetches, verifies and decrypts the archive byte for byte', async () => {
     const outDir = path.join(dir, 'restore');
     // A partial file from an interrupted run does not get in the way.

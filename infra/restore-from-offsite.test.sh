@@ -129,9 +129,11 @@ expect_in "list needs no key and prints the newest copy" "$out" "latest=$A"
 FLOW_ARGS=(--confirm-database portal_db --replace-existing)
 out="$(run_flow FAKE_LATEST=$A FAKE_COUNTS='2 14 300')"
 log="$(cat "$tmp/log")"
-expect_in "opens the key first, key file mounted read-only, passphrase on stdin" "$log" "/run/gratisgis/offsite.ggkey:ro portal-api dist/backup/offsite-cli.js check-key --key-file /run/gratisgis/offsite.ggkey --passphrase-stdin"
+expect_in "opens the key first, key and passphrase on stdin" "$log" "portal-api dist/backup/offsite-cli.js check-key --key-stdin"
+expect_in "the key file arrived on stdin in base64" "$(cat "$tmp/stdin")" "$(base64 -w0 <"$tmp/portal.ggkey")"
+expect_not_in "the key file is not mounted" "$log" "portal.ggkey"
 expect_in "prints the key fingerprint" "$out" "Key fingerprint: 8ecb-27c4-5ca4-dba4-eef7-c151-2d36-d184"
-expect_in "archive: fetches the newest copy by name" "$log" "offsite-cli.js fetch --key-file /run/gratisgis/offsite.ggkey --passphrase-stdin --out /app/backups/offsite-restore --name $A"
+expect_in "archive: fetches the newest copy by name" "$log" "offsite-cli.js fetch --key-stdin --out /app/backups/offsite-restore --name $A"
 expect_in "archive: passphrase arrived on stdin" "$(cat "$tmp/stdin")" "my key file passphrase value 42"
 expect_not_in "passphrase never an argument" "$log" "my key file passphrase"
 expect_not_in "passphrase never printed" "$out" "my key file passphrase"
@@ -165,9 +167,9 @@ expect_not_in "no safety dump of a database that does not exist" "$(cat "$tmp/lo
 
 out="$(run_flow FAKE_LATEST=backup-2026-11-20T02-00-00-000-aaaaaaaa.tar.gz FAKE_LATEST_MIRROR=2026-11-21T02-00-00-000-bbbbbbbb)"
 log="$(cat "$tmp/log")"
-expect_in "newer mirror run is chosen" "$log" "offsite-cli.js fetch-mirror --key-file /run/gratisgis/offsite.ggkey --passphrase-stdin --out /app/backups/offsite-restore --run 2026-11-21T02-00-00-000-bbbbbbbb"
+expect_in "newer mirror run is chosen" "$log" "offsite-cli.js fetch-mirror --key-stdin --out /app/backups/offsite-restore --run 2026-11-21T02-00-00-000-bbbbbbbb"
 expect_in "mirror: dump read from the fetched file" "$log" "--entrypoint cat portal-api /app/backups/offsite-restore/2026-11-21T02-00-00-000-bbbbbbbb/database.dump"
-expect_in "mirror: files streamed from the bucket" "$log" "offsite-cli.js put-mirror-objects --key-file /run/gratisgis/offsite.ggkey --passphrase-stdin --run 2026-11-21T02-00-00-000-bbbbbbbb"
+expect_in "mirror: files streamed from the bucket" "$log" "offsite-cli.js put-mirror-objects --key-stdin --run 2026-11-21T02-00-00-000-bbbbbbbb"
 
 out="$(env PATH="$tmp/bin:$PATH" FAKE_DOCKER_LOG="$tmp/log" bash "$script" --env-file "$tmp/env" \
   --compose-file "$tmp/compose.yml" --archive '../../etc/passwd' --list 2>&1 || true)"
