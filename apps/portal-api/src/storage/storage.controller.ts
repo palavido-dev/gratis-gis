@@ -250,8 +250,9 @@ export class StorageController {
           where: { id: att.itemId, access: 'public', deletedAt: null },
           select: { id: true, data: true, publicGeoBoundaryId: true },
         });
+        // A key whose item is not public answers like an unknown key.
         if (!parent) {
-          throw new ForbiddenException('Cannot download this attachment');
+          throw new NotFoundException('Attachment not found');
         }
         // The public tier boundary clips anonymous readers too.
         const clip = await publicTierGeoLimit(
@@ -301,11 +302,12 @@ export class StorageController {
           where: { itemId: item.id },
         });
         if (!this.sharing.canRead(user, itemFull, shares)) {
-          throw new ForbiddenException('Cannot read this file');
+          throw new NotFoundException('File not found');
         }
       } else if (item.access !== 'public') {
-        // Anonymous: only public-shared items resolve.
-        throw new ForbiddenException('Cannot read this file');
+        // Anonymous: only public-shared items resolve. Any other key
+        // answers like an unknown one.
+        throw new NotFoundException('File not found');
       }
     }
 

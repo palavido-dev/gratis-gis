@@ -1,16 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import {
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import type { ImportJob, ImportJobStatus } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { inCallerOrgOrNotFound } from '../common/org-not-found.js';
 import { ResourceQuotaService } from '../admin/resource-quota.service.js';
 
 /**
@@ -141,14 +136,11 @@ export class ImportJobsService {
   /** Single-job lookup. Org-scoped so a leaked id in the URL bar
    *  can't leak data across orgs. */
   async get(user: AuthUser, jobId: string): Promise<ImportJob> {
-    const row = await this.prisma.importJob.findUnique({
-      where: { id: jobId },
-    });
-    if (!row) throw new NotFoundException(`Import job ${jobId} not found.`);
-    if (row.orgId !== user.orgId) {
-      throw new ForbiddenException('Job not in your organization.');
-    }
-    return row;
+    return inCallerOrgOrNotFound(
+      await this.prisma.importJob.findUnique({ where: { id: jobId } }),
+      user,
+      `Import job ${jobId} not found.`,
+    );
   }
 
   /**

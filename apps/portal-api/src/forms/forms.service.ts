@@ -19,6 +19,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import { DataLayerAttachmentsService } from '../data-layer/attachments.service.js';
 import { AuthSyncService } from '../auth/auth-sync.service.js';
+import { inCallerOrgOrNotFound } from '../common/org-not-found.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { LeaderElectionService } from '../cron/leader-election.service.js';
@@ -135,15 +136,15 @@ export class FormsService implements OnApplicationBootstrap, OnModuleDestroy {
    *  (SharingService.canRead), so an expired share or a trashed form
    *  grants nothing here either. The org check stays on top of it:
    *  a public form from another org is readable, but submissions are
-   *  only taken from members of the form's own org. */
+   *  only taken from members of the form's own org. A form of another
+   *  org answers exactly like a form that does not exist. */
   private async getVisibleForm(formId: string, user: AuthUser): Promise<Item> {
-    const item = await this.prisma.item.findUnique({ where: { id: formId } });
-    if (!item || item.type !== 'form' || item.deletedAt !== null) {
-      throw new NotFoundException('Form not found.');
-    }
-    if (item.orgId !== user.orgId) {
-      throw new ForbiddenException('Form is not in your organization.');
-    }
+    const found = await this.prisma.item.findUnique({ where: { id: formId } });
+    const item = inCallerOrgOrNotFound(
+      found && found.type === 'form' && found.deletedAt === null ? found : null,
+      user,
+      'Form not found.',
+    );
     const shares = await this.prisma.itemShare.findMany({
       where: { itemId: item.id },
     });

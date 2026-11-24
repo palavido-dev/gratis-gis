@@ -388,7 +388,7 @@ export class AdminUsersController {
       }
       if (localUser) {
         if (localUser.orgId !== me.orgId) {
-          throw new ForbiddenException('User is not in your organization');
+          throw new NotFoundException('User not found');
         }
         await this.prisma.user.update({
           where: { id: localUser.id },
@@ -736,7 +736,7 @@ export class AdminUsersController {
       };
     }
     if (target.orgId !== me.orgId) {
-      throw new ForbiddenException('User is not in your organization');
+      throw new NotFoundException('User not found');
     }
 
     // Resolve group memberships once: we need them both for the
@@ -969,7 +969,11 @@ export class AdminUsersController {
     } | null;
     isSelf: boolean;
   }> {
-    const kcUser = await this.kc.getUser(id);
+    const kcUser = await this.kc.getUser(id).catch((err: unknown) => {
+      // The same answer as a user of another org, below.
+      if (err instanceof NotFoundException) throw new NotFoundException('User not found');
+      throw err;
+    });
     if (!kcUser?.username) {
       throw new NotFoundException('User not found');
     }
@@ -985,11 +989,12 @@ export class AdminUsersController {
     });
     // Defense in depth: a target whose local row is in a different
     // org from the caller can't be touched, even if the AdminGuard
-    // route was somehow reached cross-org.
+    // route was somehow reached cross-org. It answers like an unknown
+    // id, the same as the GET routes.
     // A user who has never signed in has no local row, so the
     // Keycloak `org` attribute decides; same rule as the GET routes.
     if (!inCallerOrg(me, kcUser, localUser?.orgId)) {
-      throw new ForbiddenException('User is not in your organization');
+      throw new NotFoundException('User not found');
     }
     // Self-identity check via username (stable across Keycloak sub
     // / local id mismatches that plague seeded users).

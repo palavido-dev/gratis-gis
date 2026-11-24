@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
 import { DataLayerTablesService } from '../data-layer/tables.service.js';
-import { itemBbox } from './item-bbox.js';
+import { itemBbox, mayUseExtentOf } from './item-bbox.js';
 import {
   envelopeOfGeometries,
   envelopeStrictlyInside,
@@ -574,18 +574,6 @@ interface RefScope {
   id: string;
   orgId: string;
   access: string;
-}
-
-/**
- * An item's bbox may include a referenced item's extent when both are
- * in the same org, or the referenced item is public (its extent is
- * already visible to everyone).
- */
-function mayUseExtentOf(
-  owner: { orgId: string },
-  referenced: { orgId: string; access: string },
-): boolean {
-  return referenced.orgId === owner.orgId || referenced.access === 'public';
 }
 
 /** The ids whose extents feed this item's bbox in `computeBbox`. */
