@@ -633,6 +633,422 @@ export const TOPICS: Topic[] = [
   },
 ];
 
+/** A refusal body with request ids and item ids blanked, for comparing two answers. */
+function answerShape(r: ApiResult): string {
+  const { requestId: _r, ...rest } = (r.body ?? {}) as Record<string, unknown>;
+  void _r;
+  return `${r.status} ${JSON.stringify(rest).replace(/[0-9a-f-]{36}/g, '<id>')}`;
+}
+
+/** An id that names no item. */
+const UNKNOWN_ID = '00000000-0000-4000-8000-00000000abcd';
+
+/** Minimal v3 data layer data with the fixtures' sublayer. */
+const LAYER_DATA = {
+  version: 3,
+  layers: [
+    {
+      id: LAYER_ID,
+      name: 'Sites',
+      geometryType: 'point',
+      fields: [{ name: 'note', type: 'string', label: 'Note', nullable: true }],
+    },
+  ],
+};
+
+/**
+ * One item type and one reference field: how to write data that
+ * refers to `ref`. `permission` is the share the author needs on the
+ * target to set the reference at all.
+ */
+type ReferenceCase = {
+  label: string;
+  type: string;
+  data(ref: string): Record<string, unknown>;
+  permission?: 'view' | 'edit';
+};
+
+const REFERENCE_CASES: ReferenceCase[] = [
+  { label: 'map clip boundary', type: 'map', data: (ref) => ({ layers: [], clipBoundaryId: ref }) },
+  { label: 'map basemap', type: 'map', data: (ref) => ({ layers: [], basemap: ref }) },
+  {
+    label: 'map extent boundary',
+    type: 'map',
+    data: (ref) => ({ layers: [], defaultExtentBoundaryId: ref }),
+  },
+  { label: 'map geocoder', type: 'map', data: (ref) => ({ layers: [], geocoderId: ref }) },
+  {
+    label: 'map terrain',
+    type: 'map',
+    data: (ref) => ({ layers: [], terrain: { itemId: ref, tileUrl: '', stack: [{ itemId: ref, tileUrl: '' }] } }),
+  },
+  {
+    label: 'derived layer source',
+    type: 'derived_layer',
+    data: (ref) => ({
+      version: 1,
+      source: { kind: 'data_layer', itemId: ref, layerKey: LAYER_ID },
+      pipeline: [{ tool: 'buffer', params: { mode: 'fixed', distance: 100, unit: 'meters' } }],
+      featureLimit: 1000,
+      outputSchema: [],
+      bbox: [],
+    }),
+  },
+  {
+    label: 'editor app map',
+    type: 'web_app',
+    data: (ref) => ({ template: 'editor', mapId: ref, targets: [] }),
+  },
+  {
+    label: 'custom app map widget',
+    type: 'web_app',
+    data: (ref) => ({
+      template: 'custom',
+      config: {
+        custom: {
+          pages: [{ id: 'p1', title: 'Page', widgets: [{ id: 'w1', config: { kind: 'map', mapId: ref } }] }],
+        },
+      },
+    }),
+  },
+  { label: 'folder child', type: 'folder', data: (ref) => ({ childItemIds: [ref] }) },
+  { label: 'data collection map', type: 'data_collection', data: (ref) => ({ mapId: ref }) },
+  {
+    label: 'report template source',
+    type: 'report_template',
+    data: (ref) => ({ body: 'Report', sources: [{ itemId: ref, layerKey: LAYER_ID }] }),
+  },
+  {
+    label: 'tile layer elevation',
+    type: 'tile_layer',
+    data: (ref) => ({ preferredElevationItemId: ref }),
+  },
+  {
+    label: 'point cloud elevation',
+    type: 'point_cloud',
+    data: (ref) => ({ preferredElevationItemId: ref }),
+  },
+  {
+    label: 'geocoder source layer',
+    type: 'geocoding_service',
+    data: (ref) => ({ sourceLayerId: ref }),
+  },
+  {
+    label: 'form linked layer',
+    type: 'form',
+    permission: 'edit',
+    data: (ref) => ({ schemaVersion: 1, questions: [], linkedLayerId: ref, linkedLayerKey: LAYER_ID }),
+  },
+  {
+    label: 'tool target',
+    type: 'tool',
+    data: (ref) => ({ action: { kind: 'open-item', targetItemId: ref } }),
+  },
+  { label: 'print template map', type: 'print_template', data: (ref) => ({ defaultMapId: ref }) },
+  {
+    label: 'basemap composed map',
+    type: 'basemap',
+    data: (ref) => ({ version: 1, kind: 'composed-map', mapItemId: ref }),
+  },
+  {
+    label: 'data layer pick list',
+    type: 'data_layer',
+    data: (ref) => ({
+      version: 3,
+      layers: [
+        {
+          id: LAYER_ID,
+          name: 'Sites',
+          geometryType: 'point',
+          fields: [
+            {
+              name: 'kind',
+              type: 'string',
+              label: 'Kind',
+              nullable: true,
+              domain: { type: 'coded-value-ref', pickListItemId: ref },
+            },
+          ],
+        },
+      ],
+    }),
+  },
+];
+
+/**
+ * For each reference an item can store: org B's author keeps a stored
+ * reference after losing access to its target, cannot add org A's
+ * private item, and gets the same answer for it as for an id that
+ * does not exist.
+ */
+function referenceTopics(): Topic[] {
+  return REFERENCE_CASES.map((c) => ({
+    name: `references: ${c.label} keeps a stored reference and refuses adding another org's item`,
+    modes: BOTH,
+    async run(state: SuiteState): Promise<Verdict> {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const admin = fx.B.users.admin;
+      const author = fx.B.users.contributor;
+      const { res: made, id: target } = await createItem(state, admin, {
+        type: 'data_layer',
+        title: `B target for ${c.label}`,
+        access: 'private',
+        data: LAYER_DATA,
+      });
+      if (!target) return verdict([`B's admin could not create the target: ${short(made)}`]);
+      const share = { principalType: 'user', principalId: author.id, permission: c.permission ?? 'view' };
+      await api(app.baseUrl, admin, 'POST', `/api/items/${target}/share`, share);
+      const { res, id } = await createItem(state, author, {
+        type: c.type,
+        title: `B ${c.label}`,
+        access: 'private',
+        data: c.data(target),
+      });
+      if (!id) return verdict([`control: the author could not save a readable reference: ${short(res)}`]);
+      await api(app.baseUrl, admin, 'DELETE', `/api/items/${target}/share`, share);
+      const stored = await api(app.baseUrl, author, 'GET', `/api/items/${id}`);
+      const again = await api(app.baseUrl, author, 'PATCH', `/api/items/${id}`, {
+        title: `B ${c.label}, edited`,
+        data: (stored.body as { data?: unknown } | undefined)?.data ?? c.data(target),
+      });
+      if (again.status !== 200) p.push(`saving the stored reference again: ${short(again)}`);
+      const other = fx.A.items['data_layer:private']!;
+      const added = await api(app.baseUrl, author, 'PATCH', `/api/items/${id}`, {
+        data: c.data(other),
+      });
+      if (added.status !== 400) p.push(`adding another org's item: expected 400, got ${short(added)}`);
+      const unknown = await api(app.baseUrl, author, 'PATCH', `/api/items/${id}`, {
+        data: c.data(UNKNOWN_ID),
+      });
+      if (answerShape(unknown) !== answerShape(added)) {
+        p.push(`an unknown id answered differently: ${short(unknown)} / ${short(added)}`);
+      }
+      const leaks = fx.A.secrets.filter((x) => added.text.includes(x) && x !== other);
+      if (leaks.length) p.push(`the refusal showed A's data: ${leaks.join(', ')}`);
+      const created = await createItem(state, author, {
+        type: c.type,
+        title: `B ${c.label} with A's item`,
+        access: 'private',
+        data: c.data(other),
+      });
+      if (created.res.status !== 400)
+        p.push(`creating with another org's item: expected 400, got ${short(created.res)}`);
+      if (c.type === 'derived_layer') {
+        // The author kept the recipe but can no longer read its source:
+        // reads through it answer with nothing from the source.
+        const fc = await api(app.baseUrl, author, 'GET', `/api/items/${id}/geojson`);
+        if (fc.status === 200 && featureCount(fc) > 0)
+          p.push(`the derived layer still served the unshared source: ${featureCount(fc)} features`);
+        const row = await api(app.baseUrl, author, 'GET', `/api/items/${id}`);
+        const bbox = (row.body as { bbox?: unknown[] } | undefined)?.bbox ?? [];
+        if (bbox.length > 0) p.push(`the derived layer still showed the source extent: ${JSON.stringify(bbox)}`);
+      }
+      return verdict(p);
+    },
+  }));
+}
+
+/** Map "Save as" leaves out what the person saving cannot read and lists the ids. */
+function mapSaveAsTopic(): Topic {
+  return {
+    name: "map save as leaves out another org's items and lists their ids",
+    modes: BOTH,
+    async run(state: SuiteState): Promise<Verdict> {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const author = fx.B.users.contributor;
+      const source = fx.B.items['map:org'];
+      const ownLayer = fx.B.items['data_layer:org'];
+      const otherLayer = fx.A.items['data_layer:private']!;
+      const otherBoundary = fx.A.items['geo_boundary:private'] ?? fx.A.items['map:private']!;
+      if (!source || !ownLayer) return verdict(["B's org map or layer fixture was not created"]);
+      const r = await api(app.baseUrl, author, 'POST', `/api/items/${source}/copy`, {
+        title: 'B copy',
+        includeMarkup: false,
+        data: {
+          layers: [mapLayer('mine', ownLayer), mapLayer('theirs', otherLayer)],
+          clipBoundaryId: otherBoundary,
+        },
+      });
+      if (r.status !== 201 && r.status !== 200) return verdict([`save as was refused: ${short(r)}`]);
+      const body = r.body as { id?: string; omittedItemIds?: string[]; warnings?: string[] };
+      const omitted = [...(body.omittedItemIds ?? [])].sort();
+      const expected = [otherLayer, otherBoundary].sort();
+      if (JSON.stringify(omitted) !== JSON.stringify(expected))
+        p.push(`omittedItemIds: expected ${expected.join(', ')}, got ${omitted.join(', ')}`);
+      if ((body.warnings ?? []).length !== expected.length)
+        p.push(`expected one warning per left-out id, got ${JSON.stringify(body.warnings)}`);
+      const leaks = fx.A.secrets.filter((x) => r.text.includes(x) && !expected.includes(x));
+      if (leaks.length) p.push(`the answer showed A's data: ${leaks.join(', ')}`);
+      if (body.id) {
+        const copy = await api(app.baseUrl, author, 'GET', `/api/items/${body.id}`);
+        const data = (copy.body as { data?: { layers?: Array<{ id: string }> } } | undefined)?.data;
+        const text = JSON.stringify(data ?? {});
+        for (const id of expected) if (text.includes(id)) p.push(`the copy still refers to ${id}`);
+        if (!data?.layers?.some((l) => l.id === 'mine')) p.push('the readable layer was not kept');
+      }
+      return verdict(p);
+    },
+  };
+}
+
+TOPICS.push(...referenceTopics(), mapSaveAsTopic(), elevationHintTopic(), appTemplateTopic());
+
+/**
+ * A map layer's elevation hint is copied from its tile item, not chosen
+ * by the author: a hint naming another org's private item is left out
+ * of the saved layer instead of refusing the save.
+ */
+function elevationHintTopic(): Topic {
+  return {
+    name: "map layer elevation hint naming another org's item is left out, not refused",
+    modes: BOTH,
+    async run(state: SuiteState): Promise<Verdict> {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const author = fx.B.users.contributor;
+      const hidden = fx.A.items['data_layer:private']!;
+      const { res: made, id: tile } = await createItem(state, author, {
+        type: 'tile_layer',
+        title: 'B tile for the hint',
+        access: 'private',
+        data: {},
+      });
+      if (!tile) return verdict([`control: the author could not create a tile layer: ${short(made)}`]);
+      const layer = (id: string) => ({
+        id,
+        name: 'Tiles',
+        visible: true,
+        source: { kind: 'tile', itemId: tile, tileUrl: '', preferredElevationItemId: hidden },
+      });
+      const hintOf = async (mapId: string): Promise<unknown[]> => {
+        const r = await api(app.baseUrl, author, 'GET', `/api/items/${mapId}`);
+        const layers = (r.body as { data?: { layers?: Array<{ source?: Record<string, unknown> }> } })
+          ?.data?.layers;
+        return (layers ?? []).map((l) => l.source?.preferredElevationItemId);
+      };
+      const { res, id: map } = await createItem(state, author, {
+        type: 'map',
+        title: 'B map with a tile layer',
+        access: 'private',
+        data: { layers: [layer('t1')] },
+      });
+      if (!map) return verdict([`creating the map was refused: ${short(res)}`]);
+      if (res.text.includes(hidden)) p.push('the create answer kept the hint');
+      if ((await hintOf(map)).some((h) => h !== undefined)) p.push('the saved layer kept the hint');
+      const added = await api(app.baseUrl, author, 'PATCH', `/api/items/${map}`, {
+        data: { layers: [layer('t1'), layer('t2')] },
+      });
+      if (added.status !== 200) p.push(`adding a second tile layer was refused: ${short(added)}`);
+      if ((await hintOf(map)).some((h) => h !== undefined)) p.push('the updated layers kept the hint');
+      return verdict(p);
+    },
+  };
+}
+
+/**
+ * Creating an app from a saved template the person can read leaves out
+ * the template's references they cannot read and lists the ids. The
+ * same payload without the template id, or with an unreadable id that
+ * is not in the template, is refused as on any create.
+ */
+function appTemplateTopic(): Topic {
+  return {
+    name: 'an app made from a saved template leaves out what the person cannot read',
+    modes: BOTH,
+    async run(state: SuiteState): Promise<Verdict> {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const admin = fx.B.users.admin;
+      const author = fx.B.users.contributor;
+      const { id: privateMap } = await createItem(state, admin, {
+        type: 'map',
+        title: "B admin's private map",
+        access: 'private',
+        data: { layers: [] },
+      });
+      const ownLayer = fx.B.items['data_layer:org'];
+      if (!privateMap || !ownLayer) return verdict(['fixtures for the template were not created']);
+      const blueprint = (mapId: string) => ({
+        version: 5,
+        mapId,
+        pages: [{ id: 'p1', title: 'Page', widgets: [{ id: 'w1', config: { kind: 'map', mapId } }] }],
+        targets: [{ dataLayerId: ownLayer, layerKey: LAYER_ID }],
+      });
+      const { res: tres, id: template } = await createItem(state, admin, {
+        type: 'app_template',
+        title: 'B template',
+        access: 'org',
+        data: blueprint(privateMap),
+      });
+      if (!template) return verdict([`B's admin could not save the template: ${short(tres)}`]);
+      const appData = (mapId: string) => ({
+        version: 1,
+        template: 'custom',
+        config: { template: 'custom', custom: blueprint(mapId) },
+      });
+      const made = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app from template',
+        access: 'private',
+        data: appData(privateMap),
+        fromTemplateId: template,
+      });
+      const body = made.res.body as { omittedItemIds?: string[]; warnings?: string[] };
+      if (!made.id) p.push(`creating from the template was refused: ${short(made.res)}`);
+      else {
+        if (JSON.stringify(body.omittedItemIds) !== JSON.stringify([privateMap]))
+          p.push(`omittedItemIds: ${JSON.stringify(body.omittedItemIds)}`);
+        if ((body.warnings ?? []).length !== 1) p.push(`warnings: ${JSON.stringify(body.warnings)}`);
+        const saved = await api(app.baseUrl, author, 'GET', `/api/items/${made.id}`);
+        const text = JSON.stringify((saved.body as { data?: unknown }).data ?? {});
+        if (text.includes(privateMap)) p.push('the app still refers to the unreadable map');
+        if (!text.includes(ownLayer)) p.push('the readable layer target was not kept');
+      }
+      const plain = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app without the template id',
+        access: 'private',
+        data: appData(privateMap),
+      });
+      if (plain.res.status !== 400)
+        p.push(`without fromTemplateId: expected 400, got ${short(plain.res)}`);
+      const other = fx.A.items['data_layer:private']!;
+      const extra = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app with an id not in the template',
+        access: 'private',
+        data: { ...appData(privateMap), extra: { mapId: other } },
+        fromTemplateId: template,
+      });
+      const unknown = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app with an unknown id',
+        access: 'private',
+        data: { ...appData(privateMap), extra: { mapId: UNKNOWN_ID } },
+        fromTemplateId: template,
+      });
+      if (extra.res.status !== 400)
+        p.push(`an unreadable id not in the template: expected 400, got ${short(extra.res)}`);
+      if (answerShape(extra.res) !== answerShape(unknown.res))
+        p.push(`an unknown id answered differently: ${short(unknown.res)} / ${short(extra.res)}`);
+      const foreign = fx.A.items['app_template:org'] ?? fx.A.items['app_template:private'];
+      if (foreign) {
+        const r = await createItem(state, author, {
+          type: 'web_app',
+          title: "B app from A's template",
+          access: 'private',
+          data: appData(privateMap),
+          fromTemplateId: foreign,
+        });
+        if (r.res.status !== 404) p.push(`another org's template: expected 404, got ${short(r.res)}`);
+      }
+      return verdict(p);
+    },
+  };
+}
+
 export function topicsFor(mode: TenancyMode): Array<[string, Topic]> {
   return TOPICS.filter((t) => t.modes.includes(mode)).map((t) => [t.name, t]);
 }

@@ -240,6 +240,8 @@ export const en = {
   },
 
   newItem: {
+    templateOmitted:
+      'App created. These items from the template could not be found, so the app leaves them out: {ids}',
     pageTitle: 'Create a new item',
     pageIntro:
       "Pick what you're creating, then fill in the details. For services and uploads, we'll gather what we need on the next screen so the item lands ready to use.",
@@ -1057,6 +1059,9 @@ export const en = {
     saving: 'Saving...',
     cancel: 'Cancel',
     failed: 'Could not save the copy',
+    omittedTitle: 'Saved without some references',
+    omittedBody: 'These items could not be found, so the copy leaves them out:',
+    openCopy: 'Open the copy',
   },
   mapMeasure: {
     title: 'Measure',

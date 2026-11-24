@@ -72,9 +72,19 @@ const ROWS: Record<string, ReturnType<typeof row>> = {
 
 function makeService() {
   const prisma: Record<string, unknown> & {
-    item: { findUnique: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
+    item: {
+      findUnique: jest.Mock;
+      findFirst: jest.Mock;
+      findMany: jest.Mock;
+      create: jest.Mock;
+      update: jest.Mock;
+    };
   } = {
     item: {
+      // The batched readability lookup every save makes for new references.
+      findMany: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in.flatMap((id) => (ROWS[id] ? [ROWS[id]] : [])),
+      ),
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) => ROWS[where.id] ?? null),
       findFirst: jest.fn(async ({ where }: { where: { id: string } }) => ROWS[where.id] ?? null),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) =>

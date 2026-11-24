@@ -1475,6 +1475,11 @@ export function NewItemWizard({
       access,
       ...(thumbnailDesign ? { thumbnailDesign } : {}),
       data,
+      // The app was copied from a saved template: the server leaves
+      // out template references this user cannot open and lists them.
+      ...(type === 'custom' && customAppTemplateItemId
+        ? { fromTemplateId: customAppTemplateItemId }
+        : {}),
     };
 
     setSubmitting(true);
@@ -1496,9 +1501,9 @@ export function NewItemWizard({
       // Parse defensively - a missing / malformed body used to fall
       // through silently and leave the user stranded on the create
       // page with no redirect and no error.
-      let saved: Item | null = null;
+      let saved: (Item & { omittedItemIds?: unknown }) | null = null;
       try {
-        saved = (await res.json()) as Item;
+        saved = (await res.json()) as Item & { omittedItemIds?: unknown };
       } catch (parseErr) {
         console.error('Create succeeded but response was not JSON:', parseErr);
       }
@@ -1658,6 +1663,12 @@ export function NewItemWizard({
           : `/items/${saved.id}${anchor}`;
 
       const problems: string[] = [];
+      const omitted = Array.isArray(saved.omittedItemIds)
+        ? saved.omittedItemIds.filter((v): v is string => typeof v === 'string')
+        : [];
+      if (omitted.length > 0) {
+        problems.push(t('newItem.templateOmitted', { ids: omitted.join(', ') }));
+      }
       if (parentError) {
         problems.push(
           `Item created, but it could not be added to the folder (${parentError}). You can drag it into the folder from the items page.`,

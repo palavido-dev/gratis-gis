@@ -24,6 +24,12 @@ new release banner when cutting a version tag.
 ## 2026-11-24 - Encrypted off-site backups
 Backups can now be copied to storage at another provider, such as Backblaze B2, Cloudflare R2, AWS S3 or Hetzner, encrypted to a key only you hold: your portal can make the copies but cannot read them. You make the key on your own computer and keep it with its passphrase; lose both and the copies cannot be opened by anyone. A new Test latest backup button checks that the newest backup really restores, and a script brings a portal back on a new server from the off-site copy and your key, showing which copy it will use and asking before it changes anything. If the key is ever changed, every admin who runs the portal is told. Every copy is also signed by your portal: add its verify key, shown on the Backup page, to your key file, and a restore checks that a copy was really made by your portal before it changes anything. If a copy cannot be fully checked, the restore says what was and was not checked, and goes on only when you confirm that kind of copy by name.
 
+## 2026-11-24 - Apps from templates with items you cannot open
+Making an app from a saved template no longer fails when the template uses items you cannot open. The app is made without them and lists what was left out.
+
+## 2026-11-24 - Save as works on maps with items you cannot open
+Saving a copy of a map no longer fails when the map uses items you cannot open. The copy is made without them, and the dialog lists what was left out before you open it.
+
 ## [1.7.0] - 2026-11-23
 
 ## 2026-11-23 - Reports for each feature or form submission
