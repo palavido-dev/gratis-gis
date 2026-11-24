@@ -14,6 +14,7 @@ tags:
   - minio
 related:
   - admin-organization-settings
+  - admin-offsite-backups
 ---
 ![Admin Backup settings](/help/admin/backup.png)
 
@@ -58,13 +59,14 @@ the other. The gap is seconds, not a second copy of the system.
   external services cannot be decrypted. A freshly generated install
   has a new key. Restore the archive on this portal, or on a copy
   of the machine that still has the original env file and volumes.
-- **Encryption of the archive itself.** The `.tar.gz` is not
-  encrypted. If you need that, wrap the file with your own tool
-  before it leaves the machine.
+- **Encryption of the archive itself.** The `.tar.gz` on this server
+  is not encrypted. Off-site copies are encrypted before they leave the
+  server; see [Off-site backups](/help/admin/offsite-backups).
 - **Off-site storage.** The archive is written to the
   `portal-api-backups` volume on this host. Downloading it to a
-  browser on this same machine is not an off-site copy. Copy the
-  file, and the env file or `boot` volume, to another disk.
+  browser on this same machine is not an off-site copy. Turn on
+  [off-site copies](/help/admin/offsite-backups), or copy the file,
+  and the env file or `boot` volume, to another disk.
 - **Phones and browsers.** The field app's unsynced edits stay on
   the device until they sync. A portal backup cannot see them.
 - **Point-in-time recovery.** There is no WAL archive. The recovery
