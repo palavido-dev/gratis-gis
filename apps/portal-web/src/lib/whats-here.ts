@@ -597,14 +597,20 @@ export async function decodeSharedArea(code: string): Promise<SharedArea | null>
       if (Object.keys(b).length > 0) out.breakdowns = b;
     }
     if (v.s && typeof v.s === 'object' && !Array.isArray(v.s)) {
-      const sums: Record<string, string[]> = {};
-      for (const [k, fields] of Object.entries(v.s as Record<string, unknown>)) {
-        if (!Array.isArray(fields)) continue;
-        const ok = fields
-          .filter((f): f is string => typeof f === 'string' && f.length <= 100)
-          .slice(0, MAX_SUM_FIELDS);
-        if (ok.length > 0) sums[k] = ok;
-      }
+      // Built with fromEntries, never by assigning a key from the link,
+      // so a crafted key such as __proto__ cannot reach a prototype.
+      const sums = Object.fromEntries(
+        Object.entries(v.s as Record<string, unknown>)
+          .map(([k, fields]): [string, string[]] => [
+            k,
+            Array.isArray(fields)
+              ? fields
+                  .filter((f): f is string => typeof f === 'string' && f.length <= 100)
+                  .slice(0, MAX_SUM_FIELDS)
+              : [],
+          ])
+          .filter(([, fields]) => fields.length > 0),
+      );
       if (Object.keys(sums).length > 0) out.sums = sums;
     }
     return out;
