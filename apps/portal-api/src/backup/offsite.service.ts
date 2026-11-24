@@ -114,6 +114,8 @@ const HOUR_MS = 60 * 60 * 1000;
  */
 export const MIN_MEASURED_BYTES = 256 * 1024 ** 2;
 export const MIN_MEASURED_MS = 10 * 60 * 1000;
+/** A speed sample older than this no longer counts. */
+export const SAMPLE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 /** The measured speed is the slowest of this many recent samples. */
 export const MEASURED_UPLOADS = 3;
 
@@ -1871,7 +1873,17 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
    */
   async uploadSpeed(): Promise<number | null> {
     const recent = await this.prisma.backupRun.findMany({
-      where: { offsiteSampleBytes: { not: null }, offsiteSampleMs: { not: null } },
+      where: {
+        offsiteSampleBytes: { not: null },
+        offsiteSampleMs: { not: null },
+        // An old figure must not refuse uploads for ever: after this
+        // long with no newer sample, the next backup is tried again.
+        // A run being tried again has no finish time yet and still counts.
+        OR: [
+          { offsiteFinishedAt: { gte: new Date(Date.now() - SAMPLE_MAX_AGE_MS) } },
+          { offsiteFinishedAt: null },
+        ],
+      },
       orderBy: { offsiteFinishedAt: 'desc' },
       take: MEASURED_UPLOADS,
       select: { offsiteSampleBytes: true, offsiteSampleMs: true },

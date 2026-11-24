@@ -1521,6 +1521,13 @@ describe('OffsiteService', () => {
       expect(await svc.uploadSpeed()).toBeNull();
     });
 
+    it('a sample older than 14 days no longer counts, so the backup is tried again', async () => {
+      pastUpload('old', 1000 * MiB, 1_000_000, 15 * 24); // very slow, 15 days ago
+      expect(await svc.uploadSpeed()).toBeNull();
+      pastUpload('recent', 1000 * MiB, 1000, 13 * 24); // 1 MiB/s, 13 days ago
+      expect(await svc.uploadSpeed()).toBeCloseTo(MiB, 0);
+    });
+
     it('a small, quick upload is not a sample', async () => {
       await runUpload();
       expect(runs[0]!.offsiteStatus).toBe('succeeded');

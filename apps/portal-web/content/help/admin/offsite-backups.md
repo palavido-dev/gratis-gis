@@ -201,7 +201,9 @@ and how long it took. A speed sample comes from each upload that sent
 at least 256 MB or ran at least 10 minutes, including one stopped
 because it ran out of time. A copy that was already complete in the
 bucket sends nothing and is not a sample. The speed in use is the
-slowest of the last three samples.
+slowest of the last three samples. A sample older than 14 days no
+longer counts, so a backup that was refused for size is tried again
+after that, in case the line got faster.
 
 - With a measured speed, the portal estimates the upload time: the
   size of the backup divided by that speed. When the estimate is longer

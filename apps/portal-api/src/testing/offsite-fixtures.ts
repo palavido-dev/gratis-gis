@@ -16,13 +16,17 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
     if (cond === null) {
       if (v !== null) return false;
     } else if (typeof cond === 'object' && !(cond instanceof Date)) {
-      const c = cond as { not?: unknown; lt?: Date; gte?: bigint; in?: unknown[] };
+      const c = cond as { not?: unknown; lt?: Date; gte?: bigint | Date; in?: unknown[] };
       if ('not' in c) {
         if (v === null) return false;
         if (c.not !== null && v === c.not) return false;
       }
       if (c.lt !== undefined && !(v instanceof Date && v < c.lt)) return false;
-      if (c.gte !== undefined && !(typeof v === 'bigint' && v >= c.gte)) return false;
+      if (c.gte instanceof Date) {
+        if (!(v instanceof Date && v >= c.gte)) return false;
+      } else if (c.gte !== undefined && !(typeof v === 'bigint' && v >= c.gte)) {
+        return false;
+      }
       if (c.in !== undefined && !c.in.includes(v)) return false;
     } else if (v !== cond) {
       return false;
