@@ -23,6 +23,8 @@ export interface ReportRow {
   count: number;
   /** m² for polygons, m for lines, null for points. */
   measure: number | null;
+  /** Added-up number fields, in the layer's sumLabels order. */
+  sums?: Array<number | null>;
 }
 
 export interface ReportLayer {
@@ -30,6 +32,8 @@ export interface ReportLayer {
   geometry: 'point' | 'line' | 'polygon' | null;
   /** Absent when the layer could not be read. */
   total?: ReportRow;
+  /** Labels of the number fields this layer adds up. */
+  sumLabels?: string[];
   breakdown?: { fieldLabel: string; rows: ReportRow[]; truncated: boolean };
 }
 
@@ -136,10 +140,17 @@ export const WHATS_HERE_REPORT_CSS = `
   .unavailable { color: #b91c1c; }
   .picked { columns: 3; column-gap: 14pt; font-size: 9pt; margin: 2pt 0 0; padding-left: 14pt; }
   section.breakdown { page-break-inside: avoid; }
+  tr.sums td { border-bottom: 1px solid #e5e7eb; color: #4b5563; font-size: 9pt; padding-top: 0; }
 `;
+
+function amount(v: number | null | undefined, locale: string): string {
+  if (v === null || v === undefined) return '–';
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(v);
+}
 
 export function renderWhatsHereReport(doc: ReportDoc): string {
   const L = doc.labels;
+  const totalOf = (label: string) => L.totalOf.replace('{label}', label);
   const found = doc.layers.filter((l) => l.total && l.total.count > 0);
   const empty = doc.layers.filter((l) => l.total && l.total.count === 0);
   const unreadable = doc.layers.filter((l) => !l.total);
@@ -177,7 +188,15 @@ export function renderWhatsHereReport(doc: ReportDoc): string {
           : []),
         ...(showLength ? [`<td class="n">${esc(m.length)}</td>`] : []),
       ];
-      return `<tr>${cells.join('')}</tr>`;
+      // Added-up fields differ per layer, so they go on a line of
+      // their own under the layer rather than as shared columns.
+      const sumLine =
+        layer.sumLabels && layer.sumLabels.length > 0
+          ? `<tr class="sums"><td colspan="${cells.length}">${layer.sumLabels
+              .map((label, i) => `${esc(totalOf(label))} ${esc(amount(row.sums?.[i], doc.locale))}`)
+              .join(' · ')}</td></tr>`
+          : '';
+      return `<tr>${cells.join('')}</tr>${sumLine}`;
     })
     .join('');
 
@@ -187,7 +206,14 @@ export function renderWhatsHereReport(doc: ReportDoc): string {
       const b = layer.breakdown!;
       const bArea = layer.geometry === 'polygon';
       const bLength = layer.geometry === 'line';
-      const bCols = [b.fieldLabel, L.count, ...(bArea ? [L.areaCol, L.percentCol] : []), ...(bLength ? [L.lengthCol] : [])];
+      const sumLabels = layer.sumLabels ?? [];
+      const bCols = [
+        b.fieldLabel,
+        L.count,
+        ...(bArea ? [L.areaCol, L.percentCol] : []),
+        ...(bLength ? [L.lengthCol] : []),
+        ...sumLabels.map(totalOf),
+      ];
       const rows = b.rows
         .map((r) => {
           const m = measure(r, layer, doc);
@@ -195,7 +221,9 @@ export function renderWhatsHereReport(doc: ReportDoc): string {
             bArea
               ? `<td class="n">${esc(m.area)}</td><td class="n">${esc(percent(r, layer, doc.areaSquareMeters, doc.locale))}</td>`
               : ''
-          }${bLength ? `<td class="n">${esc(m.length)}</td>` : ''}</tr>`;
+          }${bLength ? `<td class="n">${esc(m.length)}</td>` : ''}${sumLabels
+            .map((_, i) => `<td class="n">${esc(amount(r.sums?.[i], doc.locale))}</td>`)
+            .join('')}</tr>`;
         })
         .join('');
       return `<section class="breakdown"><h2>${esc(layer.title)} · ${esc(L.breakdownBy)} ${esc(b.fieldLabel)}</h2><table><thead>${head(bCols)}</thead><tbody>${rows}</tbody></table>${
@@ -212,6 +240,7 @@ ${doc.mapImage ? `<img class="map" src="${esc(doc.mapImage)}" alt="">` : ''}
 ${found.length > 0 ? `<table><thead>${head(cols)}</thead><tbody>${summaryRows}</tbody></table>` : ''}
 ${empty.length > 0 ? `<p class="note">${esc(L.nothingIn)} ${esc(empty.map((l) => l.title).join(', '))}</p>` : ''}
 ${unreadable.length > 0 ? `<p class="note unavailable">${esc(L.unavailable)} ${esc(unreadable.map((l) => l.title).join(', '))}</p>` : ''}
+${found.some((l) => (l.sumLabels?.length ?? 0) > 0) ? `<p class="note">${esc(L.sumNote)}</p>` : ''}
 ${doc.picked.length > 0 ? `<h2>${esc(L.picked)}</h2><ul class="picked">${doc.picked.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
 ${breakdowns}
 </body></html>`;

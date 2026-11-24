@@ -52,6 +52,9 @@ export const REPORT_LABEL_KEYS = [
   'noValue',
   'unavailable',
   'truncated',
+  // "Total {label}", for a number field the report adds up.
+  'totalOf',
+  'sumNote',
 ] as const;
 export type ReportLabels = Record<(typeof REPORT_LABEL_KEYS)[number], string>;
 
@@ -60,7 +63,12 @@ export interface ReportLayerRequest {
   layerKey: string;
   title: string;
   breakdownField?: string;
+  /** Number fields to add up, in the order they were picked. */
+  sumFields?: string[];
 }
+
+/** Number fields one layer adds up, at most. Same cap as the panel. */
+export const MAX_SUM_FIELDS = 10;
 
 export interface ReportRequest {
   areaId: string;
@@ -131,11 +139,20 @@ export function parseReportRequest(body: unknown): ReportRequest {
     const title = text(l.title, `layers[${i}].title`, 200, true)!;
     const field = text(l.breakdownField, `layers[${i}].breakdownField`, 100);
     if (field !== undefined && !FIELD_RE.test(field)) bad(`layers[${i}].breakdownField is not a field name.`);
+    const rawSums = l.sumFields ?? [];
+    if (!Array.isArray(rawSums) || rawSums.length > MAX_SUM_FIELDS) {
+      bad(`layers[${i}].sumFields must be a list of at most ${MAX_SUM_FIELDS} field names.`);
+    }
+    const sumFields = rawSums.map((f, j) => {
+      if (typeof f !== 'string' || !FIELD_RE.test(f)) bad(`layers[${i}].sumFields[${j}] is not a field name.`);
+      return f;
+    });
     return {
       itemId: l.itemId,
       layerKey: l.layerKey,
       title,
       ...(field ? { breakdownField: field } : {}),
+      ...(sumFields.length > 0 ? { sumFields: [...new Set(sumFields)] } : {}),
     };
   });
 
