@@ -276,6 +276,7 @@ d('syncVersion commits with the observation on migrated PostGIS', () => {
     expect(await syncVersion()).toBe(before + 1);
     const calc = await service.calculateField({
       itemId: ITEM,
+      orgId: ORG,
       layerId: LAYER,
       expression: '{{value}} * 2',
       outputName: 'doubled',

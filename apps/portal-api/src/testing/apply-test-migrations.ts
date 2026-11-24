@@ -55,14 +55,29 @@ END $$;
   return head + partitions + sql.slice(resume);
 }
 
-export function applyTestMigrations(url: string, migrationsDir: string): void {
+/**
+ * Apply the migrations in name order. `upTo` (a migration folder name)
+ * stops before that migration, for upgrade tests that put rows in
+ * place first and then apply the rest with a second call and `from`.
+ */
+export function applyTestMigrations(
+  url: string,
+  migrationsDir: string,
+  range: { upTo?: string; from?: string } = {},
+): void {
   mkdirSync(LOCK_DIR, { recursive: true, mode: 0o700 });
-  withFileLock(MIGRATION_LOCK, () => applyAll(url, migrationsDir));
+  withFileLock(MIGRATION_LOCK, () => applyAll(url, migrationsDir, range));
 }
 
-function applyAll(url: string, migrationsDir: string): void {
+function applyAll(
+  url: string,
+  migrationsDir: string,
+  range: { upTo?: string; from?: string },
+): void {
   const dirs = readdirSync(migrationsDir)
     .filter((name) => name !== 'migration_lock.toml')
+    .filter((name) => range.upTo === undefined || name < range.upTo)
+    .filter((name) => range.from === undefined || name >= range.from)
     .sort();
   for (const dir of dirs) {
     const file = join(migrationsDir, dir, 'migration.sql');

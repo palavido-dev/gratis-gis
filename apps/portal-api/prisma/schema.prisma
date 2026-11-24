@@ -235,6 +235,10 @@ model Organization {
   /// today(); null means UTC.
   timeZone String? @map("time_zone")
 
+  /// Sites the Embed widget may frame on this org's app pages
+  /// (https://example.org form). Normalized again on every read.
+  embedOrigins String[] @default([]) @map("embed_origins")
+
   /// #147 Phase 3: admin getting-started checklist state. Most
   /// checklist items derive done-ness from live system state (SMTP
   /// configured, member count, seeded items), so this stores only

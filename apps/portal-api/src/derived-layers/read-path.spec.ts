@@ -69,6 +69,7 @@ describe('enrich sees the step input', () => {
         pipeline: [{ tool: 'buffer', params: { mode: 'field', field: 'r', unit: 'meters' } }],
       },
       p as unknown as Item,
+      { orgId: 'org-test' },
     );
     const step = out.pipeline[0]!;
     expect(step.tool === 'buffer' && step.params.mode === 'field' && step.params.cachedMaxMeters).toBe(40);
@@ -161,6 +162,7 @@ describe('two-input tools on save', () => {
         pipeline: [{ tool: 'clip', params: { otherSource: { kind: 'data_layer', itemId: OTHER } } }],
       },
       v3(LEAF, ['pts']) as unknown as Item,
+      { orgId: 'org-test' },
     );
     expect((out.pipeline[0]!.params as { otherSource: { layerKey?: string } }).otherSource.layerKey).toBe('bounds');
   });
@@ -177,6 +179,7 @@ describe('two-input tools on save', () => {
           ],
         },
         v3(LEAF, ['pts']) as unknown as Item,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/otherSource/);
   });

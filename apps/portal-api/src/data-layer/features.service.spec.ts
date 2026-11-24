@@ -206,6 +206,7 @@ function calcArgs(
 ): Parameters<DataLayerFeaturesService['calculateField']>[0] {
   return {
     itemId: ITEM_ID,
+    orgId: 'org-test',
     layerId: LAYER_ID,
     expression: '{{value}} * 2',
     outputName: 'doubled',

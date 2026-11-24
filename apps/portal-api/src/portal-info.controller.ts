@@ -9,7 +9,7 @@ import { expressionTimeZone } from './expressions/time-zone.js';
 import { isAnalysisEnabled } from './analysis/analysis-tiers.js';
 import { Public } from './auth/public.decorator.js';
 import { textEnv } from './common/env.js';
-import { tenancyMode } from './common/tenancy.js';
+import { isMultiTenant, tenancyMode } from './common/tenancy.js';
 import { isFeedbackEnabled } from './feedback/feedback-config.js';
 import { PrismaService } from './prisma/prisma.service.js';
 import { isScriptsEnabled } from './scripts/scripts-config.js';
@@ -22,8 +22,11 @@ import { absoluteBase } from './public/ogc/url.js';
  * for sign-in, and the API base URL.
  *
  * Unauthenticated by design: clients have to hit this BEFORE they
- * can sign in, so requiring a token here would be circular. The
- * response does not vary per user or per session.
+ * can sign in, so requiring a token here would be circular. On an
+ * install that serves one organization the response does not vary
+ * per user or per session. On an install that serves many, the name
+ * and time zone are the signed-in caller's org, and the install's
+ * name and UTC for a signed-out caller.
  *
  * Per-client OIDC client IDs are deliberately NOT returned. Each
  * client knows its own client_id by virtue of being that client.
@@ -39,8 +42,9 @@ export class PortalInfoController {
   @Public()
   @Get()
   async info(@Req() req: Request): Promise<PortalInfo> {
+    const callerOrgId = callerOrgIdOf(req);
     return {
-      name: await this.resolveName(),
+      name: await this.resolveName(callerOrgId),
       // GG_VERSION is stamped by deploy.sh/install.sh from
       // `git describe --tags --always` and reaches the container via
       // compose, so it is the truthful deployed ref. The npm fallback
@@ -59,7 +63,7 @@ export class PortalInfoController {
         type: 'oidc',
         issuer: this.resolveIssuer(),
       },
-      timeZone: await expressionTimeZone(this.prisma),
+      timeZone: await expressionTimeZone(this.prisma, callerOrgId),
       tenancy: tenancyMode(),
       features: {
         feedback: isFeedbackEnabled(),
@@ -71,19 +75,27 @@ export class PortalInfoController {
 
   /**
    * Prefer the org's `landingTitle`, fall back to the org name, then
-   * to a generic default. A deployment serves one organization, so
-   * this portal-level discovery endpoint and the org-level
-   * PublicController.landing describe the same org; the split is
-   * about what the caller already knows, not about tenancy.
+   * to a generic default. On a one-organization install the org is
+   * the install's, so this endpoint and PublicController.landing
+   * describe the same org. On an install that serves many it is the
+   * signed-in caller's org; a signed-out caller gets the install's
+   * name (PORTAL_NAME), never another org's.
    */
-  private async resolveName(): Promise<string> {
-    const org = await this.prisma.organization.findFirst({
-      orderBy: { createdAt: 'asc' },
-      select: { name: true, landingTitle: true },
-    });
+  private async resolveName(callerOrgId: string | null): Promise<string> {
+    const fallback = textEnv(process.env.PORTAL_NAME, 'GratisGIS Portal');
+    if (isMultiTenant() && !callerOrgId) return fallback;
+    const org = isMultiTenant()
+      ? await this.prisma.organization.findUnique({
+          where: { id: callerOrgId as string },
+          select: { name: true, landingTitle: true },
+        })
+      : await this.prisma.organization.findFirst({
+          orderBy: { createdAt: 'asc' },
+          select: { name: true, landingTitle: true },
+        });
     if (org?.landingTitle) return org.landingTitle;
     if (org?.name) return org.name;
-    return textEnv(process.env.PORTAL_NAME, 'GratisGIS Portal');
+    return fallback;
   }
 
   /**
@@ -116,4 +128,10 @@ export class PortalInfoController {
     const realm = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
     return `${url}/realms/${realm}`;
   }
+}
+
+/** The signed-in caller's org id, or null for a signed-out request. */
+function callerOrgIdOf(req: Request): string | null {
+  const user = (req as Request & { user?: { orgId?: unknown } | null }).user;
+  return typeof user?.orgId === 'string' && user.orgId.length > 0 ? user.orgId : null;
 }

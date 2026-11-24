@@ -228,7 +228,7 @@ describe('padBboxByMeters', () => {
 describe('DerivedLayersService.validateAndEnrich', () => {
   it('rejects non-object data', async () => {
     await expect(
-      service.validateAndEnrich(null, makeSource()),
+      service.validateAndEnrich(null, makeSource(), { orgId: 'org-test' }),
     ).rejects.toThrow(/must be an object/);
   });
 
@@ -244,6 +244,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
           bbox: [],
         },
         makeSource(),
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/non-empty array/);
   });
@@ -261,6 +262,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
           pipeline: [{ tool: 'buffer', params: { distance: 1, unit: 'meters' } }],
         },
         source,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/match the resolved source/);
   });
@@ -276,6 +278,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
         ],
       },
       source,
+      { orgId: 'org-test' },
     );
     expect(enriched.featureLimit).toBe(1000);
     expect(enriched.outputSchema).toEqual([STRING_FIELD]);
@@ -297,6 +300,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
           featureLimit: 0,
         },
         source,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/positive integer/);
   });
@@ -341,6 +345,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
         ],
       },
       source,
+      { orgId: 'org-test' },
     );
     // Enrich populated cachedMaxMeters from the MAX query; the
     // recipe persists with that cap baked in for future reads.
@@ -372,6 +377,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
           ],
         },
         source,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/does not exist on the source schema/);
   });
@@ -393,6 +399,7 @@ describe('DerivedLayersService.validateAndEnrich', () => {
           ],
         },
         source,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/must be a number field/);
   });
@@ -576,6 +583,7 @@ describe('DerivedLayersService.validateAndEnrich (chained source)', () => {
         ],
       },
       parentDerived as unknown as Item,
+      { orgId: 'org-test' },
     );
     expect(enriched.source.kind).toBe('derived_layer');
     expect(enriched.outputSchema).toEqual([STRING_FIELD]);
@@ -609,6 +617,7 @@ describe('DerivedLayersService.validateAndEnrich (chained source)', () => {
           ],
         },
         parentDerived as unknown as Item,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/layerKey is not valid for a derived_layer source/);
   });
@@ -630,6 +639,7 @@ describe('DerivedLayersService.validateAndEnrich (chained source)', () => {
           ],
         },
         orphan as unknown as Item,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/missing or trashed/);
   });
@@ -663,6 +673,7 @@ describe('DerivedLayersService.validateAndEnrich (chained source)', () => {
           ],
         },
         a as unknown as Item,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/cycle/);
   });
@@ -703,6 +714,7 @@ describe('DerivedLayersService.validateAndEnrich (chained source)', () => {
           ],
         },
         items.get(head.id) as unknown as Item,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/exceeds the maximum depth/);
   });
@@ -738,6 +750,7 @@ describe('DerivedLayersService.validateAndEnrich (chained source)', () => {
           ],
         },
         broken as unknown as Item,
+        { orgId: 'org-test' },
       ),
     ).rejects.toThrow(/no cached outputSchema/);
   });

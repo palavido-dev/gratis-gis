@@ -14,9 +14,10 @@ describe('embed origins setting', () => {
 
   function setup(stored: unknown = null) {
     const prisma = {
-      systemSetting: {
-        upsert: jest.fn(async () => ({})),
-        findUnique: jest.fn(async () => (stored === null ? null : { value: stored })),
+      organization: {
+        update: jest.fn(async () => ({})),
+        findFirst: jest.fn(async () => ({ id: 'o' })),
+        findUnique: jest.fn(async () => (stored === null ? null : { embedOrigins: stored })),
       },
     };
     const ctrl = new AdminSecurityController({} as never, prisma as never);
@@ -29,12 +30,10 @@ describe('embed origins setting', () => {
       origins: ['https://Dash.Example.org/', 'https://dash.example.org', ''],
     });
     expect(out).toEqual({ origins: ['https://dash.example.org'] });
-    expect(prisma.systemSetting.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { key: 'embed_origins' },
-        update: { value: { origins: ['https://dash.example.org'] }, updatedBy: 'a' },
-      }),
-    );
+    expect(prisma.organization.update).toHaveBeenCalledWith({
+      where: { id: 'o' },
+      data: { embedOrigins: ['https://dash.example.org'] },
+    });
   });
 
   it('refuses an entry that could inject into the CSP', async () => {
@@ -44,12 +43,12 @@ describe('embed origins setting', () => {
         origins: ["https://a.org; script-src 'unsafe-inline'"],
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect(prisma.systemSetting.upsert).not.toHaveBeenCalled();
+    expect(prisma.organization.update).not.toHaveBeenCalled();
   });
 
   it('drops bad entries from a hand-edited row on read', async () => {
-    const { prisma } = setup({ origins: ['https://ok.org', '*', 42] });
-    await expect(readEmbedOrigins(prisma as never)).resolves.toEqual([
+    const { prisma } = setup(['https://ok.org', '*', 42]);
+    await expect(readEmbedOrigins(prisma as never, 'o')).resolves.toEqual([
       'https://ok.org',
     ]);
   });
