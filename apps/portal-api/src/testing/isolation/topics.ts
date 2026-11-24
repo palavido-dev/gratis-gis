@@ -893,7 +893,161 @@ function mapSaveAsTopic(): Topic {
   };
 }
 
-TOPICS.push(...referenceTopics(), mapSaveAsTopic());
+TOPICS.push(...referenceTopics(), mapSaveAsTopic(), elevationHintTopic(), appTemplateTopic());
+
+/**
+ * A map layer's elevation hint is copied from its tile item, not chosen
+ * by the author: a hint naming another org's private item is left out
+ * of the saved layer instead of refusing the save.
+ */
+function elevationHintTopic(): Topic {
+  return {
+    name: "map layer elevation hint naming another org's item is left out, not refused",
+    modes: BOTH,
+    async run(state: SuiteState): Promise<Verdict> {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const author = fx.B.users.contributor;
+      const hidden = fx.A.items['data_layer:private']!;
+      const { res: made, id: tile } = await createItem(state, author, {
+        type: 'tile_layer',
+        title: 'B tile for the hint',
+        access: 'private',
+        data: {},
+      });
+      if (!tile) return verdict([`control: the author could not create a tile layer: ${short(made)}`]);
+      const layer = (id: string) => ({
+        id,
+        name: 'Tiles',
+        visible: true,
+        source: { kind: 'tile', itemId: tile, tileUrl: '', preferredElevationItemId: hidden },
+      });
+      const hintOf = async (mapId: string): Promise<unknown[]> => {
+        const r = await api(app.baseUrl, author, 'GET', `/api/items/${mapId}`);
+        const layers = (r.body as { data?: { layers?: Array<{ source?: Record<string, unknown> }> } })
+          ?.data?.layers;
+        return (layers ?? []).map((l) => l.source?.preferredElevationItemId);
+      };
+      const { res, id: map } = await createItem(state, author, {
+        type: 'map',
+        title: 'B map with a tile layer',
+        access: 'private',
+        data: { layers: [layer('t1')] },
+      });
+      if (!map) return verdict([`creating the map was refused: ${short(res)}`]);
+      if (res.text.includes(hidden)) p.push('the create answer kept the hint');
+      if ((await hintOf(map)).some((h) => h !== undefined)) p.push('the saved layer kept the hint');
+      const added = await api(app.baseUrl, author, 'PATCH', `/api/items/${map}`, {
+        data: { layers: [layer('t1'), layer('t2')] },
+      });
+      if (added.status !== 200) p.push(`adding a second tile layer was refused: ${short(added)}`);
+      if ((await hintOf(map)).some((h) => h !== undefined)) p.push('the updated layers kept the hint');
+      return verdict(p);
+    },
+  };
+}
+
+/**
+ * Creating an app from a saved template the person can read leaves out
+ * the template's references they cannot read and lists the ids. The
+ * same payload without the template id, or with an unreadable id that
+ * is not in the template, is refused as on any create.
+ */
+function appTemplateTopic(): Topic {
+  return {
+    name: 'an app made from a saved template leaves out what the person cannot read',
+    modes: BOTH,
+    async run(state: SuiteState): Promise<Verdict> {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const admin = fx.B.users.admin;
+      const author = fx.B.users.contributor;
+      const { id: privateMap } = await createItem(state, admin, {
+        type: 'map',
+        title: "B admin's private map",
+        access: 'private',
+        data: { layers: [] },
+      });
+      const ownLayer = fx.B.items['data_layer:org'];
+      if (!privateMap || !ownLayer) return verdict(['fixtures for the template were not created']);
+      const blueprint = (mapId: string) => ({
+        version: 5,
+        mapId,
+        pages: [{ id: 'p1', title: 'Page', widgets: [{ id: 'w1', config: { kind: 'map', mapId } }] }],
+        targets: [{ dataLayerId: ownLayer, layerKey: LAYER_ID }],
+      });
+      const { res: tres, id: template } = await createItem(state, admin, {
+        type: 'app_template',
+        title: 'B template',
+        access: 'org',
+        data: blueprint(privateMap),
+      });
+      if (!template) return verdict([`B's admin could not save the template: ${short(tres)}`]);
+      const appData = (mapId: string) => ({
+        version: 1,
+        template: 'custom',
+        config: { template: 'custom', custom: blueprint(mapId) },
+      });
+      const made = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app from template',
+        access: 'private',
+        data: appData(privateMap),
+        fromTemplateId: template,
+      });
+      const body = made.res.body as { omittedItemIds?: string[]; warnings?: string[] };
+      if (!made.id) p.push(`creating from the template was refused: ${short(made.res)}`);
+      else {
+        if (JSON.stringify(body.omittedItemIds) !== JSON.stringify([privateMap]))
+          p.push(`omittedItemIds: ${JSON.stringify(body.omittedItemIds)}`);
+        if ((body.warnings ?? []).length !== 1) p.push(`warnings: ${JSON.stringify(body.warnings)}`);
+        const saved = await api(app.baseUrl, author, 'GET', `/api/items/${made.id}`);
+        const text = JSON.stringify((saved.body as { data?: unknown }).data ?? {});
+        if (text.includes(privateMap)) p.push('the app still refers to the unreadable map');
+        if (!text.includes(ownLayer)) p.push('the readable layer target was not kept');
+      }
+      const plain = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app without the template id',
+        access: 'private',
+        data: appData(privateMap),
+      });
+      if (plain.res.status !== 400)
+        p.push(`without fromTemplateId: expected 400, got ${short(plain.res)}`);
+      const other = fx.A.items['data_layer:private']!;
+      const extra = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app with an id not in the template',
+        access: 'private',
+        data: { ...appData(privateMap), extra: { mapId: other } },
+        fromTemplateId: template,
+      });
+      const unknown = await createItem(state, author, {
+        type: 'web_app',
+        title: 'B app with an unknown id',
+        access: 'private',
+        data: { ...appData(privateMap), extra: { mapId: UNKNOWN_ID } },
+        fromTemplateId: template,
+      });
+      if (extra.res.status !== 400)
+        p.push(`an unreadable id not in the template: expected 400, got ${short(extra.res)}`);
+      if (answerShape(extra.res) !== answerShape(unknown.res))
+        p.push(`an unknown id answered differently: ${short(unknown.res)} / ${short(extra.res)}`);
+      const foreign = fx.A.items['app_template:org'] ?? fx.A.items['app_template:private'];
+      if (foreign) {
+        const r = await createItem(state, author, {
+          type: 'web_app',
+          title: "B app from A's template",
+          access: 'private',
+          data: appData(privateMap),
+          fromTemplateId: foreign,
+        });
+        if (r.res.status !== 404) p.push(`another org's template: expected 404, got ${short(r.res)}`);
+      }
+      return verdict(p);
+    },
+  };
+}
 
 export function topicsFor(mode: TenancyMode): Array<[string, Topic]> {
   return TOPICS.filter((t) => t.modes.includes(mode)).map((t) => [t.name, t]);
