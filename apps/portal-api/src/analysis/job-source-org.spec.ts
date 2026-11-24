@@ -78,13 +78,17 @@ describe('outline tool imagery', () => {
 
   it('refuses imagery whose file names another organization', async () => {
     const { c, create } = samWith(`item-tile-layer/o/${OTHER}/${FILE}`);
-    await expect(c.ensure(user, 'img', { z: 16, gx: 1, gy: 1 })).rejects.toThrow(/not stored where/);
+    await expect(c.ensure(user, 'img', { z: 16, gx: 1, gy: 1 })).rejects.toThrow(
+      /not stored where/,
+    );
     expect(create).not.toHaveBeenCalled();
   });
 
   it('queues for imagery of its own organization', async () => {
     const { c, create } = samWith(`item-tile-layer/o/${OWN}/${FILE}`);
-    await expect(c.ensure(user, 'img', { z: 16, gx: 1, gy: 1 })).resolves.toMatchObject({ state: 'working' });
+    await expect(c.ensure(user, 'img', { z: 16, gx: 1, gy: 1 })).resolves.toMatchObject({
+      state: 'working',
+    });
     expect(create).toHaveBeenCalledTimes(1);
   });
 

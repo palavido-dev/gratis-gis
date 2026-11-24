@@ -283,7 +283,12 @@ export function publicUrlObject(
 }
 
 /** Kinds whose objects are read straight from the bucket by URL. */
-export const PUBLIC_URL_KINDS: readonly ObjectKind[] = ['item-thumb', 'group-thumb', 'user-avatar', 'org-hero'];
+export const PUBLIC_URL_KINDS: readonly ObjectKind[] = [
+  'item-thumb',
+  'group-thumb',
+  'user-avatar',
+  'org-hero',
+];
 
 /**
  * The object key at the end of a stored public URL, whatever host it

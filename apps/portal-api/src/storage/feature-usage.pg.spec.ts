@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { Pool } from 'pg';
 
 import { applyTestMigrations } from '../testing/apply-test-migrations.js';
@@ -28,7 +28,9 @@ const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
 
 if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
-  throw new Error('REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the feature usage pg suite would skip.');
+  throw new Error(
+    'REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the feature usage pg suite would skip.',
+  );
 }
 
 jest.setTimeout(900_000);
@@ -92,7 +94,12 @@ d('feature data estimate against Postgres', () => {
     // Only the layer's rows in the table, so its table size is the truth
     // to compare with. Secondary indexes do not change that size; they
     // are dropped here to keep the seed quick and small on disk.
-    for (const idx of ['observation_geom_gix', 'observation_attrs_gin', 'observation_cell_idx', 'observation_tx_time_idx']) {
+    for (const idx of [
+      'observation_geom_gix',
+      'observation_attrs_gin',
+      'observation_cell_idx',
+      'observation_tx_time_idx',
+    ]) {
       await pool.query(`DROP INDEX IF EXISTS ${idx}`);
     }
     await seed(BIG, 'sites', ROWS, 40);
@@ -182,15 +189,19 @@ d('feature data estimate against Postgres', () => {
     );
     await pool.query(`UPDATE layer_storage_usage SET measured_at = now() - interval '2 days'`);
     const db = {
-      $queryRaw: (q: Parameters<PrismaService['$queryRaw']>[0]) => {
-        const text = (q as unknown as { strings?: string[] }).strings?.join('?') ?? '';
-        const values = (q as unknown as { values?: unknown[] }).values ?? [];
-        if (text.includes('FROM observation') && values.some((v) => typeof v === 'string' && v.endsWith(':broken'))) {
+      $queryRaw<T = unknown>(q: Prisma.Sql): Promise<T> {
+        const values = q.values ?? [];
+        if (
+          q.sql.includes('FROM observation') &&
+          values.some((v) => typeof v === 'string' && v.endsWith(':broken'))
+        ) {
           return Promise.reject(new Error('simulated measure failure'));
         }
-        return prisma.$queryRaw(q);
+        return prisma.$queryRaw<T>(q);
       },
-      $executeRaw: (q: Parameters<PrismaService['$executeRaw']>[0]) => prisma.$executeRaw(q),
+      $executeRaw(q: Prisma.Sql): Promise<number> {
+        return prisma.$executeRaw(q);
+      },
     };
     const r1 = await runFeatureUsagePass(db, { budgetMs: 600_000 });
     expect(r1.failed).toBe(1);
@@ -209,7 +220,10 @@ d('feature data estimate against Postgres', () => {
       [BIG],
     );
     expect(cleared.rows[0]!.measure_error).toBeNull();
-    await pool.query(`DELETE FROM layer_storage_usage WHERE item_id = $1 AND layer_key = 'broken'`, [BIG]);
+    await pool.query(
+      `DELETE FROM layer_storage_usage WHERE item_id = $1 AND layer_key = 'broken'`,
+      [BIG],
+    );
     await refreshOrgFeatureTotals(prisma, ORG_A);
   });
 

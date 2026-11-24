@@ -35,7 +35,11 @@ describe('storage owner check metrics', () => {
     expect(line(await pending.render(), 'gratisgis_storage_usage_first_fill_pending')).toBe(
       'gratisgis_storage_usage_first_fill_pending 1',
     );
-    const done = new MetricsService(prismaWith({ [LEDGER_FILLED_SETTING]: { at: 'x' } }), null, null);
+    const done = new MetricsService(
+      prismaWith({ [LEDGER_FILLED_SETTING]: { at: 'x' } }),
+      null,
+      null,
+    );
     done.enable();
     expect(line(await done.render(), 'gratisgis_storage_usage_first_fill_pending')).toBe(
       'gratisgis_storage_usage_first_fill_pending 0',

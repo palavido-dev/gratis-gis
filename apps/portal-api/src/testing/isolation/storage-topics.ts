@@ -69,11 +69,17 @@ export const STORAGE_TOPICS: Topic[] = [
     async run(state) {
       const problems: string[] = [];
       for (const org of [state.fx.A, state.fx.B]) {
-        const r = await api(state.app.baseUrl, org.users.contributor, 'POST', '/api/storage/presign-upload', {
-          kind: 'item-file',
-          contentType: 'text/plain',
-          sizeBytes: 3,
-        });
+        const r = await api(
+          state.app.baseUrl,
+          org.users.contributor,
+          'POST',
+          '/api/storage/presign-upload',
+          {
+            kind: 'item-file',
+            contentType: 'text/plain',
+            sizeBytes: 3,
+          },
+        );
         const key = (r.body as { key?: string } | undefined)?.key;
         if (parseObjectKey(key)?.orgId !== org.orgId) {
           problems.push(`org ${org.key} got key ${String(key)} (${r.status})`);
@@ -81,14 +87,23 @@ export const STORAGE_TOPICS: Topic[] = [
       }
       // The client cannot name the key it uploads to.
       const own = await uploadFile(state, state.fx.A.users.contributor, 'a-bytes');
-      const forced = await api(state.app.baseUrl, state.fx.B.users.contributor, 'POST', '/api/storage/presign-upload', {
-        kind: 'item-file',
-        contentType: 'text/plain',
-        sizeBytes: 3,
-        key: own.key,
-      });
+      const forced = await api(
+        state.app.baseUrl,
+        state.fx.B.users.contributor,
+        'POST',
+        '/api/storage/presign-upload',
+        {
+          kind: 'item-file',
+          contentType: 'text/plain',
+          sizeBytes: 3,
+          key: own.key,
+        },
+      );
       const got = (forced.body as { key?: string } | undefined)?.key;
-      if (forced.status < 300 && (got === own.key || parseObjectKey(got)?.orgId !== state.fx.B.orgId)) {
+      if (
+        forced.status < 300 &&
+        (got === own.key || parseObjectKey(got)?.orgId !== state.fx.B.orgId)
+      ) {
         problems.push(`presign let org B choose the key: ${short(forced)}`);
       }
       return { ok: problems.length === 0, problems };
@@ -169,17 +184,25 @@ export const STORAGE_TOPICS: Topic[] = [
       }
       const bTile = B.items['tile_layer:private'];
       if (bTile) {
-        const fin = await api(base, B.users.admin, 'POST', `/api/items/${bTile}/tile-layer/finalize`, {
-          storageKey: `item-tile-layer/o/${A.orgId}/${uuid}`,
-          storageUrl: 'x',
-          fileName: 'x.pmtiles',
-          sizeBytes: 1,
-        });
-        if (fin.status < 300) problems.push(`org B finalized a tile layer on an org A key: ${short(fin)}`);
+        const fin = await api(
+          base,
+          B.users.admin,
+          'POST',
+          `/api/items/${bTile}/tile-layer/finalize`,
+          {
+            storageKey: `item-tile-layer/o/${A.orgId}/${uuid}`,
+            storageUrl: 'x',
+            fileName: 'x.pmtiles',
+            sizeBytes: 1,
+          },
+        );
+        if (fin.status < 300)
+          problems.push(`org B finalized a tile layer on an org A key: ${short(fin)}`);
       }
 
       // Nothing of org A's changed, and A still reads it.
-      if (!memoryS3Of(storageOf(state)).objects.has(a.key)) problems.push('org A object was removed');
+      if (!memoryS3Of(storageOf(state)).objects.has(a.key))
+        problems.push('org A object was removed');
       const after = await api(base, A.users.contributor, 'GET', apiPath(a.url));
       if (after.status !== 200) problems.push(`org A lost its file: ${short(after)}`);
       return { ok: problems.length === 0, problems };
@@ -229,9 +252,13 @@ export const STORAGE_TOPICS: Topic[] = [
       await refused('complete', () => storage.completeMultipartUpload(a.key, asB, 'u', []));
       await refused('abort', () => storage.abortMultipartUpload(a.key, asB, 'u'));
       await refused('record usage', () => storage.recordUploaded(a.key, asB));
-      await refused('list under org A', () => storage.listObjectsUnder(`item-file/o/${A.orgId}/`, asB));
+      await refused('list under org A', () =>
+        storage.listObjectsUnder(`item-file/o/${A.orgId}/`, asB),
+      );
       await refused('list all', () => storage.listObjectsUnder('item-file/', asB));
-      await refused('list open uploads', () => storage.listMultipartUploadsUnder('ingest-upload/', asB));
+      await refused('list open uploads', () =>
+        storage.listMultipartUploadsUnder('ingest-upload/', asB),
+      );
       if (!s3.objects.has(a.key)) problems.push('the object was deleted by org B');
 
       // Crafted keys, refused even for org A.
@@ -253,7 +280,9 @@ export const STORAGE_TOPICS: Topic[] = [
       }
 
       // Controls: the owner gets every read and its listing.
-      await passes('owner read', () => storage.streamObject(a.key, asA).then((o) => o.body.destroy()));
+      await passes('owner read', () =>
+        storage.streamObject(a.key, asA).then((o) => o.body.destroy()),
+      );
       await passes('owner head', () => storage.headObjectSize(a.key, asA));
       await passes('owner raster path', () => storage.vsis3Path(a.key, asA));
       await passes('owner list', () => storage.listObjectsUnder(`item-file/o/${A.orgId}/`, asA));
@@ -270,7 +299,10 @@ export const STORAGE_TOPICS: Topic[] = [
       const usage = async (who: FixtureUser): Promise<{ objectBytes: number; text: string }> => {
         const r = await api(base, who, 'GET', '/api/admin/storage-usage');
         if (r.status !== 200) problems.push(`usage read failed for ${who.orgKey}: ${short(r)}`);
-        return { objectBytes: (r.body as { objectBytes?: number } | undefined)?.objectBytes ?? -1, text: r.text };
+        return {
+          objectBytes: (r.body as { objectBytes?: number } | undefined)?.objectBytes ?? -1,
+          text: r.text,
+        };
       };
       const a0 = await usage(A.users.admin);
       const b0 = await usage(B.users.admin);
@@ -289,16 +321,20 @@ export const STORAGE_TOPICS: Topic[] = [
       if (bPurge.status < 300) problems.push(`org B purged org A's item: ${short(bPurge)}`);
       // Trash and restore keep the bytes counted.
       await api(base, A.users.admin, 'DELETE', `/api/items/${file.itemId}`);
-      if ((await usage(A.users.admin)).objectBytes !== a1.objectBytes) problems.push('trash changed usage');
+      if ((await usage(A.users.admin)).objectBytes !== a1.objectBytes)
+        problems.push('trash changed usage');
       await api(base, A.users.admin, 'POST', `/api/items/${file.itemId}/restore`);
-      if ((await usage(A.users.admin)).objectBytes !== a1.objectBytes) problems.push('restore changed usage');
+      if ((await usage(A.users.admin)).objectBytes !== a1.objectBytes)
+        problems.push('restore changed usage');
       // Purge deletes the object and takes it off.
       await api(base, A.users.admin, 'DELETE', `/api/items/${file.itemId}`);
       const purge = await api(base, A.users.admin, 'DELETE', `/api/items/${file.itemId}/purge`);
       if (purge.status >= 300) problems.push(`org A purge failed: ${short(purge)}`);
       const a2 = await usage(A.users.admin);
-      if (a2.objectBytes !== a0.objectBytes) problems.push(`purge left usage at ${a2.objectBytes}, expected ${a0.objectBytes}`);
-      if (memoryS3Of(storageOf(state)).objects.has(file.key)) problems.push('purge left the object in the store');
+      if (a2.objectBytes !== a0.objectBytes)
+        problems.push(`purge left usage at ${a2.objectBytes}, expected ${a0.objectBytes}`);
+      if (memoryS3Of(storageOf(state)).objects.has(file.key))
+        problems.push('purge left the object in the store');
       return { ok: problems.length === 0, problems };
     },
   },
@@ -312,7 +348,11 @@ export const STORAGE_TOPICS: Topic[] = [
       const feature = A.featureIds[0];
       if (!layer || !feature || !A.attachmentId) return { ok: true, problems: [] };
       // The seeded attachment has a key in the older layout.
-      memoryS3Of(storageOf(state)).put(`feature-attachment/${A.attachmentKey}`, 'old-bytes', 'text/plain');
+      memoryS3Of(storageOf(state)).put(
+        `feature-attachment/${A.attachmentKey}`,
+        'old-bytes',
+        'text/plain',
+      );
       const path = `/api/items/${layer}/layers/${LAYER_ID}/features/${feature}/attachments/${A.attachmentId}/download`;
       const own = await api(state.app.baseUrl, A.users.admin, 'GET', path);
       if (own.status !== 200 || !own.text.includes('old-bytes')) {
@@ -334,7 +374,9 @@ export const STORAGE_TOPICS: Topic[] = [
       if (state.mode === 'multi') {
         // With many organizations the ledger decides, at the storage layer too.
         try {
-          await storageOf(state).streamObject(`feature-attachment/${A.attachmentKey}`, { orgId: B.orgId });
+          await storageOf(state).streamObject(`feature-attachment/${A.attachmentKey}`, {
+            orgId: B.orgId,
+          });
           problems.push('the storage layer let org B read an older key of org A');
         } catch (err) {
           if (!(err instanceof ObjectKeyRefusedError)) problems.push(`unexpected: ${String(err)}`);

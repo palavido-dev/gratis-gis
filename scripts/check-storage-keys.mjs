@@ -70,23 +70,59 @@ const K = `(?:${KINDS.join('|')})`;
 const TS_RULES = [
   { name: 'kind-prefixed string', re: new RegExp(`[\`'"]${K}/`) },
   { name: 'kind-prefixed string', re: new RegExp(`\\$\\{\\s{0,4}[\`'"]${K}[\`'"]\\s{0,4}\\}/`) },
-  { name: 'random key in a template', re: /`[^`\n]{0,300}\/\$\{\s{0,4}(?:crypto\.)?randomUUID\(\)/ },
+  {
+    name: 'random key in a template',
+    re: /`[^`\n]{0,300}\/\$\{\s{0,4}(?:crypto\.)?randomUUID\(\)/,
+  },
   { name: 'random key by concatenation', re: /\+\s{0,4}(?:crypto\.)?randomUUID\(\)/ },
   { name: 'random key by join', re: /randomUUID\(\)[^\]\n]{0,200}\]\s{0,4}\.join\(\s{0,4}[`'"]\// },
-  { name: 'kind joined into a path', re: new RegExp(`\\[\\s{0,4}[\`'"]${K}[\`'"][^\\]\\n]{0,300}\\]\\s{0,4}\\.join\\(\\s{0,4}[\`'"]/`) },
+  {
+    name: 'kind joined into a path',
+    re: new RegExp(
+      `\\[\\s{0,4}[\`'"]${K}[\`'"][^\\]\\n]{0,300}\\]\\s{0,4}\\.join\\(\\s{0,4}[\`'"]/`,
+    ),
+  },
 ];
 const PY_RULES = [
   { name: 'kind-prefixed string', re: new RegExp(`(?:^|[^\\w])[rRfFbBuU]{0,2}["']${K}/`) },
-  { name: 'random key in an f-string', re: /(?:^|[^\w])[rR]?[fF][rR]?["'][^"'\n]{0,300}\{\s{0,4}(?:str\()?uuid\.uuid4\(\)/ },
+  {
+    name: 'random key in an f-string',
+    re: /(?:^|[^\w])[rR]?[fF][rR]?["'][^"'\n]{0,300}\{\s{0,4}(?:str\()?uuid\.uuid4\(\)/,
+  },
   { name: 'random key by format', re: /["']\s{0,4}%\s{0,4}[^\n]{0,300}uuid\.uuid4\(\)/ },
   { name: 'random key by format', re: /\.format\([^\n]{0,300}uuid\.uuid4\(\)/ },
   { name: 'random key by concatenation', re: /\+\s{0,4}str\(\s{0,4}uuid\.uuid4\(\)/ },
   { name: 'random key by join', re: /["']\/["']\.join\([^\n]{0,300}uuid\.uuid4\(\)/ },
-  { name: 'kind joined into a path', re: new RegExp(`["']/["']\\.join\\(\\s{0,4}[\\[(]\\s{0,4}["']${K}["']`) },
+  {
+    name: 'kind joined into a path',
+    re: new RegExp(`["']/["']\\.join\\(\\s{0,4}[\\[(]\\s{0,4}["']${K}["']`),
+  },
 ];
 
 /** A character after which `/` starts a regular expression, not a division. */
-const REGEX_BEFORE = new Set(['', '(', ',', '=', ':', '[', '!', '&', '|', '?', '{', '}', ';', '+', '-', '*', '%', '<', '>', '~', '^']);
+const REGEX_BEFORE = new Set([
+  '',
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '%',
+  '<',
+  '>',
+  '~',
+  '^',
+]);
 
 /**
  * TypeScript source with comments blanked (line breaks kept) and
@@ -282,7 +318,12 @@ export function parseAllow(text) {
     if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2].trim()) {
       throw new Error(`${ALLOW_FILE}:${i + 1}: expected "<path> | <text> | <reason>"`);
     }
-    out.push({ path: parts[0].trim(), text: parts[1].trim(), reason: parts[2].trim(), used: false });
+    out.push({
+      path: parts[0].trim(),
+      text: parts[1].trim(),
+      reason: parts[2].trim(),
+      used: false,
+    });
   });
   return out;
 }
@@ -298,9 +339,13 @@ function walk(dir) {
   for (const entry of entries) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'testing' || entry.name === '.next') continue;
+      if (entry.name === 'node_modules' || entry.name === 'testing' || entry.name === '.next')
+        continue;
       out.push(...walk(p));
-    } else if (/\.(ts|tsx|mts|mjs)$/.test(entry.name) && !/\.(spec|test)\.(ts|tsx|mts|mjs)$/.test(entry.name)) {
+    } else if (
+      /\.(ts|tsx|mts|mjs)$/.test(entry.name) &&
+      !/\.(spec|test)\.(ts|tsx|mts|mjs)$/.test(entry.name)
+    ) {
       out.push(p);
     }
   }
@@ -327,7 +372,8 @@ function checkCheckout() {
   }
   for (const hit of findPy(readFileSync(join(ROOT, WORKER), 'utf8'))) report(WORKER, hit);
   for (const a of allow) {
-    if (!a.used) problems.push(`${ALLOW_FILE}: entry matches nothing, remove it: ${a.path} | ${a.text}`);
+    if (!a.used)
+      problems.push(`${ALLOW_FILE}: entry matches nothing, remove it: ${a.path} | ${a.text}`);
   }
   return problems;
 }
@@ -371,7 +417,11 @@ function selfTest() {
   for (const s of tsBad) if (findTs(s).length === 0) fails.push(`missed: ${s}`);
   for (const s of tsGood) if (findTs(s).length !== 0) fails.push(`flagged: ${s}`);
   // A multi-line comment hides nothing after it ends.
-  if (findTs("/*\n x\n*/\nconst k = 'item-file/' + id;").map((h) => h.line).join() !== '4') {
+  if (
+    findTs("/*\n x\n*/\nconst k = 'item-file/' + id;")
+      .map((h) => h.line)
+      .join() !== '4'
+  ) {
     fails.push('missed a key after a multi-line comment');
   }
   const pyBad = [

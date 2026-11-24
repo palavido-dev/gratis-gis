@@ -46,7 +46,9 @@ async function main(): Promise<void> {
     if (flag('--restart')) {
       await prisma.systemSetting.deleteMany({ where: { key: BACKFILL_CURSOR_SETTING } });
     }
-    const saved = await prisma.systemSetting.findUnique({ where: { key: BACKFILL_CURSOR_SETTING } });
+    const saved = await prisma.systemSetting.findUnique({
+      where: { key: BACKFILL_CURSOR_SETTING },
+    });
     const startAfter = (saved?.value as { after?: string } | undefined)?.after;
     if (startAfter) console.log(`[usage-backfill] resuming after ${startAfter}`);
     const maxPages = pagesArg();

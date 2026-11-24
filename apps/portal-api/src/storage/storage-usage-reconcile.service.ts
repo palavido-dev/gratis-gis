@@ -180,7 +180,8 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     /** Log a line every few pages (the first fill). */
     progress?: boolean;
   }): Promise<ReconcileSummary> {
-    if (this.running) throw new Error('A storage usage reconcile is already running in this process.');
+    if (this.running)
+      throw new Error('A storage usage reconcile is already running in this process.');
     const run = this.reconcileOnce(opts);
     this.running = run;
     try {
@@ -241,7 +242,8 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
         s.bytesSeen += obj.sizeBytes;
         const row = live.get(obj.key);
         if (row) {
-          if (row.createdAt < started) seenPerOrg.set(row.orgId, (seenPerOrg.get(row.orgId) ?? 0) + 1);
+          if (row.createdAt < started)
+            seenPerOrg.set(row.orgId, (seenPerOrg.get(row.orgId) ?? 0) + 1);
           if (row.bytes !== obj.sizeBytes) {
             s.resized += 1;
             orgsTouched.add(row.orgId);
@@ -260,11 +262,14 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
         s.recorded += 1;
         orgsTouched.add(owner.orgId);
         addDrift(owner.orgId, obj.sizeBytes, 1);
-        if (!opts.dryRun) await this.recordListed(obj.key, owner.orgId, obj.sizeBytes, owner.itemId);
+        if (!opts.dryRun)
+          await this.recordListed(obj.key, owner.orgId, obj.sizeBytes, owner.itemId);
       }
       lastKey = page.length > 0 ? page[page.length - 1]!.key : lastKey;
       if (opts.progress && pages % PROGRESS_EVERY_PAGES === 0) {
-        say(`storage usage reconcile running: ${s.objectsSeen} objects so far, ${s.recorded} recorded`);
+        say(
+          `storage usage reconcile running: ${s.objectsSeen} objects so far, ${s.recorded} recorded`,
+        );
       }
       if (opts.maxPages !== undefined && pages >= opts.maxPages) {
         s.resumeAfter = lastKey;
@@ -324,7 +329,9 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
 
   /** The last saved summary, for the operator page and metrics. */
   async lastSummary(): Promise<ReconcileSummary | null> {
-    const row = await this.prisma.systemSetting.findUnique({ where: { key: LAST_RECONCILE_SETTING } });
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: LAST_RECONCILE_SETTING },
+    });
     return (row?.value as ReconcileSummary | undefined) ?? null;
   }
 
@@ -337,7 +344,12 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     });
   }
 
-  private async recordListed(key: string, orgId: string, bytes: number, itemId: string | null): Promise<void> {
+  private async recordListed(
+    key: string,
+    orgId: string,
+    bytes: number,
+    itemId: string | null,
+  ): Promise<void> {
     const kind = parseObjectKey(key)?.kind;
     if (!kind) return;
     await this.ledger.record({ key, orgId, kind, bytes, itemId });
@@ -389,15 +401,19 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
       select: { storageKey: true, orgId: true, itemId: true },
       orderBy: { createdAt: 'asc' },
     });
-    for (const r of packages) if (r.storageKey) first(r.storageKey, { orgId: r.orgId, itemId: r.itemId });
+    for (const r of packages)
+      if (r.storageKey) first(r.storageKey, { orgId: r.orgId, itemId: r.itemId });
     const shots = await this.prisma.feedback.findMany({
       where: { screenshotKey: { not: null }, orgId: { not: null } },
       select: { screenshotKey: true, orgId: true },
       orderBy: { createdAt: 'asc' },
     });
-    for (const r of shots) if (r.screenshotKey && r.orgId) first(r.screenshotKey, { orgId: r.orgId, itemId: null });
+    for (const r of shots)
+      if (r.screenshotKey && r.orgId) first(r.screenshotKey, { orgId: r.orgId, itemId: null });
     // Public images are stored as URLs ending in the key.
-    const images = await this.prisma.$queryRaw<Array<{ url: string; org_id: string; item_id: string | null }>>(
+    const images = await this.prisma.$queryRaw<
+      Array<{ url: string; org_id: string; item_id: string | null }>
+    >(
       Prisma.sql`
         SELECT url, org_id, item_id FROM (
           SELECT thumbnail_url AS url, org_id::text AS org_id, id::text AS item_id, created_at
@@ -420,7 +436,10 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
   }
 
   /** The org (and item) each key belongs to, for keys the ledger has no live row for. */
-  private async attribute(keys: string[], refs: Map<string, Attribution>): Promise<Map<string, Attribution>> {
+  private async attribute(
+    keys: string[],
+    refs: Map<string, Attribution>,
+  ): Promise<Map<string, Attribution>> {
     const out = new Map<string, Attribution>();
     const rest: string[] = [];
     for (const key of keys) {
@@ -435,18 +454,23 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     const known = await this.prisma.$queryRaw<Array<{ key: string; org_id: string }>>(Prisma.sql`
       SELECT key, org_id::text AS org_id FROM storage_object WHERE key = ANY(${rest}::text[])`);
     for (const r of known) out.set(r.key, { orgId: r.org_id, itemId: null });
-    const attachments = await this.prisma.$queryRaw<Array<{ key: string; org_id: string; item_id: string }>>(
+    const attachments = await this.prisma.$queryRaw<
+      Array<{ key: string; org_id: string; item_id: string }>
+    >(
       Prisma.sql`
         SELECT DISTINCT ON (fa.storage_key) fa.storage_key AS key, i.org_id::text AS org_id, i.id::text AS item_id
           FROM feature_attachment fa JOIN item i ON i.id = fa.item_id
          WHERE fa.storage_key = ANY(${rest}::text[])
          ORDER BY fa.storage_key, fa.created_at`,
     );
-    for (const r of attachments) if (!out.has(r.key)) out.set(r.key, { orgId: r.org_id, itemId: r.item_id });
+    for (const r of attachments)
+      if (!out.has(r.key)) out.set(r.key, { orgId: r.org_id, itemId: r.item_id });
     const itemKeys = rest.filter((k) => !out.has(k));
     if (itemKeys.length > 0) {
       // Each probe is served by item_data_gin or the storage_ref index.
-      const items = await this.prisma.$queryRaw<Array<{ key: string; org_id: string; item_id: string }>>(
+      const items = await this.prisma.$queryRaw<
+        Array<{ key: string; org_id: string; item_id: string }>
+      >(
         Prisma.sql`
           SELECT k.key, i.org_id::text AS org_id, i.id::text AS item_id
             FROM unnest(${itemKeys}::text[]) AS k(key)
@@ -475,8 +499,13 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     }
     if (embedItems.size > 0) {
       const ids = [...embedItems.keys()].filter((id) => isLowerUuid(id));
-      const rows = await this.prisma.item.findMany({ where: { id: { in: ids } }, select: { id: true, orgId: true } });
-      for (const r of rows) for (const key of embedItems.get(r.id) ?? []) out.set(key, { orgId: r.orgId, itemId: r.id });
+      const rows = await this.prisma.item.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, orgId: true },
+      });
+      for (const r of rows)
+        for (const key of embedItems.get(r.id) ?? [])
+          out.set(key, { orgId: r.orgId, itemId: r.id });
     }
     return out;
   }

@@ -3,11 +3,7 @@
   "cases": [
     {
       "key": "item-file/5f0e2d1c-1111-4222-8333-444455556666",
-      "parsed": [
-        "item-file",
-        null,
-        "5f0e2d1c-1111-4222-8333-444455556666"
-      ]
+      "parsed": ["item-file", null, "5f0e2d1c-1111-4222-8333-444455556666"]
     },
     {
       "key": "item-file/o/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666",
@@ -35,11 +31,7 @@
     },
     {
       "key": "sam-embed/5f0e2d1c-1111-4222-8333-444455556666/16/3/4.json",
-      "parsed": [
-        "sam-embed",
-        null,
-        "5f0e2d1c-1111-4222-8333-444455556666/16/3/4.json"
-      ]
+      "parsed": ["sam-embed", null, "5f0e2d1c-1111-4222-8333-444455556666/16/3/4.json"]
     },
     {
       "key": "ingest-upload/5f0e2d1c-1111-4222-8333-444455556666/5f0e2d1c-1111-4222-8333-444455556666",
@@ -51,11 +43,7 @@
     },
     {
       "key": "feature-attachment/layer/b.txt",
-      "parsed": [
-        "feature-attachment",
-        null,
-        "layer/b.txt"
-      ]
+      "parsed": ["feature-attachment", null, "layer/b.txt"]
     },
     {
       "key": "user-avatar/o/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666",

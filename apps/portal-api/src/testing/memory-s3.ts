@@ -133,7 +133,11 @@ export class MemoryS3 {
         const u = this.uploads.get(String(i.UploadId));
         if (!u || u.key !== key) throw notFound('NoSuchUpload');
         return {
-          Parts: [...u.parts.entries()].map(([n, b]) => ({ PartNumber: n, ETag: `"${n}"`, Size: b.length })),
+          Parts: [...u.parts.entries()].map(([n, b]) => ({
+            PartNumber: n,
+            ETag: `"${n}"`,
+            Size: b.length,
+          })),
           IsTruncated: false,
         };
       }

@@ -197,7 +197,12 @@ export async function runFeatureUsagePass(
 const MAX_ERROR_LENGTH = 500;
 
 /** Stamp a layer whose measure failed, keeping its last numbers. */
-export async function markMeasureFailed(db: Db, itemId: string, layerKey: string, err: unknown): Promise<void> {
+export async function markMeasureFailed(
+  db: Db,
+  itemId: string,
+  layerKey: string,
+  err: unknown,
+): Promise<void> {
   const message = (err instanceof Error ? err.message : String(err)).slice(0, MAX_ERROR_LENGTH);
   await db.$executeRaw(Prisma.sql`
     UPDATE layer_storage_usage SET measured_at = now(), measure_error = ${message}

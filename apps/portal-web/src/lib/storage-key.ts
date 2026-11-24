@@ -55,7 +55,12 @@ export function parseObjectKey(key: unknown): ParsedObjectKey | null {
   if (!OBJECT_KINDS.has(kind) || segments.length < 2) return null;
   if (segments[1] === ORG_SEGMENT) {
     const orgId = segments[2];
-    if (segments.length < 4 || typeof orgId !== 'string' || orgId.length !== 36 || !UUID_RE.test(orgId)) {
+    if (
+      segments.length < 4 ||
+      typeof orgId !== 'string' ||
+      orgId.length !== 36 ||
+      !UUID_RE.test(orgId)
+    ) {
       return null;
     }
     return { kind, orgId, rest: segments.slice(3).join('/') };

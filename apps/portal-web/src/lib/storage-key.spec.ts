@@ -27,7 +27,9 @@ describe('isPrivateStorageProxyPath', () => {
   it('lets both key layouts through for proxied kinds', () => {
     expect(isPrivateStorageProxyPath(`storage/private/item-file/${U}`)).toBe(true);
     expect(isPrivateStorageProxyPath(`storage/private/feature-attachment/o/${A}/${U}`)).toBe(true);
-    expect(isPrivateStorageProxyPath(`storage/private/item-point-cloud/o/${A}/${U}.copc.laz`)).toBe(true);
+    expect(isPrivateStorageProxyPath(`storage/private/item-point-cloud/o/${A}/${U}.copc.laz`)).toBe(
+      true,
+    );
   });
 
   it('refuses other kinds, nesting, traversal and encoded separators', () => {

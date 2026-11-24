@@ -74,7 +74,11 @@ describe('storageKey', () => {
 describe('parseObjectKey', () => {
   it('reads both layouts', () => {
     expect(parseObjectKey(`item-file/${U}`)).toEqual({ kind: 'item-file', orgId: null, rest: U });
-    expect(parseObjectKey(`item-file/o/${A}/${U}`)).toEqual({ kind: 'item-file', orgId: A, rest: U });
+    expect(parseObjectKey(`item-file/o/${A}/${U}`)).toEqual({
+      kind: 'item-file',
+      orgId: A,
+      rest: U,
+    });
     expect(parseObjectKey(`sam-embed/${U}/16/1/2.bin`)).toMatchObject({ orgId: null });
   });
 
@@ -160,7 +164,9 @@ describe('assertObjectOwner', () => {
   it(
     'lets system work through without a check',
     withMode('multi', async () => {
-      await expect(assertObjectOwner('anything at all', systemOwner('test'), noLedger)).resolves.toBeUndefined();
+      await expect(
+        assertObjectOwner('anything at all', systemOwner('test'), noLedger),
+      ).resolves.toBeUndefined();
     }),
   );
 
@@ -168,7 +174,9 @@ describe('assertObjectOwner', () => {
     'single mode: an older key belongs to the one org, with no ledger read',
     withMode('single', async () => {
       const ledger = jest.fn(async () => null);
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, ledger)).resolves.toBeUndefined();
+      await expect(
+        assertObjectOwner(`item-file/${U}`, { orgId: A }, ledger),
+      ).resolves.toBeUndefined();
       expect(ledger).not.toHaveBeenCalled();
     }),
   );
@@ -177,14 +185,16 @@ describe('assertObjectOwner', () => {
     'multi mode: an older key passes only for the org the ledger records',
     withMode('multi', async () => {
       const ledger = async () => A;
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, ledger)).resolves.toBeUndefined();
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: B }, ledger)).rejects.toBeInstanceOf(
-        ObjectKeyRefusedError,
-      );
+      await expect(
+        assertObjectOwner(`item-file/${U}`, { orgId: A }, ledger),
+      ).resolves.toBeUndefined();
+      await expect(
+        assertObjectOwner(`item-file/${U}`, { orgId: B }, ledger),
+      ).rejects.toBeInstanceOf(ObjectKeyRefusedError);
       // Unknown to the ledger: refused, never assumed to be the caller's.
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, noLedger)).rejects.toBeInstanceOf(
-        ObjectKeyRefusedError,
-      );
+      await expect(
+        assertObjectOwner(`item-file/${U}`, { orgId: A }, noLedger),
+      ).rejects.toBeInstanceOf(ObjectKeyRefusedError);
     }),
   );
 
@@ -248,8 +258,15 @@ describe('kind and org helpers', () => {
   });
 
   it('refuses a job source that names another org, and passes older keys', () => {
-    expect(() => assertKeysMayBelongToOrg([`item-tile-layer/o/${A}/${U}`, `item-tile-layer/${U}`, '', null], A)).not.toThrow();
-    expect(() => assertKeysMayBelongToOrg([`item-tile-layer/o/${B}/${U}`], A)).toThrow(/not stored where/);
+    expect(() =>
+      assertKeysMayBelongToOrg(
+        [`item-tile-layer/o/${A}/${U}`, `item-tile-layer/${U}`, '', null],
+        A,
+      ),
+    ).not.toThrow();
+    expect(() => assertKeysMayBelongToOrg([`item-tile-layer/o/${B}/${U}`], A)).toThrow(
+      /not stored where/,
+    );
   });
 });
 
@@ -258,8 +275,13 @@ describe('publicUrlObject', () => {
   const at = (rest: string) => `https://files.example.org/gg/${rest}`;
 
   it('reads one object of the kind in either layout', () => {
-    expect(publicUrlObject(at(`user-avatar/${U}`), base, 'user-avatar')).toMatchObject({ orgId: null, key: `user-avatar/${U}` });
-    expect(publicUrlObject(at(`user-avatar/o/${A}/${U}`), base, 'user-avatar')).toMatchObject({ orgId: A });
+    expect(publicUrlObject(at(`user-avatar/${U}`), base, 'user-avatar')).toMatchObject({
+      orgId: null,
+      key: `user-avatar/${U}`,
+    });
+    expect(publicUrlObject(at(`user-avatar/o/${A}/${U}`), base, 'user-avatar')).toMatchObject({
+      orgId: A,
+    });
     expect(publicUrlObject(at(`user-avatar/${U}.png`), base, 'user-avatar')).not.toBeNull();
   });
 
@@ -284,7 +306,9 @@ describe('publicUrlObject', () => {
 describe('objectKeyInStoredUrl', () => {
   it('finds the key under any host in either layout', () => {
     expect(objectKeyInStoredUrl(`http://old-host:9000/b/item-thumb/${U}`)).toBe(`item-thumb/${U}`);
-    expect(objectKeyInStoredUrl(`https://cdn.example/b/group-thumb/o/${A}/${U}?v=2`)).toBe(`group-thumb/o/${A}/${U}`);
+    expect(objectKeyInStoredUrl(`https://cdn.example/b/group-thumb/o/${A}/${U}?v=2`)).toBe(
+      `group-thumb/o/${A}/${U}`,
+    );
     expect(objectKeyInStoredUrl(`https://cdn.example/b/org-hero/o/${A}/../${U}`)).toBeNull();
     expect(objectKeyInStoredUrl('https://cdn.example/no-key-here.png')).toBeNull();
   });
@@ -326,7 +350,9 @@ describe('older keys before and after the first ledger fill', () => {
     'multi mode, ledger not filled: a key with no row passes and is counted',
     withMode('multi', async () => {
       const before = legacyKeyCounters.passedBeforeFill;
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(false))).resolves.toBeUndefined();
+      await expect(
+        assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(false)),
+      ).resolves.toBeUndefined();
       expect(legacyKeyCounters.passedBeforeFill).toBe(before + 1);
     }),
   );
@@ -334,9 +360,9 @@ describe('older keys before and after the first ledger fill', () => {
   it(
     'multi mode, ledger not filled: a row for another org still refuses',
     withMode('multi', async () => {
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(false, B))).rejects.toBeInstanceOf(
-        ObjectKeyRefusedError,
-      );
+      await expect(
+        assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(false, B)),
+      ).rejects.toBeInstanceOf(ObjectKeyRefusedError);
     }),
   );
 
@@ -347,9 +373,9 @@ describe('older keys before and after the first ledger fill', () => {
       try {
         const before = legacyKeyCounters.refusedNoRow;
         for (let i = 0; i < 3; i += 1) {
-          await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(true))).rejects.toBeInstanceOf(
-            ObjectKeyRefusedError,
-          );
+          await expect(
+            assertObjectOwner(`item-file/${U}`, { orgId: A }, lookup(true)),
+          ).rejects.toBeInstanceOf(ObjectKeyRefusedError);
         }
         expect(legacyKeyCounters.refusedNoRow).toBe(before + 3);
         const lines = warn.mock.calls.filter((c) => String(c[0]).includes('no usage ledger row'));
@@ -367,7 +393,9 @@ describe('older keys before and after the first ledger fill', () => {
       const l: LegacyOwnerLookup = { orgOf: async () => null, ledgerFilled: async () => filled };
       await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, l)).resolves.toBeUndefined();
       filled = true;
-      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, l)).rejects.toBeInstanceOf(ObjectKeyRefusedError);
+      await expect(assertObjectOwner(`item-file/${U}`, { orgId: A }, l)).rejects.toBeInstanceOf(
+        ObjectKeyRefusedError,
+      );
     }),
   );
 
@@ -384,9 +412,9 @@ describe('older keys before and after the first ledger fill', () => {
   it(
     'a new-layout key never depends on the fill',
     withMode('multi', async () => {
-      await expect(assertObjectOwner(`item-file/o/${B}/${U}`, { orgId: A }, lookup(false))).rejects.toBeInstanceOf(
-        ObjectKeyRefusedError,
-      );
+      await expect(
+        assertObjectOwner(`item-file/o/${B}/${U}`, { orgId: A }, lookup(false)),
+      ).rejects.toBeInstanceOf(ObjectKeyRefusedError);
     }),
   );
 });

@@ -4,7 +4,10 @@ import { Logger } from '@nestjs/common';
 import type { LeaderElectionService } from '../cron/leader-election.service.js';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { StorageLedgerService } from './storage-ledger.service.js';
-import { StorageUsageReconcileService, type ReconcileSummary } from './storage-usage-reconcile.service.js';
+import {
+  StorageUsageReconcileService,
+  type ReconcileSummary,
+} from './storage-usage-reconcile.service.js';
 import type { StorageService } from './storage.service.js';
 
 function summary(): ReconcileSummary {
@@ -25,7 +28,9 @@ function summary(): ReconcileSummary {
 }
 
 function build(opts: { filled: boolean; leader?: boolean | null; fail?: boolean }) {
-  const ledger = { ledgerFilled: jest.fn(async () => opts.filled) } as unknown as StorageLedgerService;
+  const ledger = {
+    ledgerFilled: jest.fn(async () => opts.filled),
+  } as unknown as StorageLedgerService;
   const leader =
     opts.leader === null || opts.leader === undefined
       ? undefined
@@ -36,12 +41,10 @@ function build(opts: { filled: boolean; leader?: boolean | null; fail?: boolean 
     ledger,
     leader,
   );
-  const reconcile = jest
-    .spyOn(svc, 'reconcile')
-    .mockImplementation(async () => {
-      if (opts.fail) throw new Error('store down');
-      return summary();
-    });
+  const reconcile = jest.spyOn(svc, 'reconcile').mockImplementation(async () => {
+    if (opts.fail) throw new Error('store down');
+    return summary();
+  });
   return { svc, reconcile };
 }
 
@@ -66,7 +69,9 @@ describe('first fill of the storage usage ledger', () => {
     const { svc, reconcile } = build({ filled: false, leader: true });
     await expect(svc.ensureFirstFill()).resolves.toBe('ran');
     expect(reconcile).toHaveBeenCalledWith({ dryRun: false, progress: true });
-    expect(warn.mock.calls.some((c) => String(c[0]).includes('Running the first fill now'))).toBe(true);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes('Running the first fill now'))).toBe(
+      true,
+    );
     expect(log.mock.calls.some((c) => String(c[0]).includes('first fill finished'))).toBe(true);
   });
 

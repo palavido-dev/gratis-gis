@@ -137,10 +137,14 @@ export class StorageLedgerService {
     if (now - this.filledCheckedAt < FILLED_RECHECK_MS && this.filledCheckedAt !== 0) return false;
     this.filledCheckedAt = now;
     try {
-      const row = await this.prisma.systemSetting.findUnique({ where: { key: LEDGER_FILLED_SETTING } });
+      const row = await this.prisma.systemSetting.findUnique({
+        where: { key: LEDGER_FILLED_SETTING },
+      });
       this.filled = row !== null;
     } catch (err) {
-      this.log.warn(`Could not read the ledger fill marker: ${err instanceof Error ? err.message : err}`);
+      this.log.warn(
+        `Could not read the ledger fill marker: ${err instanceof Error ? err.message : err}`,
+      );
     }
     return this.filled;
   }
@@ -249,7 +253,12 @@ export class StorageLedgerService {
   async recountOrg(
     orgId: string,
     repaired: { bytes: number; objects: number } = { bytes: 0, objects: 0 },
-  ): Promise<{ bytesBefore: number; bytesAfter: number; objectsBefore: number; objectsAfter: number }> {
+  ): Promise<{
+    bytesBefore: number;
+    bytesAfter: number;
+    objectsBefore: number;
+    objectsAfter: number;
+  }> {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw(Prisma.sql`
         INSERT INTO org_storage_usage (org_id) VALUES (${orgId}::uuid)
@@ -280,7 +289,9 @@ export class StorageLedgerService {
   }
 
   /** Live ledger rows among `keys`, with their org and size. */
-  async liveRows(keys: string[]): Promise<Map<string, { orgId: string; bytes: number; createdAt: Date }>> {
+  async liveRows(
+    keys: string[],
+  ): Promise<Map<string, { orgId: string; bytes: number; createdAt: Date }>> {
     const out = new Map<string, { orgId: string; bytes: number; createdAt: Date }>();
     if (keys.length === 0) return out;
     const rows = await this.prisma.$queryRaw<
@@ -324,7 +335,11 @@ export class StorageLedgerService {
   }
 }
 
-async function recordInTx(tx: Tx, e: LedgerEntry & { bytes: number }, log: Logger): Promise<number> {
+async function recordInTx(
+  tx: Tx,
+  e: LedgerEntry & { bytes: number },
+  log: Logger,
+): Promise<number> {
   const bytes = BigInt(e.bytes);
   const inserted = await tx.$queryRaw<Array<{ bytes: bigint }>>(Prisma.sql`
     INSERT INTO storage_object (key, org_id, kind, bytes, item_id)

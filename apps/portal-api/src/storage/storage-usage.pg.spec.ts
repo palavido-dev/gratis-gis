@@ -26,7 +26,9 @@ const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
 
 if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
-  throw new Error('REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the storage usage pg suite would skip.');
+  throw new Error(
+    'REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the storage usage pg suite would skip.',
+  );
 }
 
 jest.setTimeout(180_000);
@@ -99,7 +101,10 @@ d('storage usage ledger against Postgres', () => {
   it('upload, replace and delete move the totals up, keep them right, and down', async () => {
     const before = await totals(ORG_A);
     const { key } = await storage.uploadBuffer('item-file', { orgId: ORG_A }, Buffer.alloc(1000));
-    expect(await totals(ORG_A)).toEqual({ bytes: before.bytes + 1000, objects: before.objects + 1 });
+    expect(await totals(ORG_A)).toEqual({
+      bytes: before.bytes + 1000,
+      objects: before.objects + 1,
+    });
     // Replace in place (same key, new bytes), as a re-upload or a
     // reconcile that finds a new size would record it.
     s3.put(key, Buffer.alloc(400));
@@ -118,9 +123,14 @@ d('storage usage ledger against Postgres', () => {
   it('twenty parallel uploads end with the exact sum', async () => {
     const before = await totals(ORG_A);
     const sizes = Array.from({ length: 20 }, (_, i) => 100 + i * 37);
-    await Promise.all(sizes.map((n) => storage.uploadBuffer('item-file', { orgId: ORG_A }, Buffer.alloc(n))));
+    await Promise.all(
+      sizes.map((n) => storage.uploadBuffer('item-file', { orgId: ORG_A }, Buffer.alloc(n))),
+    );
     const sum = sizes.reduce((a, b) => a + b, 0);
-    expect(await totals(ORG_A)).toEqual({ bytes: before.bytes + sum, objects: before.objects + 20 });
+    expect(await totals(ORG_A)).toEqual({
+      bytes: before.bytes + sum,
+      objects: before.objects + 20,
+    });
   });
 
   it('charges the size in the store, not the size the client declared', async () => {
@@ -144,7 +154,10 @@ d('storage usage ledger against Postgres', () => {
     expect(await ledger.record({ key, orgId: ORG_B, kind: 'item-file', bytes: 1 })).toBe(0);
     expect(await ledger.markDeleted(key, ORG_B)).toBe(0);
     expect(await totals(ORG_B)).toEqual(bBefore);
-    expect(await totals(ORG_A)).toEqual({ bytes: aBefore.bytes + 77, objects: aBefore.objects + 1 });
+    expect(await totals(ORG_A)).toEqual({
+      bytes: aBefore.bytes + 77,
+      objects: aBefore.objects + 1,
+    });
   });
 
   it('backfill: a dry run reports the right totals, a real run fills them, a second run changes nothing', async () => {
@@ -153,7 +166,12 @@ d('storage usage ledger against Postgres', () => {
     await pool.query(
       `INSERT INTO item (id, org_id, owner_id, type, title, data_json, updated_at)
        VALUES ($1, $2, $3, 'file', 'old', $4::jsonb, now())`,
-      [ITEM_A, ORG_A, USER_A, JSON.stringify({ storageKey: 'item-file/0f8fad5b-d9cb-469f-a165-70867728950e' })],
+      [
+        ITEM_A,
+        ORG_A,
+        USER_A,
+        JSON.stringify({ storageKey: 'item-file/0f8fad5b-d9cb-469f-a165-70867728950e' }),
+      ],
     );
     s3.put('item-file/0f8fad5b-d9cb-469f-a165-70867728950e', Buffer.alloc(3000));
     s3.put('item-file/1f8fad5b-d9cb-469f-a165-70867728950e', Buffer.alloc(11));
@@ -167,13 +185,19 @@ d('storage usage ledger against Postgres', () => {
 
     const real = await reconcile.reconcile({ dryRun: false, log: () => undefined });
     expect(real.recorded).toBe(1);
-    expect(await totals(ORG_A)).toEqual({ bytes: before.bytes + 3000, objects: before.objects + 1 });
+    expect(await totals(ORG_A)).toEqual({
+      bytes: before.bytes + 3000,
+      objects: before.objects + 1,
+    });
     // The unattributed object is still there: reported, never deleted.
     expect(s3.objects.has('item-file/1f8fad5b-d9cb-469f-a165-70867728950e')).toBe(true);
 
     const again = await reconcile.reconcile({ dryRun: false, log: () => undefined });
     expect(again.recorded + again.resized + again.markedDeleted).toBe(0);
-    expect(await totals(ORG_A)).toEqual({ bytes: before.bytes + 3000, objects: before.objects + 1 });
+    expect(await totals(ORG_A)).toEqual({
+      bytes: before.bytes + 3000,
+      objects: before.objects + 1,
+    });
     const last = await reconcile.lastSummary();
     expect(last?.finishedAt).toBeTruthy();
   });
@@ -196,9 +220,16 @@ d('storage usage ledger against Postgres', () => {
   });
 
   it('reconcile repairs an object deleted behind its back and one added behind its back', async () => {
-    const { key: gone } = await storage.uploadBuffer('item-file', { orgId: ORG_B }, Buffer.alloc(500));
+    const { key: gone } = await storage.uploadBuffer(
+      'item-file',
+      { orgId: ORG_B },
+      Buffer.alloc(500),
+    );
     // Backdate the row so it predates the reconcile's walk.
-    await pool.query(`UPDATE storage_object SET created_at = now() - interval '1 hour' WHERE key = $1`, [gone]);
+    await pool.query(
+      `UPDATE storage_object SET created_at = now() - interval '1 hour' WHERE key = $1`,
+      [gone],
+    );
     const before = await totals(ORG_B);
     s3.objects.delete(gone); // removed directly in the store
     const added = storageKey('item-file', ORG_B);
@@ -207,7 +238,10 @@ d('storage usage ledger against Postgres', () => {
     const r = await reconcile.reconcile({ dryRun: false, log: () => undefined });
     expect(r.markedDeleted).toBeGreaterThanOrEqual(1);
     expect(r.recorded).toBeGreaterThanOrEqual(1);
-    expect(await totals(ORG_B)).toEqual({ bytes: before.bytes - 500 + 70, objects: before.objects });
+    expect(await totals(ORG_B)).toEqual({
+      bytes: before.bytes - 500 + 70,
+      objects: before.objects,
+    });
     const row = await pool.query<{ drift_bytes: string; reconciled_at: Date | null }>(
       'SELECT drift_bytes, reconciled_at FROM org_storage_usage WHERE org_id = $1',
       [ORG_B],
@@ -217,7 +251,9 @@ d('storage usage ledger against Postgres', () => {
   });
 
   it('reconcile puts totals that drifted from their rows back to the sum', async () => {
-    await pool.query(`UPDATE org_storage_usage SET bytes = bytes + 999999 WHERE org_id = $1`, [ORG_A]);
+    await pool.query(`UPDATE org_storage_usage SET bytes = bytes + 999999 WHERE org_id = $1`, [
+      ORG_A,
+    ]);
     await reconcile.reconcile({ dryRun: false, log: () => undefined });
     const sum = await pool.query<{ b: string }>(
       `SELECT COALESCE(SUM(bytes), 0) AS b FROM storage_object WHERE org_id = $1 AND deleted_at IS NULL`,
@@ -241,9 +277,14 @@ d('storage usage ledger against Postgres', () => {
   it('a completed real reconcile writes the fill marker; a dry run or a stopped walk does not', async () => {
     await pool.query(`DELETE FROM system_setting WHERE key = $1`, [LEDGER_FILLED_SETTING]);
     const freshLedger = new StorageLedgerService(prisma);
-    const fresh = new StorageUsageReconcileService(prisma, withMemoryS3(new StorageService(new ConfigService(), freshLedger), s3), freshLedger);
+    const fresh = new StorageUsageReconcileService(
+      prisma,
+      withMemoryS3(new StorageService(new ConfigService(), freshLedger), s3),
+      freshLedger,
+    );
     const marker = async () =>
-      (await pool.query(`SELECT 1 FROM system_setting WHERE key = $1`, [LEDGER_FILLED_SETTING])).rowCount;
+      (await pool.query(`SELECT 1 FROM system_setting WHERE key = $1`, [LEDGER_FILLED_SETTING]))
+        .rowCount;
     await fresh.reconcile({ dryRun: true, log: () => undefined });
     expect(await marker()).toBe(0);
     s3.pageSize = 1;
@@ -276,7 +317,9 @@ d('storage usage ledger against Postgres', () => {
       // The first fill finds no owner for it, so it stays unknown.
       await r2.reconcile({ dryRun: false, log: () => undefined });
       await expect(l2.ledgerFilled()).resolves.toBe(true);
-      await expect(st2.headObjectSize(older, { orgId: ORG_A })).rejects.toBeInstanceOf(ObjectKeyRefusedError);
+      await expect(st2.headObjectSize(older, { orgId: ORG_A })).rejects.toBeInstanceOf(
+        ObjectKeyRefusedError,
+      );
       // Once an item names it, the next reconcile records its owner.
       await pool.query(
         `INSERT INTO item (id, org_id, owner_id, type, title, data_json, updated_at)
@@ -285,7 +328,9 @@ d('storage usage ledger against Postgres', () => {
       );
       await r2.reconcile({ dryRun: false, log: () => undefined });
       await expect(st2.headObjectSize(older, { orgId: ORG_A })).resolves.toBe(9);
-      await expect(st2.headObjectSize(older, { orgId: ORG_B })).rejects.toBeInstanceOf(ObjectKeyRefusedError);
+      await expect(st2.headObjectSize(older, { orgId: ORG_B })).rejects.toBeInstanceOf(
+        ObjectKeyRefusedError,
+      );
     } finally {
       if (before === undefined) delete process.env.GRATIS_TENANCY;
       else process.env.GRATIS_TENANCY = before;
@@ -295,7 +340,10 @@ d('storage usage ledger against Postgres', () => {
 
   it('a store error while checking for missing objects marks nothing deleted', async () => {
     const { key } = await storage.uploadBuffer('item-file', { orgId: ORG_B }, Buffer.alloc(31));
-    await pool.query(`UPDATE storage_object SET created_at = now() - interval '1 hour' WHERE key = $1`, [key]);
+    await pool.query(
+      `UPDATE storage_object SET created_at = now() - interval '1 hour' WHERE key = $1`,
+      [key],
+    );
     s3.objects.delete(key);
     const send = s3.send.bind(s3);
     s3.send = async (cmd: Parameters<MemoryS3['send']>[0]) => {
@@ -337,7 +385,10 @@ d('storage usage ledger against Postgres', () => {
     );
     s3.put(thumb, Buffer.alloc(5));
     await reconcile.reconcile({ dryRun: false, log: () => undefined });
-    const row = await pool.query<{ org_id: string }>(`SELECT org_id FROM storage_object WHERE key = $1`, [thumb]);
+    const row = await pool.query<{ org_id: string }>(
+      `SELECT org_id FROM storage_object WHERE key = $1`,
+      [thumb],
+    );
     expect(row.rows[0]!.org_id).toBe(ORG_A);
   });
 });

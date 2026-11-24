@@ -2,7 +2,11 @@
 import { ConfigService } from '@nestjs/config';
 
 import type { PrismaService } from '../prisma/prisma.service.js';
-import { BoundedLru, LEDGER_FILLED_SETTING, StorageLedgerService } from './storage-ledger.service.js';
+import {
+  BoundedLru,
+  LEDGER_FILLED_SETTING,
+  StorageLedgerService,
+} from './storage-ledger.service.js';
 import { StorageService, isMissingObjectError } from './storage.service.js';
 import { systemOwner } from './object-keys.js';
 
@@ -14,9 +18,9 @@ describe('StorageService.privateApiUrl', () => {
     expect(StorageService.privateApiUrl('item-file', `item-file/${U}`)).toBe(
       `/api/portal/storage/private/item-file/${U}`,
     );
-    expect(StorageService.privateApiUrl('feature-attachment', `feature-attachment/o/${A}/${U}`)).toBe(
-      `/api/portal/storage/private/feature-attachment/o/${A}/${U}`,
-    );
+    expect(
+      StorageService.privateApiUrl('feature-attachment', `feature-attachment/o/${A}/${U}`),
+    ).toBe(`/api/portal/storage/private/feature-attachment/o/${A}/${U}`);
   });
 });
 
@@ -28,7 +32,10 @@ describe('StorageService.headObjectSizeStrict', () => {
   }
 
   it('answers null only when the object is missing', async () => {
-    const missing = Object.assign(new Error('nf'), { name: 'NotFound', $metadata: { httpStatusCode: 404 } });
+    const missing = Object.assign(new Error('nf'), {
+      name: 'NotFound',
+      $metadata: { httpStatusCode: 404 },
+    });
     const svc = serviceWith(jest.fn().mockRejectedValue(missing));
     await expect(svc.headObjectSizeStrict(`item-file/${U}`, systemOwner('t'))).resolves.toBeNull();
   });
@@ -36,7 +43,9 @@ describe('StorageService.headObjectSizeStrict', () => {
   it('throws on any other store error, where headObjectSize would say null', async () => {
     const outage = Object.assign(new Error('socket hang up'), { name: 'TimeoutError' });
     const svc = serviceWith(jest.fn().mockRejectedValue(outage));
-    await expect(svc.headObjectSizeStrict(`item-file/${U}`, systemOwner('t'))).rejects.toThrow('socket hang up');
+    await expect(svc.headObjectSizeStrict(`item-file/${U}`, systemOwner('t'))).rejects.toThrow(
+      'socket hang up',
+    );
     await expect(svc.headObjectSize(`item-file/${U}`, systemOwner('t'))).resolves.toBeNull();
   });
 
@@ -73,13 +82,17 @@ describe('StorageLedgerService owner cache and fill marker', () => {
     const queryRaw = jest.fn(async () => rows);
     const findUnique = jest.fn(async () => marker);
     const upsert = jest.fn(async () => ({}));
-    const prisma = { $queryRaw: queryRaw, systemSetting: { findUnique, upsert } } as unknown as PrismaService;
+    const prisma = {
+      $queryRaw: queryRaw,
+      systemSetting: { findUnique, upsert },
+    } as unknown as PrismaService;
     return { ledger: new StorageLedgerService(prisma), queryRaw, findUnique, upsert };
   }
 
   it('reads an older key owner once, then from memory', async () => {
     const { ledger, queryRaw } = ledgerWith([{ org_id: A }]);
-    for (let i = 0; i < 5; i += 1) await expect(ledger.orgOfKey(`item-tile-layer/${U}`)).resolves.toBe(A);
+    for (let i = 0; i < 5; i += 1)
+      await expect(ledger.orgOfKey(`item-tile-layer/${U}`)).resolves.toBe(A);
     expect(queryRaw).toHaveBeenCalledTimes(1);
   });
 
