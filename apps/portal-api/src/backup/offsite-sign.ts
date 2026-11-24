@@ -427,7 +427,11 @@ export function checkSignature(
   });
   if (m.prefix !== expected.prefix) return mismatch('folder');
   if (m.name !== expected.name) return mismatch('name');
-  if (expected.bytes !== undefined && expected.bytes !== null && Number(m.bytes) !== expected.bytes) {
+  if (
+    expected.bytes !== undefined &&
+    expected.bytes !== null &&
+    Number(m.bytes) !== expected.bytes
+  ) {
     return mismatch('size');
   }
   if (

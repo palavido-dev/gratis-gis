@@ -95,7 +95,13 @@ describe('off-site notices', () => {
     expect(auto.text).toContain('still count as good');
     const autoDropped = renderNotification(
       'backup_failed',
-      { kind: 'offsite_signing_key_changed', from: 'a', to: 'b', automatic: true, oldKeyKept: false },
+      {
+        kind: 'offsite_signing_key_changed',
+        from: 'a',
+        to: 'b',
+        automatic: true,
+        oldKeyKept: false,
+      },
       ctx,
     )!;
     expect(autoDropped.text).toContain('set aside (kept, not deleted)');

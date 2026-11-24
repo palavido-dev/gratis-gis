@@ -480,7 +480,7 @@ grep -q 'recovery_offsite_reset_sql' "$HERE/restore.sh" || fail 'restore.sh does
 # PATH; skipped otherwise.
 if [[ -n "${TEST_DATABASE_URL:-}" ]] && command -v psql >/dev/null 2>&1; then
   schema="recovery_offsite_$$"
-  pg() { PGOPTIONS="-c search_path=$schema" psql "${TEST_DATABASE_URL%%\?*}" -X -A -t -q -v ON_ERROR_STOP=1 "$@"; }
+  pg() { PGOPTIONS="-c search_path=$schema -c client_min_messages=warning" psql "${TEST_DATABASE_URL%%\?*}" -X -A -t -q -v ON_ERROR_STOP=1 "$@"; }
   pg -c "CREATE SCHEMA $schema"
   offsite_case() {
     pg -c "DROP TABLE IF EXISTS backup_config" -c "CREATE TABLE backup_config (

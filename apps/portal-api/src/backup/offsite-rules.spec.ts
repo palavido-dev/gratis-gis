@@ -178,7 +178,9 @@ describe('copy names', () => {
   const ARCHIVE = 'backup-2026-11-24T02-00-00-123-abcdef12.tar.gz';
   it('uses the archive name first, then a numbered name for each new attempt', () => {
     expect(copyObjectName(ARCHIVE, 1)).toBe(`${ARCHIVE}.enc`);
-    expect(copyObjectName(ARCHIVE, 2)).toBe('backup-2026-11-24T02-00-00-123-abcdef12-r2.tar.gz.enc');
+    expect(copyObjectName(ARCHIVE, 2)).toBe(
+      'backup-2026-11-24T02-00-00-123-abcdef12-r2.tar.gz.enc',
+    );
     expect(copyAttempt(copyObjectName(ARCHIVE, 1))).toBe(1);
     expect(copyAttempt(copyObjectName(ARCHIVE, 17))).toBe(17);
     expect(() => copyObjectName(ARCHIVE, 0)).toThrow();

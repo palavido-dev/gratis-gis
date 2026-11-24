@@ -486,7 +486,8 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
             again.offsiteVerifyKey,
           )
         : null;
-    if (!theirs || !('key' in theirs)) throw new Error('The off-site signing key could not be stored.');
+    if (!theirs || !('key' in theirs))
+      throw new Error('The off-site signing key could not be stored.');
     return theirs.key;
   }
 
@@ -1517,7 +1518,9 @@ export class OffsiteService implements OnModuleInit, OnApplicationBootstrap, OnM
     const objectKey = `${s.prefix}${OFFSITE_LAYOUT.archives}${id}`;
     let sidecar: unknown;
     try {
-      sidecar = JSON.parse((await getSmall(s3, s.bucket!, `${objectKey}.json`, signal)).toString('utf8'));
+      sidecar = JSON.parse(
+        (await getSmall(s3, s.bucket!, `${objectKey}.json`, signal)).toString('utf8'),
+      );
     } catch (e) {
       if (signal.aborted) throw e;
       return null;

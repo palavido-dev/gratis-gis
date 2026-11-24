@@ -494,7 +494,11 @@ export async function headSize(
     return Number.isSafeInteger(n) && n >= 0 ? n : null;
   } catch (e) {
     const err = e as { name?: string; $metadata?: { httpStatusCode?: number } };
-    if (err.name === 'NotFound' || err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404) {
+    if (
+      err.name === 'NotFound' ||
+      err.name === 'NoSuchKey' ||
+      err.$metadata?.httpStatusCode === 404
+    ) {
       return null;
     }
     throw e;

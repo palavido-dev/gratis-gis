@@ -452,12 +452,7 @@ describe('OffsiteService', () => {
     it('a manual run returns before the upload finishes', async () => {
       const l = listener();
       let returned = false;
-      await dispatchRunSucceeded(
-        [l.fn],
-        { runId: 'r' },
-        'manual',
-        () => undefined,
-      ).then(() => {
+      await dispatchRunSucceeded([l.fn], { runId: 'r' }, 'manual', () => undefined).then(() => {
         returned = true;
       });
       expect(returned).toBe(true);
@@ -467,14 +462,11 @@ describe('OffsiteService', () => {
     it('a scheduled run waits for the upload', async () => {
       const l = listener();
       let returned = false;
-      const p = dispatchRunSucceeded(
-        [l.fn],
-        { runId: 'r' },
-        'scheduled',
-        () => undefined,
-      ).then(() => {
-        returned = true;
-      });
+      const p = dispatchRunSucceeded([l.fn], { runId: 'r' }, 'scheduled', () => undefined).then(
+        () => {
+          returned = true;
+        },
+      );
       await new Promise((r) => setTimeout(r, 20));
       expect(returned).toBe(false);
       l.finish();
@@ -667,7 +659,6 @@ describe('OffsiteService', () => {
       expect(s3.objects.has(OLD_COPY)).toBe(true);
       expect(logged.join('\n')).toMatch(/no longer owns the off-site folder/);
     });
-
   });
 
   it('a copy dated in the future is kept, reported, and does not stop retention', async () => {
@@ -1205,21 +1196,28 @@ describe('OffsiteService', () => {
       expect(s3.objects.has(`${second}.json`)).toBe(true);
       expect(s3.objects.has(base)).toBe(false);
       // Removed only after the new copy and its sidecar were written.
-      const putSidecar = sent.findIndex(([c, k]) => c === 'PutObjectCommand' && k === `${second}.json`);
+      const putSidecar = sent.findIndex(
+        ([c, k]) => c === 'PutObjectCommand' && k === `${second}.json`,
+      );
       const removeOld = sent.findIndex(([c, k]) => c === 'DeleteObjectCommand' && k === base);
       expect(putSidecar).toBeGreaterThanOrEqual(0);
       expect(removeOld).toBeGreaterThan(putSidecar);
       // Nothing was written under the earlier name.
-      expect(sent.some(([c, k]) => c !== 'DeleteObjectCommand' && c !== 'HeadObjectCommand' && k === base)).toBe(false);
-      const plain = await collect(
-        unsealStream(Readable.from([s3.objects.get(second)!.body]), key),
-      );
+      expect(
+        sent.some(
+          ([c, k]) => c !== 'DeleteObjectCommand' && c !== 'HeadObjectCommand' && k === base,
+        ),
+      ).toBe(false);
+      const plain = await collect(unsealStream(Readable.from([s3.objects.get(second)!.body]), key));
       expect(plain.toString()).toBe(archiveText);
     });
 
     it('a complete earlier copy that does not verify is kept as it is, and the backup goes up under a new name', async () => {
       await runUpload();
-      const side = JSON.parse(s3.objects.get(`${base}.json`)!.body.toString()) as Record<string, unknown>;
+      const side = JSON.parse(s3.objects.get(`${base}.json`)!.body.toString()) as Record<
+        string,
+        unknown
+      >;
       side.signature = signManifest(
         {
           kind: 'archive',
@@ -1291,9 +1289,8 @@ describe('OffsiteService', () => {
     });
 
     it('the largest backup that fits is about 20 GB with the time limit as it is', async () => {
-      const { MAX_ARCHIVE_BYTES, MAX_UPLOAD_MS, uploadTimeLimitMs } = await import(
-        './offsite.service.js'
-      );
+      const { MAX_ARCHIVE_BYTES, MAX_UPLOAD_MS, uploadTimeLimitMs } =
+        await import('./offsite.service.js');
       expect(uploadTimeLimitMs(MAX_ARCHIVE_BYTES)).toBeLessThanOrEqual(MAX_UPLOAD_MS);
       expect(uploadTimeLimitMs(MAX_ARCHIVE_BYTES + 1024 ** 2)).toBeGreaterThan(MAX_UPLOAD_MS);
       expect(MAX_ARCHIVE_BYTES / 1024 ** 3).toBeCloseTo(19.3, 1);

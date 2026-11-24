@@ -128,7 +128,10 @@ describe('signed manifests', () => {
       text.replace('kind=archive', 'kind=other'),
       text.replace('format=GROF1', 'format=GROF2'),
       text.replace('bytes=254', 'bytes=0254'),
-      text.replace('created=2026-11-24T02:00:00.000Z\n', 'created=2026-11-24T02:00:00.000Z\nextra=1\n'),
+      text.replace(
+        'created=2026-11-24T02:00:00.000Z\n',
+        'created=2026-11-24T02:00:00.000Z\nextra=1\n',
+      ),
       text.replace(`prefix=${PREFIX}`, 'prefix=../x/'),
       text.replace('created=2026-11-24T02:00:00.000Z', 'created=2026-11-24T02:00:00Z'),
       text.replace(SIGNED_LINE, 'gratisgis-offsite-signed-v2'),
