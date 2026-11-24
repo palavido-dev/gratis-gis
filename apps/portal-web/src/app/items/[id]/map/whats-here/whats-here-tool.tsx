@@ -273,6 +273,18 @@ export function WhatsHereTool({
   const [finished, setFinished] = useState(false);
   useCrosshairCursor(map, open && ((drawing && !finished) || mode === 'features'));
 
+  // Freehand is press and drag, so a drag must draw, not pan. Turn the
+  // map's drag panning off until the shape is finished.
+  const freehandDrawing = open && mode === 'draw' && shape === 'freehand' && !finished;
+  useEffect(() => {
+    if (!map || !freehandDrawing) return;
+    const wasOn = map.dragPan.isEnabled();
+    map.dragPan.disable();
+    return () => {
+      if (wasOn) map.dragPan.enable();
+    };
+  }, [map, freehandDrawing]);
+
   useEffect(() => {
     if (!draw || !ready || !drawing) return;
     startDraw(draw);
