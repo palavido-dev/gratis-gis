@@ -18,19 +18,31 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
 - **Off-site backups.** Each backup can be copied to an S3-compatible
   bucket at another provider (Backblaze B2, Cloudflare R2, AWS S3,
-  Hetzner Object Storage and others), encrypted on the server before
-  upload with a passphrase the admin keeps. Uploads stream in parts,
-  are checked by size and checksum, and keep the newest good copy
-  whatever the retention. Large object stores are mirrored file by
-  file instead of re-uploaded nightly. A failed copy, or no good copy
-  for a set number of days, raises a notice. Set it on Admin, Backup
-  (operator admins) or with `BACKUP_OFFSITE_*` variables.
+  Hetzner Object Storage and others), encrypted on the server to the
+  admin's X25519 public key. The portal holds only the public key and
+  cannot read its own copies; the admin makes the key pair and keeps the
+  passphrase-sealed private key with `infra/recovery/offsite-key.mjs`,
+  which also decrypts a copy with nothing but Node.js. Every key is
+  shown with its fingerprint, recorded on each run, and can be checked
+  on the page. Uploads stream in parts, are checked by size and
+  checksum, run one at a time per install, and keep the newest good
+  copy whatever the retention. Each portal claims its own folder in the
+  bucket. Large object stores are mirrored file by file, tracked in a
+  local index, instead of re-uploaded nightly. A failed copy, or no good
+  copy for a set number of days, raises a notice. Set it on Admin,
+  Backup (operator admins) or with `BACKUP_OFFSITE_*` variables, which
+  are checked the same way. Plain http endpoints need
+  `BACKUP_OFFSITE_ALLOW_HTTP`; endpoints on the server itself, link-local
+  or cloud metadata addresses are refused.
 - **Test latest backup** on Admin, Backup restores the newest
   backup's database into a scratch database, counts the main tables
-  and drops it, with a reminder when no test passed in 30 days.
+  and drops it, with a free-space check (or a size confirmation) first
+  and a reminder when no test passed in 30 days.
 - `infra/restore-from-offsite.sh` brings a portal back on a new server
-  from the bucket alone, and `install.sh --check` says whether
-  off-site backups are set up.
+  from the bucket, the key file and its passphrase. It shows what it
+  will replace, asks for the database name, refuses a database in use
+  without `--replace-existing`, and saves the current database first.
+  `install.sh --check` says whether off-site backups are set up.
 - Save as for maps: make your own copy of any map you can open, from
   the map builder or the map's page, with unsaved changes and,
   optionally, its markup. The copy starts private. `POST
