@@ -15,7 +15,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   records to add and can wait for them, and the install ends by waiting
   for the portal to answer over HTTPS, with the doctor's findings if it
   does not. `install.sh --check` only checks.
-- `GET /api/portal-info` reports `tenancy` (`single` unless `GRATIS_TENANCY=multi`).
+- `GET /api/portal-info` reports a `tenancy` field (`single` on a standard install).
 - The public catalog feeds (OGC API Records, Features collections and
   Styles, STAC, CSW) take `?org=<slug>` like `catalog.json` does: the
   answer lists that organization's public items only, and the links in
@@ -58,7 +58,7 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
-- Installs with more than one organization: a layer's boundary clip on
+- A layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature
   routes, and a map's or editor's stored extent only draws on layers
   from its own organization or public ones.

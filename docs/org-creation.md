@@ -2,9 +2,8 @@
 
 Developer notes. This is not user help.
 
-An install runs in one of two tenancy modes, set by `GRATIS_TENANCY`
-(`apps/portal-api/src/common/tenancy.ts`). Only the exact value `multi`
-turns on hosted behaviour. Anything else, including unset, is `single`.
+Sign-in follows one of two rule sets, chosen in
+`apps/portal-api/src/common/tenancy.ts`. The default is `single`.
 
 Two code paths can write a local `user` row from Keycloak data:
 
@@ -18,9 +17,7 @@ token as the `org` claim. It is normally the org's slug. Accounts
 invited before the slug fix carry the org's id instead, so a value
 shaped like a UUID is looked up by id first, then by slug.
 
-## Single mode (self-hosted, the default)
-
-Nothing here changed.
+## Single mode (the default)
 
 - The first sign-in whose `org` claim matches no org creates it. The
   install's own org (`DEFAULT_ORG_SLUG`, `gratis-gis` by default) is
@@ -36,10 +33,10 @@ Nothing here changed.
 - `reconcileAll` never creates an org. A realm user whose org has no
   local row is skipped and counted in `skippedUnknownOrg`.
 
-## Multi mode (hosted)
+## Strict mode
 
 A sign-in never creates an org and never moves a user to another org.
-An org is created by provisioning, which also seeds its built-ins.
+Orgs and their built-ins are created outside the sign-in path.
 
 On sign-in (`upsertFromClaims`):
 
@@ -49,15 +46,14 @@ On sign-in (`upsertFromClaims`):
 - Existing user whose row is in another org than the claim names: 401
   with the same message, and an error in the log. The row is not
   changed. The message is the same as for an unknown org, so the answer
-  never confirms that another org exists. Moving a user is an operator
-  action.
+  never confirms that another org exists.
 - New user in a known org: the row is created as in single mode.
 - Built-ins are not seeded on sign-in.
 - An update to an existing row never writes `org_id`. If a racing
   request created the row in another org between the read and the
   write, the request is refused.
 - `assertOrgUsable(org)` runs on the uncached path. It is empty for
-  now. The check for a suspended org belongs there.
+  now.
 
 Steady state costs the same queries as single mode: one org read and
 one user read on a cache miss, none on a cache hit.
@@ -87,4 +83,4 @@ In the realm mirror (`reconcileAll`):
   before any of the above runs. An operator who adds it to the list
   (the demo snapshot tooling does) makes it sign in like a user: its
   `org` attribute, which `infra/deploy.sh` sets to `DEFAULT_ORG_SLUG`,
-  picks its org, and in multi mode the same two rules apply to it.
+  picks its org, and in strict mode the same two rules apply to it.
