@@ -37,6 +37,7 @@ export const RECORDS_QUERY_PARAMS = [
   'sortby',
   'bbox',
   'f',
+  'org',
 ] as const;
 
 /** Every item type the database knows, from the Prisma enum. */
@@ -149,11 +150,12 @@ export type ItemRow = {
 
 export function catalogCollectionDoc(
   ogcRoot: string,
+  orgName?: string,
 ): Record<string, unknown> {
   const self = `${ogcRoot}/collections/${CATALOG_COLLECTION_ID}`;
   return {
     id: CATALOG_COLLECTION_ID,
-    title: 'GratisGIS catalog',
+    title: orgName ? `${orgName} catalog` : 'GratisGIS catalog',
     description:
       'Public items hosted by this GratisGIS instance, as OGC API ' +
       'Records. Discoverable by QGIS MetaSearch and other Records ' +

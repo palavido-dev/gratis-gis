@@ -12,6 +12,8 @@ import type {
 import type { FormSchema } from '@gratis-gis/form-schema';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch, hasSession, publicApiFetch } from '@/lib/api';
+import { getPortalFeatures } from '@/lib/portal-features';
+import { withListOrgId } from '@/lib/public-org';
 import { childLayersOf } from '@/lib/field-child-layers';
 import { FieldRuntime, type EditableLayer } from './field-runtime';
 
@@ -190,9 +192,13 @@ export default async function FieldRuntimePage(props: Props) {
     fetchItem<Item<MapData>>(`/api/items/${dc.mapId}`).catch(() => null),
     // full=1: the field runtime builds renderable basemaps from each
     // row's data payload, which the list now strips by default.
-    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1').catch(
-      () => [] as Array<Item<BasemapData>>,
-    ),
+    fetchItemList<Array<Item<BasemapData>>>(
+      withListOrgId(
+        '/api/items?type=basemap&full=1',
+        dcItem.orgId,
+        (await getPortalFeatures()).multiTenant,
+      ),
+    ).catch(() => [] as Array<Item<BasemapData>>),
   ]);
   if (!mapItem) notFound();
 

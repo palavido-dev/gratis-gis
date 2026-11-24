@@ -23,13 +23,16 @@
 // - write:  B's admin with A's ids gets 404 and nothing org A owns
 //           changes. No control call: it would change A's data.
 // - list:   B's admin gets a 2xx whose body holds none of A's ids,
-//           names or marker text.
+//           names or marker text. In multi mode it also holds none of
+//           A's public items: those are read by id, never listed.
 // - own:    a write that only acts on the caller's own org (no foreign
 //           id in the input). B's call must leave A unchanged and its
 //           answer must hold none of A's data.
 // - public: anonymous and B's admin with A's private ids get 404; the
 //           same route with A's public ids answers 2xx.
-// - public-list: an org-scoped public listing (?org=<slug>). See the
+// - public-list: an org-scoped public listing or feed (?org=<slug>).
+//           With no org it answers 404 in multi mode; with ?org=<A> it
+//           holds none of B's items, public ones included. See the
 //           suite for the cases.
 // - operator: B's and A's admins get 403 in multi mode; the operator
 //           org's admin passes the guard; with GRATIS_OPERATOR_ORG_ID
@@ -802,7 +805,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /api/public/landing': pubList(),
   'GET /api/public/catalog.json': pubList(),
   'GET /api/public/embed-origins': pubList(),
-  'GET /api/public/items': pubList(),
+  'GET /api/public/items': pubList({ query: { type: '=basemap' } }),
   'GET /api/public/items/:id': pub(),
   'GET /api/public/items/:id/layers/:layerId/aggregate': pub({ query: { agg: '=count' } }),
   'GET /api/public/items/:id/layers/:layerId/features': pub(),
@@ -820,11 +823,11 @@ export const ROUTES: Record<string, RouteEntry> = {
     params: { id: 'service:private' },
     ...NO_CONTROL('the service has no upstream URL here'),
   }),
-  'GET /api/public/csw': pubNone(),
-  'GET /api/public/ogc': pubNone(),
+  'GET /api/public/csw': pubList({ query: { service: '=CSW', request: '=GetRecords' } }),
+  'GET /api/public/ogc': pubList(),
   'GET /api/public/ogc/api': pubNone(),
   'GET /api/public/ogc/conformance': pubNone(),
-  'GET /api/public/ogc/collections': pubNone(),
+  'GET /api/public/ogc/collections': pubList(),
   'GET /api/public/ogc/collections/:id': pub({
     ...NO_CONTROL('collection ids carry a layer suffix the probe does not build'),
   }),
@@ -850,18 +853,18 @@ export const ROUTES: Record<string, RouteEntry> = {
     params: { tmsId: '=WebMercatorQuad' },
     ...NO_CONTROL('collection ids carry a layer suffix'),
   }),
-  'GET /api/public/ogc/collections/catalog': pubNone(),
-  'GET /api/public/ogc/collections/catalog/items': pubNone(),
+  'GET /api/public/ogc/collections/catalog': pubList(),
+  'GET /api/public/ogc/collections/catalog/items': pubList(),
   'GET /api/public/ogc/collections/catalog/items/:recordId': pub({
     params: { recordId: 'data_layer:private' },
   }),
-  'GET /api/public/ogc/records': pubNone(),
+  'GET /api/public/ogc/records': pubList(),
   'GET /api/public/ogc/records/:recordId': pub({ params: { recordId: 'data_layer:private' } }),
   'GET /api/public/ogc/aardvark/:itemId.json': pub(),
   'GET /api/public/ogc/citation/:itemId.bib': pub(),
   'GET /api/public/ogc/citation/:itemId.jsonld': pub(),
   'GET /api/public/ogc/citation/:itemId.ris': pub(),
-  'GET /api/public/ogc/styles': pubNone(),
+  'GET /api/public/ogc/styles': pubList(),
   'GET /api/public/ogc/styles/:styleId': pub({
     params: { styleId: 'data_layer:private' },
     ...NO_CONTROL('style ids carry a layer suffix'),
@@ -872,24 +875,22 @@ export const ROUTES: Record<string, RouteEntry> = {
   }),
   'GET /api/public/ogc/tileMatrixSets': none(),
   'GET /api/public/ogc/tileMatrixSets/:tmsId': none({ params: { tmsId: '=WebMercatorQuad' } }),
-  'GET /api/public/stac': pubNone(),
+  'GET /api/public/stac': pubList(),
   'GET /api/public/stac/api': pubNone(),
   'GET /api/public/stac/conformance': pubNone(),
-  'GET /api/public/stac/collections': pubNone(),
-  'GET /api/public/stac/collections/:collectionId': pubNone({
+  'GET /api/public/stac/collections': pubList(),
+  'GET /api/public/stac/collections/:collectionId': pubList({
     params: { collectionId: '=rasters' },
-    expect: [200, 404],
   }),
-  'GET /api/public/stac/collections/:collectionId/items': pubNone({
+  'GET /api/public/stac/collections/:collectionId/items': pubList({
     params: { collectionId: '=rasters' },
-    expect: [200, 404],
   }),
   'GET /api/public/stac/collections/:collectionId/items/:itemId': pub({
     params: { collectionId: '=rasters', itemId: 'tile_layer:private' },
     ...NO_CONTROL('no raster seeded'),
   }),
-  'GET /api/public/stac/search': pubNone(),
-  'POST /api/public/stac/search': pubNone({ body: () => ({}) }),
+  'GET /api/public/stac/search': pubList(),
+  'POST /api/public/stac/search': pubList({ body: () => ({}) }),
   'POST /api/feedback': skip('no-tenant-data', 'anonymous feedback form; sends mail'),
   'POST /api/areas-of-interest': skip('no-tenant-data', "What's Here area resolve (#796): stores a shape only, no org, reads no table"),
   'POST /api/whats-here/report': skip(

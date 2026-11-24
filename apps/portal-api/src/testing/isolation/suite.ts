@@ -132,6 +132,12 @@ export function leakedSecrets(res: ApiResult, req: BuiltRequest, victim: OrgFixt
   return victim.secrets.filter((s) => res.text.includes(s) && !sent.includes(s));
 }
 
+/** A's public item ids in a response, leaving out any the request itself carried. */
+export function listedPublicIds(res: ApiResult, req: BuiltRequest, victim: OrgFixture): string[] {
+  const sent = req.path + JSON.stringify(req.body ?? '');
+  return victim.publicIds.filter((id) => res.text.includes(id) && !sent.includes(id));
+}
+
 const short = (r: ApiResult): string => `${r.status} ${r.text.slice(0, 160).replace(/\s+/g, ' ')}`;
 
 // ---------------------------------------------------------------- checks
@@ -192,6 +198,13 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
         problems.push(`B: expected ${expect.join('/')}, got ${short(r)}`);
       const leaks = leakedSecrets(r, req, A);
       if (leaks.length) problems.push(`B saw A's data: ${leaks.join(', ')}`);
+      // In multi mode a list holds only the caller's own org's items:
+      // A's public items stay readable by id but never appear in B's
+      // lists, counts or searches.
+      if (entry.check === 'list' && mode === 'multi') {
+        const listed = listedPublicIds(r, req, A);
+        if (listed.length) problems.push(`B's list holds A's public items: ${listed.join(', ')}`);
+      }
       if (before) {
         const changed = changedTables(before, await snapshot(state));
         if (changed.length) problems.push(`A's rows changed: ${changed.join(', ')}`);
@@ -230,17 +243,19 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
       break;
     }
     case 'public-list': {
-      const [, path] = key.split(' ') as [string, string];
-      const noOrg = await api(state.app.baseUrl, null, 'GET', path);
-      // Fail closed: 404, or an answer that names no org's items.
+      const { method, path, body } = req;
+      const withOrg = (slug: string): string =>
+        `${path}${path.includes('?') ? '&' : '?'}org=${encodeURIComponent(slug)}`;
+      const noOrg = await api(state.app.baseUrl, null, method, path, body);
+      // Fail closed: a list that names no org answers 404 in multi mode.
       const names = (r: ApiResult): boolean =>
         [...Object.values(A.items), ...Object.values(B.items)].some((id) => r.text.includes(id));
-      if (mode === 'multi' && noOrg.status !== 404 && !(is2xx(noOrg.status) && !names(noOrg))) {
-        problems.push(`no ?org= in multi mode: expected 404 or nothing, got ${short(noOrg)}`);
+      if (mode === 'multi' && noOrg.status !== 404) {
+        problems.push(`no ?org= in multi mode: expected 404, got ${short(noOrg)}`);
       }
       if (mode === 'single' && !is2xx(noOrg.status))
         problems.push(`no ?org= in single mode: expected 2xx, got ${short(noOrg)}`);
-      const unknown = await api(state.app.baseUrl, null, 'GET', `${path}?org=no-such-org`);
+      const unknown = await api(state.app.baseUrl, null, method, withOrg('no-such-org'), body);
       if (unknown.status !== 404 && !(is2xx(unknown.status) && !names(unknown))) {
         problems.push(`unknown ?org=: expected 404 or nothing, got ${short(unknown)}`);
       }
@@ -248,16 +263,16 @@ export async function runCheck(state: SuiteState, key: string, base: RouteEntry)
         [null, 'anonymous'],
         [B.users.admin, 'B'],
       ] as const) {
-        const r = await api(state.app.baseUrl, who, 'GET', `${path}?org=${A.slug}`);
+        const r = await api(state.app.baseUrl, who, method, withOrg(A.slug), body);
         if (!is2xx(r.status))
           problems.push(`${label} with ?org=<A>: expected 2xx, got ${short(r)}`);
         const leaks = A.secrets.filter((s) => r.text.includes(s));
         if (leaks.length)
           problems.push(`${label} with ?org=<A> saw A's non-public data: ${leaks.join(', ')}`);
-        if (path.endsWith('/items') || path.endsWith('/landing') || path.endsWith('catalog.json')) {
-          const bIds = Object.values(B.items).filter((id) => r.text.includes(id));
-          if (bIds.length) problems.push(`${label} with ?org=<A> saw B's items`);
-        }
+        // Every org-named list holds that org's items only, in both
+        // modes: B's items, public ones included, never appear.
+        const bIds = Object.values(B.items).filter((id) => r.text.includes(id));
+        if (bIds.length) problems.push(`${label} with ?org=<A> saw B's items: ${bIds.join(', ')}`);
       }
       break;
     }

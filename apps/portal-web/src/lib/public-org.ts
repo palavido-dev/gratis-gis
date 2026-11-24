@@ -47,3 +47,20 @@ export function withOrgQuery(path: string, slug: string | undefined): string {
   const sep = path.includes('?') ? '&' : '?';
   return `${path}${sep}org=${encodeURIComponent(slug)}`;
 }
+
+/**
+ * `path` with `orgId=<id>` added for a signed-out list (basemaps,
+ * themes) that a page reads for one item. On an install that serves
+ * many organizations a signed-out list must name its org, and the
+ * item's own org is the one the page shows. A one-organization install
+ * sends the path unchanged, as it always has.
+ */
+export function withListOrgId(
+  path: string,
+  orgId: string | undefined,
+  multiTenant: boolean,
+): string {
+  if (!multiTenant || !orgId) return path;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}orgId=${encodeURIComponent(orgId)}`;
+}

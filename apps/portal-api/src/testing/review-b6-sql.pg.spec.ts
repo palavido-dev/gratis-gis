@@ -29,8 +29,8 @@ const d = TEST_URL ? describe : describe.skip;
 
 if (process.env.REQUIRE_PG_SPECS === '1' && !TEST_URL) {
   throw new Error(
-    'REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the review SQL '
-    + 'pg suite would silently skip.',
+    'REQUIRE_PG_SPECS=1 but TEST_DATABASE_URL is unset; the review SQL ' +
+      'pg suite would silently skip.',
   );
 }
 
@@ -127,9 +127,11 @@ d('review fixes SQL against Postgres', () => {
       data: { processingState: 'tiling', tilingStartedAt: 'x', tilingAttempts: 'many' },
     });
     const worker = new TileLayerPyramidWorker(client as never, {} as never);
-    await (worker as unknown as {
-      reclaimStaleTilings(r: string): Promise<void>;
-    }).reclaimStaleTilings('loop');
+    await (
+      worker as unknown as {
+        reclaimStaleTilings(r: string): Promise<void>;
+      }
+    ).reclaimStaleTilings('loop');
     const r = await admin.query(`SELECT data_json FROM ${schema}.item WHERE id = $1`, [victim]);
     expect(r.rows[0].data_json.processingState).toBe('cog-ready');
   });
@@ -191,10 +193,15 @@ d('review fixes SQL against Postgres', () => {
     await admin.query(`INSERT INTO ${schema}.item_share (item_id) VALUES ($1)`, [shared]);
     const foreign = await insert({ bbox: box, access: 'private', orgId: randomUUID() });
     const svc = Object.create(ItemsService.prototype) as ItemsService;
-    Object.assign(svc, { prisma: client, sharing: { visibleWhere: () => ({}) } });
-    const where = (await (svc as unknown as {
-      buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
-    }).buildListWhere({ id: 'u', orgId: org }, { bbox: [-2, -2, 2, 2] })) as {
+    Object.assign(svc, {
+      prisma: client,
+      sharing: { visibleWhere: () => ({}), listWhere: () => ({}) },
+    });
+    const where = (await (
+      svc as unknown as {
+        buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
+      }
+    ).buildListWhere({ id: 'u', orgId: org }, { bbox: [-2, -2, 2, 2] })) as {
       AND: Array<{ id?: { in: string[] } }>;
     };
     const ids = where.AND.find((c) => c.id)!.id!.in;

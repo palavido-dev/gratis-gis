@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import type { GeoJsonGeometry } from '@gratis-gis/engine';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { ownOrgListScope, scopedWhere } from '../common/list-scope.js';
 import {
   CLOSED_GEO_LIMIT,
   isClosedGeoLimit,
@@ -552,5 +553,23 @@ export class SharingService {
     };
     if (opts.includeTrashed) return access;
     return { AND: [access, { deletedAt: null }] };
+  }
+
+  /**
+   * The `where` for a LIST of items the user sees: `visibleWhere`
+   * limited to the organization whose lists this caller sees (see
+   * common/list-scope.ts). Every list, search, count and facet of
+   * items uses this one.
+   *
+   * `visibleWhere` stays the rule for reads by id and by reference (a
+   * folder's children, a map's layers, a pick list behind a field),
+   * where an item of another organization that the user may read must
+   * keep resolving.
+   */
+  listWhere(
+    user: AuthUser,
+    opts: { includeTrashed?: boolean } = {},
+  ): Prisma.ItemWhereInput {
+    return scopedWhere(this.visibleWhere(user, opts), ownOrgListScope(user));
   }
 }

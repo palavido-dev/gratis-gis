@@ -893,7 +893,13 @@ function mapSaveAsTopic(): Topic {
   };
 }
 
-TOPICS.push(...referenceTopics(), mapSaveAsTopic(), elevationHintTopic(), appTemplateTopic());
+TOPICS.push(
+  ...referenceTopics(),
+  mapSaveAsTopic(),
+  elevationHintTopic(),
+  appTemplateTopic(),
+  ...ownOrgListTopics(),
+);
 
 /**
  * A map layer's elevation hint is copied from its tile item, not chosen
@@ -1051,4 +1057,320 @@ function appTemplateTopic(): Topic {
 
 export function topicsFor(mode: TenancyMode): Array<[string, Topic]> {
   return TOPICS.filter((t) => t.modes.includes(mode)).map((t) => [t.name, t]);
+}
+
+// ---------------------------------------------------------------- lists hold the org's own items
+
+/** Signed-in lists, searches and counts B's admin can ask for. */
+const SIGNED_IN_LISTS = [
+  '/api/items',
+  '/api/items?limit=1',
+  '/api/items?q=Shared%20title',
+  '/api/items?type=data_layer,map',
+  '/api/items?bbox=-180,-90,180,90',
+  '/api/ogc/collections',
+  '/api/stac/collections',
+  '/api/stac/search',
+] as const;
+
+/** Public lists and feeds, each named with `org`. */
+const PUBLIC_FEEDS = [
+  '/api/public/landing',
+  '/api/public/catalog.json',
+  '/api/public/items?type=basemap',
+  '/api/public/csw?service=CSW&request=GetRecords&maxRecords=200',
+  '/api/public/csw?service=CSW&request=GetCapabilities',
+  '/api/public/ogc',
+  '/api/public/ogc/collections',
+  '/api/public/ogc/collections/catalog',
+  '/api/public/ogc/collections/catalog/items?limit=1000',
+  '/api/public/ogc/collections/catalog/items?bbox=-180,-90,180,90&limit=1000',
+  '/api/public/ogc/records?limit=1000',
+  '/api/public/ogc/records?q=Shared&limit=1000',
+  '/api/public/ogc/styles',
+  '/api/public/stac',
+  '/api/public/stac/collections',
+  '/api/public/stac/collections/rasters',
+  '/api/public/stac/collections/rasters/items',
+  '/api/public/stac/search',
+] as const;
+
+const orgQuery = (path: string, slug: string): string =>
+  `${path}${path.includes('?') ? '&' : '?'}org=${encodeURIComponent(slug)}`;
+
+const holds = (r: ApiResult, ids: string[]): string[] => ids.filter((id) => r.text.includes(id));
+
+function totalCount(r: ApiResult): number {
+  return Number(r.headers.get('x-total-count') ?? 'NaN');
+}
+
+function ownOrgListTopics(): Topic[] {
+  return [
+    {
+      name: "org B's lists, counts, searches and feeds never hold org A's public items",
+      modes: ['multi'],
+      async run({ app, fx }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        for (const path of SIGNED_IN_LISTS) {
+          const r = await api(app.baseUrl, B.users.admin, 'GET', path);
+          if (r.status !== 200) p.push(`${path}: expected 200, got ${short(r)}`);
+          const seen = holds(r, A.publicIds);
+          if (seen.length) p.push(`${path} holds A's public items: ${seen.join(', ')}`);
+        }
+        const post = await api(app.baseUrl, B.users.admin, 'POST', '/api/stac/search', {});
+        if (holds(post, A.publicIds).length) p.push("POST /api/stac/search holds A's public items");
+        // The count covers exactly the rows the list returns: no
+        // number that counts another org's items.
+        const all = await api(app.baseUrl, B.users.admin, 'GET', '/api/items?limit=1000');
+        const rows = Array.isArray(all.body) ? (all.body as Array<{ orgId?: string }>) : [];
+        if (totalCount(all) !== rows.length)
+          p.push(`X-Total-Count ${totalCount(all)} but ${rows.length} rows`);
+        const foreign = rows.filter((r) => r.orgId !== B.orgId);
+        if (foreign.length) p.push(`B's item list holds ${foreign.length} items of another org`);
+        if (!holds(all, B.publicIds).length) p.push("control: B's list misses B's own public items");
+        // Public feeds named for B: none of A's items; B's own are there.
+        for (const path of PUBLIC_FEEDS) {
+          for (const [who, label] of [
+            [null, 'anonymous'],
+            [A.users.admin, 'A'],
+          ] as const) {
+            const r = await api(app.baseUrl, who, 'GET', orgQuery(path, B.slug));
+            if (r.status !== 200) p.push(`${label} ${path} for B: expected 200, got ${short(r)}`);
+            const seen = holds(r, [...A.publicIds, ...Object.values(A.items)]);
+            if (seen.length) p.push(`${label} ${path} for B holds A's items: ${seen.join(', ')}`);
+          }
+          const none = await api(app.baseUrl, null, 'GET', path);
+          if (none.status !== 404) p.push(`${path} with no org: expected 404, got ${short(none)}`);
+        }
+        const search = await api(app.baseUrl, null, 'POST', orgQuery('/api/public/stac/search', B.slug), {});
+        if (search.status !== 200) p.push(`POST stac search for B: expected 200, got ${short(search)}`);
+        if (holds(search, A.publicIds).length) p.push("POST stac search for B holds A's public items");
+        const noOrgSearch = await api(app.baseUrl, null, 'POST', '/api/public/stac/search', {});
+        if (noOrgSearch.status !== 404)
+          p.push(`POST stac search with no org: expected 404, got ${short(noOrgSearch)}`);
+        // Feeds that list items do list the named org's own public items.
+        const layerB = B.items['data_layer:public']!;
+        for (const path of [
+          '/api/public/catalog.json',
+          '/api/public/csw?service=CSW&request=GetRecords&maxRecords=200',
+          '/api/public/ogc/collections',
+          '/api/public/ogc/collections/catalog/items?limit=1000',
+          '/api/public/ogc/records?limit=1000',
+          '/api/public/ogc/styles',
+        ]) {
+          const r = await api(app.baseUrl, null, 'GET', orgQuery(path, B.slug));
+          if (!r.text.includes(layerB)) p.push(`control: ${path} for B misses B's public layer`);
+        }
+        // Links a client follows stay in the named org.
+        const landing = await api(app.baseUrl, null, 'GET', orgQuery('/api/public/ogc', B.slug));
+        const links = ((landing.body as { links?: Array<{ href: string; rel: string }> })?.links ?? [])
+          .filter((l) => l.rel === 'data' || l.rel.endsWith('/records'));
+        for (const l of links) {
+          if (!l.href.includes(`org=${B.slug}`)) p.push(`OGC landing link ${l.href} drops the org`);
+        }
+        return verdict(p);
+      },
+    },
+    {
+      name: "org A's public item stays readable by direct link, signed in from B and signed out",
+      modes: BOTH,
+      async run({ app, fx }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const layer = A.items['data_layer:public']!;
+        const map = A.items['map:public']!;
+        const signedIn = [
+          `/api/items/${layer}`,
+          `/api/items/${map}`,
+          `/api/items/${layer}/layers/${LAYER_ID}/features`,
+          `/api/items/${layer}/geojson`,
+        ];
+        for (const path of signedIn) {
+          const r = await api(app.baseUrl, B.users.admin, 'GET', path);
+          if (r.status !== 200) p.push(`B ${path}: expected 200, got ${short(r)}`);
+        }
+        const signedOut = [
+          `/api/public/items/${layer}`,
+          `/api/public/items/${map}`,
+          `/api/public/items/${layer}/layers/${LAYER_ID}/features`,
+          `/api/public/items/${layer}/layers/${LAYER_ID}/tilejson.json`,
+          `/api/public/items/${layer}/layers/${LAYER_ID}/tile/0/0/0.mvt`,
+          `/api/public/ogc/collections/${layer}`,
+          `/api/public/ogc/collections/${layer}/items`,
+          `/api/public/ogc/records/${layer}`,
+          `/api/public/ogc/collections/catalog/items/${layer}`,
+          `/api/public/ogc/styles/${layer}`,
+          `/api/public/ogc/aardvark/${layer}.json`,
+        ];
+        for (const path of signedOut) {
+          for (const [who, label] of [
+            [null, 'anonymous'],
+            [B.users.admin, 'B'],
+          ] as const) {
+            const r = await api(app.baseUrl, who, 'GET', path);
+            if (r.status < 200 || r.status >= 300) p.push(`${label} ${path}: expected 2xx, got ${short(r)}`);
+          }
+        }
+        // The org and private twins stay hidden from B.
+        for (const id of [A.items['data_layer:org']!, A.items['data_layer:private']!]) {
+          const r = await api(app.baseUrl, B.users.admin, 'GET', `/api/items/${id}`);
+          if (r.status !== 404) p.push(`B /api/items/<A non-public>: expected 404, got ${short(r)}`);
+        }
+        return verdict(p);
+      },
+    },
+    {
+      name: "a public map of org A that draws org B's public layer renders for a signed-out viewer",
+      modes: BOTH,
+      async run(state) {
+        const p: string[] = [];
+        const { A, B } = state.fx;
+        const layerB = B.items['data_layer:public']!;
+        const made = await createItem(state, A.users.admin, {
+          type: 'map',
+          title: "A's map over B's layer",
+          access: 'public',
+          data: mapData(layerB),
+        });
+        if (!made.id) return verdict([`A could not save the map: ${short(made.res)}`]);
+        const map = await api(state.app.baseUrl, null, 'GET', `/api/public/items/${made.id}`);
+        if (map.status !== 200) p.push(`signed-out map read: expected 200, got ${short(map)}`);
+        if (!map.text.includes(layerB)) p.push("the signed-out map lost B's layer");
+        for (const path of [
+          `/api/public/items/${layerB}`,
+          `/api/public/items/${layerB}/layers/${LAYER_ID}/features`,
+          `/api/public/items/${layerB}/layers/${LAYER_ID}/tile/0/0/0.mvt`,
+        ]) {
+          const r = await api(state.app.baseUrl, null, 'GET', path);
+          if (r.status < 200 || r.status >= 300) p.push(`signed out ${path}: got ${short(r)}`);
+        }
+        // The map is A's: it shows in A's feeds, never in B's.
+        const feedA = await api(state.app.baseUrl, null, 'GET', `/api/public/catalog.json?org=${A.slug}`);
+        const feedB = await api(state.app.baseUrl, null, 'GET', `/api/public/catalog.json?org=${B.slug}`);
+        if (!feedA.text.includes(made.id)) p.push("A's catalog misses A's new public map");
+        if (feedB.text.includes(made.id)) p.push("B's catalog lists A's map");
+        await api(state.app.baseUrl, A.users.admin, 'DELETE', `/api/items/${made.id}`);
+        return verdict(p);
+      },
+    },
+    {
+      name: "a group cannot take a member from another org, so a group share never crosses orgs",
+      modes: BOTH,
+      async run({ app, fx, pool }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const r = await api(app.baseUrl, A.users.admin, 'POST', `/api/groups/${A.groupId}/members`, {
+          userId: B.users.viewer.id,
+        });
+        if (r.status !== 404) p.push(`A adding B's user to A's group: expected 404, got ${short(r)}`);
+        const rows = await pool.query(
+          'SELECT 1 FROM group_member WHERE group_id = $1 AND user_id = $2',
+          [A.groupId, B.users.viewer.id],
+        );
+        if (rows.rowCount) p.push("B's user became a member of A's group");
+        // Control: A's own user can be added.
+        const own = await api(app.baseUrl, A.users.admin, 'POST', `/api/groups/${A.groupId}/members`, {
+          userId: A.users.viewer.id,
+        });
+        if (own.status < 200 || own.status >= 300) p.push(`control: A adding A's user got ${short(own)}`);
+        // Put the fixture back as the seed left it.
+        await api(
+          app.baseUrl,
+          A.users.admin,
+          'DELETE',
+          `/api/groups/${A.groupId}/members/${A.users.viewer.id}`,
+        );
+        return verdict(p);
+      },
+    },
+    {
+      name: "org B's group lists never hold org A's public group, which stays readable by its link",
+      modes: BOTH,
+      async run({ app, fx, mode }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const made = await api(app.baseUrl, A.users.admin, 'POST', '/api/groups', {
+          title: "A's public group",
+          access: 'public',
+        });
+        const groupId = (made.body as { id?: string } | undefined)?.id;
+        if (!groupId) return verdict([`A could not make a public group: ${short(made)}`]);
+        try {
+          // The group list is also the "share with a group" picker; the
+          // web searches it in the page.
+          const list = await api(app.baseUrl, B.users.admin, 'GET', '/api/groups');
+          if (list.status !== 200) p.push(`B GET /api/groups: expected 200, got ${short(list)}`);
+          const listed = list.text.includes(groupId);
+          if (mode === 'multi' && listed) p.push("B's group list holds A's public group");
+          if (mode === 'single' && !listed)
+            p.push("single mode: B's group list no longer shows A's public group");
+          if (!list.text.includes(B.groupId)) p.push("control: B's group list misses B's own group");
+          const direct = await api(app.baseUrl, B.users.admin, 'GET', `/api/groups/${groupId}`);
+          if (direct.status !== 200)
+            p.push(`B reading A's public group by id: expected 200, got ${short(direct)}`);
+          const priv = await api(app.baseUrl, B.users.admin, 'GET', `/api/groups/${A.groupId}`);
+          if (priv.status !== 404)
+            p.push(`B reading A's non-public group by id: expected 404, got ${short(priv)}`);
+        } finally {
+          await api(app.baseUrl, A.users.admin, 'DELETE', `/api/groups/${groupId}`);
+        }
+        return verdict(p);
+      },
+    },
+    {
+      name: "the user access summary counts public items of the user's own org only",
+      modes: BOTH,
+      async run({ app, fx, mode, pool }) {
+        const p: string[] = [];
+        const { A } = fx;
+        const r = await api(
+          app.baseUrl,
+          A.users.admin,
+          'GET',
+          `/api/admin/users/${A.users.viewer.id}/access`,
+        );
+        if (r.status !== 200) return verdict([`access summary: expected 200, got ${short(r)}`]);
+        const got = (r.body as { publicAccessibleCount?: number }).publicAccessibleCount;
+        const count = async (sql: string, args: unknown[]): Promise<number> =>
+          Number((await pool.query<{ n: string }>(sql, args)).rows[0]?.n ?? NaN);
+        const own = await count(
+          "SELECT count(*) AS n FROM item WHERE org_id = $1 AND access = 'public' AND deleted_at IS NULL",
+          [A.orgId],
+        );
+        const all = await count(
+          "SELECT count(*) AS n FROM item WHERE access = 'public' AND deleted_at IS NULL",
+          [],
+        );
+        if (!(all > own)) p.push(`fixture: expected public items in more than one org (${own}/${all})`);
+        const expected = mode === 'multi' ? own : all;
+        if (got !== expected)
+          p.push(`publicAccessibleCount ${String(got)}, expected ${expected} (own ${own}, all ${all})`);
+        return verdict(p);
+      },
+    },
+    {
+      name: 'single mode lists and feeds keep showing every public item',
+      modes: ['single'],
+      async run({ app, fx }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const layerA = A.items['data_layer:public']!;
+        const layerB = B.items['data_layer:public']!;
+        const list = await api(app.baseUrl, B.users.admin, 'GET', '/api/items?limit=1000');
+        if (!list.text.includes(layerA)) p.push("B's item list no longer shows A's public layer");
+        for (const path of [
+          '/api/public/ogc/records?limit=1000',
+          '/api/public/ogc/collections',
+          '/api/public/csw?service=CSW&request=GetRecords&maxRecords=200',
+        ]) {
+          const r = await api(app.baseUrl, null, 'GET', path);
+          if (r.status !== 200) p.push(`${path}: expected 200, got ${short(r)}`);
+          if (!r.text.includes(layerA) || !r.text.includes(layerB))
+            p.push(`${path} with no org no longer lists every public layer`);
+        }
+        return verdict(p);
+      },
+    },
+  ];
 }

@@ -18,6 +18,8 @@ import {
 } from '@gratis-gis/shared-types';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch, hasSession, publicApiFetch } from '@/lib/api';
+import { getPortalFeatures } from '@/lib/portal-features';
+import { withListOrgId } from '@/lib/public-org';
 import {
   buildEditorMapData,
   type ResolvedTarget,
@@ -181,7 +183,11 @@ export default async function ViewerRuntimePage(props: Props) {
     // full=1: the runtime builds renderable basemaps from each row's
     // data payload, which the list now strips by default.
     fetchItemList<Array<Item<BasemapData>>>(
-      '/api/items?type=basemap&full=1',
+      withListOrgId(
+        '/api/items?type=basemap&full=1',
+        viewerItem.orgId,
+        (await getPortalFeatures()).multiTenant,
+      ),
     ).catch(() => [] as Array<Item<BasemapData>>),
     editor.mapId
       ? fetchItem<Item<MapData>>(`/api/items/${editor.mapId}`).catch(

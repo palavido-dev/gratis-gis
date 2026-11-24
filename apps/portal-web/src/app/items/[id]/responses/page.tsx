@@ -15,6 +15,8 @@ import type {
 import type { FormSchema } from '@gratis-gis/form-schema';
 import type { CustomBasemap } from '@/lib/custom-basemap';
 import { apiFetch, hasSession, publicApiFetch } from '@/lib/api';
+import { getPortalFeatures } from '@/lib/portal-features';
+import { withListOrgId } from '@/lib/public-org';
 import {
   buildEditorMapData,
   editorTargetLayerId,
@@ -263,9 +265,13 @@ export default async function FormResponsesPage(props: Props) {
   const [basemapItems, referencedMap] = await Promise.all([
     // full=1: the response-map preview builds renderable basemaps
     // from each row's data payload, which the list strips by default.
-    fetchItemList<Array<Item<BasemapData>>>('/api/items?type=basemap&full=1').catch(
-      () => [] as Array<Item<BasemapData>>,
-    ),
+    fetchItemList<Array<Item<BasemapData>>>(
+      withListOrgId(
+        '/api/items?type=basemap&full=1',
+        formItem.orgId,
+        (await getPortalFeatures()).multiTenant,
+      ),
+    ).catch(() => [] as Array<Item<BasemapData>>),
     // #91: when the author picked a reference map in the Responses
     // tab, fetch it so its basemap + viewport flow into the runtime.
     // Absent means "build the map from just the paired layer", same

@@ -928,7 +928,7 @@ export class ItemsService {
   ): Promise<Prisma.ItemWhereInput> {
     const where: Prisma.ItemWhereInput = opts.mine
       ? { ownerId: user.id, deletedAt: null }
-      : this.sharing.visibleWhere(user);
+      : this.sharing.listWhere(user);
 
     // Folder-share cascade was retired 2026-04-26 (#68). Folder
     // shares grant access to the folder itself (#63), not its
