@@ -387,6 +387,10 @@ export type CustomWidgetKind =
   // ground height along it from the map's elevation layer. Shares
   // its whole implementation with the map builder's toolbar tool.
   | 'elevation-profile'
+  // #796 What's Here: pick an area on the bound map (draw, point,
+  // address or picked shapes) and see what every visible layer has
+  // inside it. Shares its implementation with the map builder's tool.
+  | 'whats-here'
   // Magic outline: click a building / field on an imagery layer in
   // the bound map and drop its traced polygon into an editable
   // target layer. Server computes per-view SAM embeddings; the
@@ -567,6 +571,7 @@ export type CustomWidgetConfig =
   | CoordinatesWidgetConfig
   | MyLocationWidgetConfig
   | ElevationProfileWidgetConfig
+  | WhatsHereWidgetConfig
   | MagicOutlineWidgetConfig
   | TimeSliderWidgetConfig
   | CreateFeatureWidgetConfig
@@ -1587,6 +1592,40 @@ export interface ElevationProfileWidgetConfig {
   /** #364: tool-mode display. */
   displayMode?: DisplayMode;
   panelArrangement?: PanelArrangement;
+}
+
+/** Area units What's Here can report in. Same names the portal's
+ *  measure tools use. */
+export type WhatsHereAreaUnit =
+  | 'square-meters'
+  | 'hectares'
+  | 'square-kilometers'
+  | 'square-feet'
+  | 'acres'
+  | 'square-miles';
+
+/** Length units What's Here can report in. */
+export type WhatsHereLengthUnit = 'meters' | 'kilometers' | 'feet' | 'miles';
+
+/**
+ * What's Here (#796). Renders a toolbar toggle; when active, a panel
+ * on the bound Map widget lets the viewer pick an area and lists what
+ * every visible data layer has inside it. Same engine as the map
+ * builder's tool.
+ */
+export interface WhatsHereWidgetConfig {
+  kind: 'whats-here';
+  /** id of the Map widget the area is picked on. */
+  mapWidgetId: string;
+  /** Optional inline label next to the icon. Default: icon only. */
+  showLabel?: boolean;
+  /**
+   * Units the panel opens with. Unset follows each viewer's metric or
+   * imperial profile setting. Viewers can still switch, and their own
+   * last choice wins on their next visit.
+   */
+  areaUnit?: WhatsHereAreaUnit;
+  lengthUnit?: WhatsHereLengthUnit;
 }
 
 /**

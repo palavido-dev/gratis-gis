@@ -27,7 +27,25 @@ export type AggOp =
   | 'sum'
   | 'avg'
   | 'min'
-  | 'max';
+  | 'max'
+  // Ground area (m²) and length (m) of the shapes, cut to `areaId`
+  // when one is given (What's Here, #796). Take no field.
+  | 'area'
+  | 'length';
+
+/** Ops that measure the row or its shape and take no field. */
+const FIELDLESS_OPS: ReadonlySet<AggOp> = new Set<AggOp>(['count', 'area', 'length']);
+
+/**
+ * The server no longer holds the area this read named (410). The
+ * caller still has the shape, so it registers it again and retries.
+ */
+export class AreaExpiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AreaExpiredError';
+  }
+}
 
 export interface AggregateRequest {
   itemId: string;
@@ -77,6 +95,8 @@ export interface AggregateRequest {
    * the axis can be guaranteed to match its own data.
    */
   bin?: ChartBin;
+  /** What's Here area id from POST /areas-of-interest. */
+  areaId?: string;
   limit?: number;
   signal?: AbortSignal;
 }
@@ -147,7 +167,7 @@ export function binFilterFor(
 
 /** The result key the server assigns a spec: `count`, `sum:acres`. */
 export function aggKey(op: AggOp, field?: string): string {
-  return op === 'count' ? 'count' : `${op}:${field ?? ''}`;
+  return FIELDLESS_OPS.has(op) ? op : `${op}:${field ?? ''}`;
 }
 
 /** Ops that summarise a measurement, and so need a numeric field. */
@@ -163,7 +183,7 @@ export async function fetchAggregate(
 ): Promise<AggregateResult> {
   const params = new URLSearchParams();
   for (const a of req.aggs) {
-    params.append('agg', a.op === 'count' ? 'count' : `${a.op}:${a.field}`);
+    params.append('agg', aggKey(a.op, a.field));
   }
   if (req.groupBy && req.groupBy.length > 0) {
     params.set('groupBy', req.groupBy.join(','));
@@ -173,6 +193,7 @@ export async function fetchAggregate(
   if (req.via) params.set('via', JSON.stringify(req.via));
   if (req.bin) params.set('bin', JSON.stringify(req.bin));
   if (req.asOf) params.set('at', req.asOf);
+  if (req.areaId) params.set('area', req.areaId);
   if (req.limit !== undefined) params.set('limit', String(req.limit));
 
   const res = await fetch(
@@ -191,6 +212,9 @@ export async function fetchAggregate(
       detail = Array.isArray(m) ? m.join('; ') : (m ?? '');
     } catch {
       /* non-JSON error body; fall through to the status text */
+    }
+    if (res.status === 410 && req.areaId) {
+      throw new AreaExpiredError(detail || 'This area has expired.');
     }
     throw new Error(detail || `Could not load data (HTTP ${res.status}).`);
   }

@@ -25,6 +25,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   `POST /api/areas-of-interest`, only features touching that area
   count and the measures cover just the part inside it. This is the
   server half of What's Here (#796).
+- What's Here in the map viewer: pick an area by drawing, tapping a
+  point, searching an address or picking shapes such as parcels, add a
+  distance, and see what every visible layer has inside it: counts,
+  acres or length inside the area, share of the area, and a breakdown
+  by any category. Units follow the profile's metric or imperial
+  setting and each user's last choice. Exports a spreadsheet. Also an
+  app widget, where authors can set the starting units (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
 
