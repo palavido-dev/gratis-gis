@@ -19,6 +19,8 @@ import { useT } from '@/lib/i18n/locale-context';
 import { useFormat } from '@/lib/i18n/format';
 import { formatBytes } from '@/lib/format-bytes';
 
+import { OffsiteSigning, type OffsiteSigningInfo } from './offsite-signing';
+
 /**
  * Off-site settings as GET /admin/backup/offsite returns them. The
  * bucket secret is never sent to the browser; only whether it is set
@@ -46,6 +48,8 @@ interface OffsiteConfig {
   problems: string[];
   /** The last change of the saved public key. */
   keyChange: { at: string; by: string | null; previousFingerprint: string | null } | null;
+  /** The signing key's public half and history. */
+  signing?: OffsiteSigningInfo;
   status: {
     lastSuccess: {
       runId: string;
@@ -579,6 +583,8 @@ export function OffsiteSection() {
             ) : null}
           </div>
         </div>
+
+        {config.signing ? <OffsiteSigning signing={config.signing} onChanged={load} /> : null}
 
         <details className="rounded-md border border-border px-3 py-2">
           <summary className="cursor-pointer text-xs font-medium text-ink-0">
