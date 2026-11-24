@@ -30,7 +30,9 @@ export function SubmissionReceipts({ formId }: { formId: string }) {
       try {
         const res = await fetch(`/api/portal/forms/${formId}/submissions?limit=20`);
         if (cancelled) return;
-        if (res.status === 401 || res.status === 403) {
+        // 404 is the answer for a form outside the viewer's org, so it
+        // hides the panel the same as a missing permission.
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
           setHidden(true);
           return;
         }

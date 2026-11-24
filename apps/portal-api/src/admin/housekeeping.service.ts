@@ -6,7 +6,7 @@ import type { ItemType, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import { readV3Layers } from '../data-layer/read-v3-layers.js';
-import { itemBbox } from '../items/item-bbox.js';
+import { itemBbox, mayUseExtentOf } from '../items/item-bbox.js';
 import { DataLayerTablesService } from '../data-layer/tables.service.js';
 import {
   SearchIndexJobsService,
@@ -1780,12 +1780,13 @@ export class HousekeepingService {
     }
     if (missing.length > 0) {
       const rows = await this.prisma.item.findMany({
-        // Same org only: a map must not pick up (and so reveal) the
-        // extent of an item in another org by naming its id.
-        where: { id: { in: missing }, orgId, deletedAt: null },
-        select: { bbox: true },
+        where: { id: { in: missing }, deletedAt: null },
+        select: { bbox: true, orgId: true, access: true },
       });
       for (const row of rows) {
+        // Same rule as the background refresh: a map must not pick up
+        // (and so reveal) the extent of another org's non-public item.
+        if (!mayUseExtentOf({ orgId }, row)) continue;
         const b = row.bbox as number[] | null;
         if (Array.isArray(b) && b.length === 4) {
           w = Math.min(w, b[0]!);

@@ -406,6 +406,68 @@ export const TOPICS: Topic[] = [
     },
   },
   {
+    name: 'map save keeps a layer the author lost access to, and refuses adding one',
+    modes: BOTH,
+    async run(state) {
+      const { app, fx } = state;
+      const p: string[] = [];
+      const admin = fx.B.users.admin;
+      const author = fx.B.users.contributor;
+      // A layer of B's admin, shared with the author while the map is made.
+      const { id: layer } = await createItem(state, admin, {
+        type: 'data_layer',
+        title: 'B layer shared for a while',
+        access: 'private',
+        data: { version: 3, layers: [] },
+      });
+      if (!layer) return verdict(["B's admin could not create a layer"]);
+      const share = { principalType: 'user', principalId: author.id, permission: 'view' };
+      await api(app.baseUrl, admin, 'POST', `/api/items/${layer}/share`, share);
+      const { res, id: map } = await createItem(state, author, {
+        type: 'map',
+        title: 'B author map',
+        access: 'private',
+        data: mapData(layer),
+      });
+      if (!map)
+        return verdict([`the author could not save a map with a shared layer: ${short(res)}`]);
+      await api(app.baseUrl, admin, 'DELETE', `/api/items/${layer}/share`, share);
+      const again = await api(app.baseUrl, author, 'PATCH', `/api/items/${map}`, {
+        title: 'B author map, edited',
+        data: { ...mapData(layer), zoom: 4 },
+      });
+      if (again.status !== 200) p.push(`saving the stored layer again: ${short(again)}`);
+      const added = await api(app.baseUrl, author, 'PATCH', `/api/items/${map}`, {
+        data: {
+          layers: [
+            ...(mapData(layer).layers as unknown[]),
+            mapLayer('l2', fx.A.items['data_layer:org']!),
+          ],
+        },
+      });
+      if (added.status !== 400)
+        p.push(`adding another org's layer: expected 400, got ${short(added)}`);
+      const unknown = await api(app.baseUrl, author, 'PATCH', `/api/items/${map}`, {
+        data: {
+          layers: [
+            ...(mapData(layer).layers as unknown[]),
+            mapLayer('l2', '00000000-0000-4000-8000-00000000abcd'),
+          ],
+        },
+      });
+      // An id that does not exist gets the same answer.
+      const body = (r: ApiResult): string => {
+        const { requestId: _r, ...rest } = (r.body ?? {}) as Record<string, unknown>;
+        void _r;
+        return JSON.stringify(rest).replace(/[0-9a-f-]{36}/g, '<id>');
+      };
+      if (unknown.status !== added.status || body(unknown) !== body(added)) {
+        p.push(`an unknown id answered differently: ${short(unknown)} / ${short(added)}`);
+      }
+      return verdict(p);
+    },
+  },
+  {
     name: "map extent refresh and housekeeping recompute agree on another org's public layer",
     modes: BOTH,
     async run(state) {
@@ -443,6 +505,51 @@ export const TOPICS: Topic[] = [
           ? []
           : [`refresh gave [${refreshed.join(',')}], recompute gave [${recomputed.join(',')}]`],
       );
+    },
+  },
+  {
+    name: 'a derived layer of another org reads as not found and cannot be used as a source',
+    modes: BOTH,
+    async run(state) {
+      const { app, fx } = state;
+      const p: string[] = [];
+      for (const access of ['private', 'org'] as const) {
+        const id = fx.A.items[`derived_layer:${access}`];
+        if (!id) {
+          p.push(`the ${access} derived layer fixture was not created`);
+          continue;
+        }
+        for (const path of [
+          `/api/items/${id}`,
+          `/api/items/${id}/geojson`,
+          `/api/items/${id}/dependencies`,
+        ]) {
+          const own = await api(app.baseUrl, fx.A.users.admin, 'GET', path);
+          const other = await api(app.baseUrl, fx.B.users.admin, 'GET', path);
+          if (own.status !== 200) p.push(`control ${path}: ${short(own)}`);
+          if (other.status !== 404) p.push(`${path}: expected 404, got ${short(other)}`);
+          const leaks = fx.A.secrets.filter((x) => other.text.includes(x) && x !== id);
+          if (leaks.length) p.push(`${path} showed A's data: ${leaks.join(', ')}`);
+        }
+      }
+      const source = fx.A.items['derived_layer:private'];
+      if (source) {
+        const { res } = await createItem(state, fx.B.users.admin, {
+          type: 'derived_layer',
+          title: "B layer from A's derived layer",
+          access: 'private',
+          data: {
+            version: 1,
+            source: { kind: 'derived_layer', itemId: source },
+            pipeline: [{ tool: 'buffer', params: { mode: 'fixed', distance: 10, unit: 'meters' } }],
+            featureLimit: 1000,
+            outputSchema: [],
+            bbox: [],
+          },
+        });
+        if (res.status < 300) p.push(`B saved a derived layer on A's derived layer: ${res.status}`);
+      }
+      return verdict(p);
     },
   },
   {

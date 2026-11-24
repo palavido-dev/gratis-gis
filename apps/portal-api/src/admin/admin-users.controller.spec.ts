@@ -775,7 +775,7 @@ describe('AdminUsersController keeps the local row in step', () => {
 });
 
 describe('AdminUsersController mutations on users with no local row', () => {
-  it('refuses a user whose Keycloak org is another organization', async () => {
+  it('answers not found for a user whose Keycloak org is another organization', async () => {
     const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme', username: 'me' });
     const foreign: KeycloakUserRep = {
       id: 'kc-f',
@@ -790,12 +790,16 @@ describe('AdminUsersController mutations on users with no local row', () => {
     });
     await expect(
       controller.update(caller, 'kc-f', { email: 'x@example.test' }),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    ).rejects.toBeInstanceOf(NotFoundException);
     await expect(controller.remove(caller, 'kc-f')).rejects.toBeInstanceOf(
-      ForbiddenException,
+      NotFoundException,
+    );
+    await expect(controller.resetPassword(caller, 'kc-f')).rejects.toBeInstanceOf(
+      NotFoundException,
     );
     expect(kc.updateUser).not.toHaveBeenCalled();
     expect(kc.deleteUser).not.toHaveBeenCalled();
+    expect(kc.sendExecuteActionsEmail).not.toHaveBeenCalled();
   });
 
   it('still allows an invitee of the caller org', async () => {

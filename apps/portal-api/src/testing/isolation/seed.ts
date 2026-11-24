@@ -172,6 +172,19 @@ function itemData(type: string, layerItemId: string | undefined): Record<string,
       };
     case 'map':
       return layerItemId ? { layers: [mapLayer('l1', layerItemId)] } : {};
+    case 'derived_layer':
+      return layerItemId
+        ? {
+            version: 1,
+            source: { kind: 'data_layer', itemId: layerItemId, layerKey: LAYER_ID },
+            pipeline: [
+              { tool: 'buffer', params: { mode: 'fixed', distance: 100, unit: 'meters' } },
+            ],
+            featureLimit: 1000,
+            outputSchema: [],
+            bbox: [],
+          }
+        : {};
     default:
       return {};
   }

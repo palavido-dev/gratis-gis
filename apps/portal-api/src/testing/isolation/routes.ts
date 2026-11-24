@@ -917,9 +917,6 @@ export const ROUTES: Record<string, RouteEntry> = {
   'GET /api/users/me/notification-preferences': list(),
   'PUT /api/users/me/notification-preferences': own({
     body: () => ({ type: 'share_created', channel: 'email', enabled: false }),
-    expect: [200, 201, 204, 500],
-    reason:
-      'answers 500 on a freshly migrated database (column type and Prisma enum disagree); reported separately, not an isolation issue',
   }),
   'POST /api/field/queue-manifest': own({
     body: () => ({ deviceFingerprint: 'device-b', manifest: [] }),

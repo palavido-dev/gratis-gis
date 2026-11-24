@@ -62,6 +62,8 @@ function serviceForCreate(captured: Captured): ItemsService {
         },
       },
     },
+    // Every layer item a test map names is one the author can read.
+    unreadableItemIds: async () => new Set<string>(),
   });
   return svc;
 }

@@ -19,6 +19,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SharingService } from './sharing.service.js';
 import { withLockedItem } from './item-data-lock.js';
+import { refuseAccess } from '../common/org-not-found.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 
 /**
@@ -266,9 +267,7 @@ export class DrawingsService {
       where: { itemId: mapId },
     });
     if (!this.sharing.canEdit(user, item, shares)) {
-      throw new ForbiddenException(
-        'You do not have edit permission on this map',
-      );
+      refuseAccess(user, item, 'Map not found', 'You do not have edit permission on this map');
     }
     await this.mutateMapData(item.id, (fresh) => ({
       data: { ...fresh, allowAnonymousDrawings: allowed },

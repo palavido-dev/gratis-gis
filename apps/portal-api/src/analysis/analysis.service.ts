@@ -7,7 +7,6 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Prisma } from '@prisma/client';
@@ -19,6 +18,7 @@ import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { DataLayerFeaturesService } from '../data-layer/features.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { inCallerOrgOrNotFound } from '../common/org-not-found.js';
 import { hasCapability } from '../auth/capabilities.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
 import { assertGridBudget } from './grid-estimate.js';
@@ -734,15 +734,11 @@ export class AnalysisService {
    * can see the list can also poll one job by id.
    */
   async getJob(user: AuthUser, jobId: string) {
-    const job = await this.prisma.analysisJob.findUnique({
-      where: { id: jobId },
-    });
-    if (!job) {
-      throw new NotFoundException(`Analysis job ${jobId} not found.`);
-    }
-    if (job.orgId !== user.orgId) {
-      throw new ForbiddenException('Job not in your organization.');
-    }
+    const job = inCallerOrgOrNotFound(
+      await this.prisma.analysisJob.findUnique({ where: { id: jobId } }),
+      user,
+      `Analysis job ${jobId} not found.`,
+    );
     await this.items.get(user, job.sourceItemId);
     return job;
   }
@@ -979,15 +975,11 @@ export class AnalysisService {
   }
 
   async cancelJob(user: AuthUser, jobId: string) {
-    const job = await this.prisma.analysisJob.findUnique({
-      where: { id: jobId },
-    });
-    if (!job) {
-      throw new NotFoundException(`Analysis job ${jobId} not found.`);
-    }
-    if (job.orgId !== user.orgId) {
-      throw new ForbiddenException('Job not in your organization.');
-    }
+    const job = inCallerOrgOrNotFound(
+      await this.prisma.analysisJob.findUnique({ where: { id: jobId } }),
+      user,
+      `Analysis job ${jobId} not found.`,
+    );
     if (job.userId !== user.id && user.orgRole !== 'admin') {
       throw new ForbiddenException(
         'Only the job creator or an org admin can cancel.',
