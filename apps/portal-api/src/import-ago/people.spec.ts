@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ConflictException } from '@nestjs/common';
+import { BadGatewayException, ConflictException } from '@nestjs/common';
+
+import { AccountExistsException } from '../admin/keycloak-admin.service';
 
 import type { AuthUser } from '../auth/auth-sync.service';
 
@@ -14,7 +16,13 @@ const admin = {
 } as unknown as AuthUser;
 
 function setup(
-  opts: { existingUsernames?: string[]; takenEmails?: string[]; existingGroups?: string[] } = {},
+  opts: {
+    existingUsernames?: string[];
+    takenEmails?: string[];
+    existingGroups?: string[];
+    /** What createUser throws for a taken email. */
+    takenError?: () => Error;
+  } = {},
 ) {
   const created: Array<Record<string, unknown>> = [];
   const localUsers = [{ id: 'me', username: 'me', email: 'me@acme.org' }];
@@ -25,7 +33,9 @@ function setup(
     ),
     createUser: jest.fn(async (input: Record<string, unknown>) => {
       if ((opts.takenEmails ?? []).includes(input.email as string)) {
-        throw new ConflictException('A user with that username or email already exists.');
+        throw opts.takenError
+          ? opts.takenError()
+          : new ConflictException('A user with that username or email already exists.');
       }
       created.push(input);
       localUsers.push({
@@ -146,5 +156,33 @@ describe('role and username mapping', () => {
   });
   it('lower-cases usernames', () => {
     expect(portalUsername(' Jane_Acme ')).toBe('jane_acme');
+  });
+
+  it.each([
+    ['the account exists answer', () => new AccountExistsException()],
+    ['a 409 in other words', () => new ConflictException('Could not invite this address.')],
+  ])('counts a person as matched from %s, by status not text', async (_label, takenError) => {
+    const t = setup({ takenEmails: ['pat@acme.org'], takenError });
+    const { report } = await t.svc.run({
+      user: admin,
+      client: t.client,
+      options: { import: true, sendSetupEmail: true },
+    });
+    expect(report.usersMatched).toBe(1);
+    expect(report.usersCreated).toBe(2);
+  });
+
+  it('does not count another failure as matched because of its words', async () => {
+    const t = setup({
+      takenEmails: ['pat@acme.org'],
+      takenError: () => new BadGatewayException('Upstream says: user already exists'),
+    });
+    const { report } = await t.svc.run({
+      user: admin,
+      client: t.client,
+      options: { import: true, sendSetupEmail: true },
+    });
+    expect(report.usersMatched).toBe(0);
+    expect(report.usersFailed).toBe(2);
   });
 });

@@ -270,3 +270,20 @@ function looksLikeStack(text: string): boolean {
       /\([^()\n]*\.(?:js|ts|mjs|cjs):\d+:\d+\)/.test(line),
   );
 }
+
+/**
+ * The `code` field of an error body, when the server sent one; null
+ * otherwise. Never throws.
+ */
+export function errorBodyCode(body: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (parsed && typeof parsed === 'object') {
+      const code = (parsed as { code?: unknown }).code;
+      if (typeof code === 'string') return code;
+    }
+  } catch {
+    // Not JSON: no code.
+  }
+  return null;
+}

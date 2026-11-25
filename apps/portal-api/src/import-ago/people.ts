@@ -19,7 +19,7 @@
  *   admins. The admin running the import also ends up a group admin,
  *   as with any group they create.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import type { GroupAccess, OrgRole } from '@prisma/client';
 
 import { isAdminTierLocked } from '../admin/admin-tier-lock.js';
@@ -173,8 +173,9 @@ export class AgoPeopleImportService {
         });
         report.usersCreated += 1;
       } catch (e) {
-        // A taken email means the person is already here under another name.
-        if (e instanceof Error && /already exists/i.test(e.message)) {
+        // A taken username or email (Keycloak's 409) means the person
+        // already has an account. Decided on the status, never the text.
+        if (e instanceof HttpException && e.getStatus() === HttpStatus.CONFLICT) {
           report.usersMatched += 1;
           continue;
         }

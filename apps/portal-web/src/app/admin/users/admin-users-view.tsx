@@ -35,6 +35,7 @@ import {
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
 import { adminUsersPageQuery, fetchAllAdminUsers } from '@/lib/admin-users-paging';
+import { errorBodyCode } from '@/lib/api-error';
 
 /**
  * Admin-side users table.
@@ -771,10 +772,12 @@ function InviteUserDialog({ onClose, onInvited }: InviteDialogProps) {
     }
     setSubmitting(false);
     if (!res.ok) {
-      await res.text().catch(() => '');
+      const body = await res.text().catch(() => '');
       setError(
         res.status === 409
-          ? t('adminUsers.invite.errDuplicate')
+          ? errorBodyCode(body) === 'already_member'
+            ? t('adminUsers.invite.errAlreadyMember')
+            : t('adminUsers.invite.errDuplicate')
           : res.status === 502
             ? t('adminUsers.invite.errUpstream')
             : t('adminUsers.invite.errInviteFailed', {

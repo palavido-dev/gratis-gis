@@ -16,6 +16,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
@@ -30,6 +31,8 @@ import {
 
 import { AdminGuard } from './admin.guard.js';
 import {
+  AccountExistsException,
+  combineName,
   KeycloakAdminService,
   type KeycloakUserRep,
 } from './keycloak-admin.service.js';
@@ -38,6 +41,7 @@ import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ownOrgListScope, scopedWhere } from '../common/list-scope.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { isAdminTierLocked } from './admin-tier-lock.js';
 
@@ -98,6 +102,28 @@ class UpdateUserDto {
    * write hits the DB.
    */
   @IsOptional() @IsDateString() autoDisableAt?: string | null;
+}
+
+/**
+ * The fields an invite answers with on an install that serves many
+ * organizations, whether the invite created an account or not (see
+ * inviteOfTakenAddress), so the two answers have the same shape.
+ */
+function inviteAnswer(rep: KeycloakUserRep): KeycloakUserRep {
+  return {
+    id: rep.id,
+    username: rep.username,
+    ...(rep.email !== undefined ? { email: rep.email } : {}),
+    ...(rep.firstName !== undefined ? { firstName: rep.firstName } : {}),
+    ...(rep.lastName !== undefined ? { lastName: rep.lastName } : {}),
+    enabled: rep.enabled,
+    emailVerified: rep.emailVerified ?? false,
+    requiredActions: rep.requiredActions ?? [],
+    ...(rep.createdTimestamp !== undefined ? { createdTimestamp: rep.createdTimestamp } : {}),
+    attributes: rep.attributes ?? {},
+    ...(rep.fullName !== undefined ? { fullName: rep.fullName } : {}),
+    ...(rep.setupEmailError !== undefined ? { setupEmailError: rep.setupEmailError } : {}),
+  };
 }
 
 /** Role order, used to tell a demotion from a promotion. */
@@ -303,13 +329,83 @@ export class AdminUsersController {
         this.note(me, 'user.invite', created.id, 'succeeded', {
           role: dto.orgRole ?? 'viewer',
         });
-        return created;
+        return isMultiTenant() ? inviteAnswer(created) : created;
       },
       (err: unknown) => {
+        if (isMultiTenant() && err instanceof AccountExistsException) {
+          return this.inviteOfTakenAddress(me, input);
+        }
         this.note(me, 'user.invite', '', 'failed', { role: dto.orgRole ?? 'viewer' });
         throw err;
       },
     );
+  }
+
+  /**
+   * Many organizations: an invite whose username or email already has
+   * an account. Accounts are shared by the whole install, so that
+   * account may belong to another organization, and the answer must
+   * not say so.
+   *
+   * - The account is in the inviter's organization: a 409 that says
+   *   the person is already a member.
+   * - Otherwise: the same answer as an invite that went out. Nothing
+   *   is created, nothing about the existing account changes, and its
+   *   owner is sent nothing. The inviter sees the invite as sent; the
+   *   person does not appear in the user list, as anyone who has not
+   *   joined does not.
+   */
+  private async inviteOfTakenAddress(
+    me: AuthUser,
+    input: Parameters<typeof this.kc.createUser>[0],
+  ): Promise<KeycloakUserRep> {
+    const role = input.orgRole ?? 'viewer';
+    if (await this.accountInCallerOrg(me, input.username, input.email)) {
+      this.note(me, 'user.invite', '', 'failed', { role });
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        code: 'already_member',
+        message: 'This person is already a member of your organization.',
+      });
+    }
+    const username = input.username.toLowerCase();
+    const attributes: Record<string, string[]> = {};
+    if (input.orgRole) attributes.org_role = [input.orgRole];
+    if (input.org) attributes.org = [input.org];
+    const answer = inviteAnswer({
+      id: randomUUID(),
+      username,
+      email: input.email.toLowerCase(),
+      ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
+      ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+      enabled: input.enabled ?? true,
+      emailVerified: false,
+      requiredActions: [],
+      createdTimestamp: Date.now(),
+      attributes,
+      fullName: combineName(input.firstName, input.lastName, username),
+    });
+    this.note(me, 'user.invite', answer.id, 'succeeded', { role });
+    return answer;
+  }
+
+  /** Whether an account with this username or email is in the caller's organization. */
+  private async accountInCallerOrg(me: AuthUser, username: string, email: string): Promise<boolean> {
+    const local = await this.prisma.user.findFirst({
+      where: {
+        orgId: me.orgId,
+        OR: [
+          { username: { equals: username, mode: 'insensitive' } },
+          { email: { equals: email, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (local) return true;
+    // Invited but never signed in: only Keycloak knows them.
+    const accounts = await this.kc.findAccountsByUsernameOrEmail(username, email);
+    return accounts.some((a) => a.attributes?.org?.includes(me.orgSlug) === true);
   }
 
   @Patch(':id')

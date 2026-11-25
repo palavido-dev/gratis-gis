@@ -8,7 +8,8 @@ import {
 
 import { AdminUsersController } from './admin-users.controller.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
-import type { KeycloakUserRep } from './keycloak-admin.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
+import { AccountExistsException, type KeycloakUserRep } from './keycloak-admin.service.js';
 
 /**
  * Lockout + take-over guard coverage for #133 / #134.
@@ -953,5 +954,104 @@ describe('AdminUsersController.remove for a user already gone from Keycloak', ()
     const { caller, controller, prisma } = ghostSetup('org-2');
     await expect(controller.remove(caller, 'ghost')).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminUsersController.invite of an address that already has an account', () => {
+  const before = process.env.GRATIS_TENANCY;
+  afterEach(() => {
+    if (before === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = before;
+    resetTenancyModeForTests();
+  });
+  function mode(m: 'single' | 'multi'): void {
+    if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+    else delete process.env.GRATIS_TENANCY;
+    resetTenancyModeForTests();
+  }
+
+  const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+  const dto = { username: 'Ana', email: 'Ana@example.test', orgRole: 'contributor' } as never;
+
+  function setup(opts: { localInOrg?: boolean; kcOrg?: string }) {
+    const { controller, kc, prisma } = makeController({ caller, targets: [], adminCount: 1 });
+    kc.createUser.mockImplementation(async () => {
+      throw new AccountExistsException();
+    });
+    const lookup = jest.fn(async () =>
+      opts.kcOrg ? [{ id: 'kc-ana', username: 'ana', enabled: true, attributes: { org: [opts.kcOrg] } }] : [],
+    );
+    Object.assign(kc, { findAccountsByUsernameOrEmail: lookup });
+    const findFirst = jest.fn(async () => (opts.localInOrg ? { id: 'u-ana' } : null));
+    Object.assign(prisma.user, { findFirst });
+    return { controller, kc, lookup, findFirst };
+  }
+
+  it('one organization: the 409 and its words, exactly as before', async () => {
+    mode('single');
+    const { controller, lookup } = setup({ kcOrg: 'other' });
+    const err = await controller.invite(caller, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: 'A user with that username or email already exists.',
+    });
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('many organizations: an account in another organization answers like a sent invite', async () => {
+    mode('multi');
+    const { controller, kc } = setup({ kcOrg: 'other-org' });
+    const out = await controller.invite(caller, dto);
+    expect(out).toMatchObject({
+      username: 'ana',
+      email: 'ana@example.test',
+      enabled: true,
+      emailVerified: false,
+      attributes: { org: ['acme'], org_role: ['contributor'] },
+    });
+    expect(out.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(out.id).not.toBe('kc-ana');
+    // Nothing created, changed or sent for the existing account.
+    expect(kc.createUser).toHaveBeenCalledTimes(1);
+    expect(kc.updateUser).not.toHaveBeenCalled();
+    expect(kc.sendExecuteActionsEmail).not.toHaveBeenCalled();
+    expect(kc.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('many organizations: the answer has the same fields as a real invite', async () => {
+    mode('multi');
+    const real = setup({});
+    real.kc.createUser.mockImplementation(async () => ({
+      id: 'kc-new',
+      username: 'bo',
+      email: 'bo@example.test',
+      enabled: true,
+      emailVerified: false,
+      requiredActions: [],
+      createdTimestamp: 1,
+      attributes: { org: ['acme'] },
+      fullName: 'bo',
+      totp: false,
+      access: { manage: true },
+    }) as never);
+    const created = await real.controller.invite(caller, dto);
+    const taken = await setup({ kcOrg: 'other-org' }).controller.invite(caller, dto);
+    expect(Object.keys(taken).sort()).toEqual(Object.keys(created).sort());
+  });
+
+  it.each([
+    ['a signed-in member', { localInOrg: true }],
+    ['an invited member who never signed in', { kcOrg: 'acme' }],
+  ])('many organizations: %s of the same organization gets a clear 409', async (_l, opts) => {
+    mode('multi');
+    const { controller } = setup(opts);
+    const err = await controller.invite(caller, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({
+      code: 'already_member',
+      message: 'This person is already a member of your organization.',
+    });
   });
 });

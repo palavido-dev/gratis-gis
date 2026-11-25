@@ -4340,6 +4340,7 @@ export const es: Partial<CatalogShape> = {
       errUsernameMin: 'El usuario debe tener al menos 2 caracteres.',
       errEmailInvalid: 'Introduce una dirección de correo válida.',
       errDuplicate: 'Ya existe una cuenta con ese usuario o correo. Aquí no se muestra la dirección.',
+      errAlreadyMember: 'Esta persona ya es miembro de su organización.',
       errUpstream: 'El servidor de identidad no pudo crear la cuenta. Vuelve a intentarlo en un momento. Si sigue fallando, comprueba que el servidor de identidad esté en funcionamiento. Aquí no se muestra la dirección.',
       errInviteFailed: 'La invitación no terminó (estado {status}). No se muestra el detalle de la cuenta.',
       alertEmailFailedTitle: 'Cuenta creada, correo no enviado',

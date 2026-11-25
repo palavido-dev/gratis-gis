@@ -4357,6 +4357,7 @@ export const de: Partial<CatalogShape> = {
       errUsernameMin: 'Der Benutzername muss mindestens 2 Zeichen haben.',
       errEmailInvalid: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.',
       errDuplicate: 'Ein Konto mit diesem Namen oder dieser Adresse existiert bereits. Die Adresse wird hier nicht angezeigt.',
+      errAlreadyMember: 'Diese Person ist bereits Mitglied Ihrer Organisation.',
       errUpstream: 'Der Identitätsserver konnte das Konto nicht erstellen. Versuchen Sie es gleich noch einmal. Wenn es weiterhin fehlschlägt, prüfen Sie, ob der Identitätsserver läuft. Die Adresse wird hier nicht angezeigt.',
       errInviteFailed: 'Die Einladung wurde nicht abgeschlossen (Status {status}). Es werden keine Kontodetails angezeigt.',
       alertEmailFailedTitle: 'Konto erstellt, E-Mail nicht gesendet',
