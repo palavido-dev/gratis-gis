@@ -12,12 +12,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 // and not 22. Dropping that floor turns this line into a boot-time
 // ERR_REQUIRE_ESM for the whole API, not just for printing.
 import puppeteer from 'puppeteer-core';
-import {
-  resolvePaperInches,
-  type BasemapData,
-  type MapData,
-  type PrintPaperSpec,
-} from '@gratis-gis/shared-types';
+import { type BasemapData, type MapData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -29,6 +24,7 @@ import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
 import { fairShareBucket, OrgSlotCounter } from '../common/org-fair-share.js';
+import { printTemplatePaper } from './print-paper.js';
 import { printReadItemIds } from './print-read-scope.js';
 
 export interface RenderJobBundle {
@@ -81,9 +77,10 @@ const MAX_CONCURRENT_RENDERS = 4;
 
 @Injectable()
 export class PrintRenderService {
-  /** Renders running in this process; see MAX_CONCURRENT_RENDERS. */
-  private activeRenders = 0;
-  /** Renders running per organization; see common/org-fair-share.ts. */
+  /**
+   * Renders running in this process, by organization; its total is
+   * held to MAX_CONCURRENT_RENDERS. See common/org-fair-share.ts.
+   */
   private readonly rendersByOrg = new OrgSlotCounter();
 
   private readonly log = new Logger(PrintRenderService.name);
@@ -220,13 +217,9 @@ export class PrintRenderService {
     if (map.type !== 'map') {
       throw new BadRequestException(`Item ${args.mapId} is not a map`);
     }
-    const paper = (
-      (template.data as { paper?: PrintPaperSpec } | null)?.paper ?? {
-        size: 'letter',
-        orientation: 'portrait',
-        marginIn: 0.25,
-      }
-    ) as PrintPaperSpec;
+    // Everything that can refuse the request runs before a render slot
+    // is taken, so a refused request never holds one.
+    const { inches } = printTemplatePaper(template.data);
 
     // 2. Mint a render token in the shared store (PrintRenderToken).
     // In-memory would fail across the 2-replica prod topology: the
@@ -281,33 +274,25 @@ export class PrintRenderService {
     // page's third-party resources in this process, so a replica runs
     // only a few at once and turns the rest away.
     const renderBucket = fairShareBucket();
-    if (
-      this.activeRenders >= MAX_CONCURRENT_RENDERS ||
-      !this.rendersByOrg.mayTake(renderBucket, MAX_CONCURRENT_RENDERS)
-    ) {
+    if (!this.rendersByOrg.tryTake(renderBucket, MAX_CONCURRENT_RENDERS)) {
       throw new ServiceUnavailableException(
         'The print service is busy. Try again in a minute.',
       );
     }
-    this.activeRenders += 1;
-    this.rendersByOrg.take(renderBucket);
+    // From here on every path, a throw included, ends in the finally
+    // below, which gives the slot back.
     const renderDone = new AbortController();
-    const budget = createPrintFetchBudget(renderDone.signal);
-    const inches = resolvePaperInches(paper);
-    let browser: Awaited<ReturnType<typeof puppeteer.connect>>;
-    try {
-      browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
-    } catch (err) {
-      this.activeRenders -= 1;
-      this.rendersByOrg.release(renderBucket);
-      throw err;
-    }
+    let browser: Awaited<ReturnType<typeof puppeteer.connect>> | undefined;
     // A context of its own per render: storage (cookies, local and
     // session storage, the Cache Storage a map library may fill) is
     // never shared between two renders, which can be for different
     // people of different organizations.
-    let context: Awaited<ReturnType<typeof browser.createBrowserContext>> | undefined;
+    let context:
+      | Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.connect>>['createBrowserContext']>>
+      | undefined;
     try {
+      const budget = createPrintFetchBudget(renderDone.signal);
+      browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
       context = await browser.createBrowserContext();
       const page = await context.newPage();
       try {
@@ -370,10 +355,10 @@ export class PrintRenderService {
         for (const wake of budget.waiting.splice(0)) wake();
       }
     } finally {
-      this.activeRenders -= 1;
+      renderDone.abort();
       this.rendersByOrg.release(renderBucket);
       await context?.close().catch(() => undefined);
-      await browser.disconnect();
+      await browser?.disconnect().catch(() => undefined);
     }
   }
 }

@@ -49,6 +49,7 @@ import {
 import { requestAbortSignal } from '../common/request-signal.js';
 import { parseIntEnv } from '../common/env.js';
 import { fairShareBucket, OrgSlotCounter } from '../common/org-fair-share.js';
+import { currentTenant } from '../common/tenant-context.js';
 import { onceDrain, streamFeatureCollection } from './feature-stream.js';
 import {
   parseAggregateQuery,
@@ -202,8 +203,7 @@ const CREATED_NOTIFY_SUMMARY_THRESHOLD = 10;
 const GEOPARQUET_EXPORT_SLOTS = parseIntEnv('GEOPARQUET_EXPORT_CONCURRENCY', 2, {
   min: 1,
 });
-let geoParquetExportsRunning = 0;
-/** The same exports, per organization; see common/org-fair-share.ts. */
+/** Exports running, per organization; see common/org-fair-share.ts. */
 const geoParquetExportsByOrg = new OrgSlotCounter();
 
 /** Stop pulling batches once the client has gone, so the walk and the
@@ -1586,20 +1586,17 @@ export class DataLayerFeaturesController {
     } = { ...opts };
     if (at) iterOpts.at = at;
 
-    const exportBucket = fairShareBucket();
-    if (
-      geoParquetExportsRunning >= GEOPARQUET_EXPORT_SLOTS ||
-      !geoParquetExportsByOrg.mayTake(exportBucket, GEOPARQUET_EXPORT_SLOTS)
-    ) {
+    const signal = res.req ? requestAbortSignal(res.req, res) : undefined;
+    // Signed-out downloads of a public layer count against the layer's
+    // organization (common/org-fair-share.ts).
+    const exportBucket = fairShareBucket(currentTenant(), item.orgId);
+    if (!geoParquetExportsByOrg.tryTake(exportBucket, GEOPARQUET_EXPORT_SLOTS)) {
       res.setHeader('Retry-After', '30');
       throw new HttpException(
         'Other exports are running on the server right now. Try again in a minute.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    geoParquetExportsRunning += 1;
-    geoParquetExportsByOrg.take(exportBucket);
-    const signal = res.req ? requestAbortSignal(res.req, res) : undefined;
 
     // mkdtemp: atomic + 0700, same rationale as the ingest temp
     // dirs (CodeQL js/insecure-temporary-file).
@@ -1648,7 +1645,6 @@ export class DataLayerFeaturesController {
         // finally below still removes the temp dir.
       }
     } finally {
-      geoParquetExportsRunning -= 1;
       geoParquetExportsByOrg.release(exportBucket);
       if (workDir) {
         await rm(workDir, { recursive: true, force: true }).catch(() => {

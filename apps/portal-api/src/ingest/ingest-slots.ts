@@ -16,9 +16,11 @@ const MAX_PER_USER = 1;
 /** Spare bytes required beyond the upload itself. */
 export const INGEST_DISK_HEADROOM_BYTES = 256 * 1024 * 1024;
 
-let globalInFlight = 0;
 const perUser = new Map<string, number>();
-/** Slots per organization; see common/org-fair-share.ts. */
+/**
+ * Slots in use, by organization. Its total is the number of parses
+ * running; see common/org-fair-share.ts.
+ */
 const perOrg = new OrgSlotCounter();
 
 export class IngestBusyException extends HttpException {
@@ -47,21 +49,14 @@ export class IngestDiskException extends HttpException {
 export function acquireIngestSlot(userId: string): () => void {
   const mine = perUser.get(userId) ?? 0;
   const bucket = fairShareBucket();
-  if (
-    mine >= MAX_PER_USER ||
-    globalInFlight >= MAX_GLOBAL ||
-    !perOrg.mayTake(bucket, MAX_GLOBAL)
-  ) {
+  if (mine >= MAX_PER_USER || !perOrg.tryTake(bucket, MAX_GLOBAL)) {
     throw new IngestBusyException();
   }
   perUser.set(userId, mine + 1);
-  globalInFlight += 1;
-  perOrg.take(bucket);
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    globalInFlight -= 1;
     perOrg.release(bucket);
     const next = (perUser.get(userId) ?? 1) - 1;
     if (next <= 0) perUser.delete(userId);
@@ -71,7 +66,6 @@ export function acquireIngestSlot(userId: string): () => void {
 
 /** Test hook. Production code does not reset a live process this way. */
 export function resetIngestSlotsForTests(): void {
-  globalInFlight = 0;
   perUser.clear();
   perOrg.clear();
 }

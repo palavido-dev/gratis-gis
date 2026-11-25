@@ -159,6 +159,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { DerivedLayersService } from '../derived-layers/derived-layers.service.js';
 import { assertCurrentDataLayerVersion } from '../features/legacy-feature-tables.js';
 import { ownOrgListScope } from '../common/list-scope.js';
+import { assertPrintTemplateData } from '../print/print-paper.js';
 import { isMultiTenant } from '../common/tenancy.js';
 import { isUuidShape } from '../common/uuid-shape.js';
 import {
@@ -1826,6 +1827,7 @@ export class ItemsService {
     if (input.type === 'report_template') {
       resolvedData = reportTemplateDataOrThrow(resolvedData ?? {}) as unknown as Prisma.InputJsonValue;
     }
+    if (input.type === 'print_template') assertPrintTemplateData(resolvedData);
 
     // For form items (#281c), auto-materialize a paired data_layer
     // unless the form already declares a linkedLayerId. This is the
@@ -3185,6 +3187,9 @@ export class ItemsService {
     }
     if (nextData !== undefined && item.type === 'report_template') {
       nextData = reportTemplateDataOrThrow(nextData) as unknown as Prisma.InputJsonValue;
+    }
+    if (nextData !== undefined && item.type === 'print_template') {
+      assertPrintTemplateData(nextData);
     }
     if (nextData !== undefined && item.type === 'map') {
       nextData = (await this.resolveMapExpressionSources(

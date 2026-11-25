@@ -101,8 +101,10 @@ export function readReportTemplate(data: unknown): ReportTemplateData {
 @Injectable()
 export class ReportsService {
   private readonly log = new Logger(ReportsService.name);
-  private activeRenders = 0;
-  /** Renders running per organization; see common/org-fair-share.ts. */
+  /**
+   * Renders running in this process, by organization; its total is
+   * held to MAX_CONCURRENT_RENDERS. See common/org-fair-share.ts.
+   */
   private readonly rendersByOrg = new OrgSlotCounter();
 
   constructor(
@@ -384,14 +386,9 @@ export class ReportsService {
       );
     }
     const renderBucket = fairShareBucket();
-    if (
-      this.activeRenders >= MAX_CONCURRENT_RENDERS ||
-      !this.rendersByOrg.mayTake(renderBucket, MAX_CONCURRENT_RENDERS)
-    ) {
+    if (!this.rendersByOrg.tryTake(renderBucket, MAX_CONCURRENT_RENDERS)) {
       throw new ServiceUnavailableException('The report service is busy. Try again in a minute.');
     }
-    this.activeRenders += 1;
-    this.rendersByOrg.take(renderBucket);
     try {
       const browser = await puppeteer.connect({
         browserWSEndpoint: endpoints[Math.floor(Math.random() * endpoints.length)]!,
@@ -426,7 +423,6 @@ export class ReportsService {
         await browser.disconnect();
       }
     } finally {
-      this.activeRenders -= 1;
       this.rendersByOrg.release(renderBucket);
     }
   }

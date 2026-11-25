@@ -5,7 +5,8 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
 import { parseIntEnv, textEnv } from '../common/env.js';
-import { fairShareBucket, orgShareOf, OrgSlotCounter } from '../common/org-fair-share.js';
+import { fairShareBucket, OrgSlotCounter } from '../common/org-fair-share.js';
+import { isMultiTenant } from '../common/tenancy.js';
 
 import { TileDiskCache, type TileDiskStats } from './tile-disk-cache.js';
 
@@ -152,7 +153,7 @@ export class TileCacheService implements OnModuleDestroy {
    * the whole cap, as before.
    */
   private readonly computesByOrg = new OrgSlotCounter();
-  /** Lane places (running plus queued) per organization, per lane. */
+  /** Running lane slots per organization, per lane. */
   private readonly laneByOrg = new Map<string, OrgSlotCounter>();
   private invalidations = 0;
 
@@ -585,7 +586,6 @@ export class TileCacheService implements OnModuleDestroy {
     const disk = opts.persist && this.disk?.enabled ? this.disk : null;
     const capNow = counted && !disk;
     const bucket = fairShareBucket();
-    if (capNow) this.assertComputeSlot(bucket);
 
     this.ensureListener();
 
@@ -595,6 +595,8 @@ export class TileCacheService implements OnModuleDestroy {
     // onto it instead of queueing their own copy.
     // A laned compute is bounded by its lane, not by the tile cap, so
     // queued aggregates never make the map's tiles 503.
+    // Nothing between here and the promise below can throw, and the
+    // promise's finally gives the slot back.
     if (capNow) this.takeComputeSlot(bucket);
     let holdsSlot = capNow;
     const seqAtStart = this.invalidationSeq;
@@ -621,7 +623,6 @@ export class TileCacheService implements OnModuleDestroy {
           return { buf: stored, etag };
         }
         if (counted) {
-          this.assertComputeSlot(bucket);
           this.takeComputeSlot(bucket);
           holdsSlot = true;
         }
@@ -832,13 +833,26 @@ export class TileCacheService implements OnModuleDestroy {
   }
 
   /**
-   * Take a slot in a lane, waiting in FIFO order when it is full.
-   * Throws `TileCacheOverloadError` synchronously (inside the caller's
-   * async wrapper, so it surfaces as a rejection) when the waiting
-   * list is already at `maxQueued`. While queued, `entry.withdraw`
-   * removes the waiter and rejects with `TileCacheAbortedError`; it is
-   * cleared the moment the waiter is granted a slot, so a compute that
-   * has started can no longer be withdrawn.
+   * Take a slot in a lane, waiting in line when it is full. Throws
+   * `TileCacheOverloadError` synchronously (inside the caller's async
+   * wrapper, so it surfaces as a rejection) when the waiting line is
+   * already at `maxQueued`. While queued, `entry.withdraw` removes the
+   * waiter and rejects with `TileCacheAbortedError`; it is cleared the
+   * moment the waiter is granted a slot, so a compute that has started
+   * can no longer be withdrawn.
+   *
+   * One organization: first come, first served, as always.
+   *
+   * Many organizations: running slots follow the fair share rule of
+   * common/org-fair-share.ts, with the buckets in the line counted as
+   * waiting. The line is served in turns: when a slot frees, the
+   * waiting bucket that runs the fewest computes goes next, oldest
+   * first within it. The line keeps its length; when it is full and a
+   * newcomer's bucket has at least two fewer places in it than the
+   * bucket with the most, that bucket's newest waiter is turned away
+   * (the same overload answer a full line gives) to make room. With
+   * only one organization active this is exactly first come, first
+   * served with the same limits.
    */
   private acquireLane(
     spec: { name: string; limit: number; maxQueued?: number },
@@ -857,24 +871,16 @@ export class TileCacheService implements OnModuleDestroy {
       byOrg = new OrgSlotCounter();
       this.laneByOrg.set(spec.name, byOrg);
     }
-    // An organization's share counts its running and queued places
-    // together, so it cannot fill the queue either.
-    const places =
-      lane.limit + (Number.isFinite(lane.maxQueued) ? lane.maxQueued : 0);
-    if (!byOrg.mayTake(bucket, places)) {
-      this.rejectedOverload += 1;
-      throw new TileCacheOverloadError(
-        byOrg.heldBy(bucket),
-        orgShareOf(places),
-        `lane "${spec.name}" places for one organization`,
-      );
-    }
-    if (lane.active < lane.limit) {
+    const multi = isMultiTenant();
+    const canRunNow = multi
+      ? byOrg.mayTake(bucket, lane.limit, lane.waiters.map((w) => w.bucket))
+      : lane.active < lane.limit;
+    if (canRunNow) {
       lane.active += 1;
       byOrg.take(bucket);
       return Promise.resolve();
     }
-    if (lane.waiters.length >= lane.maxQueued) {
+    if (lane.waiters.length >= lane.maxQueued && !(multi && this.makeRoomFor(lane, bucket))) {
       this.rejectedOverload += 1;
       throw new TileCacheOverloadError(
         lane.active + lane.waiters.length,
@@ -882,55 +888,125 @@ export class TileCacheService implements OnModuleDestroy {
         `lane "${spec.name}" running plus queued`,
       );
     }
-    byOrg.take(bucket);
     const held = lane;
     const heldByOrg = byOrg;
     return new Promise<void>((resolve, reject) => {
-      const waiter = () => {
-        entry.withdraw = null;
-        held.active += 1;
-        resolve();
+      const waiter: LaneWaiter = {
+        bucket,
+        grant: () => {
+          entry.withdraw = null;
+          held.active += 1;
+          heldByOrg.take(bucket);
+          resolve();
+        },
+        refuse: (err) => {
+          entry.withdraw = null;
+          reject(err);
+        },
       };
       held.waiters.push(waiter);
       entry.withdraw = () => {
         const at = held.waiters.indexOf(waiter);
         if (at >= 0) held.waiters.splice(at, 1);
         entry.withdraw = null;
-        heldByOrg.release(bucket);
         reject(new TileCacheAbortedError());
+        // One fewer bucket waiting can let another take a free slot.
+        if (isMultiTenant()) this.serveLane(held, heldByOrg);
       };
     });
+  }
+
+  /**
+   * Many organizations, full line: turn away the newest waiter of the
+   * bucket with the most places in the line, when `bucket` has at
+   * least two fewer. Returns whether a place was freed.
+   */
+  private makeRoomFor(lane: Lane, bucket: string): boolean {
+    const queued = new Map<string, number>();
+    for (const w of lane.waiters) queued.set(w.bucket, (queued.get(w.bucket) ?? 0) + 1);
+    let most: string | null = null;
+    let mostCount = 0;
+    for (const [b, n] of queued) {
+      if (n > mostCount) {
+        most = b;
+        mostCount = n;
+      }
+    }
+    if (most === null || most === bucket) return false;
+    if (mostCount < (queued.get(bucket) ?? 0) + 2) return false;
+    for (let i = lane.waiters.length - 1; i >= 0; i--) {
+      const w = lane.waiters[i]!;
+      if (w.bucket !== most) continue;
+      lane.waiters.splice(i, 1);
+      this.rejectedOverload += 1;
+      w.refuse(
+        new TileCacheOverloadError(
+          lane.active + lane.waiters.length + 1,
+          lane.limit + lane.maxQueued,
+          'lane running plus queued',
+        ),
+      );
+      return true;
+    }
+    return false;
   }
 
   private releaseLane(name: string, bucket: string): void {
     const lane = this.lanes.get(name);
     if (!lane) return;
     lane.active -= 1;
-    this.laneByOrg.get(name)?.release(bucket);
+    const byOrg = this.laneByOrg.get(name);
+    byOrg?.release(bucket);
+    if (isMultiTenant() && byOrg) {
+      this.serveLane(lane, byOrg);
+      return;
+    }
     const next = lane.waiters.shift();
-    if (next) next();
+    if (next) next.grant();
   }
 
-  /** Throw the overload error when the cap, or the caller's share of it, is used up. */
-  private assertComputeSlot(bucket: string): void {
-    const max = this.maxConcurrentComputes;
-    if (this.activeComputes >= max) {
-      this.rejectedOverload += 1;
-      throw new TileCacheOverloadError(this.activeComputes, max);
+  /**
+   * Many organizations: grant free slots to the line in turns (see
+   * acquireLane). Stops when no waiter may take a slot.
+   */
+  private serveLane(lane: Lane, byOrg: OrgSlotCounter): void {
+    while (lane.active < lane.limit && lane.waiters.length > 0) {
+      const waitingBuckets = lane.waiters.map((w) => w.bucket);
+      let pick = -1;
+      let pickRunning = Infinity;
+      for (let i = 0; i < lane.waiters.length; i++) {
+        const b = lane.waiters[i]!.bucket;
+        const running = byOrg.heldBy(b);
+        // Oldest first within a bucket, so only its first waiter counts.
+        if (running >= pickRunning || waitingBuckets.indexOf(b) !== i) continue;
+        if (!byOrg.mayTake(b, lane.limit, waitingBuckets)) continue;
+        pick = i;
+        pickRunning = running;
+      }
+      if (pick < 0) return;
+      const [next] = lane.waiters.splice(pick, 1);
+      next!.grant();
     }
-    if (!this.computesByOrg.mayTake(bucket, max)) {
+  }
+
+  /**
+   * Take a compute slot, or throw the overload error when the cap, or
+   * the caller's share of it (common/org-fair-share.ts), is used up.
+   */
+  private takeComputeSlot(bucket: string): void {
+    const max = this.maxConcurrentComputes;
+    if (!this.computesByOrg.tryTake(bucket, max)) {
       this.rejectedOverload += 1;
+      if (this.activeComputes >= max) {
+        throw new TileCacheOverloadError(this.activeComputes, max);
+      }
       throw new TileCacheOverloadError(
         this.computesByOrg.heldBy(bucket),
-        orgShareOf(max),
-        'concurrent computes for one organization',
+        max,
+        'concurrent computes, the share of one organization',
       );
     }
-  }
-
-  private takeComputeSlot(bucket: string): void {
     this.activeComputes += 1;
-    this.computesByOrg.take(bucket);
   }
 
   /**
@@ -1228,11 +1304,20 @@ interface InFlightEntry {
   withdraw: (() => void) | null;
 }
 
+interface LaneWaiter {
+  /** The fair share bucket the waiting compute counts against. */
+  bucket: string;
+  /** Give the waiter a running slot. */
+  grant: () => void;
+  /** Turn the waiter away without a slot. */
+  refuse: (err: Error) => void;
+}
+
 interface Lane {
   limit: number;
   maxQueued: number;
   active: number;
-  waiters: Array<() => void>;
+  waiters: LaneWaiter[];
 }
 
 /**

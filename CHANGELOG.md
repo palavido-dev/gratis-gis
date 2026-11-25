@@ -98,9 +98,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   exist. An offline package file checks the map before the package.
 - Each server-side print renders in a browser context of its own, so
   two prints never share cookies, storage or cached responses.
+- Print templates are checked when they are saved: a paper size,
+  orientation or margin the print cannot use is refused with a 400
+  that says what is allowed. Printing from an older template with an
+  unknown paper size answers the same 400.
 
 ### Fixed
 
+- Printing recovers on its own after prints that could not start,
+  instead of answering "busy" until the API restarts.
 - The What's Here PDF covered only the first 30 layers of a map and left
   the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed

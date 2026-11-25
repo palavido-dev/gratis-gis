@@ -177,10 +177,19 @@ export class AgoImportJobsService
       const next = this.waiting.shift()!;
       this.runningHere += 1;
       setImmediate(() => {
-        void next.run().finally(() => {
-          this.runningHere -= 1;
-          this.pump();
-        });
+        // Started inside a promise, so a runner that throws before its
+        // own promise exists still gives its slot back.
+        void Promise.resolve()
+          .then(() => next.run())
+          .catch((e: unknown) => {
+            this.log.error(
+              `AGO import job ${next.id} could not start: ${e instanceof Error ? e.message : String(e)}`,
+            );
+          })
+          .finally(() => {
+            this.runningHere -= 1;
+            this.pump();
+          });
       });
     }
   }

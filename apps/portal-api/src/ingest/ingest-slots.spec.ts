@@ -48,15 +48,27 @@ describe('ingest slots', () => {
       r2();
     });
 
-    it('many organizations: one organization holds at most one slot, and another still gets one', () => {
+    it('many organizations: one organization alone may hold both slots', () => {
       process.env.GRATIS_TENANCY = 'multi';
       resetTenancyModeForTests();
       const r1 = runAsOrg('org-a', () => acquireIngestSlot('a1'));
-      expect(() => runAsOrg('org-a', () => acquireIngestSlot('a2'))).toThrow(IngestBusyException);
-      const r2 = runAsOrg('org-b', () => acquireIngestSlot('b1'));
+      const r2 = runAsOrg('org-a', () => acquireIngestSlot('a2'));
       r1();
-      expect(() => runAsOrg('org-a', () => acquireIngestSlot('a2'))).not.toThrow();
       r2();
+    });
+
+    it('many organizations: a freed slot goes to the organization that was turned away', () => {
+      process.env.GRATIS_TENANCY = 'multi';
+      resetTenancyModeForTests();
+      const r1 = runAsOrg('org-a', () => acquireIngestSlot('a1'));
+      const r2 = runAsOrg('org-a', () => acquireIngestSlot('a2'));
+      expect(() => runAsOrg('org-b', () => acquireIngestSlot('b1'))).toThrow(IngestBusyException);
+      r1();
+      // B is waiting and A is at its share, so A's next try is refused.
+      expect(() => runAsOrg('org-a', () => acquireIngestSlot('a3'))).toThrow(IngestBusyException);
+      const r3 = runAsOrg('org-b', () => acquireIngestSlot('b1'));
+      r2();
+      r3();
     });
   });
 

@@ -727,10 +727,28 @@ describe('TileCacheService', () => {
       await Promise.all(ps);
     });
 
-    it('many organizations: one at its share does not stop another', async () => {
-      const cache = setup('multi', 4);
+    it('many organizations: one organization alone may use the whole cap', async () => {
+      const cache = setup('multi', 3);
+      const h = [held(), held(), held()];
+      const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`k${i}`, x.compute)));
+      await expect(
+        runAsOrg('org-a', () => cache.getOrCompute('k3', async () => Buffer.from('y'))),
+      ).rejects.toBeInstanceOf(TileCacheOverloadError);
+      h.forEach((x) => x.release());
+      await Promise.all(ps);
+    });
+
+    it('many organizations: a freed slot goes to the organization that was turned away', async () => {
+      const cache = setup('multi', 2);
       const h = [held(), held()];
       const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute)));
+      // B is turned away while A holds the whole cap.
+      await expect(
+        runAsOrg('org-b', () => cache.getOrCompute('b0', async () => Buffer.from('b'))),
+      ).rejects.toBeInstanceOf(TileCacheOverloadError);
+      h[0]!.release();
+      await ps[0];
+      // A asks again at once, but B is waiting and A is at its share.
       await expect(
         runAsOrg('org-a', () => cache.getOrCompute('a2', async () => Buffer.from('y'))),
       ).rejects.toBeInstanceOf(TileCacheOverloadError);
@@ -738,13 +756,8 @@ describe('TileCacheService', () => {
         cache.getOrCompute('b0', async () => Buffer.from('b')),
       );
       expect(b.buf.toString()).toBe('b');
-      h.forEach((x) => x.release());
-      await Promise.all(ps);
-      // Released slots come back to the organization.
-      const again = await runAsOrg('org-a', () =>
-        cache.getOrCompute('a3', async () => Buffer.from('a')),
-      );
-      expect(again.buf.toString()).toBe('a');
+      h[1]!.release();
+      await ps[1];
     });
 
     it('many organizations: a cached answer for an organization still hits', async () => {
@@ -755,24 +768,92 @@ describe('TileCacheService', () => {
       expect(compute).toHaveBeenCalledTimes(1);
     });
 
-    it('many organizations: a lane holds one organization to its share of the places', async () => {
+    it.each(['single', 'multi'] as const)(
+      '%s: one organization keeps the lane first come, first served, with the same lengths',
+      async (m) => {
+        const cache = setup(m, 8);
+        const lane = { name: 'agg', limit: 2, maxQueued: 3 };
+        const order: string[] = [];
+        const h = [0, 1, 2, 3, 4].map(() => held());
+        const ps = h.map((x, i) =>
+          runAsOrg('org-a', () =>
+            cache.getOrCompute(
+              `l${i}`,
+              async () => {
+                order.push(`l${i}`);
+                return x.compute();
+              },
+              { lane },
+            ),
+          ),
+        );
+        // Two running and three queued: the sixth is one too many.
+        await expect(
+          runAsOrg('org-a', () => cache.getOrCompute('l5', async () => Buffer.from('y'), { lane })),
+        ).rejects.toBeInstanceOf(TileCacheOverloadError);
+        for (const x of h) {
+          x.release();
+          await new Promise((r) => setImmediate(r));
+        }
+        await Promise.all(ps);
+        expect(order).toEqual(['l0', 'l1', 'l2', 'l3', 'l4']);
+      },
+    );
+
+    it('many organizations: the lane line is served in turns', async () => {
       const cache = setup('multi', 8);
-      const lane = { name: 'agg', limit: 2, maxQueued: 2 };
-      const h = [held(), held()];
-      const ps = h.map((x, i) =>
-        runAsOrg('org-a', () => cache.getOrCompute(`la${i}`, x.compute, { lane })),
-      );
-      await expect(
-        runAsOrg('org-a', () =>
-          cache.getOrCompute('la2', async () => Buffer.from('y'), { lane }),
-        ),
-      ).rejects.toBeInstanceOf(TileCacheOverloadError);
-      const b = runAsOrg('org-b', () =>
-        cache.getOrCompute('lb0', async () => Buffer.from('b'), { lane }),
-      );
-      h.forEach((x) => x.release());
-      expect((await b).buf.toString()).toBe('b');
+      const lane = { name: 'agg', limit: 2, maxQueued: 4 };
+      const order: string[] = [];
+      const gates = new Map<string, () => void>();
+      const run = (org: string, key: string) =>
+        runAsOrg(org, () =>
+          cache.getOrCompute(
+            key,
+            () =>
+              new Promise<Buffer>((r) => {
+                order.push(key);
+                gates.set(key, () => r(Buffer.from(key)));
+              }),
+            { lane },
+          ),
+        );
+      const ps = [run('org-a', 'a0'), run('org-a', 'a1'), run('org-a', 'a2'), run('org-a', 'a3')];
+      ps.push(run('org-b', 'b0'));
+      await new Promise((r) => setImmediate(r));
+      expect(order).toEqual(['a0', 'a1']);
+      // A frees a slot: B, which runs nothing, goes before A's queue.
+      gates.get('a0')!();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(order).toEqual(['a0', 'a1', 'b0']);
+      for (const key of ['a1', 'b0']) {
+        gates.get(key)!();
+        await new Promise((r) => setImmediate(r));
+        await new Promise((r) => setImmediate(r));
+      }
+      expect(order).toEqual(['a0', 'a1', 'b0', 'a2', 'a3']);
+      for (const key of ['a2', 'a3']) gates.get(key)!();
       await Promise.all(ps);
+    });
+
+    it('many organizations: a full line makes room for an organization with fewer places', async () => {
+      const cache = setup('multi', 8);
+      const lane = { name: 'agg', limit: 1, maxQueued: 2 };
+      const h = [held(), held(), held()];
+      const ps = h.map((x, i) =>
+        runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute, { lane })),
+      );
+      const settled = ps.map((p) => p.then(() => 'ok', (e: unknown) => e));
+      const b = runAsOrg('org-b', () =>
+        cache.getOrCompute('b0', async () => Buffer.from('b'), { lane }),
+      );
+      // A's newest waiter gave its place to B.
+      expect(await settled[2]).toBeInstanceOf(TileCacheOverloadError);
+      h[0]!.release();
+      h[1]!.release();
+      expect((await b).buf.toString()).toBe('b');
+      expect(await settled[0]).toBe('ok');
+      expect(await settled[1]).toBe('ok');
     });
   });
 
