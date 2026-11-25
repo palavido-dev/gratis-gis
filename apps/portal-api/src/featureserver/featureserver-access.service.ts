@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { ItemShare, Prisma } from '@prisma/client';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -20,6 +20,7 @@ export interface StoredLayer {
   geometryType?: string | null;
   fields?: unknown;
   editingPolicy?: 'all-rows' | 'own-rows-only';
+  editingEnabled?: unknown;
   bbox?: unknown;
 }
 
@@ -154,8 +155,35 @@ export class FeatureServerAccessService {
     };
   }
 
-  /** A layer by its FeatureServer number, with the caller's clips. */
-  async layer(svc: ResolvedService, indexParam: string): Promise<{ index: number; stored: StoredLayer; query: QueryLayer }> {
+  /**
+   * True when the caller may edit this layer through the
+   * FeatureServer: signed in with a key that is not read-only, with
+   * edit rights on the item, and the layer not frozen for them. The
+   * write itself checks again; this only decides what the layer
+   * document offers.
+   */
+  canEdit(svc: ResolvedService, stored: StoredLayer): boolean {
+    const user = svc.user;
+    if (!user || !svc.item || user.apiKeyReadOnly === true) return false;
+    if (!this.sharing.canEdit(user, svc.item, svc.shares)) return false;
+    try {
+      this.items.assertLayerEditingEnabled(user, svc.item, stored);
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * A layer by its FeatureServer number, with the caller's clips.
+   * `edit` resolves the write scope instead of the read scope, after
+   * the same edit checks the portal's feature routes make.
+   */
+  async layer(
+    svc: ResolvedService,
+    indexParam: string,
+    action: 'read' | 'edit' = 'read',
+  ): Promise<{ index: number; stored: StoredLayer; query: QueryLayer }> {
     if (!/^\d{1,6}$/.test(indexParam)) throw new NotFoundException('Layer not found.');
     const index = Number(indexParam);
     const hit = svc.layers.find((l) => l.index === index);
@@ -166,9 +194,17 @@ export class FeatureServerAccessService {
       geometryType: esriGeometryType(stored.geometryType === undefined ? 'polygon' : stored.geometryType),
       schema: esriSchema(stored.fields),
     };
+    if (action === 'edit') {
+      if (!svc.user || !svc.item) throw new ForbiddenException('Sign in to edit this layer.');
+      if (svc.user.apiKeyReadOnly === true) {
+        throw new ForbiddenException('This API key is read-only. Sign in with a key that can make changes.');
+      }
+      await this.items.assertCanEdit(svc.user, svc.itemId);
+      this.items.assertLayerEditingEnabled(svc.user, svc.item, stored);
+    }
     if (svc.user && svc.item) {
       const scope = await this.sharing.featureScopeFor(svc.user, svc.item, svc.shares, {
-        action: 'read',
+        action,
         layerPolicy: stored.editingPolicy ?? 'all-rows',
       });
       const clips = featureScopeFilter(scope);

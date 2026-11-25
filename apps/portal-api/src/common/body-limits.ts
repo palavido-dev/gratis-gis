@@ -30,6 +30,9 @@ export const EXECUTOR_JSON_BODY_LIMIT = '2mb';
  */
 export function configureBodyParsers(app: NestExpressApplication): void {
   app.useBodyParser('json', { limit: JSON_BODY_LIMIT });
+  // Form bodies too: ArcGIS Pro saves edits (applyEdits) as a form post,
+  // and one detailed polygon is past Express's 100 KB default.
+  app.useBodyParser('urlencoded', { limit: JSON_BODY_LIMIT, extended: true });
 }
 
 /**

@@ -2,7 +2,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { geoLimitSql } from '../common/closed-geo-limit.js';
+import { geoLimitSql, isClosedGeoLimit } from '../common/closed-geo-limit.js';
 import { validateGeoJson } from '../common/geometry-validation.js';
 import { LATEST_CREATE_ONLY } from '../engine/data-layer.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -238,6 +238,44 @@ export class FeatureServerQueryService {
           greatest(${e.xmin}::float8, -180), greatest(${e.ymin}::float8, -85.05112878),
           least(${e.xmax}::float8, 180), least(${e.ymax}::float8, 85.05112878), 4326), ${srid}::int) AS t) x`;
     return toExtent(raw[0]);
+  }
+
+  /**
+   * Reproject edit geometries from `srid` to EPSG:4326, in one round
+   * trip. Null stays null.
+   */
+  async toWgs84(geoms: Array<unknown | null>, srid: number): Promise<Array<unknown | null>> {
+    if (srid === 4326 || geoms.every((g) => g === null)) return geoms;
+    await this.checkSr(srid);
+    const texts = geoms.map((g) => (g === null ? null : JSON.stringify(g)));
+    const raw = await this.prisma.$queryRaw<Array<{ ord: number; gj: string | null }>>`
+      SELECT c.ord::int AS ord,
+             CASE WHEN c.g IS NULL THEN NULL
+                  ELSE ST_AsGeoJSON(ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(c.g), ${srid}::int), 4326), 9)
+             END AS gj
+        FROM unnest(${texts}::text[]) WITH ORDINALITY AS c(g, ord)`;
+    const out: Array<unknown | null> = geoms.slice();
+    for (const r of raw) out[Number(r.ord) - 1] = r.gj ? JSON.parse(r.gj) : null;
+    return out;
+  }
+
+  /**
+   * Indexes of the geometries that fall outside the caller's
+   * geographic limit, the same test the portal's feature routes apply
+   * to writes. Null geometries pass: they cannot leave the area.
+   */
+  async outsideLimit(geoLimit: unknown, geoms: Array<unknown | null>): Promise<Set<number>> {
+    const out = new Set<number>();
+    const idx = geoms.flatMap((g, i) => (g === null ? [] : [i]));
+    if (geoLimit === undefined || geoLimit === null || idx.length === 0) return out;
+    if (isClosedGeoLimit(geoLimit)) return new Set(idx);
+    const raw = await this.prisma.$queryRaw<Array<{ ord: number }>>`
+      WITH lim AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geoLimit)}::text), 4326) AS g)
+      SELECT c.ord::int AS ord
+        FROM unnest(${idx.map((i) => JSON.stringify(geoms[i]))}::text[]) WITH ORDINALITY AS c(geom, ord), lim
+       WHERE ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON(c.geom), 4326), lim.g) IS NOT TRUE`;
+    for (const r of raw) out.add(idx[Number(r.ord) - 1]!);
+    return out;
   }
 
   /** outStatistics, grouped or not. */

@@ -1,5 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseFilters } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+  UseFilters,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -15,13 +27,45 @@ import {
   serviceDoc,
   WGS84,
 } from './esri-docs.js';
-import { EsriErrorFilter } from './esri-error.filter.js';
-import { parseEsriQuery, srDoc, type RawParams } from './esri-query-params.js';
+import { absoluteBase } from '../public/ogc/url.js';
+import { EditError, editList } from './esri-edit.js';
+import { EsriErrorFilter, invalidToken, tokenRequired } from './esri-error.filter.js';
+import { param, parseEsriQuery, srDoc, type RawParams } from './esri-query-params.js';
+import { FeatureServerEditService, MAX_EDITS, deleteList, type LayerEdits } from './featureserver-edit.service.js';
 import { FeatureServerAccessService, type ResolvedService, type StoredLayer } from './featureserver-access.service.js';
 import { FeatureServerQueryService, type Extent } from './featureserver-query.service.js';
 
+/**
+ * The caller. A token that did not check out answers Esri's "invalid
+ * token" (498), so the client signs in again instead of carrying on as
+ * anonymous and seeing private layers vanish.
+ */
 function callerOf(req: Request): AuthUser | null {
-  return ((req as Request & { user?: AuthUser | null }).user ?? null) as AuthUser | null;
+  const r = req as Request & { user?: AuthUser | null; esriTokenInvalid?: boolean };
+  if (r.esriTokenInvalid === true) throw invalidToken();
+  return r.user ?? null;
+}
+
+function flag(p: RawParams, name: string, dflt: boolean): boolean {
+  const v = param(p, name)?.trim().toLowerCase();
+  if (v === undefined || v === '') return dflt;
+  if (v === 'true' || v === '1') return true;
+  if (v === 'false' || v === '0') return false;
+  throw new BadRequestException(`${name} must be true or false.`);
+}
+
+function merged(query: RawParams, body: RawParams): RawParams {
+  return { ...query, ...(body && typeof body === 'object' ? body : {}) };
+}
+
+/** An EditError for the whole request is a 400. */
+function list(raw: unknown, name: string): unknown[] {
+  try {
+    return name === 'deletes' ? deleteList(raw) : editList(raw, name);
+  } catch (err) {
+    if (err instanceof EditError) throw new BadRequestException(err.message);
+    throw err;
+  }
 }
 
 function layerName(l: StoredLayer): string {
@@ -60,12 +104,36 @@ export class FeatureServerController {
   constructor(
     private readonly access: FeatureServerAccessService,
     private readonly query: FeatureServerQueryService,
+    private readonly edits: FeatureServerEditService,
   ) {}
 
   @Public()
   @Get('info')
-  info() {
-    return infoDoc();
+  info(@Req() req: Request) {
+    return infoDoc(`${absoluteBase(req)}/api/arcgis/tokens/generateToken`);
+  }
+
+  /**
+   * A service, or the right refusal: a signed-in caller who may not
+   * read it gets 404, an anonymous one Esri's "token required", which
+   * is what makes ArcGIS Pro show its sign-in prompt. The same answer
+   * whether or not the service exists.
+   */
+  private async serviceFor(req: Request, name: string): Promise<ResolvedService> {
+    const user = callerOf(req);
+    try {
+      return await this.access.service(user, name);
+    } catch (err) {
+      if (err instanceof NotFoundException && !user) throw tokenRequired();
+      throw err;
+    }
+  }
+
+  /** A service the caller is signed in to, for edits. */
+  private async editableService(req: Request, name: string): Promise<ResolvedService> {
+    const svc = await this.serviceFor(req, name);
+    if (!svc.user) throw tokenRequired();
+    return svc;
   }
 
   @Public()
@@ -79,7 +147,7 @@ export class FeatureServerController {
   @Public()
   @Get('services/:service/FeatureServer')
   async service(@Req() req: Request, @Param('service') name: string) {
-    const svc = await this.access.service(callerOf(req), name);
+    const svc = await this.serviceFor(req, name);
     const refs = await Promise.all(
       svc.layers.map(async ({ index, layer }) => {
         const resolved = await this.access.layer(svc, String(index));
@@ -91,13 +159,14 @@ export class FeatureServerController {
       description: svc.description,
       layers: refs,
       extent: await this.serviceExtent(svc),
+      editable: svc.layers.some(({ layer }) => this.access.canEdit(svc, layer)),
     });
   }
 
   @Public()
   @Get('services/:service/FeatureServer/layers')
   async layers(@Req() req: Request, @Param('service') name: string) {
-    const svc = await this.access.service(callerOf(req), name);
+    const svc = await this.serviceFor(req, name);
     const docs = await Promise.all(svc.layers.map(({ index }) => this.layerDocFor(svc, String(index))));
     return {
       layers: docs.filter((d) => d.type !== 'Table'),
@@ -108,7 +177,7 @@ export class FeatureServerController {
   @Public()
   @Get('services/:service/FeatureServer/:layer')
   async layer(@Req() req: Request, @Param('service') name: string, @Param('layer') layer: string) {
-    const svc = await this.access.service(callerOf(req), name);
+    const svc = await this.serviceFor(req, name);
     return this.layerDocFor(svc, layer);
   }
 
@@ -142,6 +211,145 @@ export class FeatureServerController {
     return this.runQuery(req, name, layer, { ...params, ...(body && typeof body === 'object' ? body : {}) });
   }
 
+  // ---------------------------------------------------------- edits
+
+  /** Service-level applyEdits: what ArcGIS Pro calls when it saves. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 300 } })
+  @Post('services/:service/FeatureServer/applyEdits')
+  @HttpCode(200)
+  async serviceApplyEdits(
+    @Req() req: Request,
+    @Param('service') name: string,
+    @Query() q: RawParams,
+    @Body() b: RawParams,
+  ) {
+    const p = merged(q, b);
+    const svc = await this.editableService(req, name);
+    const raw = list(param(p, 'edits'), 'edits');
+    if (raw.length === 0) throw new BadRequestException('edits must list at least one layer.');
+    const edits = raw.map((e) => {
+      if (!e || typeof e !== 'object') throw new BadRequestException('Each entry of edits must be an object.');
+      const o = e as { id?: unknown; adds?: unknown; updates?: unknown; deletes?: unknown };
+      if (typeof o.id !== 'number' && typeof o.id !== 'string') {
+        throw new BadRequestException('Each entry of edits needs the layer id.');
+      }
+      return {
+        layer: String(o.id),
+        edits: { adds: list(o.adds, 'adds'), updates: list(o.updates, 'updates'), deletes: list(o.deletes, 'deletes') },
+      };
+    });
+    return this.edits.apply(svc, edits, {
+      useGlobalIds: flag(p, 'useGlobalIds', false),
+      rollbackOnFailure: flag(p, 'rollbackOnFailure', true),
+    });
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 300 } })
+  @Post('services/:service/FeatureServer/:layer/applyEdits')
+  @HttpCode(200)
+  async applyEdits(
+    @Req() req: Request,
+    @Param('service') name: string,
+    @Param('layer') layer: string,
+    @Query() q: RawParams,
+    @Body() b: RawParams,
+  ) {
+    const p = merged(q, b);
+    const edits: LayerEdits = {
+      adds: list(param(p, 'adds'), 'adds'),
+      updates: list(param(p, 'updates'), 'updates'),
+      deletes: list(param(p, 'deletes'), 'deletes'),
+    };
+    const [r] = await this.edits.apply(await this.editableService(req, name), [{ layer, edits }], {
+      useGlobalIds: flag(p, 'useGlobalIds', false),
+      rollbackOnFailure: flag(p, 'rollbackOnFailure', true),
+    });
+    return { addResults: r!.addResults, updateResults: r!.updateResults, deleteResults: r!.deleteResults };
+  }
+
+  /** QGIS edits through these three. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 300 } })
+  @Post('services/:service/FeatureServer/:layer/addFeatures')
+  @HttpCode(200)
+  async addFeatures(
+    @Req() req: Request,
+    @Param('service') name: string,
+    @Param('layer') layer: string,
+    @Query() q: RawParams,
+    @Body() b: RawParams,
+  ) {
+    const p = merged(q, b);
+    const edits: LayerEdits = { adds: list(param(p, 'features'), 'features'), updates: [], deletes: [] };
+    const [r] = await this.edits.apply(await this.editableService(req, name), [{ layer, edits }], {
+      useGlobalIds: flag(p, 'useGlobalIds', false),
+      rollbackOnFailure: flag(p, 'rollbackOnFailure', true),
+    });
+    return { addResults: r!.addResults };
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 300 } })
+  @Post('services/:service/FeatureServer/:layer/updateFeatures')
+  @HttpCode(200)
+  async updateFeatures(
+    @Req() req: Request,
+    @Param('service') name: string,
+    @Param('layer') layer: string,
+    @Query() q: RawParams,
+    @Body() b: RawParams,
+  ) {
+    const p = merged(q, b);
+    const edits: LayerEdits = { adds: [], updates: list(param(p, 'features'), 'features'), deletes: [] };
+    const [r] = await this.edits.apply(await this.editableService(req, name), [{ layer, edits }], {
+      useGlobalIds: flag(p, 'useGlobalIds', false),
+      rollbackOnFailure: flag(p, 'rollbackOnFailure', true),
+    });
+    return { updateResults: r!.updateResults };
+  }
+
+  /** By objectIds, or by a where clause and geometry like a query. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 300 } })
+  @Post('services/:service/FeatureServer/:layer/deleteFeatures')
+  @HttpCode(200)
+  async deleteFeatures(
+    @Req() req: Request,
+    @Param('service') name: string,
+    @Param('layer') layer: string,
+    @Query() q: RawParams,
+    @Body() b: RawParams,
+  ) {
+    const p = merged(q, b);
+    const svc = await this.editableService(req, name);
+    const hasFilter = ['objectIds', 'where', 'geometry'].some((k) => (param(p, k) ?? '').trim() !== '');
+    if (!hasFilter) throw new BadRequestException('deleteFeatures needs objectIds, where or geometry.');
+    const { query: readLayer } = await this.access.layer(svc, layer, 'edit');
+    const q2 = parseEsriQuery(
+      {
+        ...(param(p, 'objectIds') ? { objectIds: param(p, 'objectIds') } : {}),
+        ...(param(p, 'where') ? { where: param(p, 'where') } : {}),
+        ...(param(p, 'geometry') ? { geometry: param(p, 'geometry') } : {}),
+        ...(param(p, 'geometryType') ? { geometryType: param(p, 'geometryType') } : {}),
+        ...(param(p, 'inSR') ? { inSR: param(p, 'inSR') } : {}),
+        ...(param(p, 'spatialRel') ? { spatialRel: param(p, 'spatialRel') } : {}),
+      },
+      readLayer.schema,
+      readLayer.geometryType === null,
+    );
+    const ids = await this.query.ids(readLayer, q2);
+    if (ids.length > MAX_EDITS) {
+      throw new BadRequestException(`That would delete ${ids.length} features; one request may delete at most ${MAX_EDITS}.`);
+    }
+    const [r] = await this.edits.apply(svc, [{ layer, edits: { adds: [], updates: [], deletes: ids } }], {
+      useGlobalIds: false,
+      rollbackOnFailure: flag(p, 'rollbackOnFailure', true),
+    });
+    return { deleteResults: r!.deleteResults };
+  }
+
   private async layerDocFor(svc: ResolvedService, layerParam: string): Promise<Record<string, unknown>> {
     const { index, stored, query } = await this.access.layer(svc, layerParam);
     const extent =
@@ -155,6 +363,7 @@ export class FeatureServerController {
       geometryType: query.geometryType,
       schema: query.schema,
       extent,
+      editable: this.access.canEdit(svc, stored),
     });
   }
 
@@ -177,7 +386,7 @@ export class FeatureServerController {
   }
 
   private async runQuery(req: Request, name: string, layerParam: string, params: RawParams) {
-    const svc = await this.access.service(callerOf(req), name);
+    const svc = await this.serviceFor(req, name);
     const { query: layer } = await this.access.layer(svc, layerParam);
     const isTable = layer.geometryType === null;
     const q = parseEsriQuery(params, layer.schema, isTable);
@@ -189,7 +398,7 @@ export class FeatureServerController {
       return {
         displayFieldName: '',
         fields: [
-          ...q.groupBy.map(fieldDoc),
+          ...q.groupBy.map((f) => fieldDoc(f)),
           ...q.statistics.map((s) => ({
             name: s.outName,
             type: (s.type === 'min' || s.type === 'max') && s.field.kind === 'string' ? 'esriFieldTypeString' : 'esriFieldTypeDouble',
@@ -204,7 +413,7 @@ export class FeatureServerController {
       const out = await this.query.distinct(layer, q);
       if (out.count !== null) return { count: out.count };
       return {
-        fields: q.outFields.map(fieldDoc),
+        fields: q.outFields.map((f) => fieldDoc(f)),
         features: out.rows.map((attributes) => ({ attributes })),
         ...(out.exceeded ? { exceededTransferLimit: true } : {}),
       };
@@ -243,7 +452,7 @@ export class FeatureServerController {
       uniqueIdField: { name: schema.oidField, isSystemMaintained: true },
       globalIdFieldName: schema.globalIdField,
       ...(isTable ? {} : { geometryType: layer.geometryType, spatialReference: q.outSr === 4326 ? WGS84 : sr }),
-      fields: [oidDoc, ...q.outFields.filter((f) => f.kind !== 'oid').map(fieldDoc)],
+      fields: [oidDoc, ...q.outFields.filter((f) => f.kind !== 'oid').map((f) => fieldDoc(f))],
       features: page.rows.map((r) => (isTable ? { attributes: r.attributes } : { attributes: r.attributes, geometry: r.geometry ?? null })),
       ...(page.exceeded ? { exceededTransferLimit: true } : {}),
     };

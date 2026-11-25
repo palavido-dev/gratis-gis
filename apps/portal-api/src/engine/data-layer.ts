@@ -1257,6 +1257,68 @@ export class DataLayerEngine {
   }
 
   /**
+   * commitLayerSync for several sublayers of one item in one
+   * transaction: the item row is locked once, `write` gets each
+   * layer's source stamp, and every layer it reports as written has
+   * its syncVersion bumped. A throw rolls all of it back. Used by the
+   * FeatureServer's applyEdits, where one save in ArcGIS Pro can touch
+   * several layers and must land whole or not at all.
+   */
+  async commitLayersSync<T>(
+    itemId: string,
+    layerIds: readonly string[],
+    write: (ctx: {
+      tx: Prisma.TransactionClient;
+      sourceFor: (layerId: string) => SourceRef;
+    }) => Promise<{ wroteLayers: ReadonlySet<string>; value: T }>,
+  ): Promise<{ wroteLayers: ReadonlySet<string>; value: T }> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ data_json: unknown }>>`
+        SELECT data_json FROM item WHERE id = ${itemId}::uuid FOR UPDATE
+      `;
+      if (rows.length === 0) throw new NotFoundException('Item not found');
+      const data = asItemData(rows[0]!.data_json);
+      if (!data || data.version !== 3 || !Array.isArray(data.layers)) {
+        throw new BadRequestException('syncVersion is only defined on v3 data_layer items.');
+      }
+      const layers = data.layers;
+      const next = new Map<string, number>();
+      for (const id of layerIds) {
+        const current = layers.find((l) => l.id === id);
+        if (!current) throw new NotFoundException('Layer not found');
+        const prev =
+          typeof current.syncVersion === 'number' && Number.isFinite(current.syncVersion)
+            ? Math.max(0, Math.floor(current.syncVersion))
+            : 0;
+        next.set(id, prev + 1);
+      }
+      const executed = await write({
+        tx,
+        sourceFor: (layerId) => {
+          const v = next.get(layerId);
+          if (v === undefined) throw new Error(`Layer ${layerId} was not locked for this write.`);
+          return syncVersionSource(v);
+        },
+      });
+      if (executed.wroteLayers.size === 0) return executed;
+      const nextLayers = layers.map((l) =>
+        executed.wroteLayers.has(String(l.id)) ? { ...l, syncVersion: next.get(String(l.id))! } : l,
+      );
+      await tx.$executeRaw`
+        UPDATE item
+        SET data_json = ${JSON.stringify({ ...data, layers: nextLayers })}::jsonb,
+            updated_at = now()
+        WHERE id = ${itemId}::uuid
+      `;
+      return executed;
+    });
+    if (outcome.wroteLayers.size > 0) {
+      this.wrote([...outcome.wroteLayers].map((l) => this.scope(itemId, l)));
+    }
+    return outcome;
+  }
+
+  /**
    * Stamp a COPY import that is already sealed on `writer` and not
    * yet committed. Rows this transaction inserted get the next
    * syncVersion. Entities that a replace removed, and that the new
