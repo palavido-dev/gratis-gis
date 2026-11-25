@@ -4358,6 +4358,7 @@ export const de: Partial<CatalogShape> = {
       errEmailInvalid: 'Bitte geben Sie eine gültige E-Mail-Adresse ein.',
       errDuplicate: 'Ein Konto mit diesem Namen oder dieser Adresse existiert bereits. Die Adresse wird hier nicht angezeigt.',
       errAlreadyMember: 'Diese Person ist bereits Mitglied Ihrer Organisation.',
+      errAddressUnavailable: 'Diese Adresse kann nicht eingeladen werden. Bitten Sie die Person, sich an den Support zu wenden.',
       errUpstream: 'Der Identitätsserver konnte das Konto nicht erstellen. Versuchen Sie es gleich noch einmal. Wenn es weiterhin fehlschlägt, prüfen Sie, ob der Identitätsserver läuft. Die Adresse wird hier nicht angezeigt.',
       errInviteFailed: 'Die Einladung wurde nicht abgeschlossen (Status {status}). Es werden keine Kontodetails angezeigt.',
       alertEmailFailedTitle: 'Konto erstellt, E-Mail nicht gesendet',

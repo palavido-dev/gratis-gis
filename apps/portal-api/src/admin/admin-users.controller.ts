@@ -16,7 +16,6 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   IsBoolean,
@@ -32,7 +31,6 @@ import {
 import { AdminGuard } from './admin.guard.js';
 import {
   AccountExistsException,
-  combineName,
   KeycloakAdminService,
   type KeycloakUserRep,
 } from './keycloak-admin.service.js';
@@ -104,28 +102,6 @@ class UpdateUserDto {
   @IsOptional() @IsDateString() autoDisableAt?: string | null;
 }
 
-/**
- * The fields an invite answers with on an install that serves many
- * organizations, whether the invite created an account or not (see
- * inviteOfTakenAddress), so the two answers have the same shape.
- */
-function inviteAnswer(rep: KeycloakUserRep): KeycloakUserRep {
-  return {
-    id: rep.id,
-    username: rep.username,
-    ...(rep.email !== undefined ? { email: rep.email } : {}),
-    ...(rep.firstName !== undefined ? { firstName: rep.firstName } : {}),
-    ...(rep.lastName !== undefined ? { lastName: rep.lastName } : {}),
-    enabled: rep.enabled,
-    emailVerified: rep.emailVerified ?? false,
-    requiredActions: rep.requiredActions ?? [],
-    ...(rep.createdTimestamp !== undefined ? { createdTimestamp: rep.createdTimestamp } : {}),
-    attributes: rep.attributes ?? {},
-    ...(rep.fullName !== undefined ? { fullName: rep.fullName } : {}),
-    ...(rep.setupEmailError !== undefined ? { setupEmailError: rep.setupEmailError } : {}),
-  };
-}
-
 /** Role order, used to tell a demotion from a promotion. */
 const ROLE_RANK: Record<'viewer' | 'contributor' | 'admin', number> = {
   viewer: 0,
@@ -159,7 +135,7 @@ export class AdminUsersController {
     me: AuthUser,
     action: 'user.invite' | 'user.role' | 'user.enabled' | 'user.auto_disable' | 'user.delete' | 'user.password_reset',
     targetId: string,
-    outcome: 'succeeded' | 'failed',
+    outcome: 'succeeded' | 'failed' | 'denied',
     detail?: Record<string, unknown>,
   ): void {
     if (!this.audit) return;
@@ -329,7 +305,7 @@ export class AdminUsersController {
         this.note(me, 'user.invite', created.id, 'succeeded', {
           role: dto.orgRole ?? 'viewer',
         });
-        return isMultiTenant() ? inviteAnswer(created) : created;
+        return created;
       },
       (err: unknown) => {
         if (isMultiTenant() && err instanceof AccountExistsException) {
@@ -343,51 +319,36 @@ export class AdminUsersController {
 
   /**
    * Many organizations: an invite whose username or email already has
-   * an account. Accounts are shared by the whole install, so that
-   * account may belong to another organization, and the answer must
-   * not say so.
+   * an account. Accounts are shared by the whole install, so the answer
+   * names the caller's own organization only. Either way nothing is
+   * created, changed or sent.
    *
-   * - The account is in the inviter's organization: a 409 that says
-   *   the person is already a member.
-   * - Otherwise: the same answer as an invite that went out. Nothing
-   *   is created, nothing about the existing account changes, and its
-   *   owner is sent nothing. The inviter sees the invite as sent; the
-   *   person does not appear in the user list, as anyone who has not
-   *   joined does not.
+   * - The account is in the caller's organization: 409 already_member.
+   * - Otherwise: 409 address_unavailable, with neutral words.
    */
   private async inviteOfTakenAddress(
     me: AuthUser,
     input: Parameters<typeof this.kc.createUser>[0],
-  ): Promise<KeycloakUserRep> {
+  ): Promise<never> {
     const role = input.orgRole ?? 'viewer';
-    if (await this.accountInCallerOrg(me, input.username, input.email)) {
+    let inOrg: boolean;
+    try {
+      inOrg = await this.accountInCallerOrg(me, input.username, input.email);
+    } catch (err) {
       this.note(me, 'user.invite', '', 'failed', { role });
-      throw new ConflictException({
-        statusCode: 409,
-        error: 'Conflict',
-        code: 'already_member',
-        message: 'This person is already a member of your organization.',
-      });
+      throw err;
     }
-    const username = input.username.toLowerCase();
-    const attributes: Record<string, string[]> = {};
-    if (input.orgRole) attributes.org_role = [input.orgRole];
-    if (input.org) attributes.org = [input.org];
-    const answer = inviteAnswer({
-      id: randomUUID(),
-      username,
-      email: input.email.toLowerCase(),
-      ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
-      ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
-      enabled: input.enabled ?? true,
-      emailVerified: false,
-      requiredActions: [],
-      createdTimestamp: Date.now(),
-      attributes,
-      fullName: combineName(input.firstName, input.lastName, username),
+    const code = inOrg ? 'already_member' : 'address_unavailable';
+    this.note(me, 'user.invite', '', 'denied', { role, code });
+    throw new ConflictException({
+      statusCode: 409,
+      error: 'Conflict',
+      code,
+      message:
+        code === 'already_member'
+          ? 'This person is already a member of your organization.'
+          : 'This address cannot be invited. Ask the person to contact support.',
     });
-    this.note(me, 'user.invite', answer.id, 'succeeded', { role });
-    return answer;
   }
 
   /** Whether an account with this username or email is in the caller's organization. */
