@@ -92,12 +92,24 @@ d('tenant pool and row-level security trial', () => {
   let pool: TenantPool;
   let prisma: PrismaClient;
 
+  /**
+   * pg-pool's end() resolves before its sockets finish closing, so the
+   * DROP DATABASE ... WITH (FORCE) in afterAll can still terminate one.
+   * Without a listener that 'error' would be thrown as unhandled.
+   */
+  function quiet<T extends Pool>(p: T): T {
+    p.on('error', () => undefined);
+    return p;
+  }
+
   /** A fresh small TenantPool for tests that count connections. */
   const pools: Pool[] = [];
   function smallPool(max: number, options: { alwaysStamp?: boolean } = {}): TenantPool {
-    const p = new TenantPool(
-      { connectionString: appUrl, max },
-      { systemPool: new Pool({ connectionString: systemUrl, max: 1 }), ...options },
+    const p = quiet(
+      new TenantPool(
+        { connectionString: appUrl, max },
+        { systemPool: quiet(new Pool({ connectionString: systemUrl, max: 1 })), ...options },
+      ),
     );
     pools.push(p);
     return p;
@@ -113,7 +125,7 @@ d('tenant pool and row-level security trial', () => {
     systemUrl = logins.systemUrl;
     applyTestMigrations(ownerUrl, join(__dirname, '../../../prisma/migrations'));
 
-    owner = new Pool({ connectionString: ownerUrl, max: 2 });
+    owner = quiet(new Pool({ connectionString: ownerUrl, max: 2 }));
     for (const o of ORG_KEYS) {
       await owner.query('INSERT INTO organization (id, slug, name) VALUES ($1, $2, $2)', [
         ORGS[o],
@@ -152,9 +164,11 @@ d('tenant pool and row-level security trial', () => {
     }
     await applySpikePolicies(owner, ROLES);
 
-    pool = new TenantPool(
-      { connectionString: appUrl, max: 3 },
-      { systemPool: new Pool({ connectionString: systemUrl, max: 2 }) },
+    pool = quiet(
+      new TenantPool(
+        { connectionString: appUrl, max: 3 },
+        { systemPool: quiet(new Pool({ connectionString: systemUrl, max: 2 })) },
+      ),
     );
     prisma = new PrismaClient({
       adapter: new PrismaPg(pool),
