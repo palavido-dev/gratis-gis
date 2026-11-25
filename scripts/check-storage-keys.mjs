@@ -29,8 +29,11 @@
 //   node scripts/check-storage-keys.mjs              # check this checkout
 //   node scripts/check-storage-keys.mjs --self-test  # fixtures, then this checkout
 //
-// Test files (*.spec.ts, *.test.ts, test_*.py) and src/testing/ are
-// skipped. Plain Node, no dependencies.
+// Test files (*.spec.ts, *.test.ts, test_*.py) and the fixture files in
+// FIXTURES (hand-made keys on purpose) are skipped. Plain Node, no dependencies.
+//
+// Catches: the forms above, written out on one line of a scanned file.
+// Cannot catch: keys built through variables, path joins, split literals or across lines; it is a lint, not a guard.
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -44,6 +47,16 @@ const HELPERS = new Set([
   'apps/portal-web/src/lib/storage-key.ts',
 ]);
 const ALLOW_FILE = 'scripts/check-storage-keys.allow';
+/**
+ * Test fixtures that build crafted keys on purpose (another org's key,
+ * `..` segments, the older layout) to prove the owner check refuses
+ * them. Listed one by one; a listed file that is gone fails the check.
+ */
+const FIXTURES = new Set([
+  'apps/portal-api/src/testing/isolation/routes.ts',
+  'apps/portal-api/src/testing/isolation/seed.ts',
+  'apps/portal-api/src/testing/isolation/storage-topics.ts',
+]);
 /** Worker functions that are the key helpers themselves. */
 const PY_HELPERS = new Set(['storage_key', 'org_prefix', 'parse_object_key']);
 
@@ -339,8 +352,7 @@ function walk(dir) {
   for (const entry of entries) {
     const p = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'testing' || entry.name === '.next')
-        continue;
+      if (entry.name === 'node_modules' || entry.name === '.next') continue;
       out.push(...walk(p));
     } else if (
       /\.(ts|tsx|mts|mjs)$/.test(entry.name) &&
@@ -363,14 +375,23 @@ function checkCheckout() {
     }
     problems.push(`${rel}:${hit.line} ${hit.rule}: ${hit.text}`);
   };
+  const fixturesSeen = new Set();
   for (const dir of TS_DIRS) {
     for (const file of walk(join(ROOT, dir))) {
       const rel = relative(ROOT, file).split(sep).join('/');
       if (HELPERS.has(rel)) continue;
+      if (FIXTURES.has(rel)) {
+        fixturesSeen.add(rel);
+        continue;
+      }
       for (const hit of findTs(readFileSync(file, 'utf8'))) report(rel, hit);
     }
   }
   for (const hit of findPy(readFileSync(join(ROOT, WORKER), 'utf8'))) report(WORKER, hit);
+  for (const f of FIXTURES) {
+    if (!fixturesSeen.has(f))
+      problems.push(`fixture file listed in FIXTURES is gone, remove it: ${f}`);
+  }
   for (const a of allow) {
     if (!a.used)
       problems.push(`${ALLOW_FILE}: entry matches nothing, remove it: ${a.path} | ${a.text}`);
@@ -455,6 +476,13 @@ function selfTest() {
   // A helper's body is skipped only until the next top-level line.
   if (findPy('def org_prefix(k, o):\n    return 1\nKEY = "item-file/" + x\n').length !== 1) {
     fails.push('a key after a helper was skipped');
+  }
+  // Folders named testing are read too; only the listed fixtures are skipped.
+  const testingFiles = walk(join(ROOT, 'apps/portal-api/src/testing')).map((f) =>
+    relative(ROOT, f).split(sep).join('/'),
+  );
+  if (testingFiles.filter((f) => !FIXTURES.has(f)).length === 0) {
+    fails.push('files under a testing folder were skipped');
   }
   // Allow file format.
   try {
