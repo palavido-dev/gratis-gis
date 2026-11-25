@@ -15,8 +15,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   username and password. Accounts that use Google or Microsoft sign-in
   or a two-step code use a personal API key as the password instead; a
   read-only key can only view. QGIS can edit too, with the key sent as
-  an API header. Keycloak gains an `esri-desktop` client; deploy.sh
-  adds it to existing realms.
+  an API header. Keycloak gains an `esri-desktop` client. deploy.sh
+  adds it to existing realms, and NAS installs add it on their next
+  start: nas-init now creates any missing client from the realm
+  template, without changing existing ones.
 - ArcGIS Pro and QGIS can add a data layer as a feature layer. Each
   data layer item is an Esri FeatureServer at
   `/api/geoservices/rest/services/<name>/FeatureServer`, with search,
