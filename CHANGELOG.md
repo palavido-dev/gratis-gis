@@ -98,6 +98,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   exist. An offline package file checks the map before the package.
 - Each server-side print renders in a browser context of its own, so
   two prints never share cookies, storage or cached responses.
+- Outbound fetches also refuse 192.0.0.0/24, site-local fec0::/10, and
+  IPv6 addresses that carry a private IPv4 address (NAT64 64:ff9b::/96
+  and the old ::a.b.c.d form).
 - Print templates are checked when they are saved: a paper size,
   orientation or margin the print cannot use is refused with a 400
   that says what is allowed. Printing from an older template with an

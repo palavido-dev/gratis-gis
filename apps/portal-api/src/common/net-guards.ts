@@ -132,10 +132,11 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     // Carrier-grade NAT (RFC 6598).  Not strictly necessary today
     // but cheap to add and matches the spirit of the rule.
     if (aN === 100 && bN >= 64 && bN <= 127) return true;
-    // IETF protocol assignments 192.0.0.0/24 (RFC 6890) and the
-    // benchmarking range 198.18.0.0/15 (RFC 2544): never a public host.
+    // IETF protocol assignments 192.0.0.0/24 (RFC 6890): never a
+    // public host. The benchmarking range 198.18.0.0/15 stays allowed:
+    // some transparent proxies hand out addresses from it for public
+    // names.
     if (aN === 192 && bN === 0 && cN === 0) return true;
-    if (aN === 198 && (bN === 18 || bN === 19)) return true;
     // Multicast and reserved (224.0.0.0/4 and above, including
     // 255.255.255.255).
     if (aN >= 224) return true;
@@ -160,9 +161,6 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     if (/^ff[0-9a-f]{2}$/.test(head)) return true;
     // Site-local fec0::/10 (deprecated, but a stack may still route it).
     if (/^fe[c-f][0-9a-f]$/.test(head)) return true;
-    // Local-use NAT64 64:ff9b:1::/48 (RFC 8215) translates to whatever
-    // the local network decides, so it is never a known public host.
-    if (bare.startsWith('64:ff9b:1:')) return true;
     // IPv4-mapped addresses (::ffff:a.b.c.d, or the equivalent
     // hex groups ::ffff:aabb:ccdd).  The socket connects to the
     // embedded IPv4 address, so the IPv4 rules decide; without
