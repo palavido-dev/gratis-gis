@@ -4,8 +4,10 @@ import { ConfigService } from '@nestjs/config';
 import type { PrismaService } from '../prisma/prisma.service.js';
 import {
   BoundedLru,
+  FILLED_REREAD_MS,
   LEDGER_FILLED_SETTING,
   StorageLedgerService,
+  forgetLedgerState,
 } from './storage-ledger.service.js';
 import { StorageService, isMissingObjectError } from './storage.service.js';
 import { systemOwner } from './object-keys.js';
@@ -118,5 +120,52 @@ describe('StorageLedgerService owner cache and fill marker', () => {
     await expect(filled.ledger.ledgerFilled()).resolves.toBe(true);
     await filled.ledger.ledgerFilled();
     expect(filled.findUnique).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the last value read when a read fails, and refuses when none was read', async () => {
+    const t0 = 1_000_000;
+    const never = ledgerWith([]);
+    never.findUnique.mockRejectedValue(new Error('db down'));
+    // No value read yet: older keys with no row are refused.
+    await expect(never.ledger.ledgerFilled(t0)).resolves.toBe(true);
+
+    const filled = ledgerWith([], { key: LEDGER_FILLED_SETTING, value: { at: 'x' } });
+    await expect(filled.ledger.ledgerFilled(t0)).resolves.toBe(true);
+    filled.findUnique.mockRejectedValue(new Error('db down'));
+    await expect(filled.ledger.ledgerFilled(t0 + FILLED_REREAD_MS)).resolves.toBe(true);
+
+    const notYet = ledgerWith([]);
+    await expect(notYet.ledger.ledgerFilled(t0)).resolves.toBe(false);
+    notYet.findUnique.mockRejectedValue(new Error('db down'));
+    await expect(notYet.ledger.ledgerFilled(t0 + 60_000)).resolves.toBe(false);
+    expect(notYet.findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-reads a filled marker every few minutes and sees it removed', async () => {
+    const t0 = 1_000_000;
+    const { ledger, findUnique } = ledgerWith([], { key: LEDGER_FILLED_SETTING, value: {} });
+    await expect(ledger.ledgerFilled(t0)).resolves.toBe(true);
+    await expect(ledger.ledgerFilled(t0 + FILLED_REREAD_MS - 1)).resolves.toBe(true);
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    findUnique.mockResolvedValue(null);
+    await expect(ledger.ledgerFilled(t0 + FILLED_REREAD_MS)).resolves.toBe(false);
+    expect(findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it('forgets the marker and cached owners after a restore', async () => {
+    const t0 = 1_000_000;
+    const { ledger, findUnique, queryRaw } = ledgerWith([{ org_id: A }], {
+      key: LEDGER_FILLED_SETTING,
+      value: {},
+    });
+    await expect(ledger.ledgerFilled(t0)).resolves.toBe(true);
+    await ledger.orgOfKey(`item-tile-layer/${U}`);
+    findUnique.mockResolvedValue(null);
+    queryRaw.mockResolvedValue([]);
+    forgetLedgerState();
+    // Read again at once, not after the re-read interval.
+    await expect(ledger.ledgerFilled(t0 + 1)).resolves.toBe(false);
+    await expect(ledger.orgOfKey(`item-tile-layer/${U}`)).resolves.toBeNull();
+    expect(queryRaw).toHaveBeenCalledTimes(2);
   });
 });

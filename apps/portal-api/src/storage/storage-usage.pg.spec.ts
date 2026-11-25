@@ -8,6 +8,7 @@
 
 import { join } from 'node:path';
 
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
@@ -19,7 +20,10 @@ import type { PrismaService } from '../prisma/prisma.service.js';
 import { resetTenancyModeForTests } from '../common/tenancy.js';
 import { ObjectKeyRefusedError, storageKey } from './object-keys.js';
 import { LEDGER_FILLED_SETTING, StorageLedgerService } from './storage-ledger.service.js';
-import { StorageUsageReconcileService } from './storage-usage-reconcile.service.js';
+import {
+  LAST_RECONCILE_SETTING,
+  StorageUsageReconcileService,
+} from './storage-usage-reconcile.service.js';
 import { StorageService } from './storage.service.js';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
@@ -390,5 +394,47 @@ d('storage usage ledger against Postgres', () => {
       [thumb],
     );
     expect(row.rows[0]!.org_id).toBe(ORG_A);
+  });
+
+  it('records the imagery item of a cached embedding and warns about objects with no owner', async () => {
+    const embed = `sam-embed/o/${ORG_A}/${ITEM_A}/16/3/4.bin`;
+    s3.put(embed, Buffer.alloc(12));
+    const orphan = 'item-file/6f8fad5b-d9cb-469f-a165-70867728950e';
+    s3.put(orphan, Buffer.alloc(3));
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const r = await reconcile.reconcile({ dryRun: false, log: () => undefined });
+      expect(r.unattributedSample).toContain(orphan);
+      const lines = warn.mock.calls.map((c) => String(c[0]));
+      const noOwner = lines.filter((l) => l.includes('have no known owner'));
+      expect(noOwner).toHaveLength(1);
+      expect(noOwner[0]).toContain(`${r.unattributed} stored objects`);
+      expect(noOwner[0]).toContain(LAST_RECONCILE_SETTING);
+    } finally {
+      warn.mockRestore();
+      s3.objects.delete(orphan);
+    }
+    const row = await pool.query<{ item_id: string | null }>(
+      `SELECT item_id::text AS item_id FROM storage_object WHERE key = $1`,
+      [embed],
+    );
+    expect(row.rows[0]!.item_id).toBe(ITEM_A);
+  });
+
+  it('saves the key of each finished page when asked, for a first fill to resume after', async () => {
+    const cursor = 'storage_usage.test_cursor';
+    s3.pageSize = 2;
+    try {
+      await reconcile.reconcile({ dryRun: false, saveCursor: cursor, log: () => undefined });
+    } finally {
+      s3.pageSize = 1000;
+    }
+    const keys = [...s3.objects.keys()].sort();
+    const saved = await pool.query<{ value: { after: string } }>(
+      `SELECT value FROM system_setting WHERE key = $1`,
+      [cursor],
+    );
+    expect(saved.rows[0]!.value.after).toBe(keys[keys.length - 1]);
+    await pool.query(`DELETE FROM system_setting WHERE key = $1`, [cursor]);
   });
 });

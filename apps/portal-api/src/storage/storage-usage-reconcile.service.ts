@@ -17,6 +17,13 @@ const OWNER = systemOwner('cron:storage-usage-reconcile');
 export const LAST_RECONCILE_SETTING = 'storage_usage.last_reconcile';
 /** system_setting row holding the backfill's resume point. */
 export const BACKFILL_CURSOR_SETTING = 'storage_usage.backfill_cursor';
+/** system_setting row holding the first fill's resume point. */
+export const FIRST_FILL_CURSOR_SETTING = 'storage_usage.first_fill_cursor';
+
+/** Wait before the first retry of a failed first fill; doubled each time. */
+export const FIRST_FILL_RETRY_MS = 5 * 60 * 1000;
+/** Longest wait between first fill attempts. */
+export const FIRST_FILL_RETRY_MAX_MS = 6 * 60 * 60 * 1000;
 
 /** Keys kept in the summary as examples of objects no org could be found for. */
 const UNATTRIBUTED_SAMPLE = 20;
@@ -75,6 +82,9 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
   private readonly log = new Logger(StorageUsageReconcileService.name);
   /** The reconcile running in this process, if any. One at a time. */
   private running: Promise<ReconcileSummary> | null = null;
+  /** Failed first fill attempts in a row, and when the next may start. */
+  private firstFillFailures = 0;
+  private firstFillNotBefore = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -105,9 +115,11 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
   }
 
   /**
-   * Retry the first fill every five minutes until it has finished
-   * once: a replica that becomes the leader later, or a fill that
-   * failed, picks it up. A no-op (one cached flag) once filled.
+   * Check every five minutes until the first fill has finished once:
+   * a replica that becomes the leader later picks it up. A failed fill
+   * waits 5 minutes, then twice as long after each further failure, up
+   * to 6 hours, and resumes after the last page it finished. A no-op
+   * (one cached flag) once filled.
    */
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'storage-usage-first-fill' })
   async firstFillTick(): Promise<void> {
@@ -119,7 +131,9 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
    * fill marker is absent. Returns what happened.
    */
   @RunAsSystem('cron:storage-usage-first-fill')
-  async ensureFirstFill(): Promise<'filled' | 'ran' | 'skipped' | 'failed'> {
+  async ensureFirstFill(
+    now: number = Date.now(),
+  ): Promise<'filled' | 'ran' | 'skipped' | 'failed'> {
     try {
       if (await this.ledger.ledgerFilled()) return 'filled';
     } catch {
@@ -127,6 +141,7 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     }
     if (this.leader && !this.leader.shouldRun()) return 'skipped';
     if (this.running) return 'skipped';
+    if (now < this.firstFillNotBefore) return 'skipped';
     this.log.warn(
       'Storage usage ledger has not been filled on this install. Running the first fill now. ' +
         'Until it finishes, files stored before the ledger existed are served under the item ' +
@@ -134,7 +149,17 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     );
     const t0 = Date.now();
     try {
-      const s = await this.reconcile({ dryRun: false, progress: true });
+      const startAfter = await this.readCursor(FIRST_FILL_CURSOR_SETTING);
+      if (startAfter) this.log.log(`Storage usage first fill resumes after ${startAfter}.`);
+      const s = await this.reconcile({
+        dryRun: false,
+        progress: true,
+        saveCursor: FIRST_FILL_CURSOR_SETTING,
+        ...(startAfter ? { startAfter } : {}),
+      });
+      await this.prisma.systemSetting.deleteMany({ where: { key: FIRST_FILL_CURSOR_SETTING } });
+      this.firstFillFailures = 0;
+      this.firstFillNotBefore = 0;
       this.log.log(
         `Storage usage first fill finished in ${Math.round((Date.now() - t0) / 1000)} s: ` +
           `${s.objectsSeen} objects, ${s.recorded} recorded, ${s.unattributed} with no owner. ` +
@@ -142,11 +167,24 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
       );
       return 'ran';
     } catch (err) {
+      this.firstFillFailures += 1;
+      const wait = Math.min(
+        FIRST_FILL_RETRY_MS * 2 ** Math.min(this.firstFillFailures - 1, 16),
+        FIRST_FILL_RETRY_MAX_MS,
+      );
+      this.firstFillNotBefore = now + wait;
       this.log.error(
-        `Storage usage first fill failed; it is retried in a few minutes: ${err instanceof Error ? err.message : err}`,
+        `Storage usage first fill failed; it is retried in ${Math.round(wait / 60_000)} minutes ` +
+          `from where it stopped: ${err instanceof Error ? err.message : err}`,
       );
       return 'failed';
     }
+  }
+
+  private async readCursor(setting: string): Promise<string | undefined> {
+    const row = await this.prisma.systemSetting.findUnique({ where: { key: setting } });
+    const after = (row?.value as { after?: unknown } | undefined)?.after;
+    return typeof after === 'string' && after.length > 0 ? after : undefined;
   }
 
   /**
@@ -179,6 +217,12 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     log?: (line: string) => void;
     /** Log a line every few pages (the first fill). */
     progress?: boolean;
+    /**
+     * system_setting row to save the last finished page's key in, so a
+     * failed walk can resume after it. A resumed walk did not see the
+     * earlier pages, so step 2 checks those orgs' rows against the store.
+     */
+    saveCursor?: string;
   }): Promise<ReconcileSummary> {
     if (this.running)
       throw new Error('A storage usage reconcile is already running in this process.');
@@ -197,6 +241,7 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     maxPages?: number;
     log?: (line: string) => void;
     progress?: boolean;
+    saveCursor?: string;
   }): Promise<ReconcileSummary> {
     const started = new Date();
     const say = opts.log ?? ((l: string) => this.log.log(l));
@@ -266,6 +311,14 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
           await this.recordListed(obj.key, owner.orgId, obj.sizeBytes, owner.itemId);
       }
       lastKey = page.length > 0 ? page[page.length - 1]!.key : lastKey;
+      if (opts.saveCursor && !opts.dryRun && lastKey !== null) {
+        const value = { after: lastKey } as Prisma.InputJsonValue;
+        await this.prisma.systemSetting.upsert({
+          where: { key: opts.saveCursor },
+          create: { key: opts.saveCursor, value },
+          update: { value },
+        });
+      }
       if (opts.progress && pages % PROGRESS_EVERY_PAGES === 0) {
         say(
           `storage usage reconcile running: ${s.objectsSeen} objects so far, ${s.recorded} recorded`,
@@ -317,6 +370,16 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
         `${s.recorded} recorded, ${s.resized} resized, ${s.markedDeleted} gone, ` +
         `${s.unattributed} with no owner`,
     );
+    if (s.unattributed > 0) {
+      this.log.warn(
+        `storage usage reconcile: ${s.unattributed} stored objects have no known owner and are ` +
+          'not counted for any organization; nothing was deleted. ' +
+          (!opts.dryRun && s.resumeAfter === null
+            ? `Up to ${UNATTRIBUTED_SAMPLE} example keys are saved in system_setting ` +
+              `'${LAST_RECONCILE_SETTING}' (unattributedSample).`
+            : 'This run did not save its summary.'),
+      );
+    }
     if (!opts.dryRun && s.resumeAfter === null) {
       await this.saveSummary(s);
       // The whole bucket has been walked and recorded: from now on an
@@ -445,7 +508,7 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     for (const key of keys) {
       const parsed = parseObjectKey(key);
       if (!parsed) continue;
-      if (parsed.orgId) out.set(key, { orgId: parsed.orgId, itemId: null });
+      if (parsed.orgId) out.set(key, { orgId: parsed.orgId, itemId: embedItemOf(parsed) });
       else if (refs.has(key)) out.set(key, refs.get(key)!);
       else rest.push(key);
     }
@@ -509,6 +572,17 @@ export class StorageUsageReconcileService implements OnApplicationBootstrap {
     }
     return out;
   }
+}
+
+/**
+ * The imagery item a cached embedding key in the org layout is named
+ * after (`sam-embed/o/<orgId>/<itemId>/...`), so the per-item cap can
+ * find it; null for any other key.
+ */
+export function embedItemOf(parsed: { kind: string; rest: string }): string | null {
+  if (parsed.kind !== 'sam-embed') return null;
+  const first = parsed.rest.split('/')[0] ?? '';
+  return isLowerUuid(first) ? first : null;
 }
 
 /** The object key at the end of a stored public URL, or null. */

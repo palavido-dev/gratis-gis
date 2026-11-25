@@ -47,6 +47,21 @@ export const OWNER_CACHE_MAX = 10_000;
 /** While the ledger is not filled, its marker is re-read at most this often. */
 const FILLED_RECHECK_MS = 30_000;
 
+/** Once filled, the marker is still re-read this often (a restore can remove it). */
+export const FILLED_REREAD_MS = 5 * 60 * 1000;
+
+/**
+ * Bumped when the database under this process was replaced (an in-app
+ * restore). Each ledger service forgets what it read from the old
+ * database the next time it is asked.
+ */
+let ledgerStateEpoch = 0;
+
+/** Call after the database was restored: the fill marker and cached owners are read again. */
+export function forgetLedgerState(): void {
+  ledgerStateEpoch += 1;
+}
+
 /** A served embedding's read time is written at most this often. */
 export const READ_TOUCH_EVERY_MS = 10 * 60 * 1000;
 
@@ -79,6 +94,10 @@ export class BoundedLru<V> {
   get size(): number {
     return this.map.size;
   }
+
+  clear(): void {
+    this.map.clear();
+  }
 }
 
 /**
@@ -105,8 +124,10 @@ export class StorageLedgerService {
    * stays true; a miss is not kept, as the key may be recorded later.
    */
   private readonly owners = new BoundedLru<string>(OWNER_CACHE_MAX);
-  private filled = false;
+  /** Last value read from the fill marker; null until one read succeeded. */
+  private filled: boolean | null = null;
   private filledCheckedAt = 0;
+  private epoch = ledgerStateEpoch;
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -117,6 +138,7 @@ export class StorageLedgerService {
    * kept in a bounded in-memory cache.
    */
   async orgOfKey(key: string): Promise<string | null> {
+    this.syncEpoch();
     const hit = this.owners.get(key);
     if (hit !== undefined) return hit;
     const rows = await this.prisma.$queryRaw<Array<{ org_id: string }>>(Prisma.sql`
@@ -129,12 +151,16 @@ export class StorageLedgerService {
   /**
    * True once a full reconcile has filled the ledger on this install.
    * Read from a durable marker, never from whether the table is empty.
-   * Once true it stays true for the life of the process.
+   * Re-read every 30 s while not filled and every few minutes once
+   * filled. When a read fails the last value read stands; with none,
+   * the answer is true, so an older key the ledger does not know is
+   * refused rather than let through.
    */
-  async ledgerFilled(): Promise<boolean> {
-    if (this.filled) return true;
-    const now = Date.now();
-    if (now - this.filledCheckedAt < FILLED_RECHECK_MS && this.filledCheckedAt !== 0) return false;
+  async ledgerFilled(now: number = Date.now()): Promise<boolean> {
+    this.syncEpoch();
+    const every = this.filled === true ? FILLED_REREAD_MS : FILLED_RECHECK_MS;
+    if (this.filledCheckedAt !== 0 && now - this.filledCheckedAt < every)
+      return this.filled ?? true;
     this.filledCheckedAt = now;
     try {
       const row = await this.prisma.systemSetting.findUnique({
@@ -146,7 +172,16 @@ export class StorageLedgerService {
         `Could not read the ledger fill marker: ${err instanceof Error ? err.message : err}`,
       );
     }
-    return this.filled;
+    return this.filled ?? true;
+  }
+
+  /** After a restore, forget the fill marker and the cached owners. */
+  private syncEpoch(): void {
+    if (this.epoch === ledgerStateEpoch) return;
+    this.epoch = ledgerStateEpoch;
+    this.filled = null;
+    this.filledCheckedAt = 0;
+    this.owners.clear();
   }
 
   /** Write the durable marker that the ledger has been filled once. */
@@ -158,6 +193,7 @@ export class StorageLedgerService {
       update: { value },
     });
     this.filled = true;
+    this.filledCheckedAt = Date.now();
   }
 
   /**
