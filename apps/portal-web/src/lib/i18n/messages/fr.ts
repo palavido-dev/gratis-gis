@@ -1828,6 +1828,11 @@ export const fr: Partial<CatalogShape> = {
     connectProvider: "Connecter un fournisseur dans Administration, Assistant IA",
   },
   fieldQueue: {
+    syncProblemChip: 'Problème de synchro',
+    syncProblemChipTitle: "Un élément n'a pas été synchronisé. Touchez pour lire la raison.",
+    syncProblemTitle: 'Problèmes de synchronisation',
+    syncProblemIntro:
+      "Ces éléments n'ont pas fini de se synchroniser. Ils restent sur cet appareil et seront réessayés à la prochaine synchronisation.",
     rejectedChip:
       '{count, plural, one {# modification à examiner} other {# modifications à examiner}}',
     rejectedChipTitle:

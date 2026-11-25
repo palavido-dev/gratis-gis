@@ -205,6 +205,14 @@ async function replayFetch(
   }
 }
 
+/** The structured reason for anything thrown while replaying: ours as
+ *  is, anything else as the unexpected fallback. Exported so a caller
+ *  that runs uploadPendingBlobsForFeature on its own (the online save)
+ *  can report a failure the same way the drain does. */
+export function replayErrorReason(err: unknown): OfflineMessage {
+  return err instanceof ReplayFailure ? err.offline : unexpectedReason(err);
+}
+
 /** The reason to record for something thrown that is not one of ours:
  *  an IndexedDB write refused mid-drain, say. There is no code for it
  *  because this build did not expect it, so the text is carried as is
@@ -371,7 +379,15 @@ export async function syncQueue(
   //
   // Deliberately not fatal to the run: these are best-effort, and a
   // failure leaves the file exactly where it was for the next sync.
-  await sweepOrphanedBlobs(dataCollectionId, currentUserId);
+  // The failure is still REPORTED, though. A photo that never uploads
+  // while the sync raises no error leaves a count that never drops
+  // and nothing to explain it, so each one lands in `errors` and
+  // `failed` as a non-terminal entry carrying the server's reason.
+  const orphanErrors = await sweepOrphanedBlobs(dataCollectionId, currentUserId);
+  for (const e of orphanErrors) {
+    result.failed += 1;
+    result.errors.push(e);
+  }
 
   // Re-count what's still queued (in case parallel runs added new
   // pending records during this drain). Rejected rows are reported
@@ -694,24 +710,33 @@ async function rebaseAfterUpdate(r: QueueRecord, res: Response): Promise<void> {
  * mean a record that looks complete on the server while the photo it
  * exists to carry sits on a phone.
  *
- * Errors are swallowed per feature. This runs at the tail of a drain
- * whose real work has already succeeded, and a failed photo upload
- * must not turn a successful sync into a reported failure; the file
- * stays put and the next sync tries again.
+ * Failures are isolated per feature and RETURNED, one entry per feature
+ * that failed. This runs at the tail of a drain whose real work has
+ * already succeeded, so a failed photo must not stop the sweep or
+ * abort the other features; the file stays put and the next sync
+ * tries again. But it is reported rather than dropped: swallowing it
+ * left a pending count that never fell and no reason anywhere.
+ *
+ * The entries are non-terminal and have an empty `recordId`, because
+ * there is no queue row behind them. Anything that acts on a
+ * `recordId` must treat '' as "nothing to act on". An unreachable
+ * network is reported too, exactly as the main drain reports it
+ * (counted as failed, not terminal), so the two paths agree.
  */
 async function sweepOrphanedBlobs(
   dataCollectionId: string,
   currentUserId: string,
-): Promise<void> {
+): Promise<SyncResult['errors']> {
+  const errors: SyncResult['errors'] = [];
   let pending: Awaited<ReturnType<typeof listPendingBlobs>>;
   try {
     // This account's files only. A photo another account took is not
     // this session's to upload, whatever state its feature is in.
     pending = await listPendingBlobs(dataCollectionId, currentUserId);
   } catch {
-    return;
+    return errors;
   }
-  if (pending.length === 0) return;
+  if (pending.length === 0) return errors;
   // "Has a row" is a fact about the FEATURE, so every owner's rows
   // count: a file whose feature still has a row parked by anyone is
   // not an orphan, and uploading it would hit an attachment endpoint
@@ -735,10 +760,19 @@ async function sweepOrphanedBlobs(
         },
         currentUserId,
       );
-    } catch {
-      // Still offline, or the server refused. The file is untouched.
+    } catch (err) {
+      // Still offline, or the server refused. The file is untouched
+      // and stays queued; record why so it can be shown.
+      errors.push({
+        recordId: '',
+        op: 'update',
+        layerLabel: file.layerKey,
+        reason: replayErrorReason(err),
+        terminal: false,
+      });
     }
   }
+  return errors;
 }
 
 export interface FeatureRef {
@@ -761,8 +795,10 @@ export interface FeatureRef {
  * that is why replayRecord calls it after the feature write succeeded,
  * rather than giving files their own queue rows.
  *
- * A file that fails is LEFT IN PLACE and the error propagates, so the
- * queue row goes back to failed and the whole feature is retried.
+ * A file that fails is LEFT IN PLACE and the error propagates. For a
+ * queued feature the row goes back to failed and the whole feature is
+ * retried; for a feature with no row the caller (the orphan sweep, or
+ * the online save) reports it.
  * Losing the photo silently while reporting the record as synced
  * would be the worst available outcome: the record would look
  * complete and be missing the evidence it was collected for.

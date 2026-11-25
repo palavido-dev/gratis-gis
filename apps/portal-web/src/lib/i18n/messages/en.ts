@@ -1892,6 +1892,11 @@ export const en = {
   // Offline queue rows the server refused for a reason a retry cannot
   // change. Shown from the field runtime header chip.
   fieldQueue: {
+    syncProblemChip: 'Sync problem',
+    syncProblemChipTitle: 'Something did not sync, and this is the reason. Tap to read it.',
+    syncProblemTitle: 'Sync problems',
+    syncProblemIntro:
+      'These items did not finish syncing. They are still on this device and will be tried again on the next sync.',
     rejectedChip: '{count, plural, one {# edit needs attention} other {# edits need attention}}',
     rejectedChipTitle:
       'The server refused these edits. Open to see why and retry or discard them.',
