@@ -113,6 +113,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - Printing recovers on its own after prints that could not start,
   instead of answering "busy" until the API restarts.
+- A search index build whose end could not be recorded no longer
+  stays "running" until the worker restarts: after six hours it is
+  marked failed and a new build can be queued.
 - The What's Here PDF covered only the first 30 layers of a map and left
   the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed

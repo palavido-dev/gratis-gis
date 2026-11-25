@@ -112,6 +112,31 @@ d('search index build queue on migrated Postgres', () => {
     expect(row?.error).toMatch(/worker restarted/);
   });
 
+  it('fails a build left running past the limit, and only that one', async () => {
+    const OTHER = '30000000-0000-4000-8000-000000000003';
+    await pool.query(`DELETE FROM search_index_build`);
+    const now = new Date('2026-11-25T12:00:00Z');
+    const hour = 60 * 60 * 1000;
+    const { rows } = await pool.query<{ id: string }>(
+      `INSERT INTO search_index_build (org_id, status, started_at) VALUES
+         ($1, 'running', $3), ($2, 'running', $4)
+       RETURNING id`,
+      [ORG, OTHER, new Date(now.getTime() - 7 * hour), new Date(now.getTime() - 1 * hour)],
+    );
+    expect(await jobs.failStale(6 * hour, now)).toBe(1);
+    const after = await pool.query<{ id: string; status: string; error: string | null }>(
+      `SELECT id, status, error FROM search_index_build ORDER BY started_at`,
+    );
+    expect(after.rows).toEqual([
+      { id: rows[0]!.id, status: 'failed', error: 'This build stopped without finishing. Run it again.' },
+      { id: rows[1]!.id, status: 'running', error: null },
+    ]);
+    // The org can queue a new build once the stale one is failed.
+    const next = await jobs.enqueue(ORG, USER);
+    expect(next.status).toBe('queued');
+    await pool.query(`DELETE FROM search_index_build`);
+  });
+
   it('refuses a second active row at the database', async () => {
     await pool.query(
       `INSERT INTO search_index_build (org_id, status) VALUES ($1, 'queued')`,

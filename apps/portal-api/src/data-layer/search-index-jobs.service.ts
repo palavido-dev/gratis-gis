@@ -139,6 +139,28 @@ export class SearchIndexJobsService {
   }
 
   /**
+   * Fail builds still 'running' that started more than `olderThanMs`
+   * ago. A build whose final update failed would otherwise stay
+   * 'running' until the worker restarts, and block the next one for
+   * its org. There is no heartbeat column, so the age is taken from
+   * started_at; the limit is far above any real build.
+   */
+  async failStale(olderThanMs: number, now: Date = new Date()): Promise<number> {
+    const r = await this.prisma.searchIndexBuild.updateMany({
+      where: {
+        status: 'running',
+        startedAt: { lt: new Date(now.getTime() - olderThanMs) },
+      },
+      data: {
+        status: 'failed',
+        finishedAt: now,
+        error: 'This build stopped without finishing. Run it again.',
+      },
+    });
+    return r.count;
+  }
+
+  /**
    * Called when the worker starts. A build left 'running' belonged to
    * a worker that is gone (one worker runs these), so it will never
    * finish. Mark it failed so the org can queue a new one.
