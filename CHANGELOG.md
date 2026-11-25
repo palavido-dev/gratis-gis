@@ -97,6 +97,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- ArcGIS Pro and QGIS sign-in tokens are signed with a secret of their
+  own, `GRATIS_SIGNING_SECRET`, instead of a key made from the storage
+  (MinIO) password, which other services also hold. Nothing to do by
+  hand: `deploy.sh` adds it to an existing install on its next run, and
+  a NAS adds it on its next start with the current compose file (NAS
+  compose revision 4). An image-only update keeps working on the old
+  key and logs a warning. ArcGIS Pro and QGIS ask to sign in again
+  once. In production the API now refuses to start when the secret it
+  would sign with is empty or a well-known placeholder such as
+  `changeme`. (#844)
+- A public What's Here PDF can no longer keep signed-in report users
+  waiting: renders asked for without signing in get one Chromium slot
+  of their own, with shorter time limits. (#841)
 - A layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature
   routes, and a map's or editor's stored extent only draws on layers
@@ -150,6 +163,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Report template and What's Here PDFs whose name has Cyrillic,
+  Chinese, Japanese or other non-Latin letters download again. They
+  answered an error. (#842)
+- The first time ArcGIS Pro or QGIS opens a layer made before ObjectIDs
+  existed, its features are numbered once, however many requests ask at
+  the same time, and once across API replicas. A request waits at most
+  15 seconds. A very large layer answers "This layer is being prepared
+  for ArcGIS clients. Try again in a minute." while numbering finishes
+  in the background. (#843)
 - Printing recovers on its own after prints that could not start,
   instead of answering "busy" until the API restarts.
 - A search index build whose end could not be recorded no longer
