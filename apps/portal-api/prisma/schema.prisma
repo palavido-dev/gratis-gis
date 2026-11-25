@@ -382,7 +382,7 @@ model FeatureOidScope {
 
 /// FeatureServer layer numbers: given on first sight, never changed.
 model FeatureServerLayer {
-  itemId     String   @map("item_id")
+  itemId     String   @map("item_id") @db.Uuid
   layerId    String   @map("layer_id")
   layerIndex Int      @map("layer_index")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -6,7 +6,7 @@
 -- reads the same layer after others are added or removed. Numbers are
 -- never reused within an item.
 CREATE TABLE "featureserver_layer" (
-    "item_id" TEXT NOT NULL,
+    "item_id" UUID NOT NULL,
     "layer_id" TEXT NOT NULL,
     "layer_index" INTEGER NOT NULL,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -27,5 +27,5 @@ export async function forgetItemOids(
   const prefix = `data_layer:${itemId}:%`;
   await db.$executeRaw(Prisma.sql`DELETE FROM feature_oid WHERE scope LIKE ${prefix}`);
   await db.$executeRaw(Prisma.sql`DELETE FROM feature_oid_scope WHERE scope LIKE ${prefix}`);
-  await db.$executeRaw(Prisma.sql`DELETE FROM featureserver_layer WHERE item_id = ${itemId}`);
+  await db.$executeRaw(Prisma.sql`DELETE FROM featureserver_layer WHERE item_id = ${itemId}::uuid`);
 }
