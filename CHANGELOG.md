@@ -8,6 +8,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Groundwork for editing in ArcGIS Pro: every data layer feature now gets
+  a permanent whole-number ObjectID, which Pro needs to name a feature.
+  Migration `feature_oid` adds two tables and a trigger. Features from
+  before it are numbered in the background, ten minutes at a time, so
+  the upgrade itself stays fast.
 - The one-command installer checks the server first and says in plain
   words what to fix (memory, disk, web ports, internet access, Docker),
   stopping before it changes anything. It offers to install Docker and

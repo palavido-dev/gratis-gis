@@ -23,6 +23,7 @@ import { ImportAgoModule } from './import-ago/import-ago.module.js';
 import { MapIconsModule } from './map-icons/map-icons.module.js';
 import { FeaturesModule } from './features/features.module.js';
 import { MaintenanceModule } from './maintenance/maintenance.module.js';
+import { FeatureServerModule } from './featureserver/featureserver.module.js';
 import { AdminModule } from './admin/admin.module.js';
 import { DataLayerFeaturesModule } from './data-layer/features.module.js';
 import { ExpressionsModule } from './expressions/expressions.module.js';
@@ -89,6 +90,7 @@ import { AddressThrottlerGuard, OrgThrottlerGuard } from './common/tenant-thrott
     MapIconsModule,
     FeaturesModule,
     MaintenanceModule,
+    FeatureServerModule,
     AdminModule,
     DataLayerFeaturesModule,
     ExpressionsModule,

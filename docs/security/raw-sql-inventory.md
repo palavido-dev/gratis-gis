@@ -16,7 +16,7 @@ builds on it.
 
 ## Totals
 
-**213 sites** in 52 files. The guard counts the same 213.
+**217 sites** in 54 files. The guard counts the same 217.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
@@ -230,6 +230,8 @@ From `apps/portal-api/prisma/migrations` and `infra/`.
 | `gg_expr_num`, `gg_expr_bool`, `gg_expr_ts`, `gg_expr_ts_text`, `gg_expr_list`, `gg_expr_month_diff` | SQL helper functions | `20261124090000_expression_functions` | Pure, no table access. `app` role needs `EXECUTE`. |
 | `gg_try_timestamptz`, `gg_try_int` | plpgsql helper functions | `20261112190500_safe_text_casts` | Pure. `EXECUTE` grant. |
 | `area_of_interest` | table with no `org_id` | `20261124130000_area_of_interest` | What's Here areas (#796), shared across orgs by design: shapes only, content addressed, pruned after a week unused. Needs no org policy; the `app` role needs SELECT, INSERT, UPDATE and DELETE. |
+| `feature_oid`, `feature_oid_scope` | tables with no `org_id` | `20261125140000_feature_oid` | Integer ObjectIDs for the FeatureServer interface. Keyed by scope (`data_layer:<itemId>:<layerId>`), which names an org's item, so an org policy would join through `item`. Every read is by a scope the caller was already checked for. The `app` role needs SELECT, INSERT and DELETE, and USAGE on `feature_oid_oid_seq`. |
+| `observation_assign_oid()` + trigger `observation_assign_oid` | `AFTER INSERT` row trigger on `observation` | `20261125140000_feature_oid` | Numbers a data layer feature on its first non-delete write. Runs as the inserting role, which therefore needs INSERT on `feature_oid` and the sequence. Cloned onto every partition. |
 | `pg_temp.gg_sanitize_id` | temp function | `20260507230000_drop_fs_tables` | Migration only, gone after the session. |
 | `pg_partman` extension in schema `partman`; `create_parent('public.observation', ...)` monthly on `tx_time` | partitioning | `20260508081000_partition_observation_table`, `20260726150000_observation_partman_premake_tuning` | New partitions are created by the owner. Policies on the parent apply to queries through the parent only. |
 | `pg_partman_bgw` background worker, `pg_partman_bgw.role=gratisgis` | maintenance | `infra/docker-compose.yml` (also `.prod`, `.nas`) | Runs as the owner role. Keep it on the owner. |
@@ -413,9 +415,9 @@ the statement they set up.
 | 151 | `items/items.service.ts:1222` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
 | 152 | `items/items.service.ts:1276` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
 | 153 | `items/items.service.ts:3633` | prisma | `notifyDataCollectionSchemaBreak` | field_queue_manifest | data_collection id that references the edited layer | **item-scoped** | Runs in ItemsService.update of a layer (get + canEdit). User ids found are filtered by schemaBreakRecipients (canRead on the deployment) before any notification. |
-| 154 | `items/items.service.ts:3997` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3997); observation (L3998); fs_<id> DROP (L4009) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
-| 155 | `items/items.service.ts:3998` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3997); observation (L3998); fs_<id> DROP (L4009) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
-| 156 | `items/items.service.ts:4009` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3997); observation (L3998); fs_<id> DROP (L4009) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
+| 154 | `items/items.service.ts:3999` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3998); observation (L3999); fs_<id> DROP (L4012) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
+| 155 | `items/items.service.ts:3999` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3998); observation (L3999); fs_<id> DROP (L4012) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
+| 156 | `items/items.service.ts:4012` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3998); observation (L3999); fs_<id> DROP (L4012) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
 | 157 | `items/items.service.ts:4151` | prisma | `spliceFromLandingFeatured` | organization | purged item id | **system** | Cross-org cleanup by item id after a purge. Runs in the user purge request. Needs `runAsSystem` under RB-06 or other orgs keep a dead id. |
 | 158 | `items/items.service.ts:4165` | prisma | `spliceFromFolders` | item (folders) | purged item id | **system** | Cross-org cleanup like the row above. |
 | 159 | `items/items.service.ts:4432` | prisma | `getGeoJson` | fs_<id>; item (boundary geometry, via Prisma) | `id` from route; `boundaryClipId` from `?clip=` | item-scoped | Fixed in #800: the clip boundary is resolved through `resolveClipBoundaryGeometry` (caller can read it, or same organization as the layer) before this query runs. |
@@ -473,6 +475,10 @@ the statement they set up.
 | 211 | `tools/recipe-runner.service.ts:1352` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
 | 212 | `area-of-interest/area-of-interest.service.ts:62` | prisma | `register` | none (PostGIS on bound values) | none | **system** | What's Here area resolve (#796): union, make valid, buffer the caller's own shape. Reads no table. Public endpoint; input size checked first. |
 | 213 | `area-of-interest/area-of-interest.service.ts:103` | prisma | `register` | area_of_interest (INSERT ... ON CONFLICT) | hash of the resolved shape | **system** | Stores a shape only, no org and no feature data. Shared across orgs by design: the row reveals nothing, and every read that names it runs under the caller's own layer access. |
+| 214 | `featureserver/feature-oid.service.ts:76` | prisma | `ensureScope` | none (SET LOCAL statement_timeout) | none | **system** | Lifts the timeout for one ObjectID backfill transaction. |
+| 215 | `featureserver/feature-oid.service.ts:77` | prisma | `ensureScope` | feature_oid (INSERT ... SELECT from observation) | scope from an item the cron listed, or from a FeatureServer route that already checked the caller can read the layer | **item-scoped** | Writes only ObjectID numbers for one scope; returns nothing. Leader cron (system) or the FeatureServer routes (PR 2+), which check layer access first. |
+| 216 | `featureserver/feature-oid.ts:28` | prisma | `forgetItemOids` | feature_oid (DELETE by scope prefix) | `itemId` of the item being purged | **item-scoped** | Called from tearDownItemBackingStorage, same checks as rows 154 to 156. |
+| 217 | `featureserver/feature-oid.ts:29` | prisma | `forgetItemOids` | feature_oid_scope (DELETE by scope prefix) | `itemId` of the item being purged | **item-scoped** | As row 216. |
 
 ## Keeping this up to date
 

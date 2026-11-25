@@ -358,6 +358,26 @@ model AreaOfInterest {
   @@index([lastUsedAt])
   @@map("area_of_interest")
 }
+/// Integer ObjectIDs for the Esri FeatureServer interface, so ArcGIS
+/// Pro can name a feature. One per (scope, entity), numbered by a
+/// trigger on observation as features are first written; older layers
+/// are backfilled by FeatureOidService. Never reused or changed.
+model FeatureOid {
+  scope  String
+  entity String @db.Uuid
+  oid    BigInt @unique @default(autoincrement())
+
+  @@id([scope, entity])
+  @@map("feature_oid")
+}
+
+/// Layers whose features from before feature_oid existed are numbered.
+model FeatureOidScope {
+  scope        String   @id
+  backfilledAt DateTime @default(now()) @map("backfilled_at") @db.Timestamptz(6)
+
+  @@map("feature_oid_scope")
+}
 
 /// Bytes held by one staged upload or queued import. Released when
 /// the import finishes or fails. No per-org cap sums these rows.
