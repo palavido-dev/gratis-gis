@@ -157,6 +157,7 @@ export const ROUTES: Record<string, RouteEntry> = {
   'PATCH /api/admin/feedback/:id': op({ params: { id: '=00000000-0000-4000-8000-000000000001' } }),
   'GET /api/admin/geocoder': op(),
   'GET /api/admin/geocoder/regions': op(),
+  'GET /api/admin/geocoder/regions/outlines': op(),
   'GET /api/admin/geocoder/regions/size': op(),
   'GET /api/admin/geocoder/test': op(),
   'POST /api/admin/geocoder/build': op(),

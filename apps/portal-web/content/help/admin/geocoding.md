@@ -23,7 +23,9 @@ see it.
 
 1. Open **Admin -> Geocoding**.
 2. Under **Regions**, search for your state, province or country and
-   add it. Add more than one if you need them.
+   add it, or switch to **Map** and click it: start at the continents,
+   open one to see the countries inside, then a country to see its
+   states or provinces. Add more than one if you need them.
 3. Under **Data**, leave **U.S. Census address ranges** on for U.S.
    regions. Turn on **OpenAddresses** for exact matches on many more
    addresses. It needs a free OpenAddresses account, and you never
