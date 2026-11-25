@@ -395,7 +395,7 @@ model StorageObject {
   lastReadAt DateTime? @map("last_read_at") @db.Timestamptz(6)
 
   @@index([orgId, kind], map: "storage_object_org_kind_idx")
-  @@index([itemId, kind], map: "storage_object_item_kind_idx")
+  @@index([orgId, itemId, kind], map: "storage_object_item_kind_idx")
   @@map("storage_object")
 }
 

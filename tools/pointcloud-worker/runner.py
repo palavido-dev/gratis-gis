@@ -986,13 +986,16 @@ def key_may_belong_to_org(key, org_id) -> bool:
     return parsed is not None and (parsed[1] is None or parsed[1] == str(org_id or ""))
 
 
-def require_job_key(key, org_id, what: str) -> str:
-    """A key a job was handed. In the org layout it must name `org_id`,
-    the org of the item that authorised the job: this worker reads with
-    credentials that can read the whole bucket. Older keys are passed
-    through as before."""
+def require_job_key(key, org_id, kind: str, what: str) -> str:
+    """A key a job was handed. It must parse and be of `kind`; in the
+    org layout it must also name `org_id`, the org of the item that
+    authorised the job: this worker reads with credentials that can
+    read the whole bucket. Older keys of `kind` are passed through as
+    before."""
     parsed = parse_object_key(key)
-    if parsed is not None and parsed[1] is not None and parsed[1] != str(org_id or ""):
+    if parsed is None or parsed[0] != kind:
+        raise RuntimeError(f"{what} is not a stored file of the expected type, so it was not read.")
+    if parsed[1] is not None and parsed[1] != str(org_id or ""):
         raise RuntimeError(f"{what} is not stored with this layer's files, so it was not read.")
     return key
 
@@ -1026,12 +1029,16 @@ def _rollback_ledger(conn) -> None:
 
 
 def ledger_record(conn, key: str, org_id, kind: str, size: int, item_id=None) -> None:
-    """Count a stored object in its org's storage usage (the same two
-    statements as the API's usage ledger). Never fails the job: the
-    API's daily reconcile records anything missed here."""
+    """Count a stored object in its org's storage usage (the same
+    statements as the API's usage ledger). A key written again, or
+    written again after it was marked deleted, updates its row and the
+    totals by the difference. Never fails the job: the API's daily
+    reconcile records anything missed here."""
     # Committed at once so the org's totals row is not held locked
     # while the job runs on. A savepoint keeps a failure here from
     # rolling back anything else on this connection.
+    org = str(org_id)
+    size = int(size)
     try:
         with conn.cursor() as cur:
             cur.execute("SAVEPOINT usage_ledger")
@@ -1039,16 +1046,39 @@ def ledger_record(conn, key: str, org_id, kind: str, size: int, item_id=None) ->
                 "INSERT INTO storage_object (key, org_id, kind, bytes, item_id) "
                 "VALUES (%s, %s::uuid, %s, %s, %s::uuid) "
                 "ON CONFLICT (key) DO NOTHING RETURNING bytes",
-                (key, str(org_id), kind, int(size), item_id),
+                (key, org, kind, size, item_id),
             )
             if cur.fetchone() is not None:
+                delta, objects = size, 1
+            else:
+                # The row exists. Lock it, read the old values and write
+                # the new ones in one statement, filtered by the org so
+                # another org's row is never changed.
+                cur.execute(
+                    "UPDATE storage_object s SET bytes = %s, deleted_at = NULL, "
+                    "item_id = COALESCE(%s::uuid, s.item_id) "
+                    "FROM (SELECT key, bytes, deleted_at FROM storage_object "
+                    "WHERE key = %s AND org_id = %s::uuid FOR UPDATE) old "
+                    "WHERE s.key = old.key "
+                    "RETURNING old.bytes, old.deleted_at IS NOT NULL",
+                    (size, item_id, key, org),
+                )
+                prev = cur.fetchone()
+                if prev is None:
+                    log(f"  usage ledger: {key} is recorded for another organization; left unchanged")
+                    delta, objects = 0, 0
+                elif prev[1]:
+                    delta, objects = size, 1
+                else:
+                    delta, objects = size - int(prev[0]), 0
+            if delta != 0 or objects != 0:
                 cur.execute(
                     "INSERT INTO org_storage_usage (org_id, bytes, objects, updated_at) "
-                    "VALUES (%s::uuid, %s, 1, now()) "
+                    "VALUES (%s::uuid, %s, %s, now()) "
                     "ON CONFLICT (org_id) DO UPDATE SET "
                     "bytes = org_storage_usage.bytes + EXCLUDED.bytes, "
-                    "objects = org_storage_usage.objects + 1, updated_at = now()",
-                    (str(org_id), int(size)),
+                    "objects = org_storage_usage.objects + EXCLUDED.objects, updated_at = now()",
+                    (org, delta, objects),
                 )
         conn.commit()
     except Exception as err:  # noqa: BLE001 - usage is best effort
@@ -2180,7 +2210,7 @@ def do_zonal_stats(conn, s3, job):
     if not zones_key:
         raise RuntimeError("The zone features were not staged for this job.")
     # Staged by the API under the org of the caller who queued the job.
-    require_job_key(zones_key, job["org_id"], "The zone features")
+    require_job_key(zones_key, job["org_id"], "item-file", "The zone features")
 
     source, source_org = item_source(conn, job["source_item_id"])
     storage_key = pinned_source_key(
@@ -2769,15 +2799,17 @@ def sam_embed_evictions(rows, item_id: str, cap: int, keep_base: str | None = No
     return out
 
 
-def evict_sam_embeddings(conn, s3, item_id: str, keep_base: str | None = None) -> int:
+def evict_sam_embeddings(conn, s3, item_id: str, org_id, keep_base: str | None = None) -> int:
     """Keep an item's cached embeddings within the per-item cap. Best
-    effort: a failure leaves the extra cells for the next write."""
+    effort: a failure leaves the extra cells for the next write. Only
+    rows of `org_id`, the imagery item's org, are considered."""
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT key, org_id::text, COALESCE(last_read_at, created_at) FROM storage_object "
-                "WHERE item_id = %s::uuid AND kind = 'sam-embed' AND deleted_at IS NULL",
-                (item_id,),
+                "WHERE org_id = %s::uuid AND item_id = %s::uuid AND kind = 'sam-embed' "
+                "AND deleted_at IS NULL",
+                (str(org_id), item_id),
             )
             rows = cur.fetchall()
         conn.commit()
@@ -2899,7 +2931,7 @@ def do_sam_embed(conn, s3, job) -> None:
         ContentType="application/json",
     )
     ledger_record(conn, f"{base}.json", item_org, "sam-embed", len(meta), job["source_item_id"])
-    evict_sam_embeddings(conn, s3, job["source_item_id"], keep_base=base)
+    evict_sam_embeddings(conn, s3, job["source_item_id"], item_org, keep_base=base)
 
 
 def copc_header_meta(path: Path, conn=None, job_id: str | None = None) -> dict:
@@ -3341,7 +3373,7 @@ def do_copc_build(conn, s3, job) -> None:
     # what every source tile's key must name.
     _, item_org = item_source(conn, item_id)
     for key in source_keys:
-        require_job_key(key, item_org, "A source tile")
+        require_job_key(key, item_org, POINT_CLOUD_KIND, "A source tile")
 
     work = SCRATCH / f"copc-{job['id']}"
     srcdir = work / "src"
@@ -3630,7 +3662,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
     # under its own row lock, same reasoning as copc-build.
     _, item_org = item_source(conn, item_id)
     for key in source_keys:
-        require_job_key(key, item_org, "A source image")
+        require_job_key(key, item_org, TILE_LAYER_KIND, "A source image")
 
     work = SCRATCH / f"mosaic-{job['id']}"
     srcdir = work / "src"

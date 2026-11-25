@@ -470,16 +470,43 @@ def test_source_key_in_org_layout_must_name_the_source_item_org():
 
 
 def test_job_keys_in_org_layout_must_name_the_job_org():
-    own = runner.storage_key("item-point-cloud", ORG_A)
-    assert runner.require_job_key(own, ORG_A, "A source tile") == own
+    pc = runner.POINT_CLOUD_KIND
+    own = runner.storage_key(pc, ORG_A)
+    assert runner.require_job_key(own, ORG_A, pc, "A source tile") == own
     older = "item-point-cloud/5f0e2d1c-1111-4222-8333-444455556666"
-    assert runner.require_job_key(older, ORG_B, "A source tile") == older
+    assert runner.require_job_key(older, ORG_B, pc, "A source tile") == older
     try:
-        runner.require_job_key(own, ORG_B, "A source tile")
+        runner.require_job_key(own, ORG_B, pc, "A source tile")
     except RuntimeError as err:
         assert "A source tile" in str(err)
     else:
         raise AssertionError("accepted another org's source tile")
+
+
+def test_job_keys_must_parse_and_be_of_the_expected_kind():
+    pc = runner.POINT_CLOUD_KIND
+    own_file = runner.storage_key("item-file", ORG_A)
+    older_file = "item-file/5f0e2d1c-1111-4222-8333-444455556666"
+    for bad in (
+        own_file,
+        older_file,
+        "",
+        None,
+        "not-a-kind/5f0e2d1c-1111-4222-8333-444455556666",
+        "item-point-cloud/../item-file/x",
+        "item-point-cloud//x",
+        "item-point-cloud",
+        "item-point-cloud/o/NOT-AN-ORG/x",
+        "item-point-cloud/%2e%2e/x",
+    ):
+        try:
+            runner.require_job_key(bad, ORG_A, pc, "A source tile")
+        except RuntimeError:
+            continue
+        raise AssertionError(f"accepted {bad!r} as a point cloud source")
+    # Older keys of the right kind keep working for any org.
+    assert runner.require_job_key(older_file, ORG_B, "item-file", "The zone features") == older_file
+    assert runner.require_job_key(own_file, ORG_A, "item-file", "The zone features") == own_file
 
 
 def test_parser_matches_the_shared_cases():
@@ -595,13 +622,83 @@ def test_embedding_cap_deletes_objects_and_ledger_rows():
     saved = runner.SAM_EMBED_MAX_CELLS_PER_ITEM
     runner.SAM_EMBED_MAX_CELLS_PER_ITEM = 2
     try:
-        removed = runner.evict_sam_embeddings(conn, s3, item, keep_base=None)
+        removed = runner.evict_sam_embeddings(conn, s3, item, ORG_A, keep_base=None)
     finally:
         runner.SAM_EMBED_MAX_CELLS_PER_ITEM = saved
     assert removed == 1
     assert s3.deleted == [f"sam-embed/o/{ORG_A}/{item}/16/0/0.bin"]
+    # The listing is limited to the imagery item's org.
+    select_sql, select_params = conn.executed[0]
+    assert "org_id = %s::uuid AND item_id = %s::uuid" in select_sql, select_sql
+    assert select_params == (ORG_A, item)
     # The ledger row of the removed object is marked deleted.
     assert any("UPDATE storage_object SET deleted_at" in sql for sql, _ in conn.executed)
+
+
+class _LedgerConn:
+    """Connection double for ledger_record: answers each fetchone from
+    a script and records every statement."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.executed = []
+        self.commits = 0
+
+    def cursor(self):
+        conn = self
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                conn.executed.append((sql, params))
+
+            def fetchone(self):
+                return conn.answers.pop(0)
+
+        return Cursor()
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        pass
+
+    def totals(self):
+        return [p for sql, p in self.executed if sql.startswith("INSERT INTO org_storage_usage")]
+
+
+def test_ledger_record_counts_new_rewritten_and_revived_keys():
+    key = f"sam-embed/o/{ORG_A}/5f0e2d1c-1111-4222-8333-444455556666/16/1/2.bin"
+    # A new key: inserted and counted once.
+    conn = _LedgerConn([(100,)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 100)
+    assert conn.totals() == [(ORG_A, 100, 1)]
+    # A key marked deleted by the cache cap and written again: the row
+    # comes back and its bytes and object count are added again.
+    conn = _LedgerConn([None, (100, True)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 120)
+    update_sql, update_params = conn.executed[2]
+    assert "deleted_at = NULL" in update_sql and "org_id = %s::uuid" in update_sql
+    assert update_params == (120, None, key, ORG_A)
+    assert conn.totals() == [(ORG_A, 120, 1)]
+    # A live key written again: only the size difference is added.
+    conn = _LedgerConn([None, (100, False)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 130)
+    assert conn.totals() == [(ORG_A, 30, 0)]
+    # Same size again: totals untouched.
+    conn = _LedgerConn([None, (130, False)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 130)
+    assert conn.totals() == []
+    # A row of another org is left alone and nothing is counted.
+    conn = _LedgerConn([None, None])
+    runner.ledger_record(conn, key, ORG_B, "sam-embed", 130)
+    assert conn.totals() == []
+    assert conn.commits == 1
 
 
 class _ReadConn:
@@ -838,8 +935,10 @@ if __name__ == "__main__":
     test_new_object_keys_carry_the_org()
     test_source_key_in_org_layout_must_name_the_source_item_org()
     test_job_keys_in_org_layout_must_name_the_job_org()
+    test_job_keys_must_parse_and_be_of_the_expected_kind()
     test_parser_matches_the_shared_cases()
     test_suffixes_are_limited_per_kind()
     test_embedding_cap_removes_least_recently_used_cells()
     test_embedding_cap_deletes_objects_and_ledger_rows()
+    test_ledger_record_counts_new_rewritten_and_revived_keys()
     print("test_runner_units: all assertions passed")

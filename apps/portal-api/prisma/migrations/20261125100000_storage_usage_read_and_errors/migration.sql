@@ -11,4 +11,4 @@ ALTER TABLE "storage_object" ADD COLUMN "last_read_at" TIMESTAMPTZ(6);
 
 ALTER TABLE "layer_storage_usage" ADD COLUMN "measure_error" TEXT;
 
-CREATE INDEX "storage_object_item_kind_idx" ON "storage_object"("item_id", "kind");
+CREATE INDEX "storage_object_item_kind_idx" ON "storage_object"("org_id", "item_id", "kind");
