@@ -170,12 +170,20 @@ export function parseOrderBy(raw: string | undefined, schema: EsriLayerSchema): 
   const out: OrderTerm[] = [];
   if (!raw || raw.trim() === '') return out;
   for (const part of raw.split(',')) {
-    const m = /^\s*("[^"]+"|[A-Za-z_][A-Za-z0-9_.]*)\s*(ASC|DESC)?\s*$/i.exec(part);
-    if (!m) throw bad(`orderByFields: "${part.trim()}" is not a field name followed by ASC or DESC.`);
-    const name = m[1]!.replace(/^"|"$/g, '');
+    const words = part.trim().split(/\s+/);
+    const dir = words.length === 2 ? words[1]!.toUpperCase() : 'ASC';
+    let name = words[0] ?? '';
+    if (name.length > 2 && name.startsWith('"') && name.endsWith('"')) name = name.slice(1, -1);
+    if (
+      words.length > 2 ||
+      (dir !== 'ASC' && dir !== 'DESC') ||
+      !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)
+    ) {
+      throw bad(`orderByFields: "${part.trim()}" is not a field name followed by ASC or DESC.`);
+    }
     const field = lookupField(schema, name);
     if (field.kind === 'multi') throw bad(`orderByFields: ${field.name} cannot be sorted.`);
-    out.push({ field, desc: m[2]?.toUpperCase() === 'DESC' });
+    out.push({ field, desc: dir === 'DESC' });
   }
   return out;
 }

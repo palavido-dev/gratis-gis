@@ -137,9 +137,9 @@ function srOf(g: { spatialReference?: unknown }): number | null {
 export function parseFilterGeometry(raw: string, geometryType: string | undefined): FilterGeometry {
   const text = raw.trim();
   const type = geometryType?.trim() || 'esriGeometryEnvelope';
-  if (/^-?[\d.eE+-]+(\s*,\s*-?[\d.eE+-]+)+$/.test(text)) {
-    const n = text.split(',').map((s) => Number(s.trim()));
-    if (n.some((v) => !Number.isFinite(v))) throw bad('The geometry is not a list of numbers.');
+  if (!text.startsWith('{')) {
+    const n = text.split(',').map((s) => (s.trim() === '' ? NaN : Number(s.trim())));
+    if (n.some((v) => !Number.isFinite(v))) throw bad('The geometry is not valid JSON or a list of numbers.');
     if (n.length === 4) return envelope(n[0]!, n[1]!, n[2]!, n[3]!, null);
     if (n.length === 2) return { geojson: JSON.stringify({ type: 'Point', coordinates: n }), rings: false, wkid: null };
     throw bad('A short geometry is "xmin,ymin,xmax,ymax" or "x,y".');
