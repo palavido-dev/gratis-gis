@@ -65,22 +65,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   anything. Image data cached for the outline tool counts
   against the organization that owns the imagery and is kept to 128
   map areas per imagery layer, least recently used removed first.
-- Upgrade note for storage usage: on the first start after upgrading,
-  the server fills the totals for files stored before this release.
-  It starts at once on the replica that runs scheduled jobs, logs when
-  it starts and when it ends, and runs while the portal serves; on a
+- Upgrade note for storage usage: on a standard install nothing changes
+  for existing files and there is nothing to do. On the first start
+  after upgrading, the server fills the usage totals for files stored
+  before this release. It starts at once on the replica that runs
+  scheduled jobs, logs when it starts and when it ends, runs while the
+  portal serves, and after a failure resumes where it stopped; on a
   large bucket it can take a while. `node
   dist/storage/storage-usage-backfill.main.js --apply` does the same
-  work by hand (dry run without `--apply`) and can be run before the
-  upgrade window. On an install with one organization, access to
-  existing files does not change. On an install with more than one
-  organization, files stored before this release are served under the
-  item permission checks alone until the first fill has finished;
-  after it, such a file that no row ties to an organization is not
-  served, and each refusal is logged (at most once a minute) and
-  counted in `gratisgis_storage_legacy_key_refusals_total`.
+  work by hand (dry run without `--apply`) and can be run right after
+  migrating. On an install set up to keep several organizations apart,
+  files stored before this release are served under the item
+  permission checks alone until the first fill has finished, and
+  after it such a file that no row ties to an organization is not
+  served (each refusal is logged at most once a minute and counted in
+  `gratisgis_storage_legacy_key_refusals_total`).
   `gratisgis_storage_usage_first_fill_pending` is 1 until the first
-  fill has finished.
+  fill has finished. Files with no known owner are never deleted; the
+  daily check logs a warning with their count.
 - Migration `storage_usage_ledger`: three new, empty tables. Nothing to
   do on upgrade.
 - Migration `storage_usage_read_and_errors`: two nullable columns and
