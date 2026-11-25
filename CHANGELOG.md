@@ -8,6 +8,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- ArcGIS Pro and QGIS can add a data layer as a feature layer (read only
+  for now). Each data layer item is an Esri FeatureServer at
+  `/api/arcgis/rest/services/<name>/FeatureServer`, with search,
+  filters, paging, statistics and reprojection. Public layers open with
+  no sign-in; private ones take a personal API key until Esri sign-in
+  arrives with editing. Migration `featureserver_layer` keeps each
+  sublayer's layer number fixed.
 - Groundwork for editing in ArcGIS Pro: every data layer feature now gets
   a permanent whole-number ObjectID, which Pro needs to name a feature.
   Migration `feature_oid` adds two tables and a trigger. Features from

@@ -16,7 +16,7 @@ builds on it.
 
 ## Totals
 
-**217 sites** in 54 files. The guard counts the same 217.
+**234 sites** in 55 files. The guard counts the same 234.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
@@ -232,6 +232,7 @@ From `apps/portal-api/prisma/migrations` and `infra/`.
 | `area_of_interest` | table with no `org_id` | `20261124130000_area_of_interest` | What's Here areas (#796), shared across orgs by design: shapes only, content addressed, pruned after a week unused. Needs no org policy; the `app` role needs SELECT, INSERT, UPDATE and DELETE. |
 | `feature_oid`, `feature_oid_scope` | tables with no `org_id` | `20261125140000_feature_oid` | Integer ObjectIDs for the FeatureServer interface. Keyed by scope (`data_layer:<itemId>:<layerId>`), which names an org's item, so an org policy would join through `item`. Every read is by a scope the caller was already checked for. The `app` role needs SELECT, INSERT and DELETE, and USAGE on `feature_oid_oid_seq`. |
 | `observation_assign_oid()` + trigger `observation_assign_oid` | `AFTER INSERT` row trigger on `observation` | `20261125140000_feature_oid` | Numbers a data layer feature on its first non-delete write. Runs as the inserting role, which therefore needs INSERT on `feature_oid` and the sequence. Cloned onto every partition. |
+| `featureserver_layer` | table with no `org_id` | `20261126100000_featureserver_layer` | FeatureServer layer numbers per item. Holds item and layer ids only, no feature data. Written by FeatureServerAccessService after the caller's read check; removed in item teardown (row 218). |
 | `pg_temp.gg_sanitize_id` | temp function | `20260507230000_drop_fs_tables` | Migration only, gone after the session. |
 | `pg_partman` extension in schema `partman`; `create_parent('public.observation', ...)` monthly on `tx_time` | partitioning | `20260508081000_partition_observation_table`, `20260726150000_observation_partman_premake_tuning` | New partitions are created by the owner. Policies on the parent apply to queries through the parent only. |
 | `pg_partman_bgw` background worker, `pg_partman_bgw.role=gratisgis` | maintenance | `infra/docker-compose.yml` (also `.prod`, `.nas`) | Runs as the owner role. Keep it on the owner. |
@@ -479,6 +480,23 @@ the statement they set up.
 | 215 | `featureserver/feature-oid.service.ts:77` | prisma | `ensureScope` | feature_oid (INSERT ... SELECT from observation) | scope from an item the cron listed, or from a FeatureServer route that already checked the caller can read the layer | **item-scoped** | Writes only ObjectID numbers for one scope; returns nothing. Leader cron (system) or the FeatureServer routes (PR 2+), which check layer access first. |
 | 216 | `featureserver/feature-oid.ts:28` | prisma | `forgetItemOids` | feature_oid (DELETE by scope prefix) | `itemId` of the item being purged | **item-scoped** | Called from tearDownItemBackingStorage, same checks as rows 154 to 156. |
 | 217 | `featureserver/feature-oid.ts:29` | prisma | `forgetItemOids` | feature_oid_scope (DELETE by scope prefix) | `itemId` of the item being purged | **item-scoped** | As row 216. |
+| 218 | `featureserver/feature-oid.ts:30` | prisma | `forgetItemOids` | featureserver_layer (DELETE by item id) | `itemId` of the item being purged | **item-scoped** | As row 216. |
+| 219 | `featureserver/featureserver-query.service.ts:65` | prisma | `checkSr` | spatial_ref_sys | SRID from the query | **system** | PostGIS catalog lookup; no tenant data. |
+| 220 | `featureserver/featureserver-query.service.ts:164` | prisma | `features` | feature_oid, observation | scope from FeatureServerAccessService | **item-scoped** | FeatureServerAccessService.service (ItemsService.get for a signed-in caller, `access = public` for anonymous) then `.layer` (SharingService.featureScopeFor, or the public-tier boundary). Geo limit and own-rows clip applied in rowsSql. Where clause compiled by esri-sql.ts: field names checked against the layer schema and bound, values bound. |
+| 221 | `featureserver/featureserver-query.service.ts:197` | prisma | `ids` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 222 | `featureserver/featureserver-query.service.ts:204` | prisma | `count` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 223 | `featureserver/featureserver-query.service.ts:212` | prisma | `extent` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 224 | `featureserver/featureserver-query.service.ts:225` | prisma | `layerExtent` | observation | scope from FeatureServerAccessService | **item-scoped** | Same access check as row 220. Returns the extent of every version ever written, not features; not clipped, like the bbox already shown in item metadata. |
+| 225 | `featureserver/featureserver-query.service.ts:235` | prisma | `project` | none (PostGIS on bound values) | none | **system** | Reprojects an extent. Reads no table. |
+| 226 | `featureserver/featureserver-query.service.ts:250` | raw | `statistics` | none (column alias) | none | **system** | `Prisma.raw` of a fixed alias `g<n>`; no input. |
+| 227 | `featureserver/featureserver-query.service.ts:251` | raw | `statistics` | none (column alias) | none | **system** | Fixed alias `s<n>`; no input. |
+| 228 | `featureserver/featureserver-query.service.ts:255` | raw | `statistics` | none (column alias) | none | **system** | GROUP BY of the fixed `g<n>` aliases. |
+| 229 | `featureserver/featureserver-query.service.ts:256` | raw | `statistics` | none (column alias) | none | **system** | ORDER BY of the fixed `g<n>` aliases. |
+| 230 | `featureserver/featureserver-query.service.ts:258` | prisma | `statistics` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. Statistic types and fields checked in esri-query-params.ts. |
+| 231 | `featureserver/featureserver-query.service.ts:286` | raw | `distinct` | none (column alias) | none | **system** | Fixed alias `d<n>`; no input. |
+| 232 | `featureserver/featureserver-query.service.ts:290` | prisma | `distinct` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 233 | `featureserver/featureserver-query.service.ts:294` | raw | `distinct` | none (column alias) | none | **system** | ORDER BY of the fixed `d<n>` aliases. |
+| 234 | `featureserver/featureserver-query.service.ts:295` | prisma | `distinct` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
 
 ## Keeping this up to date
 
