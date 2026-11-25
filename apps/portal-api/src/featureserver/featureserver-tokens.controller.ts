@@ -42,10 +42,10 @@ export class FeatureServerTokensController {
 
   private async generate(p: RawParams) {
     const username = param(p, 'username') ?? '';
-    const password = param(p, 'password') ?? '';
+    const secret = param(p, 'password') ?? '';
     const minutes = Number(param(p, 'expiration') ?? '60');
     try {
-      const { token, expires } = await this.tokens.generate(username, password, minutes);
+      const { token, expires } = await this.tokens.generate(username, secret, minutes);
       return { token, expires, ssl: true };
     } catch (err) {
       if (err instanceof UnauthorizedException) {

@@ -49,19 +49,19 @@ export class EsriTokenService {
    */
   async generate(
     username: string,
-    password: string,
+    secret: string,
     minutes: number,
     now = Date.now(),
   ): Promise<{ token: string; expires: number }> {
     const life = Math.min(Math.max(Math.floor(minutes) || ESRI_TOKEN_MAX_MINUTES, 1), ESRI_TOKEN_MAX_MINUTES);
     let expires = now + life * 60_000;
-    if (looksLikeApiKey(password)) {
-      const { id, expiresAt } = await this.checkApiKey(username, password);
+    if (looksLikeApiKey(secret)) {
+      const { id, expiresAt } = await this.keyOwnedBy(username, secret);
       // Never outlive the key itself.
       if (expiresAt) expires = Math.min(expires, expiresAt.getTime());
       return { token: signEsriToken({ kid: id, exp: expires }, this.key), expires };
     }
-    const user = await this.checkPassword(username, password);
+    const user = await this.keycloakSignIn(username, secret);
     return { token: signEsriToken({ uid: user.id, exp: expires }, this.key), expires };
   }
 
@@ -93,7 +93,7 @@ export class EsriTokenService {
     throw new UnauthorizedException('Invalid username or password.');
   }
 
-  private async checkApiKey(username: string, apiKey: string): Promise<{ id: string; expiresAt: Date | null }> {
+  private async keyOwnedBy(username: string, apiKey: string): Promise<{ id: string; expiresAt: Date | null }> {
     let user: AuthUser;
     try {
       user = await this.apiKeys.resolve(apiKey);
@@ -122,8 +122,8 @@ export class EsriTokenService {
    * signs in through Google or Microsoft, has no password this can
    * check and is refused; those users use a personal API key.
    */
-  private async checkPassword(username: string, password: string): Promise<AuthUser> {
-    if (username.trim() === '' || password === '') this.refuse();
+  private async keycloakSignIn(username: string, secret: string): Promise<AuthUser> {
+    if (username.trim() === '' || secret === '') this.refuse();
     const base = (process.env.KEYCLOAK_INTERNAL_URL ?? process.env.KEYCLOAK_URL ?? 'http://localhost:8080').replace(/\/$/, '');
     const realm = process.env.KEYCLOAK_REALM ?? 'gratis-gis';
     const url = `${base}/realms/${encodeURIComponent(realm)}/protocol/openid-connect`;
@@ -136,7 +136,7 @@ export class EsriTokenService {
           grant_type: 'password',
           client_id: ESRI_DESKTOP_CLIENT_ID,
           username: username.trim(),
-          password,
+          password: secret,
           scope: 'openid',
         }),
       });
