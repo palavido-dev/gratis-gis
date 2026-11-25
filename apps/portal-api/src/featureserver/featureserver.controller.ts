@@ -84,12 +84,12 @@ function storedBbox(l: StoredLayer): Extent | null {
  * The Esri FeatureServer (GeoServices REST) interface, read side, so
  * ArcGIS Pro and QGIS can add a data layer as a feature layer:
  *
- *   /api/arcgis/rest/info
- *   /api/arcgis/rest/services
- *   /api/arcgis/rest/services/<name>/FeatureServer
- *   /api/arcgis/rest/services/<name>/FeatureServer/layers
- *   /api/arcgis/rest/services/<name>/FeatureServer/<n>
- *   /api/arcgis/rest/services/<name>/FeatureServer/<n>/query
+ *   /api/geoservices/rest/info
+ *   /api/geoservices/rest/services
+ *   /api/geoservices/rest/services/<name>/FeatureServer
+ *   /api/geoservices/rest/services/<name>/FeatureServer/layers
+ *   /api/geoservices/rest/services/<name>/FeatureServer/<n>
+ *   /api/geoservices/rest/services/<name>/FeatureServer/<n>/query
  *
  * One item is one service; each sublayer or table is one layer, with a
  * number that never changes. Clients find /rest/info by cutting the
@@ -98,7 +98,7 @@ function storedBbox(l: StoredLayer): Extent | null {
  * sign-in (generateToken) and edits come in the next part.
  */
 @ApiTags('featureserver')
-@Controller('arcgis/rest')
+@Controller('geoservices/rest')
 @UseFilters(EsriErrorFilter)
 export class FeatureServerController {
   constructor(
@@ -110,7 +110,7 @@ export class FeatureServerController {
   @Public()
   @Get('info')
   info(@Req() req: Request) {
-    return infoDoc(`${absoluteBase(req)}/api/arcgis/tokens/generateToken`);
+    return infoDoc(`${absoluteBase(req)}/api/geoservices/tokens/generateToken`);
   }
 
   /**

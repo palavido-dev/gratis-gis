@@ -11,6 +11,17 @@ describe('Esri tokens', () => {
     expect(verifyEsriToken(t, KEY, 3_000)).toBeNull();
   });
 
+  it('carries a user instead of a key for a password sign-in', () => {
+    const t = signEsriToken({ uid: 'u1', exp: 2_000 }, KEY);
+    expect(verifyEsriToken(t, KEY, 1_000)).toEqual({ uid: 'u1', exp: 2_000 });
+  });
+
+  it('refuses claims that name both or neither', () => {
+    const mac = (claims: object) => signEsriToken(claims as never, KEY);
+    expect(verifyEsriToken(mac({ kid: 'k', uid: 'u', exp: 2_000 }), KEY, 1_000)).toBeNull();
+    expect(verifyEsriToken(mac({ exp: 2_000 }), KEY, 1_000)).toBeNull();
+  });
+
   it('refuses another key, a changed body and junk', () => {
     const t = signEsriToken({ kid: 'k1', exp: 2_000 }, KEY);
     expect(verifyEsriToken(t, OTHER, 1_000)).toBeNull();
