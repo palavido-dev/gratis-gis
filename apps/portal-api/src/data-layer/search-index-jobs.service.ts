@@ -112,12 +112,17 @@ export class SearchIndexJobsService {
     return this.prisma.searchIndexBuild.findUnique({ where: { id } });
   }
 
-  /** Run one claimed build and record how it ended. */
+  /**
+   * Run one claimed build and record how it ended. Both writes apply
+   * only to a row that is still 'running': a build the sweep has
+   * already failed (failStale, failInterrupted) stays failed even when
+   * its run ends later.
+   */
   async run(job: SearchIndexBuild): Promise<void> {
     try {
       const result = await this.indexes.buildForOrg(job.orgId);
-      await this.prisma.searchIndexBuild.update({
-        where: { id: job.id },
+      await this.prisma.searchIndexBuild.updateMany({
+        where: { id: job.id, status: 'running' },
         data: {
           status: 'succeeded',
           finishedAt: new Date(),
@@ -127,8 +132,8 @@ export class SearchIndexJobsService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.log.warn(`search index build ${job.id} failed: ${message}`);
-      await this.prisma.searchIndexBuild.update({
-        where: { id: job.id },
+      await this.prisma.searchIndexBuild.updateMany({
+        where: { id: job.id, status: 'running' },
         data: {
           status: 'failed',
           finishedAt: new Date(),

@@ -137,6 +137,32 @@ d('search index build queue on migrated Postgres', () => {
     await pool.query(`DELETE FROM search_index_build`);
   });
 
+  it.each([
+    ['completion', () => buildForOrg.mockResolvedValueOnce({ created: ['late'], durationMs: 1 })],
+    ['failure', () => buildForOrg.mockRejectedValueOnce(new Error('late failure'))],
+  ])('a late %s does not change a build the sweep already failed', async (_l, arrange) => {
+    await pool.query(`DELETE FROM search_index_build`);
+    await jobs.enqueue(ORG, USER);
+    const job = await jobs.claimNext();
+    expect(job?.status).toBe('running');
+    // The sweep fails it while its run is still going.
+    expect(await jobs.failStale(0, new Date(Date.now() + 60_000))).toBe(1);
+    arrange();
+    await jobs.run(job!);
+    const row = await pool.query<{ status: string; error: string | null; result: unknown }>(
+      `SELECT status, error, result FROM search_index_build WHERE id = $1`,
+      [job!.id],
+    );
+    expect(row.rows).toEqual([
+      {
+        status: 'failed',
+        error: 'This build stopped without finishing. Run it again.',
+        result: null,
+      },
+    ]);
+    await pool.query(`DELETE FROM search_index_build`);
+  });
+
   it('refuses a second active row at the database', async () => {
     await pool.query(
       `INSERT INTO search_index_build (org_id, status) VALUES ($1, 'queued')`,
