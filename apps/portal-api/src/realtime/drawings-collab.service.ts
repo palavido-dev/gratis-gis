@@ -13,6 +13,7 @@ import type { DrawingFeature } from '@gratis-gis/shared-types';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { DrawingsService } from '../items/drawings.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { mintConnectionId } from './connection-id.js';
 import { SharingService } from '../items/sharing.service.js';
 import { DRAWINGS_WS_MAX_UPDATES_PER_SEC } from './drawings-collab-frame.js';
 import { runAsSystem } from '../common/tenant-context.js';
@@ -148,7 +149,7 @@ export class DrawingsCollabService {
     }
 
     this.pruneTickets();
-    const connectionId = mintConnectionId(user.id);
+    const connectionId = mintConnectionId();
     const ticket = randomBytes(24).toString('base64url');
     this.tickets.set(ticket, {
       user,
@@ -498,6 +499,3 @@ function featuresFromDoc(doc: Y.Doc): DrawingFeature[] {
   return out;
 }
 
-function mintConnectionId(userId: string): string {
-  return `${userId.slice(0, 8)}-${randomBytes(6).toString('hex')}`;
-}

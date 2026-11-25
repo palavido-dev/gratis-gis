@@ -114,6 +114,30 @@ describe('presence across organizations', () => {
     expect(last.find((m) => m.connectionId === 'a2-c')?.displayName).toBe('Name of a2');
   });
 
+  it.each(['single', 'multi'] as const)(
+    '%s: connection ids the server mints are random and carry no user id',
+    async (m) => {
+      if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      else delete process.env.GRATIS_TENANCY;
+      resetTenancyModeForTests();
+      const svc = service();
+      const long = { id: '5f1c2d3e-0000-4000-8000-00000000a001', orgId: 'oA', username: 'lu' } as never;
+      const mine = await svc.heartbeat(long, 'm1', {});
+      const ticket = await svc.mintTicket(b1, 'm1');
+      for (const id of [mine.me.connectionId, ticket.connectionId]) {
+        expect(id).toMatch(/^[A-Za-z0-9_-]{22}$/);
+      }
+      expect(mine.me.connectionId).not.toContain('5f1c2d3e');
+      if (m === 'multi') {
+        // A masked member of another organization shows only that id.
+        const asB = await svc.heartbeat(b1, 'm1', {});
+        const other = asB.members.find((x) => x.connectionId === mine.me.connectionId);
+        expect(other).toBeDefined();
+        expect(JSON.stringify(other)).not.toContain('5f1c2d3e');
+      }
+    },
+  );
+
   it('one organization: every member is named, as before', async () => {
     delete process.env.GRATIS_TENANCY;
     resetTenancyModeForTests();

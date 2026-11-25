@@ -9,6 +9,7 @@ import {
 import { randomBytes } from 'node:crypto';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { mintConnectionId } from './connection-id.js';
 import { SharingService } from '../items/sharing.service.js';
 import { refuseAccess } from '../common/org-not-found.js';
 import { isMultiTenant } from '../common/tenancy.js';
@@ -112,7 +113,7 @@ export class RealtimeService {
     const id =
       typeof connectionId === 'string' && connectionId.length > 0
         ? connectionId.slice(0, 80)
-        : mintConnectionId(user.id);
+        : mintConnectionId();
     const ticket = randomBytes(24).toString('base64url');
     this.tickets.set(ticket, {
       user,
@@ -165,7 +166,7 @@ export class RealtimeService {
     const connectionId =
       typeof input.connectionId === 'string' && input.connectionId.length > 0
         ? input.connectionId.slice(0, 80)
-        : mintConnectionId(user.id);
+        : mintConnectionId();
 
     let cursorUpdate: { lng: number; lat: number } | null | undefined =
       undefined;
@@ -397,11 +398,6 @@ export class RealtimeService {
   }
 }
 
-function mintConnectionId(userId: string): string {
-  return `${userId}-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
-}
 
 /** How long a passed presence read check is reused. */
 const READ_CACHE_MS = 5_000;
