@@ -93,9 +93,29 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - The housekeeping extent recompute uses the same rule as the
   background refresh: a map's extent draws on layers from its own
   organization or public ones.
+- A script run, an offline package file and an admin user lookup now
+  answer an id the caller cannot see exactly like an id that does not
+  exist. An offline package file checks the map before the package.
+- Each server-side print renders in a browser context of its own, so
+  two prints never share cookies, storage or cached responses.
+- Outbound fetches also refuse 192.0.0.0/24, site-local fec0::/10, and
+  IPv6 addresses that carry a private IPv4 address (NAT64 64:ff9b::/96
+  and the old ::a.b.c.d form).
+- Print templates are checked when they are saved: an unknown paper
+  size or orientation, or a margin that is not a number of inches zero
+  or more, is refused with a 400 that says what is allowed. Printing
+  from an older template with an unknown paper size answers the same
+  400, and an unknown orientation still prints portrait. The
+  designer's margin field keeps to zero to a quarter of the sheet's
+  shorter side.
 
 ### Fixed
 
+- Printing recovers on its own after prints that could not start,
+  instead of answering "busy" until the API restarts.
+- A search index build whose end could not be recorded no longer
+  stays "running" until the worker restarts: after six hours it is
+  marked failed and a new build can be queued.
 - The What's Here PDF covered only the first 30 layers of a map and left
   the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed

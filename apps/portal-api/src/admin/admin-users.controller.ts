@@ -30,14 +30,17 @@ import {
 
 import { AdminGuard } from './admin.guard.js';
 import {
+  AccountExistsException,
   KeycloakAdminService,
   type KeycloakUserRep,
 } from './keycloak-admin.service.js';
+import { keycloakAccountInOrg, keycloakOrgAttribute } from './keycloak-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ownOrgListScope, scopedWhere } from '../common/list-scope.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { isAdminTierLocked } from './admin-tier-lock.js';
 
@@ -133,7 +136,7 @@ export class AdminUsersController {
     me: AuthUser,
     action: 'user.invite' | 'user.role' | 'user.enabled' | 'user.auto_disable' | 'user.delete' | 'user.password_reset',
     targetId: string,
-    outcome: 'succeeded' | 'failed',
+    outcome: 'succeeded' | 'failed' | 'denied',
     detail?: Record<string, unknown>,
   ): void {
     if (!this.audit) return;
@@ -243,7 +246,12 @@ export class AdminUsersController {
     @CurrentUser() me: AuthUser,
     @Param('id') id: string,
   ): Promise<KeycloakUserRep> {
-    const kcUser = await this.kc.getUser(id);
+    // A missing user answers with the same words as a user of another
+    // org below, so the answer does not tell the two apart.
+    const kcUser = await this.kc.getUser(id).catch((err: unknown) => {
+      if (err instanceof NotFoundException) throw new NotFoundException('User not found');
+      throw err;
+    });
     const local = kcUser.username
       ? await this.prisma.user.findUnique({
           where: { username: kcUser.username },
@@ -301,10 +309,65 @@ export class AdminUsersController {
         return created;
       },
       (err: unknown) => {
+        if (isMultiTenant() && err instanceof AccountExistsException) {
+          return this.inviteOfTakenAddress(me, input);
+        }
         this.note(me, 'user.invite', '', 'failed', { role: dto.orgRole ?? 'viewer' });
         throw err;
       },
     );
+  }
+
+  /**
+   * Many organizations: an invite whose username or email already has
+   * an account. Accounts are shared by the whole install, so the answer
+   * names the caller's own organization only. Either way nothing is
+   * created, changed or sent.
+   *
+   * - The account is in the caller's organization: 409 already_member.
+   * - Otherwise: 409 address_unavailable, with neutral words.
+   */
+  private async inviteOfTakenAddress(
+    me: AuthUser,
+    input: Parameters<typeof this.kc.createUser>[0],
+  ): Promise<never> {
+    const role = input.orgRole ?? 'viewer';
+    let inOrg: boolean;
+    try {
+      inOrg = await this.accountInCallerOrg(me, input.username, input.email);
+    } catch (err) {
+      this.note(me, 'user.invite', '', 'failed', { role });
+      throw err;
+    }
+    const code = inOrg ? 'already_member' : 'address_unavailable';
+    this.note(me, 'user.invite', '', 'denied', { role, code });
+    throw new ConflictException({
+      statusCode: 409,
+      error: 'Conflict',
+      code,
+      message:
+        code === 'already_member'
+          ? 'This person is already a member of your organization.'
+          : 'This address cannot be invited. Ask the person to contact support.',
+    });
+  }
+
+  /** Whether an account with this username or email is in the caller's organization. */
+  private async accountInCallerOrg(me: AuthUser, username: string, email: string): Promise<boolean> {
+    const local = await this.prisma.user.findFirst({
+      where: {
+        orgId: me.orgId,
+        OR: [
+          { username: { equals: username, mode: 'insensitive' } },
+          { email: { equals: email, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (local) return true;
+    // Invited but never signed in: only Keycloak knows them.
+    const accounts = await this.kc.findAccountsByUsernameOrEmail(username, email);
+    return accounts.some((a) => keycloakAccountInOrg(a, me));
   }
 
   @Patch(':id')
@@ -1173,21 +1236,13 @@ function inCallerOrg(
   kcUser: KeycloakUserRep,
   localOrgId: string | null | undefined,
 ): boolean {
-  const kcOrg = readOrgAttribute(kcUser);
-  const kcMatches = kcOrg === me.orgSlug || (kcOrg !== undefined && kcOrg === me.orgId);
+  const kcOrg = keycloakOrgAttribute(kcUser);
+  const kcMatches = keycloakAccountInOrg(kcUser, me);
   const kcConflicts = kcOrg !== undefined && !kcMatches;
   const localMatches = localOrgId != null && localOrgId === me.orgId;
   const localConflicts = localOrgId != null && localOrgId !== me.orgId;
   if (kcConflicts || localConflicts) return false;
   return kcMatches || localMatches;
-}
-
-/** Read the single-valued Keycloak `org` user-attribute. */
-function readOrgAttribute(user: KeycloakUserRep): string | undefined {
-  const arr = user.attributes?.org;
-  if (!Array.isArray(arr)) return undefined;
-  const first = arr[0];
-  return typeof first === 'string' && first.length > 0 ? first : undefined;
 }
 
 /**

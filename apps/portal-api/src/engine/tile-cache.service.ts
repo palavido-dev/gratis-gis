@@ -5,7 +5,9 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
 import { parseIntEnv, textEnv } from '../common/env.js';
+import { isMultiTenant } from '../common/tenancy.js';
 
+import { LaneTurnCounter, laneBucket } from './aggregate-lane-turns.js';
 import { TileDiskCache, type TileDiskStats } from './tile-disk-cache.js';
 
 // Re-exported because the aggregate knobs in data-layer.ts and this
@@ -143,6 +145,8 @@ export class TileCacheService implements OnModuleDestroy {
   private rejectedOverload = 0;
   private abandoned = 0;
   private activeComputes = 0;
+  /** Running lane slots per organization, per lane. */
+  private readonly laneByOrg = new Map<string, LaneTurnCounter>();
   private invalidations = 0;
 
   /**
@@ -580,6 +584,8 @@ export class TileCacheService implements OnModuleDestroy {
         this.maxConcurrentComputes,
       );
     }
+    // The lane's turn-taking bucket (aggregate-lane-turns.ts).
+    const bucket = lane ? laneBucket() : '';
 
     this.ensureListener();
 
@@ -629,7 +635,7 @@ export class TileCacheService implements OnModuleDestroy {
       // Acquiring the lane is the only step that can be withdrawn
       // (see `awaitEntry`), and a withdrawn acquire never held a slot,
       // so it sits outside the try whose finally releases one.
-      if (lane) await this.acquireLane(lane, entry);
+      if (lane) await this.acquireLane(lane, entry, bucket);
       try {
         // Wall-clock timeout safety net. Without this, a Prisma
         // query that never resolves AND never rejects (observed
@@ -686,7 +692,7 @@ export class TileCacheService implements OnModuleDestroy {
         if (disk && material !== null) disk.write(material, buf);
         return { buf, etag };
       } finally {
-        if (lane) this.releaseLane(lane.name);
+        if (lane) this.releaseLane(lane.name, bucket);
         else if (holdsSlot) this.activeComputes -= 1;
       }
     })().finally(() => {
@@ -829,17 +835,31 @@ export class TileCacheService implements OnModuleDestroy {
   }
 
   /**
-   * Take a slot in a lane, waiting in FIFO order when it is full.
-   * Throws `TileCacheOverloadError` synchronously (inside the caller's
-   * async wrapper, so it surfaces as a rejection) when the waiting
-   * list is already at `maxQueued`. While queued, `entry.withdraw`
-   * removes the waiter and rejects with `TileCacheAbortedError`; it is
-   * cleared the moment the waiter is granted a slot, so a compute that
-   * has started can no longer be withdrawn.
+   * Take a slot in a lane, waiting in line when it is full. Throws
+   * `TileCacheOverloadError` synchronously (inside the caller's async
+   * wrapper, so it surfaces as a rejection) when the waiting line is
+   * already at `maxQueued`. While queued, `entry.withdraw` removes the
+   * waiter and rejects with `TileCacheAbortedError`; it is cleared the
+   * moment the waiter is granted a slot, so a compute that has started
+   * can no longer be withdrawn.
+   *
+   * One organization: first come, first served, as always.
+   *
+   * Many organizations: running slots follow the rule of
+   * aggregate-lane-turns.ts, with the buckets in the line counted as
+   * waiting. The line is served in turns: when a slot frees, the
+   * waiting bucket that runs the fewest computes goes next, oldest
+   * first within it. The line keeps its length; when it is full and a
+   * newcomer's bucket has at least two fewer places in it than the
+   * bucket with the most, that bucket's newest waiter is turned away
+   * (the same overload answer a full line gives) to make room. With
+   * only one organization active this is exactly first come, first
+   * served with the same limits.
    */
   private acquireLane(
     spec: { name: string; limit: number; maxQueued?: number },
     entry: InFlightEntry,
+    bucket: string,
   ): Promise<void> {
     let lane = this.lanes.get(spec.name);
     if (!lane) {
@@ -848,11 +868,21 @@ export class TileCacheService implements OnModuleDestroy {
     }
     lane.limit = spec.limit;
     lane.maxQueued = spec.maxQueued ?? Infinity;
-    if (lane.active < lane.limit) {
+    let byOrg = this.laneByOrg.get(spec.name);
+    if (!byOrg) {
+      byOrg = new LaneTurnCounter();
+      this.laneByOrg.set(spec.name, byOrg);
+    }
+    const multi = isMultiTenant();
+    const canRunNow = multi
+      ? byOrg.mayTake(bucket, lane.limit, lane.waiters.map((w) => w.bucket))
+      : lane.active < lane.limit;
+    if (canRunNow) {
       lane.active += 1;
+      byOrg.take(bucket);
       return Promise.resolve();
     }
-    if (lane.waiters.length >= lane.maxQueued) {
+    if (lane.waiters.length >= lane.maxQueued && !(multi && this.makeRoomFor(lane, bucket))) {
       this.rejectedOverload += 1;
       throw new TileCacheOverloadError(
         lane.active + lane.waiters.length,
@@ -861,11 +891,20 @@ export class TileCacheService implements OnModuleDestroy {
       );
     }
     const held = lane;
+    const heldByOrg = byOrg;
     return new Promise<void>((resolve, reject) => {
-      const waiter = () => {
-        entry.withdraw = null;
-        held.active += 1;
-        resolve();
+      const waiter: LaneWaiter = {
+        bucket,
+        grant: () => {
+          entry.withdraw = null;
+          held.active += 1;
+          heldByOrg.take(bucket);
+          resolve();
+        },
+        refuse: (err) => {
+          entry.withdraw = null;
+          reject(err);
+        },
       };
       held.waiters.push(waiter);
       entry.withdraw = () => {
@@ -873,16 +912,83 @@ export class TileCacheService implements OnModuleDestroy {
         if (at >= 0) held.waiters.splice(at, 1);
         entry.withdraw = null;
         reject(new TileCacheAbortedError());
+        // One fewer bucket waiting can let another take a free slot.
+        if (isMultiTenant()) this.serveLane(held, heldByOrg);
       };
     });
   }
 
-  private releaseLane(name: string): void {
+  /**
+   * Many organizations, full line: turn away the newest waiter of the
+   * bucket with the most places in the line, when `bucket` has at
+   * least two fewer. Returns whether a place was freed.
+   */
+  private makeRoomFor(lane: Lane, bucket: string): boolean {
+    const queued = new Map<string, number>();
+    for (const w of lane.waiters) queued.set(w.bucket, (queued.get(w.bucket) ?? 0) + 1);
+    let most: string | null = null;
+    let mostCount = 0;
+    for (const [b, n] of queued) {
+      if (n > mostCount) {
+        most = b;
+        mostCount = n;
+      }
+    }
+    if (most === null || most === bucket) return false;
+    if (mostCount < (queued.get(bucket) ?? 0) + 2) return false;
+    for (let i = lane.waiters.length - 1; i >= 0; i--) {
+      const w = lane.waiters[i]!;
+      if (w.bucket !== most) continue;
+      lane.waiters.splice(i, 1);
+      this.rejectedOverload += 1;
+      w.refuse(
+        new TileCacheOverloadError(
+          lane.active + lane.waiters.length + 1,
+          lane.limit + lane.maxQueued,
+          'lane running plus queued',
+        ),
+      );
+      return true;
+    }
+    return false;
+  }
+
+  private releaseLane(name: string, bucket: string): void {
     const lane = this.lanes.get(name);
     if (!lane) return;
     lane.active -= 1;
+    const byOrg = this.laneByOrg.get(name);
+    byOrg?.release(bucket);
+    if (isMultiTenant() && byOrg) {
+      this.serveLane(lane, byOrg);
+      return;
+    }
     const next = lane.waiters.shift();
-    if (next) next();
+    if (next) next.grant();
+  }
+
+  /**
+   * Many organizations: grant free slots to the line in turns (see
+   * acquireLane). Stops when no waiter may take a slot.
+   */
+  private serveLane(lane: Lane, byOrg: LaneTurnCounter): void {
+    while (lane.active < lane.limit && lane.waiters.length > 0) {
+      const waitingBuckets = lane.waiters.map((w) => w.bucket);
+      let pick = -1;
+      let pickRunning = Infinity;
+      for (let i = 0; i < lane.waiters.length; i++) {
+        const b = lane.waiters[i]!.bucket;
+        const running = byOrg.heldBy(b);
+        // Oldest first within a bucket, so only its first waiter counts.
+        if (running >= pickRunning || waitingBuckets.indexOf(b) !== i) continue;
+        if (!byOrg.mayTake(b, lane.limit, waitingBuckets)) continue;
+        pick = i;
+        pickRunning = running;
+      }
+      if (pick < 0) return;
+      const [next] = lane.waiters.splice(pick, 1);
+      next!.grant();
+    }
   }
 
   /**
@@ -1180,11 +1286,20 @@ interface InFlightEntry {
   withdraw: (() => void) | null;
 }
 
+interface LaneWaiter {
+  /** The bucket the waiting compute counts against (aggregate-lane-turns.ts). */
+  bucket: string;
+  /** Give the waiter a running slot. */
+  grant: () => void;
+  /** Turn the waiter away without a slot. */
+  refuse: (err: Error) => void;
+}
+
 interface Lane {
   limit: number;
   maxQueued: number;
   active: number;
-  waiters: Array<() => void>;
+  waiters: LaneWaiter[];
 }
 
 /**

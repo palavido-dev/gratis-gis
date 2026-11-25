@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
   apiErrorMessage,
+  errorBodyCode,
   parseApiError,
   presentApiFailure,
   presentClientFailure,
@@ -185,5 +186,19 @@ describe('readApiFailure', () => {
       detail: null,
       requestId: null,
     });
+  });
+});
+
+describe('errorBodyCode', () => {
+  it('reads the code a server error body carries', () => {
+    expect(
+      errorBodyCode(JSON.stringify({ statusCode: 409, code: 'already_member', message: 'x' })),
+    ).toBe('already_member');
+  });
+
+  it('is null without a code, or without JSON', () => {
+    expect(errorBodyCode(JSON.stringify({ statusCode: 409, message: 'x' }))).toBeNull();
+    expect(errorBodyCode('<html>')).toBeNull();
+    expect(errorBodyCode(JSON.stringify({ code: 7 }))).toBeNull();
   });
 });

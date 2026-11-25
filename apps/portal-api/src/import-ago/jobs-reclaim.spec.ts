@@ -211,3 +211,24 @@ describe('AgoImportJobsService concurrency (11-5)', () => {
     expect([...statuses.values()]).toEqual(['succeeded', 'succeeded', 'succeeded']);
   });
 });
+
+describe('AgoImportJobsService runner slots', () => {
+  it('gives the slot back when a runner throws before it starts', async () => {
+    const { svc } = build();
+    const inner = svc as unknown as {
+      waiting: Array<{ id: string; run: () => Promise<void> }>;
+      runningHere: number;
+      pump(): void;
+    };
+    inner.waiting.push({
+      id: 'j1',
+      run: () => {
+        throw new TypeError('no org');
+      },
+    });
+    inner.pump();
+    expect(inner.runningHere).toBe(1);
+    for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r));
+    expect(inner.runningHere).toBe(0);
+  });
+});

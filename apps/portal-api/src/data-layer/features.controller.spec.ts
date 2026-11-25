@@ -5,6 +5,8 @@ import type { Response } from 'express';
 
 import { DataLayerFeaturesController } from './features.controller.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
+import { runAsOrg } from '../common/tenant-context.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import { writeGeoParquetExport } from './geoparquet-export.js';
 
 // The export itself needs DuckDB; these specs only drive the handler.
@@ -278,6 +280,55 @@ describe('DataLayerFeaturesController.geoparquet limits', () => {
     ).rejects.toThrow('again');
   });
 
+  it.each(['single', 'multi'] as const)(
+    '%s tenancy: one overall limit, whichever organization asks',
+    async (mode) => {
+      const before = process.env.GRATIS_TENANCY;
+      if (mode === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      else delete process.env.GRATIS_TENANCY;
+      resetTenancyModeForTests();
+      try {
+        const { controller } = makeController({ canDownload: true });
+        const release: Array<() => void> = [];
+        writeExport.mockImplementation(
+          () =>
+            new Promise((_resolve, reject) => {
+              release.push(() => reject(new Error('stopped')));
+            }),
+        );
+        const res = () => ({ setHeader: jest.fn(), req: undefined }) as unknown as Response;
+        const a = runAsOrg('org-a', () =>
+          controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID),
+        );
+        const b = runAsOrg('org-a', () =>
+          controller.geoparquet(res(), makeUser(), ITEM_ID, LAYER_ID),
+        );
+        for (let i = 0; i < 500 && release.length < 2; i += 1) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        expect(release).toHaveLength(2);
+        const third = res();
+        await expect(
+          runAsOrg('org-b', () => controller.geoparquet(third, makeUser(), ITEM_ID, LAYER_ID)),
+        ).rejects.toMatchObject({
+          status: 429,
+          message: 'Other exports are running on the server right now. Try again in a minute.',
+        });
+        expect(third.setHeader).toHaveBeenCalledWith('Retry-After', '30');
+        // Both handlers are attached before either export can reject.
+        const settled = Promise.allSettled([a, b]);
+        release.forEach((fn) => fn());
+        for (const r of await settled) {
+          expect(r).toMatchObject({ status: 'rejected', reason: new Error('stopped') });
+        }
+      } finally {
+        if (before === undefined) delete process.env.GRATIS_TENANCY;
+        else process.env.GRATIS_TENANCY = before;
+        resetTenancyModeForTests();
+      }
+    },
+  );
+
   it('stops pulling rows once the client has gone', async () => {
     const { controller, iterateFeatures } = makeController({ canDownload: true });
     let pulled = 0;
@@ -290,7 +341,8 @@ describe('DataLayerFeaturesController.geoparquet limits', () => {
     const req = new EventEmitter();
     const r = { setHeader: jest.fn(), req, writableEnded: false } as unknown as Response;
     writeExport.mockImplementation(async ({ batches }) => {
-      for await (const _b of batches) {
+      for await (const batch of batches) {
+        void batch;
         if (pulled === 3) req.emit('close');
       }
       return { path: '/nonexistent', rows: 0 };

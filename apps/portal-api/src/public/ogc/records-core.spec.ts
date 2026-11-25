@@ -140,6 +140,25 @@ describe('records-core', () => {
     expect((findMany.mock.calls[0] as unknown as [{ take: number }])[0].take).toBe(10);
   });
 
+  it('holds the bbox pre-filter to the list organization when there is one', async () => {
+    const orgId = '22222222-2222-4222-8222-222222222222';
+    const queryRaw = jest.fn(async () => []);
+    await queryPublicRecords(
+      { $queryRaw: queryRaw, item: { count: jest.fn(async () => 0), findMany: jest.fn(async () => []) } } as never,
+      {
+        where: { access: 'public', deletedAt: null, orgId },
+        orderBy: undefined,
+        offset: 0,
+        limit: 10,
+        bbox: '-80.5,39.0,-80.0,39.5',
+        scope: { orgId },
+      },
+    );
+    const sql = (queryRaw.mock.calls[0] as unknown as [{ strings: string[]; values: unknown[] }])[0];
+    expect(sql.strings.join('?')).toContain('org_id =');
+    expect(sql.values).toEqual([orgId, -80.5, 39.0, -80.0, 39.5]);
+  });
+
   it('refuses a filter it cannot apply instead of dropping it', () => {
     expect(() => assertRecordsQuery(['bbox'], { bbox: 'abc', offset: 0 })).toThrow(
       /bbox/,

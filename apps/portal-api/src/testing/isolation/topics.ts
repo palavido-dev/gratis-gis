@@ -1350,6 +1350,101 @@ function ownOrgListTopics(): Topic[] {
       },
     },
     {
+      name: 'a signed-in answer is private to shared caches, a signed-out one is left alone',
+      modes: BOTH,
+      async run({ app, fx, mode }) {
+        const p: string[] = [];
+        const signedIn = await api(app.baseUrl, fx.B.users.viewer, 'GET', '/api/portal-info');
+        const signedOut = await api(app.baseUrl, null, 'GET', '/api/portal-info');
+        if (signedIn.status !== 200) p.push(`signed-in portal-info: ${short(signedIn)}`);
+        const cc = signedIn.headers.get('cache-control') ?? '';
+        const vary = (signedIn.headers.get('vary') ?? '').toLowerCase();
+        if (mode === 'multi') {
+          if (!cc.includes('private')) p.push(`signed-in Cache-Control is "${cc}", expected private`);
+          if (!vary.includes('authorization')) p.push(`signed-in Vary is "${vary}", expected Authorization`);
+        } else if (cc !== '') {
+          p.push(`single mode: signed-in portal-info gained Cache-Control "${cc}"`);
+        }
+        const outCc = signedOut.headers.get('cache-control') ?? '';
+        if (outCc.includes('private')) p.push(`signed-out portal-info became private ("${outCc}")`);
+        return verdict(p);
+      },
+    },
+    {
+      name: 'a person at a route limit does not stop another organization behind the same address',
+      modes: BOTH,
+      async run({ app, fx, mode }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        // POST /api/ai/build allows 8 a minute and is not probed by the
+        // route table, so spending its budget here touches no other check.
+        // The empty body fails validation after the limit is counted.
+        const path = '/api/ai/build';
+        for (let i = 0; i < 8; i++) {
+          const r = await api(app.baseUrl, A.users.admin, 'POST', path, {});
+          if (r.status === 429) {
+            p.push(`A was limited after ${i} calls`);
+            return verdict(p);
+          }
+        }
+        const over = await api(app.baseUrl, A.users.admin, 'POST', path, {});
+        if (over.status !== 429) p.push(`A's ninth call: expected 429, got ${short(over)}`);
+        const other = await api(app.baseUrl, B.users.admin, 'POST', path, {});
+        const sameOrg = await api(app.baseUrl, A.users.viewer, 'POST', path, {});
+        if (mode === 'multi') {
+          if (other.status === 429) p.push("B was limited by A's calls");
+          if (sameOrg.status === 429) p.push("A's viewer was limited by A's admin's calls");
+        } else if (other.status !== 429) {
+          // One organization: one address shares one budget, as before.
+          p.push(`single mode: B behind the same address expected 429, got ${short(other)}`);
+        }
+        return verdict(p);
+      },
+    },
+    {
+      name: 'a search by area and a records bbox list hold only what the caller may list',
+      modes: BOTH,
+      async run({ app, fx, mode, pool }) {
+        const p: string[] = [];
+        const { A, B } = fx;
+        const aPrivate = A.items['data_layer:private']!;
+        const aPublic = A.items['data_layer:public']!;
+        const bPrivate = B.items['data_layer:private']!;
+        const bPublic = B.items['data_layer:public']!;
+        const ids = [aPrivate, aPublic, bPrivate, bPublic];
+        const saved = await pool.query<{ id: string; bbox: number[] }>(
+          'SELECT id, bbox FROM item WHERE id = ANY($1::uuid[])',
+          [ids],
+        );
+        await pool.query("UPDATE item SET bbox = '{1,1,2,2}' WHERE id = ANY($1::uuid[])", [ids]);
+        try {
+          const area = '0,0,3,3';
+          const list = await api(app.baseUrl, B.users.admin, 'GET', `/api/items?limit=1000&bbox=${area}`);
+          if (list.status !== 200) p.push(`B area search: ${short(list)}`);
+          if (!list.text.includes(bPrivate)) p.push("control: B's area search misses B's own layer");
+          if (list.text.includes(aPrivate)) p.push("B's area search holds A's private layer");
+          const aPublicListed = list.text.includes(aPublic);
+          if (mode === 'multi' && aPublicListed) p.push("B's area search holds A's public layer");
+          if (mode === 'single' && !aPublicListed)
+            p.push("single mode: B's area search no longer shows A's public layer");
+          const records = await api(
+            app.baseUrl,
+            null,
+            'GET',
+            `/api/public/ogc/records?org=${B.slug}&limit=1000&bbox=${area}`,
+          );
+          if (records.status !== 200) p.push(`records for B: ${short(records)}`);
+          if (!records.text.includes(bPublic)) p.push("control: B's records miss B's public layer");
+          if (records.text.includes(aPublic)) p.push("B's records hold A's public layer");
+        } finally {
+          for (const r of saved.rows) {
+            await pool.query('UPDATE item SET bbox = $2 WHERE id = $1', [r.id, r.bbox]);
+          }
+        }
+        return verdict(p);
+      },
+    },
+    {
       name: 'single mode lists and feeds keep showing every public item',
       modes: ['single'],
       async run({ app, fx }) {

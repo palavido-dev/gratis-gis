@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { BadRequestException } from '@nestjs/common';
 import { ItemType, Prisma } from '@prisma/client';
+
 import {
   keywordsFromTags,
   themesFromTags,
 } from '@gratis-gis/shared-types';
+
+import type { ItemListScope } from '../../common/list-scope.js';
 
 /**
  * Shared OGC API Records builders used by both the legacy
@@ -92,16 +95,26 @@ export async function queryPublicRecords(
     offset: number;
     limit: number;
     bbox: string | undefined;
+    /**
+     * The organization the list is held to (common/list-scope.ts), or
+     * null. `where` carries the same limit; passing it here as well
+     * keeps the bbox pre-filter from reading other organizations' rows.
+     */
+    scope?: ItemListScope;
   },
 ): Promise<{ rows: ItemRow[]; total: number }> {
   let where = args.where;
   const box = parseBboxQuery(args.bbox);
   if (box) {
     const [w, s, e, n] = box;
+    const inOrg = args.scope
+      ? Prisma.sql`AND org_id = ${args.scope.orgId}::uuid`
+      : Prisma.empty;
     const ids = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT id FROM "item"
       WHERE access = 'public'
         AND deleted_at IS NULL
+        ${inOrg}
         AND bbox_geom && ST_MakeEnvelope(${w}, ${s}, ${e}, ${n}, 4326)
     `);
     where = { AND: [where, { id: { in: ids.map((r) => r.id) } }] };

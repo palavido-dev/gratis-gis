@@ -52,8 +52,9 @@ describe('OfflinePackageController.serve', () => {
     // This check is the only thing stopping a package id from being
     // a read primitive over every archive in the instance: without
     // it, any item the caller can read would authorize any package
-    // anywhere. It must run BEFORE the sharing check, and it does:
-    // the row mismatch throws before items.get is ever called.
+    // anywhere. The item in the path is checked first (see the next
+    // test), then the package must belong to it before any bytes are
+    // read.
     const { controller, storage } = makeController({
       byId: { id: 'pkg1', itemId: 'OTHER-item', storageKey: 'k', status: 'ready' },
     });
@@ -70,6 +71,19 @@ describe('OfflinePackageController.serve', () => {
     expect(
       (storage as unknown as { streamObject: jest.Mock }).streamObject,
     ).not.toHaveBeenCalled();
+  });
+
+  it('answers for an item the caller cannot see before looking at its packages', async () => {
+    const { controller, packages } = makeController({
+      byId: { id: 'pkg1', itemId: 'item1', storageKey: null, status: 'queued' },
+    });
+    (controller as unknown as { items: { get: jest.Mock } }).items.get.mockRejectedValue(
+      new NotFoundException('Item not found'),
+    );
+    await expect(
+      controller.serve(USER, 'item1', 'pkg1', undefined, {} as never, {} as never),
+    ).rejects.toThrow('Item not found');
+    expect((packages as unknown as { byId: jest.Mock }).byId).not.toHaveBeenCalled();
   });
 
   it('404s a package that has not been built', async () => {

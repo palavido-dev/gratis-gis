@@ -107,6 +107,44 @@ describe('isPrivateOrLoopbackHost', () => {
     },
   );
 
+  it.each(['http://169.254.169.254/latest/meta-data/', 'http://postgres:5432/'])(
+    'refuses an outbound request to %s',
+    async (url) => {
+      await expect(assertSafeOutboundUrl(url)).rejects.toBeInstanceOf(UnsafeOutboundUrlError);
+    },
+  );
+
+  it.each([
+    '64:ff9b::7f00:1',
+    '[64:ff9b::a00:1]',
+    '64:ff9b::192.168.1.1',
+    'fec0::1',
+    '[feff::1]',
+    '::127.0.0.1',
+    '::a9fe:a9fe',
+    '192.0.0.8',
+  ])('blocks the reserved or embedded private address %s', (host) => {
+    expect(isPrivateOrLoopbackHost(host)).toBe(true);
+  });
+
+  it.each([
+    '64:ff9b::808:808',
+    '198.17.0.1',
+    '198.20.0.1',
+    '192.0.1.1',
+    '::8.8.8.8',
+    // Allowed as before: transparent proxies and local NAT64 use these.
+    '198.18.0.1',
+    '198.19.255.255',
+    '64:ff9b:1::1',
+    '[64:ff9b:1::a00:1]',
+  ])(
+    'still allows the public address %s',
+    (host) => {
+      expect(isPrivateOrLoopbackHost(host)).toBe(false);
+    },
+  );
+
   it('allows a public FQDN', () => {
     expect(isPrivateOrLoopbackHost('tiles.example.com')).toBe(false);
   });

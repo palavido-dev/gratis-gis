@@ -66,6 +66,17 @@ export interface KeycloakUserRep {
   setupEmailError?: string;
 }
 
+/**
+ * Keycloak refused a new account because the username or email is
+ * taken (its 409). Callers decide on the type or the 409 status, never
+ * on the message text.
+ */
+export class AccountExistsException extends ConflictException {
+  constructor() {
+    super('A user with that username or email already exists.');
+  }
+}
+
 export interface KeycloakUserCreateInput {
   username: string;
   email: string;
@@ -402,6 +413,41 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   }
 
   /**
+   * The accounts that hold exactly this username or exactly this email
+   * (at most a few each; the email is skipped when empty), with their attributes. Used to tell whether a taken
+   * address belongs to the caller's organization.
+   */
+  async findAccountsByUsernameOrEmail(
+    username: string,
+    email: string | undefined,
+  ): Promise<KeycloakUserRep[]> {
+    const token = await this.getAccessToken();
+    const found = new Map<string, KeycloakUserRep>();
+    const lookups: Array<readonly ['username' | 'email', string]> = [['username', username]];
+    if (email) lookups.push(['email', email]);
+    for (const [field, value] of lookups) {
+      const qs = new URLSearchParams([
+        [field, value],
+        ['exact', 'true'],
+        ['max', '5'],
+        ['briefRepresentation', 'false'],
+      ]);
+      const res = await fetch(this.adminUrl(`/users?${qs.toString()}`), {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        throw new BadGatewayException(
+          `Keycloak user lookup failed: ${res.status} ${res.statusText}`,
+        );
+      }
+      for (const row of (await res.json()) as KeycloakUserRep[]) {
+        if (typeof row.id === 'string') found.set(row.id, row);
+      }
+    }
+    return [...found.values()];
+  }
+
+  /**
    * Whether the Keycloak user with exactly this username exists and is
    * enabled. One small request, for callers that would otherwise page
    * through the whole realm to answer it.
@@ -484,11 +530,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
       // Keycloak answers 409 when the username or email is taken. That
       // is a client conflict, not an upstream failure, so the web UI can
       // tell it apart from a Keycloak outage (502).
-      if (res.status === 409) {
-        throw new ConflictException(
-          'A user with that username or email already exists.',
-        );
-      }
+      if (res.status === 409) throw new AccountExistsException();
       throw new BadGatewayException(
         `Keycloak createUser failed: ${res.status} ${res.statusText}`,
       );

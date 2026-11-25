@@ -12,6 +12,7 @@ import {
 import { ApiKeyService } from '../auth/api-key.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { runAsOrg, runAsSystem } from '../common/tenant-context.js';
+import { nextQueuedJobSql } from '../common/fair-queue.js';
 
 /**
  * Claims queued `script` runs and hands them to the executor (#221).
@@ -188,13 +189,7 @@ export class ScriptRunnerWorker implements OnModuleDestroy {
     >(Prisma.sql`
       UPDATE script_run
       SET state = 'running', started_at = now(), heartbeat_at = now()
-      WHERE id = (
-        SELECT id FROM script_run
-        WHERE state = 'queued'
-        ORDER BY created_at
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1
-      )
+      WHERE id = (${nextQueuedJobSql('script_run')})
       RETURNING id, org_id, user_id, script_id, source_snapshot
     `);
     const row = rows[0];

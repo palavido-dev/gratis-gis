@@ -170,3 +170,39 @@ describe('map style colors on save', () => {
     expect(captured.data).toEqual(data);
   });
 });
+
+describe('print template paper on save', () => {
+  it('rejects an unknown paper size on create', async () => {
+    const captured: Captured = {};
+    await expect(
+      serviceForCreate(captured).create(contributor(), {
+        type: 'print_template',
+        title: 'Poster',
+        data: { paper: { size: 'poster', orientation: 'portrait', marginIn: 0.25 } },
+      } as never),
+    ).rejects.toThrow(/paper size must be one of/);
+    expect(captured.data).toBeUndefined();
+  });
+
+  it('rejects an unknown paper size on update', async () => {
+    const captured: Captured = {};
+    const svc = serviceForUpdate(captured, { type: 'print_template', data: {} });
+    await expect(
+      svc.update(contributor(), 'item-1', {
+        data: { paper: { size: 'constructor', orientation: 'portrait' } },
+      } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(captured.data).toBeUndefined();
+  });
+
+  it('saves a known paper size', async () => {
+    const captured: Captured = {};
+    const data = { paper: { size: 'tabloid', orientation: 'landscape', marginIn: 0.5 } };
+    await serviceForCreate(captured).create(contributor(), {
+      type: 'print_template',
+      title: 'Ok',
+      data,
+    } as never);
+    expect(captured.data).toEqual(data);
+  });
+});

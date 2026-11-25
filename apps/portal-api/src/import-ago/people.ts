@@ -8,7 +8,10 @@
  * client-submitted report.
  *
  * - Users become Keycloak accounts in this organization. A user whose
- *   username or email is already here is matched, not created.
+ *   username or email is already here is matched, not created. Where
+ *   accounts are shared by several organizations, an account outside
+ *   the caller's organization is skipped with a neutral reason and
+ *   never matched.
  * - Roles: Administrator stays Admin, the built-in Viewer role becomes
  *   Viewer, and every other role (User, Publisher, Data Editor, custom)
  *   becomes Contributor. While the admin tier is locked, nobody is made
@@ -19,11 +22,13 @@
  *   admins. The admin running the import also ends up a group admin,
  *   as with any group they create.
  */
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import type { GroupAccess, OrgRole } from '@prisma/client';
 
 import { isAdminTierLocked } from '../admin/admin-tier-lock.js';
 import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+import { keycloakAccountInOrg } from '../admin/keycloak-org.js';
+import { isMultiTenant } from '../common/tenancy.js';
 import { KeycloakSyncService } from '../admin/keycloak-sync.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { GroupsService } from '../groups/groups.service.js';
@@ -43,6 +48,11 @@ export interface PeopleReport {
   usersCreated: number;
   usersMatched: number;
   usersFailed: number;
+  /**
+   * Several organizations only: people whose username or email has an
+   * account outside the caller's organization. Absent otherwise.
+   */
+  usersSkipped?: number;
   groupsCreated: number;
   /** Groups with the same title already here, reused. */
   groupsMatched: number;
@@ -150,7 +160,7 @@ export class AgoPeopleImportService {
       const username = portalUsername(u.username);
       try {
         if (await this.kc.findUserIdByUsername(username)) {
-          report.usersMatched += 1;
+          await this.matchOrSkip(report, user, u.username, username, u.email);
           continue;
         }
         if (!u.email) {
@@ -173,9 +183,15 @@ export class AgoPeopleImportService {
         });
         report.usersCreated += 1;
       } catch (e) {
-        // A taken email means the person is already here under another name.
-        if (e instanceof Error && /already exists/i.test(e.message)) {
-          report.usersMatched += 1;
+        // A taken username or email (Keycloak's 409) means the person
+        // already has an account. Decided on the status, never the text.
+        if (e instanceof HttpException && e.getStatus() === HttpStatus.CONFLICT) {
+          try {
+            await this.matchOrSkip(report, user, u.username, username, u.email);
+          } catch (lookupErr) {
+            report.usersFailed += 1;
+            report.warnings.push(`User ${u.username} was not created: ${errorText(lookupErr)}`);
+          }
           continue;
         }
         report.usersFailed += 1;
@@ -281,7 +297,54 @@ export class AgoPeopleImportService {
     );
     return { report, maps };
   }
+
+  /**
+   * A person whose username or email already has an account. With one
+   * organization that account is here: matched. With several, it is
+   * matched only when it is in the caller's organization; otherwise
+   * the person is skipped and the answer does not say where it is.
+   */
+  private async matchOrSkip(
+    report: PeopleReport,
+    user: AuthUser,
+    agoUsername: string,
+    username: string,
+    email: string | undefined,
+  ): Promise<void> {
+    if (!isMultiTenant() || (await this.accountInCallerOrg(user, username, email))) {
+      report.usersMatched += 1;
+      return;
+    }
+    report.usersSkipped = (report.usersSkipped ?? 0) + 1;
+    report.warnings.push(`User ${agoUsername} was skipped: ${ADDRESS_UNAVAILABLE}`);
+  }
+
+  /** Whether an account with this username or email is in the caller's organization. */
+  private async accountInCallerOrg(
+    user: AuthUser,
+    username: string,
+    email: string | undefined,
+  ): Promise<boolean> {
+    const local = await this.prisma.user.findFirst({
+      where: {
+        orgId: user.orgId,
+        OR: [
+          { username: { equals: username, mode: 'insensitive' } },
+          ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+    if (local) return true;
+    // Created or invited but never signed in: only Keycloak knows them.
+    const accounts = await this.kc.findAccountsByUsernameOrEmail(username, email);
+    return accounts.some((a) => keycloakAccountInOrg(a, user));
+  }
 }
+
+/** The reason given for a skipped person; it names no organization. */
+export const ADDRESS_UNAVAILABLE =
+  'this address cannot be invited. Ask the person to contact support.';
 
 function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);

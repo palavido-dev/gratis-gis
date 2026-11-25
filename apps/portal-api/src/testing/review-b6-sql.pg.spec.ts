@@ -23,6 +23,7 @@ import { TileLayerPyramidWorker } from '../tile-layer/pyramid.worker.js';
 import { queryPublicRecords } from '../public/ogc/records-core.js';
 import { findItemIdOwningKey } from '../storage/storage.controller.js';
 import { ItemsService } from '../items/items.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 
 const TEST_URL = process.env.TEST_DATABASE_URL;
 const d = TEST_URL ? describe : describe.skip;
@@ -49,12 +50,13 @@ d('review fixes SQL against Postgres', () => {
     storageRef?: string | null;
     deleted?: boolean;
     orgId?: string;
+    ownerId?: string;
   }): Promise<string> {
     const id = randomUUID();
     await admin.query(
       `INSERT INTO ${schema}.item
-         (id, type, data_json, access, bbox, storage_ref, deleted_at, org_id, created_at, updated_at)
-       VALUES ($1, $2::${schema}."ItemType", $3, $4, $5, $6, $7, $8, now(), now())`,
+         (id, type, data_json, access, bbox, storage_ref, deleted_at, org_id, owner_id, created_at, updated_at)
+       VALUES ($1, $2::${schema}."ItemType", $3, $4, $5, $6, $7, $8, $9, now(), now())`,
       [
         id,
         row.type ?? 'map',
@@ -64,6 +66,7 @@ d('review fixes SQL against Postgres', () => {
         row.storageRef ?? null,
         row.deleted ? new Date() : null,
         row.orgId ?? null,
+        row.ownerId ?? null,
       ],
     );
     return id;
@@ -92,6 +95,7 @@ d('review fixes SQL against Postgres', () => {
         ) STORED,
         storage_ref text,
         org_id uuid,
+        owner_id uuid,
         deleted_at timestamp(3),
         created_at timestamp(3) NOT NULL,
         updated_at timestamp(3) NOT NULL
@@ -207,5 +211,97 @@ d('review fixes SQL against Postgres', () => {
     const ids = where.AND.find((c) => c.id)!.id!.in;
     expect(ids).toEqual(expect.arrayContaining([mine, pub, shared]));
     expect(ids).not.toContain(foreign);
+  });
+
+  describe('with many organizations, the pre-filters read the caller org only', () => {
+    const before = process.env.GRATIS_TENANCY;
+    beforeAll(() => {
+      process.env.GRATIS_TENANCY = 'multi';
+      resetTenancyModeForTests();
+    });
+    afterAll(() => {
+      if (before === undefined) delete process.env.GRATIS_TENANCY;
+      else process.env.GRATIS_TENANCY = before;
+      resetTenancyModeForTests();
+    });
+
+    it('spatial list ids', async () => {
+      const org = randomUUID();
+      const box = [10, 10, 11, 11];
+      const mine = await insert({ bbox: box, access: 'private', orgId: org });
+      const minePub = await insert({ bbox: box, access: 'public', orgId: org });
+      const pub = await insert({ bbox: box, access: 'public', orgId: randomUUID() });
+      const shared = await insert({ bbox: box, access: 'private', orgId: randomUUID() });
+      await admin.query(`INSERT INTO ${schema}.item_share (item_id) VALUES ($1)`, [shared]);
+      const svc = Object.create(ItemsService.prototype) as ItemsService;
+      Object.assign(svc, {
+        prisma: client,
+        sharing: { visibleWhere: () => ({}), listWhere: () => ({}) },
+      });
+      const where = (await (
+        svc as unknown as {
+          buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
+        }
+      ).buildListWhere({ id: 'u', orgId: org }, { bbox: [9, 9, 12, 12] })) as {
+        AND: Array<{ id?: { in: string[] } }>;
+      };
+      const ids = where.AND.find((c) => c.id)!.id!.in;
+      expect(ids.sort()).toEqual([mine, minePub].sort());
+      expect(ids).not.toContain(pub);
+      expect(ids).not.toContain(shared);
+    });
+
+    it('spatial list ids of the caller own items read only those', async () => {
+      const org = randomUUID();
+      const me = randomUUID();
+      const box = [15, 15, 16, 16];
+      const mine = await insert({ bbox: box, access: 'private', orgId: org, ownerId: me });
+      const colleague = await insert({ bbox: box, access: 'private', orgId: org, ownerId: randomUUID() });
+      const svc = Object.create(ItemsService.prototype) as ItemsService;
+      Object.assign(svc, {
+        prisma: client,
+        sharing: { visibleWhere: () => ({}), listWhere: () => ({}) },
+      });
+      const where = (await (
+        svc as unknown as {
+          buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
+        }
+      ).buildListWhere({ id: me, orgId: org }, { bbox: [14, 14, 17, 17], mine: true })) as {
+        AND: Array<{ id?: { in: string[] } }>;
+      };
+      const ids = where.AND.find((c) => c.id)!.id!.in;
+      expect(ids).toEqual([mine]);
+      expect(ids).not.toContain(colleague);
+    });
+
+    it('records bbox ids', async () => {
+      const org = randomUUID();
+      const box = [20, 20, 21, 21];
+      const mine = await insert({ bbox: box, access: 'public', orgId: org });
+      const other = await insert({ bbox: box, access: 'public', orgId: randomUUID() });
+      const raw: string[] = [];
+      await queryPublicRecords(
+        {
+          $queryRaw: client.$queryRaw.bind(client) as never,
+          item: {
+            count: async (args: { where: unknown }) => {
+              raw.push(JSON.stringify(args.where));
+              return 1;
+            },
+            findMany: async () => [],
+          },
+        } as never,
+        {
+          where: { access: 'public', deletedAt: null, orgId: org },
+          orderBy: undefined,
+          offset: 0,
+          limit: 10,
+          bbox: '19,19,22,22',
+          scope: { orgId: org },
+        },
+      );
+      expect(raw[0]).toContain(mine);
+      expect(raw[0]).not.toContain(other);
+    });
   });
 });

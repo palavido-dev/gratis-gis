@@ -89,8 +89,10 @@ export class AdminCapabilitiesController {
       where: { username: kcUser.username },
       select: { id: true, orgId: true, orgRole: true, isProtected: true },
     });
+    // The same words as a missing user, so the answer does not tell
+    // the caller that the id belongs to another organization.
     if (!user || user.orgId !== actorOrgId) {
-      throw new NotFoundException('User not found in your organization.');
+      throw new NotFoundException('User not found.');
     }
     return user;
   }

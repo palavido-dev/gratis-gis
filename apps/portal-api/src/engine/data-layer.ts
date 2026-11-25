@@ -47,8 +47,11 @@ import {
   tileCacheKey,
   viaKeysCacheKey,
 } from './tile-cache.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { runServingOrg } from './aggregate-lane-turns.js';
 import { validateGeoJson } from '../common/geometry-validation.js';
+import { currentTenant } from '../common/tenant-context.js';
+import { isMultiTenant } from '../common/tenancy.js';
+import { isUuidShape } from '../common/uuid-shape.js';
 
 /** Expression columns for a tile; see mvtTile. */
 export interface TileComputed {
@@ -1108,6 +1111,9 @@ function asItemData(value: unknown): {
   return parsed as { version?: number; layers?: Array<Record<string, unknown>> };
 }
 
+/** Item organizations remembered before the memo is simply cleared. */
+const ITEM_ORG_MEMO_MAX = 10_000;
+
 @Injectable()
 export class DataLayerEngine {
   constructor(
@@ -1122,6 +1128,30 @@ export class DataLayerEngine {
       (scope) => this.scopeDataVersion(scope),
       `r${TILE_BYTES_REVISION}`,
     );
+  }
+
+  /** Item id to its organization, for signed-out aggregate lane turns. */
+  private readonly itemOrgs = new Map<string, string | null>();
+
+  /**
+   * The organization that owns `itemId`, when signed-out work on an
+   * install that serves many organizations needs it: its aggregate
+   * computes then take their turn in the aggregate lane as that
+   * organization (aggregate-lane-turns.ts), not as one bucket that
+   * every signed-out viewer shares. Undefined otherwise, without a query.
+   * An item never changes organization, so the answer is remembered.
+   */
+  private async servingOrgOf(itemId: string): Promise<string | undefined> {
+    if (!isMultiTenant() || currentTenant()?.kind !== 'anonymous') return undefined;
+    if (!isUuidShape(itemId)) return undefined;
+    if (this.itemOrgs.has(itemId)) return this.itemOrgs.get(itemId) ?? undefined;
+    const row = await this.prisma.item.findUnique({
+      where: { id: itemId },
+      select: { orgId: true },
+    });
+    if (this.itemOrgs.size >= ITEM_ORG_MEMO_MAX) this.itemOrgs.clear();
+    this.itemOrgs.set(itemId, row?.orgId ?? null);
+    return row?.orgId ?? undefined;
   }
 
   /**
@@ -3364,7 +3394,8 @@ export class DataLayerEngine {
     const dependsOn = args.via
       ? [`${this.scope(args.via.parentItemId, args.via.parentLayerId)}|`]
       : [];
-    const hit = await this.tileCache.getOrCompute(
+    const servingOrg = await this.servingOrgOf(args.itemId);
+    const hit = await runServingOrg(servingOrg, () => this.tileCache.getOrCompute(
       aggregateCacheKey(scope, keyed),
       async () =>
         Buffer.from(JSON.stringify(await this.aggregateFeaturesUncached(args))),
@@ -3378,7 +3409,7 @@ export class DataLayerEngine {
         },
         ...(signal ? { signal } : {}),
       },
-    );
+    ));
     return JSON.parse(hit.buf.toString()) as AggregateFeaturesResult;
   }
 

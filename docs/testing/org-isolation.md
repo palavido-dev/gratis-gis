@@ -57,6 +57,10 @@ Pick the helper that matches what the route does:
   org A's admin gets a 2xx for the same request.
 - `write()`: changes something by id. Org B gets 404 and nothing org A
   owns changes. Give a valid `body`, or the probe stops at validation.
+
+For both, org B's 404 must also match, status and body (ids and the
+request id left out), what org B gets for ids that do not exist, so
+the answer does not tell org B that the id is in use.
 - `list()`: lists or searches. The answer to org B holds none of org
   A's ids, names or text, and in multi mode none of org A's public
   items either: those stay readable by id but are never listed.

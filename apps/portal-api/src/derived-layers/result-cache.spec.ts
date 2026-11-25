@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { DerivedResultCache, queryHash, scopesInSql } from './result-cache.js';
+import {
+  DerivedResultCache,
+  derivedResultKey,
+  queryHash,
+  scopesInSql,
+} from './result-cache.js';
 
 const row = (id: string, geom = 'x') => ({
   global_id: id,
@@ -23,6 +28,17 @@ describe('derived-layer result cache (07-7)', () => {
   it('keys on parameters as well as SQL text', () => {
     expect(queryHash('q', [1])).not.toBe(queryHash('q', [2]));
     expect(queryHash('q', [1])).toBe(queryHash('q', [1]));
+  });
+
+  it('keeps each organization to its own entries for the same read', () => {
+    const cache = new DerivedResultCache();
+    const orgA = '11111111-1111-4111-8111-11111111111a';
+    const orgB = '11111111-1111-4111-8111-11111111111b';
+    const sql = "SELECT 1 FROM observation WHERE scope = 'data_layer:x:default'";
+    const versions = 'data_layer:x:default=1:2:0';
+    cache.set(derivedResultKey(orgA, sql, [1], versions), [row('a')]);
+    expect(cache.get(derivedResultKey(orgB, sql, [1], versions))).toBeUndefined();
+    expect(cache.get(derivedResultKey(orgA, sql, [1], versions))).toEqual([row('a')]);
   });
 
   it('expires entries after the TTL', () => {

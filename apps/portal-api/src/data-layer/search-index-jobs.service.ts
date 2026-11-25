@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type SearchIndexBuild } from '@prisma/client';
 
+import { nextQueuedJobSql } from '../common/fair-queue.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DataLayerSearchIndexService } from './search-index.service.js';
 
@@ -103,13 +104,7 @@ export class SearchIndexJobsService {
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE search_index_build
       SET status = 'running', started_at = now()
-      WHERE id = (
-        SELECT id FROM search_index_build
-        WHERE status = 'queued'
-        ORDER BY created_at
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      )
+      WHERE id = (${nextQueuedJobSql('search_index_build')})
       RETURNING id
     `;
     const id = rows[0]?.id;
@@ -117,12 +112,17 @@ export class SearchIndexJobsService {
     return this.prisma.searchIndexBuild.findUnique({ where: { id } });
   }
 
-  /** Run one claimed build and record how it ended. */
+  /**
+   * Run one claimed build and record how it ended. Both writes apply
+   * only to a row that is still 'running': a build the sweep has
+   * already failed (failStale, failInterrupted) stays failed even when
+   * its run ends later.
+   */
   async run(job: SearchIndexBuild): Promise<void> {
     try {
       const result = await this.indexes.buildForOrg(job.orgId);
-      await this.prisma.searchIndexBuild.update({
-        where: { id: job.id },
+      await this.prisma.searchIndexBuild.updateMany({
+        where: { id: job.id, status: 'running' },
         data: {
           status: 'succeeded',
           finishedAt: new Date(),
@@ -132,8 +132,8 @@ export class SearchIndexJobsService {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.log.warn(`search index build ${job.id} failed: ${message}`);
-      await this.prisma.searchIndexBuild.update({
-        where: { id: job.id },
+      await this.prisma.searchIndexBuild.updateMany({
+        where: { id: job.id, status: 'running' },
         data: {
           status: 'failed',
           finishedAt: new Date(),
@@ -141,6 +141,28 @@ export class SearchIndexJobsService {
         },
       });
     }
+  }
+
+  /**
+   * Fail builds still 'running' that started more than `olderThanMs`
+   * ago. A build whose final update failed would otherwise stay
+   * 'running' until the worker restarts, and block the next one for
+   * its org. There is no heartbeat column, so the age is taken from
+   * started_at; the limit is far above any real build.
+   */
+  async failStale(olderThanMs: number, now: Date = new Date()): Promise<number> {
+    const r = await this.prisma.searchIndexBuild.updateMany({
+      where: {
+        status: 'running',
+        startedAt: { lt: new Date(now.getTime() - olderThanMs) },
+      },
+      data: {
+        status: 'failed',
+        finishedAt: now,
+        error: 'This build stopped without finishing. Run it again.',
+      },
+    });
+    return r.count;
   }
 
   /**
