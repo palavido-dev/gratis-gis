@@ -2479,6 +2479,19 @@ export const ptBR: Partial<CatalogShape> = {
     readOnlyHere:
       'Esta tabela é somente leitura aqui. As linhas podem ser editadas em camadas que você tem permissão para alterar.',
   },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Usar no ArcGIS Pro',
+    title: 'Usar esta camada no ArcGIS Pro ou no QGIS',
+    urlLabel: 'URL do serviço',
+    copy: 'Copiar',
+    copied: 'Copiado',
+    step1: 'No ArcGIS Pro, na guia Mapa, clique em Adicionar dados e depois em Dados do caminho.',
+    step2: 'Cole a URL e clique em Adicionar.',
+    step3: 'Entre com seu usuário e senha do GratisGIS. Se você entra com Google, Microsoft ou um código de duas etapas, use uma chave de API pessoal como senha.',
+    publicNote: 'Camadas públicas abrem sem entrar.',
+    help: 'Editar no ArcGIS Pro e no QGIS',
+  },
   addToMap: {
     newMap: 'Novo mapa',
     existingMap: 'Um mapa existente',

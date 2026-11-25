@@ -2489,6 +2489,19 @@ export const de: Partial<CatalogShape> = {
     readOnlyHere:
       'Diese Tabelle ist hier schreibgeschützt. Zeilen können auf Ebenen bearbeitet werden, für die Sie Änderungsrechte haben.',
   },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'In ArcGIS Pro verwenden',
+    title: 'Diesen Layer in ArcGIS Pro oder QGIS verwenden',
+    urlLabel: 'Dienst-URL',
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    step1: 'Klicken Sie in ArcGIS Pro auf der Registerkarte Karte auf Daten hinzufügen und dann auf Daten aus Pfad.',
+    step2: 'Fügen Sie die URL ein und klicken Sie auf Hinzufügen.',
+    step3: 'Melden Sie sich mit Ihrem GratisGIS-Benutzernamen und Passwort an. Wenn Sie sich mit Google, Microsoft oder einem Zwei-Schritt-Code anmelden, verwenden Sie einen persönlichen API-Schlüssel als Passwort.',
+    publicNote: 'Öffentliche Layer öffnen sich ohne Anmeldung.',
+    help: 'Bearbeiten in ArcGIS Pro und QGIS',
+  },
   addToMap: {
     newMap: 'Neue Karte',
     existingMap: 'Eine vorhandene Karte',

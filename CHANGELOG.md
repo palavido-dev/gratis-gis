@@ -8,6 +8,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- **Use in ArcGIS Pro** on a data layer's page copies its FeatureServer
+  URL and shows the three steps to add it in Pro. New help pages: Edit
+  in ArcGIS Pro, and Edit in QGIS with ArcGIS REST (browser sign-in or
+  an API key).
 - ArcGIS Pro can sign in to GratisGIS and edit data layers: add, move,
   reshape and delete features and change attributes, saved through the
   same permission and validation checks as the portal, in one

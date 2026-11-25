@@ -2632,6 +2632,19 @@ export const en = {
   },
   // Sending a portal item to a map, from its detail page and from the
   // map builder's auto add.
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Use in ArcGIS Pro',
+    title: 'Use this layer in ArcGIS Pro or QGIS',
+    urlLabel: 'Service URL',
+    copy: 'Copy',
+    copied: 'Copied',
+    step1: 'In ArcGIS Pro, on the Map tab, click Add Data, then Data From Path.',
+    step2: 'Paste the URL and click Add.',
+    step3: 'Sign in with your GratisGIS user name and password. If you sign in with Google, Microsoft or a two-step code, use a personal API key as the password.',
+    publicNote: 'Public layers open without signing in.',
+    help: 'Editing in ArcGIS Pro and QGIS',
+  },
   addToMap: {
     newMap: 'New map',
     existingMap: 'An existing map',

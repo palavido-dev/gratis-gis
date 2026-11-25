@@ -129,6 +129,7 @@ import { ItemDependencies } from './item-dependencies';
 import { DeleteItemButton } from './delete-button';
 import { ReassignOwnerButton } from './reassign-owner-button';
 import { AddToMapButton } from './add-to-map-button';
+import { UseInArcGisProButton } from './use-in-arcgis-pro-button';
 import { MapEditor } from './map/map-editor';
 import { SaveMapCopyButton } from './map/save-map-copy-dialog';
 import { DataLayerEditor } from './data-layer/editor';
@@ -842,8 +843,12 @@ export default async function ItemDetailPage(props: Props) {
           (item.type === 'tile_layer' &&
             !(item.data as { dem?: boolean } | null)?.dem &&
             (item.data as { kind?: string } | null)?.kind !== 'vector')) ? (
-          <div className="flex shrink-0 items-center">
+          <div className="flex shrink-0 items-center gap-2">
             <AddToMapButton itemId={item.id} />
+            {/* The FeatureServer URL for ArcGIS Pro and QGIS. */}
+            {item.type === 'data_layer' ? (
+              <UseInArcGisProButton itemId={item.id} title={item.title} />
+            ) : null}
           </div>
         ) : null}
         {canManage ? (
