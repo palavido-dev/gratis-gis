@@ -8,6 +8,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Address search completes as you type when the portal uses
+  open-geocode: "223 Merch" finds 223 Merchants Walk, and a partly
+  typed place name finds the place. Map search, What's Here and the
+  field app all get it. Nominatim searches are unchanged. (#833)
 - Address search and spreadsheet address import can use a
   self-hosted [open-geocode](https://github.com/open-geocode-rs/open-geocode)
   server. Set `OPEN_GEOCODE_URL`. A whole state serves from one file of

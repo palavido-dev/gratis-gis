@@ -6614,7 +6614,7 @@ function FieldAddressSearch({
     const ctrl = new AbortController();
     setLoading(true);
     const handle = setTimeout(() => {
-      fetch(`/api/geocode?q=${encodeURIComponent(q)}`, {
+      fetch(`/api/geocode?q=${encodeURIComponent(q)}&autocomplete=1`, {
         signal: ctrl.signal,
         headers: { Accept: 'application/json' },
       })
