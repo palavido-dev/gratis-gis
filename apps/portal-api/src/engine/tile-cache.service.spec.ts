@@ -748,7 +748,7 @@ describe('TileCacheService', () => {
       ).rejects.toBeInstanceOf(TileCacheOverloadError);
       h[0]!.release();
       await ps[0];
-      // A asks again at once, but B is waiting and A is at its share.
+      // A asks again at once, but B is waiting and holds less than A.
       await expect(
         runAsOrg('org-a', () => cache.getOrCompute('a2', async () => Buffer.from('y'))),
       ).rejects.toBeInstanceOf(TileCacheOverloadError);

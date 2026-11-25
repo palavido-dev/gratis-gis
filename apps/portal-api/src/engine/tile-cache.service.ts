@@ -147,7 +147,7 @@ export class TileCacheService implements OnModuleDestroy {
   private activeComputes = 0;
   /**
    * The same slots per organization. On an install that serves many,
-   * one organization may hold only its share of the cap (see
+   * a busy organization leaves freed slots to the ones waiting (see
    * common/org-fair-share.ts), so a busy map of one cannot answer
    * every other organization's tiles with 503. One organization:
    * the whole cap, as before.
@@ -990,8 +990,9 @@ export class TileCacheService implements OnModuleDestroy {
   }
 
   /**
-   * Take a compute slot, or throw the overload error when the cap, or
-   * the caller's share of it (common/org-fair-share.ts), is used up.
+   * Take a compute slot, or throw the overload error when the cap is
+   * used up or the slot is left for a waiting organization
+   * (common/org-fair-share.ts).
    */
   private takeComputeSlot(bucket: string): void {
     const max = this.maxConcurrentComputes;

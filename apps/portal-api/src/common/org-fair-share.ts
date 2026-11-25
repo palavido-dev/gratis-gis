@@ -11,20 +11,17 @@ import { isMultiTenant } from './tenancy.js';
  * On an install with one organization nothing changes: there is one
  * rule, "no more than the limit at once", exactly as before.
  *
- * On an install that serves many, the rule is work-conserving:
+ * On an install that serves many, the rule is:
  *
- *   1. Never more than `limit` slots in use at once.
- *   2. While no other bucket is waiting, a bucket may take any free
- *      slot, so capacity never idles while there is work for it.
- *   3. While another bucket is waiting, a bucket may take a slot only
- *      while it holds fewer than its share, ceil(limit / n), where n
- *      counts the buckets holding or waiting, itself included.
+ *   1. Never more than `limit` slots held at once.
+ *   2. A bucket that asks gets a free slot, unless another bucket is
+ *      waiting and the asker holds strictly more than every waiting
+ *      bucket: then the slot is left for the waiting ones.
  *
- * A bucket that took more than its share while nobody else asked keeps
- * those slots; it takes no new one while another waits, so freed slots
- * go to the waiting buckets and the holdings converge to the shares. A
- * waiting line is served in turns: the waiting bucket that holds the
- * fewest slots goes first, so a waiting bucket is never starved.
+ * So a bucket alone may use the whole limit, a bucket holding nothing
+ * is never refused a free slot, and no slot idles while a bucket that
+ * holds no more than some other waiting bucket asks for it. Callers
+ * with a waiting line serve it fewest-held first (see the tile cache).
  *
  * Callers that turn work away instead of queueing it have no line.
  * For them a bucket that was turned away in the last few seconds
@@ -40,11 +37,6 @@ import { isMultiTenant } from './tenancy.js';
 
 /** How long a bucket that was turned away still counts as waiting. */
 export const FAIR_SHARE_WAIT_MEMORY_MS = 5_000;
-
-/** The share of `limit` one of `competing` buckets may hold. */
-export function fairShareOf(limit: number, competing: number): number {
-  return Math.max(1, Math.ceil(limit / Math.max(1, competing)));
-}
 
 const servedOrg = new AsyncLocalStorage<string>();
 
@@ -108,41 +100,33 @@ export class OrgSlotCounter {
   }
 
   /**
-   * Buckets holding a slot or waiting for one, `bucket` included.
-   * `waiting` adds the buckets of a caller's own waiting line.
+   * The most slots held by a waiting bucket other than `bucket`, or -1
+   * when no other bucket waits. `waiting` names the buckets of a
+   * caller's own waiting line; buckets turned away recently count too.
    */
-  competing(bucket: string, waiting: readonly string[] = []): number {
-    const cutoff = this.now() - this.waitMemoryMs;
-    const seen = new Set<string>([bucket]);
-    for (const b of this.held.keys()) seen.add(b);
-    for (const b of waiting) seen.add(b);
-    for (const [b, at] of this.refusedAt) {
-      if (at >= cutoff) seen.add(b);
-      else this.refusedAt.delete(b);
+  private mostHeldByOthersWaiting(bucket: string, waiting: Iterable<string>): number {
+    let most = -1;
+    for (const b of waiting) {
+      if (b !== bucket) most = Math.max(most, this.heldBy(b));
     }
-    return seen.size;
-  }
-
-  /** Whether a bucket other than `bucket` is waiting. */
-  private othersWaiting(bucket: string, waiting: Iterable<string>): boolean {
-    for (const b of waiting) if (b !== bucket) return true;
     const cutoff = this.now() - this.waitMemoryMs;
     for (const [b, at] of this.refusedAt) {
-      if (b !== bucket && at >= cutoff) return true;
+      if (at < cutoff) this.refusedAt.delete(b);
+      else if (b !== bucket) most = Math.max(most, this.heldBy(b));
     }
-    return false;
+    return most;
   }
 
   /**
-   * Whether the bucket may take one more of `limit` slots: rule 1
-   * always, rules 2 and 3 only with many organizations. `waiting`
-   * names the buckets of a caller's own waiting line, if it has one.
+   * Whether the bucket may take one more of `limit` slots. One
+   * organization: while fewer than `limit` are held. Many: the rule at
+   * the top of this file.
    */
   mayTake(bucket: string, limit: number, waiting: readonly string[] = []): boolean {
     if (this.total() >= limit) return false;
     if (!isMultiTenant()) return true;
-    if (!this.othersWaiting(bucket, waiting)) return true;
-    return this.heldBy(bucket) < fairShareOf(limit, this.competing(bucket, waiting));
+    const most = this.mostHeldByOthersWaiting(bucket, waiting);
+    return most < 0 || this.heldBy(bucket) <= most;
   }
 
   /**
