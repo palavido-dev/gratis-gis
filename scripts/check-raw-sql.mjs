@@ -12,7 +12,9 @@
 // Every site must have a row in docs/security/raw-sql-inventory.md.
 // The check fails when a file gains, loses or moves a site, so the
 // inventory and the baseline change in the same pull request as the
-// code. Run with --update only after the inventory is updated.
+// code. Run with --update only after the inventory is updated. It also
+// fails when an inventory row cites a `file:line` that no longer holds
+// a site of that kind, so the cited line numbers cannot go stale.
 //
 // What counts as a site (comments are ignored):
 //   prisma  .$queryRaw / .$executeRaw / .$queryRawUnsafe / .$executeRawUnsafe calls
@@ -112,6 +114,8 @@ function walk(dir, root, files) {
 function countTree(root) {
   const counts = {};
   const listing = [];
+  /** `file:line` (relative to SCAN_DIR) to the kinds found on that line. */
+  const at = new Map();
   for (const file of walk(join(root, SCAN_DIR), root, []).sort()) {
     const sites = findSites(readFileSync(join(root, file), 'utf8'));
     if (!sites.length) continue;
@@ -119,10 +123,36 @@ function countTree(root) {
     for (const s of sites) {
       c[s.kind]++;
       listing.push(`${file}:${s.line} ${s.kind}`);
+      const cite = `${file.slice(SCAN_DIR.length + 1)}:${s.line}`;
+      at.set(cite, [...(at.get(cite) ?? []), s.kind]);
     }
     counts[file] = c;
   }
-  return { counts, listing };
+  return { counts, listing, at };
+}
+
+// One inventory row: `| <n> | \`<file>:<line>\` | <kind> |`. Bounded and anchored.
+const CITE_ROW = /^\| (\d{1,5}) \| `([A-Za-z0-9_./-]{1,200}):(\d{1,6})` \| (prisma|pg|raw) \|/;
+
+/** Inventory rows that cite a site: [{ row, cite, kind }]. */
+export function citedSites(markdown) {
+  const out = [];
+  for (const line of markdown.split('\n')) {
+    const m = CITE_ROW.exec(line);
+    if (m) out.push({ row: m[1], cite: `${m[2]}:${m[3]}`, kind: m[4] });
+  }
+  return out;
+}
+
+/** Rows whose cited line holds no site of their kind, as messages. */
+export function staleCitations(cited, at) {
+  const problems = [];
+  for (const c of cited) {
+    if (!(at.get(c.cite) ?? []).includes(c.kind)) {
+      problems.push(`row ${c.row}: ${c.cite} holds no ${c.kind} site`);
+    }
+  }
+  return problems;
 }
 
 /** Differences between the baseline and the tree, as messages. */
@@ -182,6 +212,38 @@ function selfTest() {
     if (!ok) failed++;
     console.log(`${ok ? 'ok  ' : 'FAIL'} self-test: ${c.name} (${got} problem(s), want ${c.want})`);
   }
+  const md = [
+    '| # | Site | Kind |',
+    '| 1 | `a/b.ts:10` | prisma | x |',
+    '| 2 | `a/b.ts:12` | pg | x |',
+    'text that mentions `a/b.ts:99`',
+  ].join('\n');
+  const cited = citedSites(md);
+  const sitesAt = (entries) => new Map(entries);
+  const lines = [
+    { name: 'inventory rows parsed', got: cited.length, want: 2 },
+    {
+      name: 'cited lines that hold their site pass',
+      got: staleCitations(cited, sitesAt([['a/b.ts:10', ['prisma']], ['a/b.ts:12', ['pg']]])).length,
+      want: 0,
+    },
+    {
+      name: 'a moved site fails its row',
+      got: staleCitations(cited, sitesAt([['a/b.ts:11', ['prisma']], ['a/b.ts:12', ['pg']]])).length,
+      want: 1,
+    },
+    {
+      name: 'a site of another kind fails its row',
+      got: staleCitations(cited, sitesAt([['a/b.ts:10', ['raw']], ['a/b.ts:12', ['pg']]])).length,
+      want: 1,
+    },
+    { name: 'a file that is gone fails its rows', got: staleCitations(cited, sitesAt([])).length, want: 2 },
+  ];
+  for (const c of lines) {
+    const ok = c.got === c.want;
+    if (!ok) failed++;
+    console.log(`${ok ? 'ok  ' : 'FAIL'} self-test: ${c.name} (${c.got}, want ${c.want})`);
+  }
   if (failed) {
     console.error(`check-raw-sql self-test: ${failed} case(s) failed`);
     process.exit(1);
@@ -193,7 +255,7 @@ function main() {
   if (args.includes('--self-test')) selfTest();
 
   const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-  const { counts, listing } = countTree(root);
+  const { counts, listing, at } = countTree(root);
   const t = totals(counts);
   const summary = `${t.prisma + t.pg + t.raw} sites (prisma ${t.prisma}, pg ${t.pg}, raw ${t.raw}) in ${Object.keys(counts).length} files`;
 
@@ -227,7 +289,14 @@ function main() {
     console.error('List every site with: node scripts/check-raw-sql.mjs --list');
     process.exit(1);
   }
-  console.log(`Raw SQL sites match the baseline: ${summary}.`);
+  const stale = staleCitations(citedSites(readFileSync(join(root, INVENTORY), 'utf8')), at);
+  if (stale.length) {
+    console.error(`${INVENTORY} cites lines that no longer hold a raw SQL site:`);
+    for (const p of stale) console.error(`  ${p}`);
+    console.error('Correct the line numbers from: node scripts/check-raw-sql.mjs --list');
+    process.exit(1);
+  }
+  console.log(`Raw SQL sites match the baseline and the inventory lines: ${summary}.`);
 }
 
 main();

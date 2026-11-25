@@ -7,12 +7,11 @@ filters by comes from, and the check that makes it safe.
 This is the RB-02 audit. RB-06 (database roles and row-level security)
 builds on it.
 
-- Generated against `main` at v1.7.0 plus one commit. Line numbers are
-  from that tree and drift as code moves; the file and function stay
-  the useful key.
+- Generated against `main` at v1.7.0 plus one commit, and kept up to
+  date since.
 - `node scripts/check-raw-sql.mjs` counts the same sites per file and
-  fails CI when the counts move. See "Keeping this up to date" at the
-  end.
+  fails CI when the counts move or when a row's `file:line` no longer
+  holds a site of its kind. See "Keeping this up to date" at the end.
 
 ## Totals
 
@@ -408,18 +407,18 @@ the statement they set up.
 | 146 | `items/item-bbox-refresh.service.ts:311` | prisma | `growStoredBbox` | item | seed item id from a checked feature write | **system** | Background bbox refresh. |
 | 147 | `items/item-bbox-refresh.service.ts:548` | prisma | `findReferencingItems` | item | ids of edited layers | item-scoped | Fixed in #800: references are followed and extents are used only within the same organization, or for public items. |
 | 148 | `items/item-data-lock.ts:36` | prisma | `lockItemRow` | item (FOR UPDATE) | `id` from caller | **item-scoped** | Callers: ItemsService.updateOnce (get + canEdit), FeaturesController.syncItemMeta (CH-LEG), RelationshipsController create/remove (canAdmin on parent; child id from the stored relationship, change only when the child back-reference matches), DrawingsService.mutateMapData (loadMapItem + canEdit or the anonymous drawing flag), ItemsService.spliceFromFolders (system), DerivedLayerCacheRefresh (system). Returns data to the caller code, not to the user. |
-| 149 | `items/items.service.ts:1045` | prisma | `buildListWhere` | item, item_share | `user.orgId` | **org-scoped** | Spatial pre-filter for GET /items: `org_id = user.orgId OR access = public OR shared`. Final visibility is the Prisma `visibleWhere(user)` clause the ids are ANDed into. |
-| 150 | `items/items.service.ts:1194` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
-| 151 | `items/items.service.ts:1231` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
-| 152 | `items/items.service.ts:1285` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
-| 153 | `items/items.service.ts:3643` | prisma | `notifyDataCollectionSchemaBreak` | field_queue_manifest | data_collection id that references the edited layer | **item-scoped** | Runs in ItemsService.update of a layer (get + canEdit). User ids found are filtered by schemaBreakRecipients (canRead on the deployment) before any notification. |
-| 154 | `items/items.service.ts:4041` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3694); observation (L3695); fs_<id> DROP (L3706) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
-| 155 | `items/items.service.ts:4042` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3694); observation (L3695); fs_<id> DROP (L3706) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
-| 156 | `items/items.service.ts:4055` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L3694); observation (L3695); fs_<id> DROP (L3706) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
-| 157 | `items/items.service.ts:4198` | prisma | `spliceFromLandingFeatured` | organization | purged item id | **system** | Cross-org cleanup by item id after a purge. Runs in the user purge request. Needs `runAsSystem` under RB-06 or other orgs keep a dead id. |
-| 158 | `items/items.service.ts:4212` | prisma | `spliceFromFolders` | item (folders) | purged item id | **system** | Cross-org cleanup like the row above. |
-| 159 | `items/items.service.ts:4479` | prisma | `getGeoJson` | fs_<id>; item (boundary geometry, via Prisma) | `id` from route; `boundaryClipId` from `?clip=` | item-scoped | Fixed in #800: the clip boundary is resolved through `resolveClipBoundaryGeometry` (caller can read it, or same organization as the layer) before this query runs. |
-| 160 | `items/items.service.ts:4553` | prisma | `getGeoJson` | none (PostGIS on bound values) | none | **system** | Pure computation (geo limit test per feature). Reads no table. |
+| 149 | `items/items.service.ts:1054` | prisma | `buildListWhere` | item, item_share | `user.orgId` | **org-scoped** | Spatial pre-filter for GET /items: `org_id = user.orgId OR access = public OR shared`. Final visibility is the Prisma `visibleWhere(user)` clause the ids are ANDed into. |
+| 150 | `items/items.service.ts:1203` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
+| 151 | `items/items.service.ts:1240` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
+| 152 | `items/items.service.ts:1294` | prisma | `queryListRows` | item | ids of rows already returned by the visible list query | **item-scoped** | Decorates list rows (sublayer count, storage type, template). Ids come from `item.findMany({ where: visibleWhere })`. |
+| 153 | `items/items.service.ts:3652` | prisma | `notifyDataCollectionSchemaBreak` | field_queue_manifest | data_collection id that references the edited layer | **item-scoped** | Runs in ItemsService.update of a layer (get + canEdit). User ids found are filtered by schemaBreakRecipients (canRead on the deployment) before any notification. |
+| 154 | `items/items.service.ts:4050` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L4050); observation (L4051); fs_<id> DROP (L4064) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
+| 155 | `items/items.service.ts:4051` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L4050); observation (L4051); fs_<id> DROP (L4064) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
+| 156 | `items/items.service.ts:4064` | prisma | `tearDownItemBackingStorage` | none (SET LOCAL, L4050); observation (L4051); fs_<id> DROP (L4064) | `itemId` of the item being purged | **item-scoped** | ItemsService.purge (get with includeTrashed + canAdmin) and TrashPurgeService.purgeExpired (system cron). Table name from a UUID-shaped id. |
+| 157 | `items/items.service.ts:4207` | prisma | `spliceFromLandingFeatured` | organization | purged item id | **system** | Cross-org cleanup by item id after a purge. Runs in the user purge request. Needs `runAsSystem` under RB-06 or other orgs keep a dead id. |
+| 158 | `items/items.service.ts:4221` | prisma | `spliceFromFolders` | item (folders) | purged item id | **system** | Cross-org cleanup like the row above. |
+| 159 | `items/items.service.ts:4488` | prisma | `getGeoJson` | fs_<id>; item (boundary geometry, via Prisma) | `id` from route; `boundaryClipId` from `?clip=` | item-scoped | Fixed in #800: the clip boundary is resolved through `resolveClipBoundaryGeometry` (caller can read it, or same organization as the layer) before this query runs. |
+| 160 | `items/items.service.ts:4562` | prisma | `getGeoJson` | none (PostGIS on bound values) | none | **system** | Pure computation (geo limit test per feature). Reads no table. |
 | 161 | `items/last-usage-stamp.ts:62` | prisma | `stamp` | item (last_usage_at) | `itemId` | **item-scoped** | ItemsController GET /items/:id after ItemsService.get; ItemProxyController after its item check. Writes a timestamp only. |
 | 162 | `maintenance/collation-refresh.ts:51` | pg | `refreshCollations` | pg_roles, pg_database (catalog); REINDEX DATABASE; ALTER DATABASE; postgis_extensions_upgrade() | none | **system** | Maintenance CLI (`collation-refresh.main.ts`) with its own admin `pg.Client`. Database names are quoted with quoteIdent. |
 | 163 | `maintenance/collation-refresh.ts:59` | pg | `refreshCollations` | pg_roles, pg_database (catalog); REINDEX DATABASE; ALTER DATABASE; postgis_extensions_upgrade() | none | **system** | Maintenance CLI (`collation-refresh.main.ts`) with its own admin `pg.Client`. Database names are quoted with quoteIdent. |
@@ -473,25 +472,25 @@ the statement they set up.
 | 211 | `tools/recipe-runner.service.ts:1352` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
 | 212 | `area-of-interest/area-of-interest.service.ts:62` | prisma | `register` | none (PostGIS on bound values) | none | **system** | What's Here area resolve (#796): union, make valid, buffer the caller's own shape. Reads no table. Public endpoint; input size checked first. |
 | 213 | `area-of-interest/area-of-interest.service.ts:103` | prisma | `register` | area_of_interest (INSERT ... ON CONFLICT) | hash of the resolved shape | **system** | Stores a shape only, no org and no feature data. Shared across orgs by design: the row reveals nothing, and every read that names it runs under the caller's own layer access. |
-| 214 | `storage/storage-ledger.service.ts:122` | prisma | `orgOfKey` | storage_object | object key | **system** | Owner check for keys in the older layout: the org found is only compared with the org that authorised the call, never returned. Needs every org's rows once row-level security is on (system connection). |
-| 215 | `storage/storage-ledger.service.ts:202` | prisma | `usage` | org_storage_usage | caller's org (`user.orgId`) | **org-scoped** | Storage usage read. The admin route reads only the caller's own org. |
-| 216 | `storage/storage-ledger.service.ts:214` | prisma | `usage` | storage_object | caller's org (`user.orgId`) | **org-scoped** | Usage by kind for the same org, grouped. |
-| 217 | `storage/storage-ledger.service.ts:254` | prisma | `recountOrg` | org_storage_usage (INSERT ... ON CONFLICT DO NOTHING) | org id from the reconcile | **system** | Daily reconcile, `runAsSystem`. One org per call. |
-| 218 | `storage/storage-ledger.service.ts:257` | prisma | `recountOrg` | org_storage_usage (FOR UPDATE) | org id from the reconcile | **system** | Locks the totals row first so a concurrent upload is counted once. |
-| 219 | `storage/storage-ledger.service.ts:259` | prisma | `recountOrg` | storage_object | org id from the reconcile | **system** | Sum of the org's live rows. |
-| 220 | `storage/storage-ledger.service.ts:267` | prisma | `recountOrg` | org_storage_usage | org id from the reconcile | **system** | Sets the totals and the drift. All values bound. |
-| 221 | `storage/storage-ledger.service.ts:286` | prisma | `liveRows` | storage_object | keys listed from the bucket | **system** | Reconcile page lookup, keys bound as one text array. |
-| 222 | `storage/storage-ledger.service.ts:299` | prisma | `orgsWithUsage` | org_storage_usage, storage_object | none (all orgs) | **system** | Reconcile: which orgs to recount. |
-| 223 | `storage/storage-ledger.service.ts:317` | prisma | `liveKeysOfOrg` | storage_object | org id from the reconcile | **system** | Reconcile: one org's live keys, paged by key. |
-| 224 | `storage/storage-ledger.service.ts:329` | prisma | `recordInTx` | storage_object (INSERT ... ON CONFLICT DO NOTHING) | object key and its owner org | **org-scoped** | The owner org comes from the key's org segment or the item that authorised the upload, after the storage owner check. |
-| 225 | `storage/storage-ledger.service.ts:341` | prisma | `recordInTx` | storage_object (UPDATE ... FROM a FOR UPDATE subquery) | object key and its owner org | **org-scoped** | Filtered by key and org, so another org's row is never changed. |
-| 226 | `storage/storage-ledger.service.ts:361` | prisma | `markDeletedInTx` | storage_object | object key, plus the owner org unless the caller is system work | **system** | Delete hook. Filtered by org for org callers; sweeps filter by key only. |
-| 227 | `storage/storage-ledger.service.ts:379` | prisma | `addToTotals` | org_storage_usage (INSERT ... ON CONFLICT DO UPDATE) | owner org of the row just changed | **org-scoped** | Increment in the same transaction as the object row. |
-| 228 | `storage/storage-usage-reconcile.service.ts:352` | prisma | `findMissing` | storage_object | org id from the reconcile | **system** | Count of the org's live rows older than the walk. |
-| 229 | `storage/storage-usage-reconcile.service.ts:400` | prisma | `loadSmallReferenceMaps` | item, group, user, organization | none (URL pattern bound as a parameter) | **system** | Reconcile: which org owns each older public image key. Read once per run; nothing is returned to a user. |
-| 230 | `storage/storage-usage-reconcile.service.ts:435` | prisma | `attribute` | storage_object | keys listed from the bucket | **system** | Reconcile: owner of an older key from a deleted ledger row. |
-| 231 | `storage/storage-usage-reconcile.service.ts:438` | prisma | `attribute` | feature_attachment, item | keys listed from the bucket | **system** | Reconcile: owner of an older attachment key, served by feature_attachment_storage_key_idx. |
-| 232 | `storage/storage-usage-reconcile.service.ts:449` | prisma | `attribute` | item | keys listed from the bucket | **system** | Reconcile: owner of an older file key, one containment probe per key (item_data_gin, storage_ref index). |
+| 214 | `storage/storage-ledger.service.ts:144` | prisma | `orgOfKey` | storage_object | object key | **system** | Owner check for keys in the older layout: the org found is only compared with the org that authorised the call, never returned. Needs every org's rows once row-level security is on (system connection). |
+| 215 | `storage/storage-ledger.service.ts:242` | prisma | `usage` | org_storage_usage | caller's org (`user.orgId`) | **org-scoped** | Storage usage read. The admin route reads only the caller's own org. |
+| 216 | `storage/storage-ledger.service.ts:254` | prisma | `usage` | storage_object | caller's org (`user.orgId`) | **org-scoped** | Usage by kind for the same org, grouped. |
+| 217 | `storage/storage-ledger.service.ts:299` | prisma | `recountOrg` | org_storage_usage (INSERT ... ON CONFLICT DO NOTHING) | org id from the reconcile | **system** | Daily reconcile, `runAsSystem`. One org per call. |
+| 218 | `storage/storage-ledger.service.ts:302` | prisma | `recountOrg` | org_storage_usage (FOR UPDATE) | org id from the reconcile | **system** | Locks the totals row first so a concurrent upload is counted once. |
+| 219 | `storage/storage-ledger.service.ts:304` | prisma | `recountOrg` | storage_object | org id from the reconcile | **system** | Sum of the org's live rows. |
+| 220 | `storage/storage-ledger.service.ts:312` | prisma | `recountOrg` | org_storage_usage | org id from the reconcile | **system** | Sets the totals and the drift. All values bound. |
+| 221 | `storage/storage-ledger.service.ts:333` | prisma | `liveRows` | storage_object | keys listed from the bucket | **system** | Reconcile page lookup, keys bound as one text array. |
+| 222 | `storage/storage-ledger.service.ts:346` | prisma | `orgsWithUsage` | org_storage_usage, storage_object | none (all orgs) | **system** | Reconcile: which orgs to recount. |
+| 223 | `storage/storage-ledger.service.ts:364` | prisma | `liveKeysOfOrg` | storage_object | org id from the reconcile | **system** | Reconcile: one org's live keys, paged by key. |
+| 224 | `storage/storage-ledger.service.ts:380` | prisma | `recordInTx` | storage_object (INSERT ... ON CONFLICT DO NOTHING) | object key and its owner org | **org-scoped** | The owner org comes from the key's org segment or the item that authorised the upload, after the storage owner check. |
+| 225 | `storage/storage-ledger.service.ts:392` | prisma | `recordInTx` | storage_object (UPDATE ... FROM a FOR UPDATE subquery) | object key and its owner org | **org-scoped** | Filtered by key and org, so another org's row is never changed. |
+| 226 | `storage/storage-ledger.service.ts:412` | prisma | `markDeletedInTx` | storage_object | object key, plus the owner org unless the caller is system work | **system** | Delete hook. Filtered by org for org callers; sweeps filter by key only. |
+| 227 | `storage/storage-ledger.service.ts:430` | prisma | `addToTotals` | org_storage_usage (INSERT ... ON CONFLICT DO UPDATE) | owner org of the row just changed | **org-scoped** | Increment in the same transaction as the object row. |
+| 228 | `storage/storage-usage-reconcile.service.ts:427` | prisma | `findMissing` | storage_object | org id from the reconcile | **system** | Count of the org's live rows older than the walk. |
+| 229 | `storage/storage-usage-reconcile.service.ts:477` | prisma | `loadSmallReferenceMaps` | item, group, user, organization | none (URL pattern bound as a parameter) | **system** | Reconcile: which org owns each older public image key. Read once per run; nothing is returned to a user. |
+| 230 | `storage/storage-usage-reconcile.service.ts:517` | prisma | `attribute` | storage_object | keys listed from the bucket | **system** | Reconcile: owner of an older key from a deleted ledger row. |
+| 231 | `storage/storage-usage-reconcile.service.ts:520` | prisma | `attribute` | feature_attachment, item | keys listed from the bucket | **system** | Reconcile: owner of an older attachment key, served by feature_attachment_storage_key_idx. |
+| 232 | `storage/storage-usage-reconcile.service.ts:534` | prisma | `attribute` | item | keys listed from the bucket | **system** | Reconcile: owner of an older file key, one containment probe per key (item_data_gin, storage_ref index). |
 | 233 | `storage/feature-usage.ts:57` | prisma | `measureLayer` | observation | `data_layer:` scope of one layer, built from an item id and layer key the server read | **item-scoped** | Live feature count of one layer through the scope index. Called by the import job after a bulk write and by the nightly pass; returns a number only. |
 | 234 | `storage/feature-usage.ts:66` | prisma | `measureLayer` | layer_storage_usage | item id and layer key | **item-scoped** | Previous sample for the same layer. |
 | 235 | `storage/feature-usage.ts:80` | prisma | `measureLayer` | observation | same scope | **item-scoped** | Average row size over at most 2000 rows of the layer (`LIMIT` bound as a parameter). |
@@ -502,8 +501,8 @@ the statement they set up.
 | 240 | `storage/feature-usage.ts:143` | prisma | `queueLayers` | layer_storage_usage, item | none (rows whose item is gone) | **system** | Nightly pass: drops rows of purged items. |
 | 241 | `storage/feature-usage.ts:167` | prisma | `runFeatureUsagePass` | layer_storage_usage | none (oldest measured first) | **system** | Nightly pass work list, 20 rows at a time. |
 | 242 | `storage/feature-usage.ts:190` | prisma | `runFeatureUsagePass` | layer_storage_usage | none | **system** | Count of layers left for the next run. |
-| 243 | `storage/storage-ledger.service.ts:167` | prisma | `touchRead` | storage_object | object key of a cached embedding the caller was just served | **item-scoped** | Notes the read time for the per-item embedding cap. The key comes from the imagery item the caller can read (after the read check and the storage owner check); at most one write per key every ten minutes. |
-| 244 | `storage/feature-usage.ts:202` | prisma | `markMeasureFailed` | layer_storage_usage | item id and layer key from the work list | **system** | Nightly pass, `runAsSystem`: stamps a layer whose measure failed, with the error text bound as a parameter. |
+| 243 | `storage/storage-ledger.service.ts:207` | prisma | `touchRead` | storage_object | object key of a cached embedding the caller was just served | **item-scoped** | Notes the read time for the per-item embedding cap. The key comes from the imagery item the caller can read (after the read check and the storage owner check); at most one write per key every ten minutes. |
+| 244 | `storage/feature-usage.ts:207` | prisma | `markMeasureFailed` | layer_storage_usage | item id and layer key from the work list | **system** | Nightly pass, `runAsSystem`: stamps a layer whose measure failed, with the error text bound as a parameter. |
 
 ## Keeping this up to date
 
@@ -517,6 +516,9 @@ When you add, move or remove a raw SQL call:
    an issue.
 2. Run `node scripts/check-raw-sql.mjs --update` and commit the new
    baseline with the code and this file.
+3. When code above a site moves it to another line, correct the line in
+   its row (`--list` prints the current ones). The check names each
+   row that is out of date.
 
 `node scripts/check-raw-sql.mjs --list` prints every site as
 `file:line kind`. The totals at the top of this page must match its
