@@ -24,6 +24,7 @@ import { MAX_REPORT_BODY, MAX_REPORT_FEATURES } from '@gratis-gis/shared-types';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
+import { contentDisposition } from '../common/content-disposition.js';
 import { ItemsService } from '../items/items.service.js';
 
 import { readReportTemplate, reportFileName, ReportsService } from './reports.service.js';
@@ -88,10 +89,7 @@ export class ReportsController {
     const name = reportFileName(tpl.fileName?.trim() || item.title);
     res.setHeader('content-type', 'application/pdf');
     res.setHeader('content-length', String(pdf.byteLength));
-    res.setHeader(
-      'content-disposition',
-      `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-    );
+    res.setHeader('content-disposition', contentDisposition('attachment', name));
     if (filled.issues.length > 0) {
       // Short, plain notes for the client; header values stay ASCII.
       res.setHeader('x-report-issues', encodeURIComponent(filled.issues.slice(0, 5).join(' | ')));

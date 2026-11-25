@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { Public } from '../auth/public.decorator.js';
+import { contentDisposition } from '../common/content-disposition.js';
 import { reportFileName } from '../reports/reports.service.js';
 import { WhatsHereReportService } from './whats-here-report.service.js';
 
@@ -36,10 +37,7 @@ export class WhatsHereController {
     const name = reportFileName(fileName);
     res.setHeader('content-type', 'application/pdf');
     res.setHeader('content-length', String(pdf.byteLength));
-    res.setHeader(
-      'content-disposition',
-      `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
-    );
+    res.setHeader('content-disposition', contentDisposition('attachment', name));
     res.end(pdf);
   }
 }
