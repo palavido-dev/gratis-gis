@@ -8,6 +8,24 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field app: features are placed with a pin in the middle of the map,
+  as in ArcGIS Field Maps. The form opens straight away for a point, a
+  line or a polygon, over half of the map. A new point is **Not set**
+  until **Add point** puts it at the pin; the button then reads
+  **Update point**. A line or polygon starts with no vertex, and its
+  form's **Shape** bar shows the vertex count with the line's length or
+  the polygon's area, and has **Add vertex**, **Update vertex** (the
+  last vertex to the pin) and **Undo**. The pin follows GPS after the
+  map's **Locate** button (the fix itself is used) and stays where the
+  map is moved by hand. With a form open, Locate is the only button on the map. The
+  armed template footer (**Add at GPS** / **Add at center**, **Vertex
+  at GPS** / **Vertex at center**, **Finish**) is gone.
+- Field app: snapping. The pin snaps to the nearest vertex or edge of
+  a feature already on the map; **Snap to features** in the **⋮** menu
+  turns it off, kept per device.
+- Field app: the **Add feature** list draws each type with the same
+  symbol as the **Layers** list (a dot, a stripe or a square) instead
+  of a square for every type.
 - ArcGIS Pro can sign in to GratisGIS and edit data layers: add, move,
   reshape and delete features and change attributes, saved through the
   same permission and validation checks as the portal, in one
@@ -128,6 +146,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Field app and maps: a table sublayer (a related table such as
+  inspections) asked for a TileJSON it does not have, and the 404 was
+  asked again every 15 seconds. The field app no longer hands table
+  sublayers to the map, and a 404 TileJSON is taken as the default zoom
+  range instead of a failure to retry.
 - Printing recovers on its own after prints that could not start,
   instead of answering "busy" until the API restarts.
 - A search index build whose end could not be recorded no longer

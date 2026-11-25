@@ -87,7 +87,16 @@ export function ensureSourceZooms(
     void fetchImpl(
       `/api/portal/items/${encodeURIComponent(s.itemId)}/layers/${encodeURIComponent(s.layerKey)}/tilejson.json`,
     )
-      .then(async (res) => (res.ok ? tileJsonSourceZoom(await res.json()) : null))
+      // 404 is an answer, not a failure: the layer has no tiles (a
+      // table sublayer) or no TileJSON, so the default range stands and
+      // is not asked again every few seconds.
+      .then(async (res) =>
+        res.ok
+          ? tileJsonSourceZoom(await res.json())
+          : res.status === 404
+            ? DEFAULT_SOURCE_ZOOM
+            : null,
+      )
       .catch(() => null)
       .then((zoom) => {
         inFlight.delete(key);

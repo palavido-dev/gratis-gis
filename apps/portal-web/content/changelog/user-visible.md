@@ -21,6 +21,9 @@ new release banner when cutting a version tag.
 
 <!-- entries below this line are surfaced on the public landing page -->
 
+## 2026-11-25 - Place features with a centre pin, and snap
+In the field app the form opens straight away and a pin sits in the middle of the map. A new point is Not set until Add point puts it under the pin, and Update point moves it there again; a line or polygon gets each vertex with Add vertex, Update vertex moves the last one, and the form shows its length or area. Tap Locate and the pin follows your GPS. New points and vertices snap onto the features already on the map, and you can turn snapping off in the ⋮ menu.
+
 ## 2026-11-24 - Apps from templates with items you cannot open
 Making an app from a saved template no longer fails when the template uses items you cannot open. The app is made without them and lists what was left out.
 

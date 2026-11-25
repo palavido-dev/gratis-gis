@@ -69,6 +69,39 @@ Collectors must be able to sign in (or already have a session) on
 that phone. Sharing the data collection item controls who can open
 the deployment; editing still follows each data layer's permissions.
 
+## Adding features
+
+Tap **+** (pick a feature type first when the deployment has more
+than one). The form opens straight away, over half of the map, for a
+point, a line or a polygon. While it is open a pin sits in the middle
+of the map and **Locate** is the only button left on the map; pinch
+to zoom.
+
+- **A point** is **Not set** until **Add point** puts it where the pin
+  is. Its form's **Location** then shows the coordinates, and the
+  button, now **Update point**, moves the point to the pin again. The placed point is marked on the map, and only the button
+  moves it.
+- **A line or polygon** starts with no vertex. The form's **Shape**
+  bar shows how many vertices there are, with the line's length or the
+  polygon's area beside them: **Add vertex** puts the next one at the
+  pin, **Update vertex** moves the last one to the pin, and **Undo**
+  (the arrow) removes the last.
+  The shape is drawn on the map as it grows. A line needs 2 vertices
+  and a polygon 3 (it closes itself) before it can be saved.
+- **The pin goes where the map goes.** Tap **Locate** and the map,
+  with the pin, follows your GPS position; the point and vertex
+  buttons then use the fix itself. Move the map by hand, or tap a spot
+  to bring it under the pin, and the pin stays where you put it until
+  you tap **Locate** again.
+- **Snapping.** The pin snaps to the nearest vertex, or failing that
+  the nearest edge, of a feature already on the map; its ring turns
+  magenta when it would. Turn it off with **Snap to features** in the
+  **⋮** menu; the choice is kept on the device. A GPS position is
+  never snapped.
+
+**Copy** in a feature's details opens a new form the same way, with
+the feature's attributes filled in.
+
 ## GNSS receivers and location details
 
 The field app uses the phone's own location by default. For better
