@@ -151,6 +151,63 @@ d('feature ObjectIDs', () => {
     expect((await svc.entitiesFor(OTHER, [eight])).get(eight)).toBe(E(8));
   });
 
+  it('numbers a scope once when two replicas backfill it at the same time', async () => {
+    const BIG = `data_layer:${ITEM}:polys`;
+    await pool.query(`ALTER TABLE observation DISABLE TRIGGER observation_assign_oid`);
+    for (let n = 20; n < 60; n++) {
+      await write(BIG, E(n), 'create', `2026-04-01T00:00:${String(n).padStart(2, '0')}Z`);
+    }
+    await pool.query(`ALTER TABLE observation ENABLE TRIGGER observation_assign_oid`);
+
+    // Two services stand in for two API replicas: each has its own
+    // in-process map, so only the database lock keeps them apart.
+    const other = new FeatureOidService(
+      prismaClient as unknown as PrismaService,
+      { shouldRun: () => true } as unknown as LeaderElectionService,
+    );
+    // Hold back every insert into feature_oid until both backfills are
+    // queued, so neither can finish before the other one starts.
+    const gate = await pool.connect();
+    let both: Promise<unknown>;
+    try {
+      await gate.query('BEGIN');
+      await gate.query('LOCK TABLE feature_oid IN SHARE MODE');
+      both = Promise.all([svc.ensureScope(BIG), other.ensureScope(BIG)]);
+      // Wait until both are blocked: one on the table lock and one on
+      // the backfill lock (or, without that lock, both on the table).
+      for (let i = 0; i < 200; i++) {
+        const w = await pool.query(
+          `SELECT count(*)::int AS n FROM pg_locks
+            WHERE NOT granted
+              AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+        );
+        if (w.rows[0].n >= 2) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await gate.query('COMMIT');
+    } finally {
+      gate.release();
+    }
+    await both;
+    // A request joining afterwards finds the scope done.
+    await svc.ensureScopeForRequest(BIG);
+
+    const r = await pool.query(
+      `SELECT count(*)::int AS n, count(DISTINCT entity)::int AS entities,
+              count(DISTINCT oid)::int AS oids,
+              ((SELECT last_value FROM feature_oid_oid_seq) - min(oid))::int AS spent
+         FROM feature_oid WHERE scope = $1`,
+      [BIG],
+    );
+    // Each entity has exactly one number, and exactly 40 numbers were
+    // drawn since the backfill began, so one INSERT ran. A second one
+    // racing it would have drawn 40 more and thrown them away on the
+    // conflicts.
+    expect(r.rows[0]).toEqual({ n: 40, entities: 40, oids: 40, spent: 39 });
+    const marks = await pool.query(`SELECT count(*)::int AS n FROM feature_oid_scope WHERE scope = $1`, [BIG]);
+    expect(marks.rows[0].n).toBe(1);
+  });
+
   it('forgets every layer of a purged item', async () => {
     await svc.forgetItem(ITEM);
     const left = await pool.query(`SELECT count(*)::int AS n FROM feature_oid WHERE scope LIKE $1`, [
