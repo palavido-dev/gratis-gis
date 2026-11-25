@@ -111,27 +111,40 @@ prints a new password.
 **Tailscale HTTPS is the recommended way to open the portal from a
 phone or a laptop that is not on the same LAN.** In the Tailscale
 admin page, turn on MagicDNS and HTTPS certificates. The NAS gets a
-name like `mynas.tail1234.ts.net`. Use Tailscale Serve so that name
-is HTTPS in the browser and proxies to the portal's HTTP port on
-the NAS. Set this before the first start, or on an install that
-already signed in at the LAN address:
+name like `mynas.tail1234.ts.net` (the full name is on the Machines
+page). Use Tailscale Serve so that name is HTTPS in the browser and
+proxies to the portal's HTTP port on the NAS.
+
+Serve must listen on **different ports** from the ones the stack
+publishes. Serve and Docker share the NAS's ports, so a Serve
+listener on 8080 or 8900 takes that port, and the next time the stack
+starts Docker fails with `failed to bind host port ... address
+already in use`. Use 443 for the portal and 8443 for uploads, and
+point both at the NAS's LAN address (from the Tailscale app's shell,
+`127.0.0.1` may not reach the stack):
+
+```sh
+tailscale serve --bg --https=443 http://192.168.1.20:8080
+tailscale serve --bg --https=8443 http://192.168.1.20:8900
+```
+
+Use your own LAN address, and your own ports if you changed
+`GRATIS_HTTP_PORT` or `GRATIS_S3_PORT`. Then set both addresses,
+before the first start or on an install that already signed in at
+the LAN address:
 
 ```yaml
 GRATIS_BASE_URL: https://mynas.tail1234.ts.net
+GRATIS_S3_URL: https://mynas.tail1234.ts.net:8443
 ```
 
-Uploads go to a second port (8900 by default), which is plain HTTP
-too. Add a second Serve listener for it, HTTPS on port 8900 to
-`http://127.0.0.1:8900`, and set the upload address to match:
-
-```yaml
-GRATIS_S3_URL: https://mynas.tail1234.ts.net:8900
-```
-
-Without it the portal tells browsers to upload to
+Without `GRATIS_S3_URL` the portal tells browsers to upload to
 `https://mynas.tail1234.ts.net:8900`, where nothing answers HTTPS,
 and uploads and stored images fail. The bootstrap log warns about
-this.
+this. If the browser shows the page as not fully secure, check this
+address first: images loading over plain HTTP cause that.
+
+To start over, `tailscale serve reset` removes every Serve listener.
 
 Leave the portal itself on plain HTTP. Serve terminates TLS. Do not
 turn on Funnel, and do not forward ports 8080 or 8900 on your router.
