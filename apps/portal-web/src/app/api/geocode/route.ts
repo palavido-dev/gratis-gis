@@ -28,18 +28,43 @@ const USER_AGENT =
   'GratisGIS/0.1 (https://github.com/palavido-dev/gratis-gis)';
 const PUBLIC_NOMINATIM = 'https://nominatim.openstreetmap.org';
 
+async function askOpenGeocode(
+  base: string,
+  endpoint: 'autocomplete' | 'geocode',
+  q: string,
+): Promise<Response> {
+  const params = new URLSearchParams({ q, limit: '5' });
+  return fetch(`${base}/${endpoint}?${params}`, {
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
+    cache: 'no-store',
+  });
+}
+
 /**
  * Ask the configured open-geocode server. No public fallback: an
  * operator who set OPEN_GEOCODE_URL chose to keep searches on it.
+ *
+ * `autocomplete` is for search-as-you-type: open-geocode then matches
+ * the last word as a prefix ("223 Merch" finds 223 Merchants Walk),
+ * which its full geocoder does not. When autocomplete finds nothing,
+ * the full geocoder gets the same text, so a complete address with a
+ * typo still has a chance.
  */
-async function searchOpenGeocode(base: string, q: string): Promise<NextResponse> {
+async function searchOpenGeocode(
+  base: string,
+  q: string,
+  autocomplete: boolean,
+): Promise<NextResponse> {
   try {
-    const params = new URLSearchParams({ q, limit: '5' });
-    const res = await fetch(`${base}/geocode?${params}`, {
-      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
-      signal: AbortSignal.timeout(10_000),
-      cache: 'no-store',
-    });
+    if (autocomplete) {
+      const res = await askOpenGeocode(base, 'autocomplete', q);
+      if (res.ok) {
+        const rows = toNominatimRows(await res.json());
+        if (rows.length > 0) return NextResponse.json(rows, { status: 200 });
+      }
+    }
+    const res = await askOpenGeocode(base, 'geocode', q);
     if (!res.ok) {
       return NextResponse.json(
         { message: `open-geocode ${res.status}` },
@@ -78,7 +103,13 @@ export async function GET(req: NextRequest) {
   }
 
   const og = openGeocodeUrl();
-  if (og) return searchOpenGeocode(og, q);
+  if (og) {
+    return searchOpenGeocode(
+      og,
+      q,
+      req.nextUrl.searchParams.get('autocomplete') === '1',
+    );
+  }
 
   const params = new URLSearchParams({
     format: 'jsonv2',
