@@ -195,7 +195,8 @@ Nominatim service when this stack has no local geocoder. The NAS
 must be able to reach the internet for that. It is not GPS, and it
 works on the plain HTTP address. Set `NOMINATIM_PUBLIC_FALLBACK=0`
 (see Optional settings below) to keep searches off the public
-service, or `NOMINATIM_URL` to use your own Nominatim.
+service, `OPEN_GEOCODE_URL` to use your own open-geocode server
+(infra/OPEN-GEOCODE.md), or `NOMINATIM_URL` to use your own Nominatim.
 
 **My location** is the browser's GPS. Browsers refuse it on
 `http://192.168.x.x` and on `http://100.x`. Use the Tailscale HTTPS
@@ -210,8 +211,8 @@ line. In TrueNAS, add them to the app's environment. Then restart.
 - `NOTIFICATIONS_ENABLED=true` turns on email notifications. Enter
   the SMTP server on **Admin -> Email delivery**.
 - `PORTAL_NAME` is the name used in email.
-- `NOMINATIM_URL` and `NOMINATIM_PUBLIC_FALLBACK=0` control address
-  search (above).
+- `OPEN_GEOCODE_URL`, `NOMINATIM_URL` and `NOMINATIM_PUBLIC_FALLBACK=0`
+  control address search (above).
 - `GRATIS_SESSION_MAX_AGE_SECONDS` and `GRATIS_SESSION_IDLE_SECONDS`
   set the portal cookie lifetime (docs/operations/session.md).
 - `RECYCLE_BIN_RETENTION_DAYS` (30), `GRATIS_ADMIN_AUDIT_RETENTION_DAYS`

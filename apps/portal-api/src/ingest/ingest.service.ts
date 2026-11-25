@@ -15,6 +15,7 @@ import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
   ADDRESS_GEOCODE_LIMITS,
+  addressLayerFields,
   featuresFromAddresses,
   planAddressGeocode,
   type AddressColumnPlan,
@@ -38,6 +39,11 @@ import {
   localNominatimBase,
   nominatimAnswers,
 } from './nominatim-search.js';
+import {
+  openGeocodeAnswers,
+  openGeocodeBase,
+  openGeocodeQueries,
+} from './open-geocode.js';
 import { toSqlSafeFieldName } from '@gratis-gis/shared-types';
 import { assertZipExpansionBudget, readZipMember } from '../tile-layer/tile-conversion.js';
 import { readGpkgFeatureTables } from './gpkg-catalog.js';
@@ -454,7 +460,10 @@ export class IngestService {
           {
             name: addressed.layerName,
             geometryType: 'point',
-            fields: addressed.fields,
+            fields: addressLayerFields(
+              addressed,
+              addressGeocoder()?.kind === 'open-geocode',
+            ),
             featureCount: addressed.rows.length,
           },
         ],
@@ -1237,31 +1246,34 @@ export class IngestService {
     layerLabel?: string,
   ): Promise<(AddressColumnPlan & { layerName: string }) | null> {
     if (!looksLikeTabularText(filePath)) return null;
-    const text = await this.readDelimitedPrefix(filePath);
+    const backend = addressGeocoder();
+    const text = await this.readDelimitedPrefix(
+      filePath,
+      backend?.readBytes ?? IngestService.ADDRESS_READ_BYTES,
+    );
     if (text === null) return null;
-    const plan = planAddressGeocode(text);
+    const plan = planAddressGeocode(text, backend?.maxRows);
     if (plan.kind !== 'address') {
       this.log.debug(
         `No address columns in ${basename(filePath)}: ${plan.reason}`,
       );
       return null;
     }
-    if (exceedsAddressRowCap(text, await this.fileSize(filePath))) {
-      this.log.log(
-        `${basename(filePath)} has more than ${ADDRESS_GEOCODE_LIMITS.MAX_ROWS} address rows; importing it as a table instead.`,
-      );
-      return null;
-    }
-    const base = localNominatimBase();
-    if (!base) {
+    if (!backend) {
       this.log.warn(
         'Skipping address geocoding because NOMINATIM_URL is the public Nominatim service.',
       );
       return null;
     }
-    if (!(await nominatimAnswers(fetch, base))) {
+    if (exceedsAddressRowCap(text, await this.fileSize(filePath), backend.maxRows)) {
+      this.log.log(
+        `${basename(filePath)} has more than ${backend.maxRows} address rows; importing it as a table instead.`,
+      );
+      return null;
+    }
+    if (!(await addressGeocoderAnswers(backend))) {
       this.log.debug(
-        `Local geocoder did not answer at ${base}; leaving ${basename(filePath)} on the table path.`,
+        `Local geocoder did not answer at ${backend.base}; leaving ${basename(filePath)} on the table path.`,
       );
       return null;
     }
@@ -1281,13 +1293,16 @@ export class IngestService {
     return (await stat(safePath).catch(() => null))?.size ?? 0;
   }
 
-  private async readDelimitedPrefix(filePath: string): Promise<string | null> {
+  private async readDelimitedPrefix(
+    filePath: string,
+    readBytes: number = IngestService.ADDRESS_READ_BYTES,
+  ): Promise<string | null> {
     const safePath = await this.resolveInsideIngestRoot(filePath);
     if (safePath === null) return null;
     let handle: FileHandle | undefined;
     try {
       handle = await open(safePath, 'r');
-      const buf = Buffer.alloc(IngestService.ADDRESS_READ_BYTES);
+      const buf = Buffer.alloc(readBytes);
       const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
       let text = buf.subarray(0, bytesRead).toString('utf8');
       if (bytesRead === buf.length) {
@@ -1311,23 +1326,24 @@ export class IngestService {
     driver: string;
     sourceSrs: string;
   } | null> {
+    const backend = addressGeocoder();
+    if (!backend) return null;
     let text = buffer
-      .subarray(0, Math.min(buffer.length, IngestService.ADDRESS_READ_BYTES))
+      .subarray(0, Math.min(buffer.length, backend.readBytes))
       .toString('utf8');
-    if (buffer.length > IngestService.ADDRESS_READ_BYTES) {
+    if (buffer.length > backend.readBytes) {
       const lastBreak = text.lastIndexOf('\n');
       text = lastBreak >= 0 ? text.slice(0, lastBreak) : '';
     }
-    const plan = planAddressGeocode(text);
+    const plan = planAddressGeocode(text, backend.maxRows);
     if (plan.kind !== 'address') return null;
-    if (exceedsAddressRowCap(text, buffer.length)) return null;
-    const base = localNominatimBase();
-    if (!base || !(await nominatimAnswers(fetch, base))) return null;
+    if (exceedsAddressRowCap(text, buffer.length, backend.maxRows)) return null;
+    if (!(await addressGeocoderAnswers(backend))) return null;
     const looked = await this.lookupAddressPlan(plan, originalName);
     if (!looked || looked.built.placed === 0) return null;
     return {
       geojson: { type: 'FeatureCollection', features: looked.built.features },
-      fields: plan.fields,
+      fields: looked.built.fields,
       driver: 'csv-address',
       sourceSrs: 'EPSG:4326',
     };
@@ -1350,7 +1366,7 @@ export class IngestService {
     const looked = await this.lookupAddressPlan(plan, plan.layerName);
     if (!looked || looked.built.placed === 0) {
       throw new BadRequestException(
-        'The local geocoder did not match any address in this file. Spreadsheet addresses are sent only to the configured Nominatim.',
+        'The local geocoder did not match any address in this file. Spreadsheet addresses are sent only to the configured geocoder.',
       );
     }
     const total = plan.rows.length;
@@ -1377,7 +1393,7 @@ export class IngestService {
       await onBatch(batch, { processed, total });
     }
     return {
-      fields: plan.fields,
+      fields: looked.built.fields,
       driver: 'csv-address',
       layerName: plan.layerName,
       sourceSrs: 'EPSG:4326',
@@ -1389,17 +1405,22 @@ export class IngestService {
     plan: AddressColumnPlan,
     label: string,
   ): Promise<{
-    hits: Array<{ lat: number; lon: number } | null>;
+    hits: Array<{ lat: number; lon: number; accuracy?: string | null } | null>;
     built: ReturnType<typeof featuresFromAddresses>;
   } | null> {
-    const base = localNominatimBase();
-    if (!base) return null;
-    const hits = await geocodeQueries(plan.queries, (query) =>
-      geocodeOne(fetch, base, query),
-    );
-    const built = featuresFromAddresses(plan, hits);
+    const backend = addressGeocoder();
+    if (!backend) return null;
+    const hits =
+      backend.kind === 'open-geocode'
+        ? await openGeocodeQueries(fetch, backend.base, plan.queries)
+        : await geocodeQueries(plan.queries, (query) =>
+            geocodeOne(fetch, backend.base, query),
+          );
+    const built = featuresFromAddresses(plan, hits, {
+      withAccuracy: backend.kind === 'open-geocode',
+    });
     this.log.log(
-      `Address geocode of ${label}: columns="${plan.label}", placed=${built.placed}/${plan.rows.length}`,
+      `Address geocode of ${label} (${backend.kind}): columns="${plan.label}", placed=${built.placed}/${plan.rows.length}`,
     );
     return { hits, built };
   }
@@ -1590,14 +1611,62 @@ type FileGeomatchPlan = GeomatchPlan & {
 
 /**
  * True when an address file has more rows than the address geocoder
- * takes (ADDRESS_GEOCODE_LIMITS.MAX_ROWS), judged from its first 1 MiB
- * and its size. Such a file goes to the table import with every row,
- * instead of being cut to the first 200 geocoded points with no word.
+ * takes (`maxRows`), judged from the prefix that was read and the
+ * file's size. Such a file goes to the table import with every row,
+ * instead of being cut to the first `maxRows` geocoded points with no
+ * word.
  */
-export function exceedsAddressRowCap(prefix: string, sizeBytes: number): boolean {
+export function exceedsAddressRowCap(
+  prefix: string,
+  sizeBytes: number,
+  maxRows: number = ADDRESS_GEOCODE_LIMITS.MAX_ROWS,
+): boolean {
   if (sizeBytes > Buffer.byteLength(prefix, 'utf8') + 1) return true;
-  const sample = readDelimitedSample(prefix, ADDRESS_GEOCODE_LIMITS.MAX_ROWS + 1);
-  return !('error' in sample) && sample.rows.length > ADDRESS_GEOCODE_LIMITS.MAX_ROWS;
+  const sample = readDelimitedSample(prefix, maxRows + 1);
+  return !('error' in sample) && sample.rows.length > maxRows;
+}
+
+/** Where spreadsheet addresses are looked up, and how many rows it takes. */
+export interface AddressGeocoder {
+  kind: 'open-geocode' | 'nominatim';
+  base: string;
+  maxRows: number;
+  /** Bytes of the file read to find those rows. */
+  readBytes: number;
+}
+
+/**
+ * OPEN_GEOCODE_URL wins when set. Otherwise the local Nominatim, or
+ * null when NOMINATIM_URL names the public service, which is never
+ * sent a spreadsheet.
+ */
+export function addressGeocoder(
+  env: NodeJS.ProcessEnv = process.env,
+): AddressGeocoder | null {
+  const og = openGeocodeBase(env);
+  if (og) {
+    return {
+      kind: 'open-geocode',
+      base: og,
+      maxRows: ADDRESS_GEOCODE_LIMITS.OPEN_GEOCODE_MAX_ROWS,
+      // About 800 bytes a row leaves room for wide spreadsheets.
+      readBytes: 8 * 1024 * 1024,
+    };
+  }
+  const nominatim = localNominatimBase(env);
+  if (!nominatim) return null;
+  return {
+    kind: 'nominatim',
+    base: nominatim,
+    maxRows: ADDRESS_GEOCODE_LIMITS.MAX_ROWS,
+    readBytes: 1024 * 1024,
+  };
+}
+
+function addressGeocoderAnswers(backend: AddressGeocoder): Promise<boolean> {
+  return backend.kind === 'open-geocode'
+    ? openGeocodeAnswers(fetch, backend.base)
+    : nominatimAnswers(fetch, backend.base);
 }
 
 function looksLikeTabularText(name: string): boolean {

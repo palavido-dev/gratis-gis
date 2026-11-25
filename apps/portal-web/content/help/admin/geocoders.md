@@ -10,6 +10,7 @@ tags:
   - admin
   - geocoder
   - nominatim
+  - open-geocode
 related:
   - admin-organization-settings
 ---
@@ -44,16 +45,20 @@ matches in the map's own layers.
 ## Address search without a geocoder item
 
 The map search bar also searches addresses through the portal's
-`/api/geocode` route, which uses the Nominatim instance the operator
-configured with `NOMINATIM_URL`. With none configured, it falls back
-to the public OpenStreetMap Nominatim service unless the operator
-set `NOMINATIM_PUBLIC_FALLBACK=0`. Those are server settings, not
-something you set in the portal. See `infra/NOMINATIM.md` for
-running your own.
+`/api/geocode` route. When the operator set `OPEN_GEOCODE_URL`, it
+asks that open-geocode server, and each match shows how precise it
+is (for example `address · rooftop`). Otherwise it uses the Nominatim
+instance configured with `NOMINATIM_URL`. With neither configured, it
+falls back to the public OpenStreetMap Nominatim service unless the
+operator set `NOMINATIM_PUBLIC_FALLBACK=0`. Those are server
+settings, not something you set in the portal. See
+`infra/OPEN-GEOCODE.md` or `infra/NOMINATIM.md` for running your
+own.
 
 ## Notes
 
-- There is no built-in support for Photon, Pelias, Google or a
-  custom HTTP geocoder, and no failover between geocoders.
+- Besides Nominatim and open-geocode, there is no built-in support
+  for Photon, Pelias, Google or a custom HTTP geocoder, and no
+  failover between geocoders.
 - An external GeocodeServer sees every query sent to it. Check its
   terms and whether your addresses may leave your network.

@@ -2,7 +2,9 @@
 /**
  * Geocoder proxy. The browser hits `/api/geocode?q=...` and this route
  * forwards to the Nominatim instance configured by NOMINATIM_URL
- * (defaults to the docker-compose service at localhost:8081).
+ * (defaults to the docker-compose service at localhost:8081), or to
+ * an open-geocode server when OPEN_GEOCODE_URL is set. Either way the
+ * answer is Nominatim jsonv2 rows.
  *
  * Why proxy instead of letting the browser call Nominatim directly:
  *   1. One env var swaps local / staging / prod endpoints.
@@ -20,10 +22,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
 import { hasUsableSession } from '@/lib/session-state';
 import { nominatimTarget } from '@/lib/nominatim-config';
+import { openGeocodeUrl, toNominatimRows } from '@/lib/open-geocode';
 
 const USER_AGENT =
   'GratisGIS/0.1 (https://github.com/palavido-dev/gratis-gis)';
 const PUBLIC_NOMINATIM = 'https://nominatim.openstreetmap.org';
+
+/**
+ * Ask the configured open-geocode server. No public fallback: an
+ * operator who set OPEN_GEOCODE_URL chose to keep searches on it.
+ */
+async function searchOpenGeocode(base: string, q: string): Promise<NextResponse> {
+  try {
+    const params = new URLSearchParams({ q, limit: '5' });
+    const res = await fetch(`${base}/geocode?${params}`, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return NextResponse.json(
+        { message: `open-geocode ${res.status}` },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json(toNominatimRows(await res.json()), { status: 200 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Geocoder unreachable';
+    return NextResponse.json({ message: msg }, { status: 502 });
+  }
+}
 
 async function searchNominatim(base: string, params: URLSearchParams): Promise<Response> {
   return fetch(`${base.replace(/\/$/, '')}/search?${params}`, {
@@ -48,6 +76,9 @@ export async function GET(req: NextRequest) {
   if (q.length < 3) {
     return NextResponse.json([], { status: 200 });
   }
+
+  const og = openGeocodeUrl();
+  if (og) return searchOpenGeocode(og, q);
 
   const params = new URLSearchParams({
     format: 'jsonv2',

@@ -70,4 +70,71 @@ describe('IngestService address CSV', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  describe('with OPEN_GEOCODE_URL', () => {
+    const saved = process.env.OPEN_GEOCODE_URL;
+    beforeEach(() => {
+      process.env.OPEN_GEOCODE_URL = 'http://og.internal:8080';
+    });
+    afterEach(() => {
+      if (saved === undefined) delete process.env.OPEN_GEOCODE_URL;
+      else process.env.OPEN_GEOCODE_URL = saved;
+    });
+
+    it('batches the rows and adds geocode_accuracy', async () => {
+      const urls: string[] = [];
+      jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+        const url = String(input);
+        urls.push(url);
+        if (url.endsWith('/readyz')) return new Response('ok', { status: 200 });
+        const items = JSON.parse(String(init?.body)) as Array<{ id: string; q: string }>;
+        return new Response(
+          JSON.stringify({
+            results: items.map((item) => ({
+              id: item.id,
+              response: item.q.includes('Nowhere')
+                ? {
+                    features: [
+                      {
+                        geometry: { coordinates: [-77.0, 38.9] },
+                        properties: { layer: 'locality', accuracy: 'centroid' },
+                      },
+                    ],
+                  }
+                : {
+                    features: [
+                      {
+                        geometry: { coordinates: [-77.0365, 38.8977] },
+                        properties: { layer: 'address', accuracy: 'rooftop' },
+                      },
+                    ],
+                  },
+            })),
+          }),
+          { status: 200 },
+        );
+      });
+      const dir = await mkdtemp(join(tmpdir(), 'gg-ingest-'));
+      const filePath = join(dir, 'sites.csv');
+      await writeFile(filePath, csv);
+      try {
+        const ingest = new IngestService();
+        const probe = await ingest.probeFileFromPath(filePath);
+        expect(probe.driver).toBe('csv-address');
+        expect(probe.layers[0]?.fields.map((f) => f.name)).toContain('geocode_accuracy');
+        const batches: Array<{ geometry: unknown; properties: Record<string, unknown> }> =
+          [];
+        const meta = await ingest.streamLayerFromPath(filePath, 'sites', async (batch) => {
+          batches.push(...batch);
+        });
+        expect(meta.fields.map((f) => f.name)).toContain('geocode_accuracy');
+        expect(batches).toHaveLength(1);
+        expect(batches[0]?.properties.geocode_accuracy).toBe('rooftop');
+        expect(urls.some((u) => u.includes('nominatim') || u.includes(':8081'))).toBe(false);
+        expect(urls.filter((u) => u.endsWith('/geocode'))).toHaveLength(1);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
 });

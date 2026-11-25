@@ -8,6 +8,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Address search and spreadsheet address import can use a
+  self-hosted [open-geocode](https://github.com/open-geocode-rs/open-geocode)
+  server. Set `OPEN_GEOCODE_URL`. A whole state serves from one file of
+  tens of MB in under 1 GB of RAM, instead of a Nominatim database.
+  Spreadsheet import then takes up to 10,000 address rows (200 with
+  Nominatim), skips matches that only find the town or postcode, and
+  adds a `geocode_accuracy` column (rooftop, interpolated, street,
+  centroid). Map search shows each match's precision. Setup in
+  infra/OPEN-GEOCODE.md. (#833)
 - **Use in ArcGIS Pro** on a data layer's page copies its FeatureServer
   URL and shows the three steps to add it in Pro. New help pages: Edit
   in ArcGIS Pro, and Edit in QGIS with ArcGIS REST (browser sign-in or

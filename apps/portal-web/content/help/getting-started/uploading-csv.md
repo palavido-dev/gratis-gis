@@ -25,12 +25,25 @@ coordinates and which are the attributes.
 
 A file with no coordinates can still land on the map when it has
 an address column, or a street column plus a city. The server
-sends the first 200 rows to the Nominatim instance configured for
-this portal and stores a point for each match. Rows that do not
-match are left out. The public Nominatim service is not used for
-this, because a spreadsheet is a bulk lookup and the addresses
-stay on the host. If that local geocoder is not running, the file
-imports as a table, the same as before.
+sends the rows to the geocoder configured for this portal and
+stores a point for each match. Rows that do not match are left
+out. The public Nominatim service is not used for this, because a
+spreadsheet is a bulk lookup and the addresses stay on the host.
+If that local geocoder is not running, the file imports as a
+table, the same as before.
+
+How many rows are geocoded depends on the geocoder your
+administrator set up:
+
+- **open-geocode**: up to 10,000 rows. Rows that only match a town
+  or a postcode are left out, and the layer gets a
+  `geocode_accuracy` column that says how close each point is:
+  `rooftop` (the address itself), `interpolated` (placed between
+  known house numbers), `street` or `centroid`.
+- **Nominatim**: the first 200 rows.
+
+A file with more rows than that imports as a table with every row,
+instead of being cut short.
 
 If your data is in Excel, save it as CSV first: **File → Save As
 → CSV**. The portal reads `.csv`, `.tsv` and `.txt`, but not
