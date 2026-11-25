@@ -21,13 +21,22 @@ class SomeController {
 
 type Caller = { ip: string; token?: string; user?: { id: string; orgId: string } | null };
 
+/** Response headers each call set, in order; the last call's at the end. */
+const sentHeaders: Array<Map<string, unknown>> = [];
+
 function contextFor(caller: Caller): ExecutionContext {
   const req = {
     ip: caller.ip,
     headers: caller.token ? { authorization: `Bearer ${caller.token}` } : {},
     user: caller.user ?? null,
   };
-  const res = { header: () => undefined };
+  const headers = new Map<string, unknown>();
+  sentHeaders.push(headers);
+  const res = {
+    header: (name: string, value: unknown) => {
+      headers.set(name, value);
+    },
+  };
   return {
     getType: () => 'http',
     getClass: () => SomeController,
@@ -120,6 +129,49 @@ describe('request limits by caller', () => {
     const fresh = { ip: '10.2.0.1', token: 't', user: { id: 'a-new', orgId: ORG_A } };
     expect(await call(fresh)).toBe('limited');
     expect(await call({ ip: '10.2.0.2', token: 't', user: b1.user })).toBe('ok');
+  });
+
+  it('many organizations: a 429 from the organization ceiling says when to retry, and nothing else', async () => {
+    mode('multi');
+    const ceiling = LIMIT * ORG_CEILING_FACTOR;
+    let sent = 0;
+    for (let p = 0; sent < ceiling; p++) {
+      const caller = { ip: `10.1.0.${p}`, token: 't', user: { id: `a-${p}`, orgId: ORG_A } };
+      for (let i = 0; i < LIMIT && sent < ceiling; i++, sent++) await call(caller);
+    }
+    sentHeaders.length = 0;
+    expect(await call({ ip: '10.2.0.1', token: 't', user: { id: 'a-new', orgId: ORG_A } })).toBe(
+      'limited',
+    );
+    const headers = sentHeaders.at(-1)!;
+    const retry = headers.get('Retry-After');
+    expect(typeof retry).toBe('number');
+    expect(retry as number).toBeGreaterThan(0);
+    expect(retry as number).toBeLessThanOrEqual(60);
+    // The only rate numbers are the person's own: their limit, not the
+    // organization's ceiling, and nothing counted across the organization.
+    expect(headers.get('X-RateLimit-Limit')).toBe(LIMIT);
+    expect(headers.get('X-RateLimit-Remaining')).toBe(LIMIT - 1);
+    for (const [name, value] of headers) {
+      if (name === 'Retry-After') continue;
+      expect(name.toLowerCase()).toMatch(/^x-ratelimit-(limit|remaining|reset)$/);
+      if (name !== 'X-RateLimit-Reset') expect(value).not.toBe(ceiling);
+    }
+  });
+
+  it('many organizations: a request under the ceiling gets no Retry-After', async () => {
+    mode('multi');
+    sentHeaders.length = 0;
+    expect(await call(a1)).toBe('ok');
+    expect(sentHeaders.at(-1)!.has('Retry-After')).toBe(false);
+  });
+
+  it('one organization: a 429 carries the stock headers, as before', async () => {
+    mode('single');
+    await spend(a1, LIMIT);
+    sentHeaders.length = 0;
+    expect(await call(a1)).toBe('limited');
+    expect(typeof sentHeaders.at(-1)!.get('Retry-After')).toBe('number');
   });
 
   it('many organizations: signed-out requests still count by address', async () => {

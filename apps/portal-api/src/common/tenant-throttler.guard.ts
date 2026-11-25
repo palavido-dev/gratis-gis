@@ -5,6 +5,7 @@ import {
   InjectThrottlerOptions,
   InjectThrottlerStorage,
   ThrottlerGuard,
+  type ThrottlerLimitDetail,
   type ThrottlerModuleOptions,
   type ThrottlerRequest,
   type ThrottlerStorage,
@@ -33,7 +34,9 @@ import { isMultiTenant } from './tenancy.js';
  *   counts against the person, with the route's limit, and then, only
  *   when the person is still within that limit, against the
  *   organization, with a wider ceiling. A person who is already held
- *   back does not use up the organization's ceiling.
+ *   back does not use up the organization's ceiling. A 429 from the
+ *   ceiling says when to retry (Retry-After) and nothing else about
+ *   the organization's count.
  * - Every count is per route: the key holds the controller and the
  *   handler, as the stock guard's does. So the organization ceiling is
  *   a ceiling per route, not one budget across the whole API.
@@ -125,6 +128,9 @@ export class AddressThrottlerGuard extends ThrottlerGuard {
  */
 @Injectable()
 export class OrgThrottlerGuard extends ThrottlerGuard {
+  /** The throttler name of an organization count in progress, by request. */
+  private readonly orgCountName = new WeakMap<object, string>();
+
   protected override async shouldSkip(context: ExecutionContext): Promise<boolean> {
     if (!isMultiTenant() || context.getType() !== 'http') return true;
     const req = context.switchToHttp().getRequest<ThrottledRequest>();
@@ -149,11 +155,36 @@ export class OrgThrottlerGuard extends ThrottlerGuard {
       ...props,
       getTracker: async () => `user:${caller.id}`,
     });
-    return super.handleRequest({
-      ...props,
-      throttler: { ...props.throttler, setHeaders: false },
-      limit: props.limit * ORG_CEILING_FACTOR,
-      getTracker: async () => `org:${caller.orgId}`,
-    });
+    const name = props.throttler.name ?? 'default';
+    this.orgCountName.set(req, name);
+    try {
+      return await super.handleRequest({
+        ...props,
+        throttler: { ...props.throttler, setHeaders: false },
+        limit: props.limit * ORG_CEILING_FACTOR,
+        getTracker: async () => `org:${caller.orgId}`,
+      });
+    } finally {
+      this.orgCountName.delete(req);
+    }
+  }
+
+  /**
+   * A 429 from the organization ceiling still carries Retry-After, the
+   * seconds until the block ends, as the stock guard sends. The other
+   * rate headers stay off, so the answer shows no organization-wide
+   * counts.
+   */
+  protected override async throwThrottlingException(
+    context: ExecutionContext,
+    detail: ThrottlerLimitDetail,
+  ): Promise<void> {
+    const { req, res } = this.getRequestResponse(context);
+    const name = this.orgCountName.get(req);
+    if (name !== undefined && detail.isBlocked) {
+      const suffix = name === 'default' ? '' : `-${name}`;
+      this.setResponseHeader(res, `Retry-After${suffix}`, detail.timeToBlockExpire);
+    }
+    return super.throwThrottlingException(context, detail);
   }
 }
