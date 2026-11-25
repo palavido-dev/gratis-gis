@@ -83,7 +83,7 @@ d('feature ObjectIDs', () => {
     );
     await pool.query(
       `INSERT INTO item (id, org_id, owner_id, type, title, data_json, updated_at)
-       VALUES ($1, $2, $3, 'data_layer', 'Layer', $4::jsonb, now())`,
+       VALUES ($1, $2, $3, 'data-layer', 'Layer', $4::jsonb, now())`,
       [ITEM, ORG, USER, JSON.stringify({ version: 3, layers: [{ id: 'pts' }, { id: 'lines' }] })],
     );
   });
