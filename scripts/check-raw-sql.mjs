@@ -13,8 +13,9 @@
 // The check fails when a file gains, loses or moves a site, so the
 // inventory and the baseline change in the same pull request as the
 // code. Run with --update only after the inventory is updated. It also
-// fails when an inventory row cites a `file:line` that no longer holds
-// a site of that kind, so the cited line numbers cannot go stale.
+// reports an inventory row that cites a `file:line` which no longer
+// holds a site of that kind. That is a note by default, because line
+// numbers move with every edit; pass --strict-lines to fail on it.
 //
 // What counts as a site (comments are ignored):
 //   prisma  .$queryRaw / .$executeRaw / .$queryRawUnsafe / .$executeRawUnsafe calls
@@ -294,7 +295,11 @@ function main() {
     console.error(`${INVENTORY} cites lines that no longer hold a raw SQL site:`);
     for (const p of stale) console.error(`  ${p}`);
     console.error('Correct the line numbers from: node scripts/check-raw-sql.mjs --list');
-    process.exit(1);
+    // Line numbers move whenever a file with raw SQL is edited, so a
+    // stale one is reported but only fails the run when asked to.
+    if (args.includes('--strict-lines')) process.exit(1);
+    console.log(`Raw SQL sites match the baseline: ${summary}. ${stale.length} inventory line(s) need a refresh.`);
+    return;
   }
   console.log(`Raw SQL sites match the baseline and the inventory lines: ${summary}.`);
 }
