@@ -705,6 +705,23 @@ export const ROUTES: Record<string, RouteEntry> = {
     params: { featureId: 'feature' },
     ...NO_CONTROL('collection ids carry a layer suffix the probe does not build'),
   }),
+  'GET /api/arcgis/rest/info': none(),
+  'GET /api/arcgis/rest/services': pubList(),
+  'GET /api/arcgis/rest/services/:service/FeatureServer': pub({ params: { service: 'data_layer:private' } }),
+  'GET /api/arcgis/rest/services/:service/FeatureServer/layers': pub({
+    params: { service: 'data_layer:private' },
+  }),
+  'GET /api/arcgis/rest/services/:service/FeatureServer/:layer': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+  }),
+  'GET /api/arcgis/rest/services/:service/FeatureServer/:layer/query': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+    query: { where: '=1=1', outFields: '=*' },
+  }),
+  'POST /api/arcgis/rest/services/:service/FeatureServer/:layer/query': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+    body: () => ({ where: '1=1', outFields: '*' }),
+  }),
   'GET /api/stac': none(),
   'GET /api/stac/api': none(),
   'GET /api/stac/conformance': none(),

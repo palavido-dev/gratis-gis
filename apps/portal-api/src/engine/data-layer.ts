@@ -840,7 +840,7 @@ function compileAttrGroup(
  * has two creates, and the caller owns it only if they made the
  * latest one. Same ordering as the per-entity collapse.
  */
-const LATEST_CREATE_ONLY = Prisma.sql`AND NOT EXISTS (
+export const LATEST_CREATE_ONLY = Prisma.sql`AND NOT EXISTS (
               SELECT 1 FROM observation later_create
               WHERE later_create.scope = observation.scope
                 AND later_create.entity = observation.entity

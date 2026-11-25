@@ -368,6 +368,7 @@ model FeatureOid {
   oid    BigInt @unique @default(autoincrement())
 
   @@id([scope, entity])
+  @@index([scope, oid])
   @@map("feature_oid")
 }
 
@@ -377,6 +378,18 @@ model FeatureOidScope {
   backfilledAt DateTime @default(now()) @map("backfilled_at") @db.Timestamptz(6)
 
   @@map("feature_oid_scope")
+}
+
+/// FeatureServer layer numbers: given on first sight, never changed.
+model FeatureServerLayer {
+  itemId     String   @map("item_id")
+  layerId    String   @map("layer_id")
+  layerIndex Int      @map("layer_index")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([itemId, layerId])
+  @@unique([itemId, layerIndex])
+  @@map("featureserver_layer")
 }
 
 /// Bytes held by one staged upload or queued import. Released when

@@ -17,7 +17,7 @@ export function dataLayerScopes(itemId: string, data: unknown): string[] {
 }
 
 /**
- * Forget the ObjectIDs of every layer of a purged item. Run beside the
+ * Forget the ObjectIDs and FeatureServer layer numbers of a purged item. Run beside the
  * observation delete in item teardown, in the same transaction.
  */
 export async function forgetItemOids(
@@ -27,4 +27,5 @@ export async function forgetItemOids(
   const prefix = `data_layer:${itemId}:%`;
   await db.$executeRaw(Prisma.sql`DELETE FROM feature_oid WHERE scope LIKE ${prefix}`);
   await db.$executeRaw(Prisma.sql`DELETE FROM feature_oid_scope WHERE scope LIKE ${prefix}`);
+  await db.$executeRaw(Prisma.sql`DELETE FROM featureserver_layer WHERE item_id = ${itemId}`);
 }
