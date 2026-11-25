@@ -25,7 +25,8 @@ describe('inviteConflictKey', () => {
 
   it('every locale has the words for each message', () => {
     for (const cat of [en, de, es, fr, ptBR]) {
-      const invite = (cat as { adminUsers?: { invite?: Record<string, string> } }).adminUsers?.invite;
+      const invite = (cat as { adminUsers?: { invite?: Record<string, string> } }).adminUsers
+        ?.invite;
       for (const k of ['errAlreadyMember', 'errAddressUnavailable', 'errDuplicate']) {
         expect(typeof invite?.[k]).toBe('string');
         expect(invite?.[k]?.length).toBeGreaterThan(0);
