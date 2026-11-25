@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Play, Plus, Save, Search, X } from 'lucide-react';
 
+import { formatBytes } from '@/lib/format-bytes';
 import { useT } from '@/lib/i18n/locale-context';
 import { OpenAddressesConnect } from './openaddresses-connect';
 
@@ -43,12 +44,6 @@ const BUSY: GeocoderStatus[] = ['queued', 'downloading', 'building'];
 
 const inputClass =
   'h-9 w-full rounded-md border border-border bg-surface-1 px-2 text-sm focus:border-accent focus:outline-hidden focus:ring-2 focus:ring-accent/30';
-
-function formatBytes(n: number | null): string {
-  if (n === null) return '?';
-  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
-  return `${Math.max(1, Math.round(n / 1024 ** 2))} MB`;
-}
 
 async function readJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
