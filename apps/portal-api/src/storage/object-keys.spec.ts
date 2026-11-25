@@ -18,6 +18,7 @@ import {
   objectKeyInStoredUrl,
   orgPrefix,
   parseObjectKey,
+  bareUrlBasesFromEnv,
   privatePathForBareUrl,
   publicUrlObject,
   samEmbedKeys,
@@ -315,28 +316,67 @@ describe('objectKeyInStoredUrl', () => {
 });
 
 describe('privatePathForBareUrl', () => {
-  it('maps a bare bucket URL of a private object to its API path, both layouts', () => {
-    expect(privatePathForBareUrl(`http://minio:9000/gratisgis/item-file/${U}`)).toBe(
+  const bases = { bases: ['https://files.example', 'http://minio:9000/'], bucket: 'gratisgis' };
+
+  it('maps a bare bucket URL of a private object of this install to its API path, both layouts', () => {
+    expect(privatePathForBareUrl(`http://minio:9000/gratisgis/item-file/${U}`, bases)).toBe(
       `/api/portal/storage/private/item-file/${U}`,
     );
-    expect(privatePathForBareUrl(`https://files.example/b/feature-attachment/o/${A}/${U}`)).toBe(
-      `/api/portal/storage/private/feature-attachment/o/${A}/${U}`,
+    expect(
+      privatePathForBareUrl(
+        `https://files.example/gratisgis/feature-attachment/o/${A}/${U}`,
+        bases,
+      ),
+    ).toBe(`/api/portal/storage/private/feature-attachment/o/${A}/${U}`);
+    expect(privatePathForBareUrl(`/gratisgis/item-tile-layer/o/${A}/${U}`, bases)).toBe(
+      `/api/portal/storage/private/item-tile-layer/o/${A}/${U}`,
     );
   });
 
-  it('leaves public kinds, other shapes and non-URLs alone', () => {
+  it('leaves public kinds, other hosts, other shapes and non-URLs alone', () => {
     for (const v of [
-      `https://files.example/b/item-thumb/${U}`,
-      `https://files.example/b/item-file/${U}?x=1`,
-      `https://files.example/b/item-file/o/${A}/x/${U}`,
-      `https://files.example/b/item-file/o/${B.toUpperCase()}/${U}`,
+      `https://files.example/gratisgis/item-thumb/${U}`,
+      `https://files.example/gratisgis/item-file/${U}?x=1`,
+      `https://files.example/gratisgis/item-file/o/${A}/x/${U}`,
+      `https://files.example/gratisgis/item-file/o/${B.toUpperCase()}/${U}`,
       `https://files.example/item-file/${U}`,
-      `ftp://files.example/b/item-file/${U}`,
+      `https://other.example/gratisgis/item-file/${U}`,
+      `https://files.example.other.example/gratisgis/item-file/${U}`,
+      `https://files.example/gratisgis/item-file/${'0'.repeat(32)}`,
+      `ftp://files.example/gratisgis/item-file/${U}`,
       `/api/portal/storage/private/item-file/${U}`,
+      `data:,/gratisgis/item-file/${U}`,
       'plain text',
     ]) {
-      expect({ v, got: privatePathForBareUrl(v) }).toEqual({ v, got: null });
+      expect({ v, got: privatePathForBareUrl(v, bases) }).toEqual({ v, got: null });
     }
+  });
+
+  it('reads its bases from the storage settings', () => {
+    expect(bareUrlBasesFromEnv({})).toEqual({
+      bases: ['http://localhost:9000', 'http://localhost:9000'],
+      bucket: 'gratisgis',
+    });
+    const fromEnv = bareUrlBasesFromEnv({
+      MINIO_ENDPOINT: 'http://minio:9000',
+      MINIO_PUBLIC_BASE: 'https://storage.example',
+      MINIO_BUCKET: 'b',
+    });
+    expect(fromEnv).toEqual({
+      bases: ['https://storage.example', 'http://minio:9000'],
+      bucket: 'b',
+    });
+    expect(privatePathForBareUrl(`https://storage.example/b/item-file/${U}`, fromEnv)).toBe(
+      `/api/portal/storage/private/item-file/${U}`,
+    );
+  });
+
+  it('ignores a configured base that is not an http(s) origin', () => {
+    const odd = { bases: ['files.example', ''], bucket: 'gratisgis' };
+    expect(privatePathForBareUrl(`files.example/gratisgis/item-file/${U}`, odd)).toBeNull();
+    expect(
+      privatePathForBareUrl(`/gratisgis/item-file/${U}`, { bases: [], bucket: '' }),
+    ).toBeNull();
   });
 });
 

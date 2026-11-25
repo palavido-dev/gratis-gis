@@ -319,35 +319,64 @@ const BARE_URL_PRIVATE_KINDS: ReadonlySet<string> = new Set<ObjectKind>([
   'feature-attachment',
 ]);
 
-function isHexOrHyphen(s: string): boolean {
-  if (s.length === 0) return false;
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s.charCodeAt(i);
-    if (!((c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66) || c === 0x2d)) return false;
-  }
-  return true;
+/**
+ * Where bare bucket URLs of this install can point: the public base
+ * and the storage endpoint the API itself uses, each followed by
+ * `/<bucket>/`. A relative `/<bucket>/` path counts too.
+ */
+export interface BareUrlBases {
+  bases: readonly string[];
+  bucket: string;
 }
 
 /**
- * The API path for a bare bucket URL of a private object
- * (`http(s)://<host>/<bucket>/<kind>/[o/<orgId>/]<uuid>`), or null when
- * `value` is anything else. Private objects are served only through
- * the API with a sharing check; an item saved with the bucket URL is
+ * The bases from the same settings StorageService reads: the public
+ * base (`MINIO_PUBLIC_BASE`, defaulting to the endpoint) and the
+ * endpoint the API uses (`MINIO_ENDPOINT`), with `MINIO_BUCKET`.
+ */
+export function bareUrlBasesFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): BareUrlBases {
+  const endpoint = env.MINIO_ENDPOINT || 'http://localhost:9000';
+  return {
+    bases: [env.MINIO_PUBLIC_BASE || endpoint, endpoint],
+    bucket: env.MINIO_BUCKET || 'gratisgis',
+  };
+}
+
+/**
+ * The API path for a bare bucket URL of a private object of this
+ * install, or null when `value` is anything else. The whole value must
+ * be `<base>/<bucket>/<kind>/[o/<orgId>/]<uuid>` (plus a suffix the
+ * kind allows), where `<base>` is one of `bases.bases` or empty (a
+ * relative path). Any other host, name, query or embedded text is
+ * left as written. Private objects are served only through the API
+ * with a sharing check; an item saved with the bucket URL is
  * rewritten to the API path.
  */
-export function privatePathForBareUrl(value: unknown): string | null {
+export function privatePathForBareUrl(value: unknown, bases: BareUrlBases): string | null {
   if (typeof value !== 'string' || value.length > MAX_URL_LENGTH) return null;
-  const scheme = value.startsWith('https://') ? 8 : value.startsWith('http://') ? 7 : 0;
-  if (scheme === 0) return null;
-  const hostEnd = value.indexOf('/', scheme);
-  if (hostEnd <= scheme) return null;
-  const bucketEnd = value.indexOf('/', hostEnd + 1);
-  if (bucketEnd <= hostEnd + 1) return null;
-  const key = value.slice(bucketEnd + 1);
+  if (bases.bucket.length === 0) return null;
+  const tail = `/${bases.bucket}/`;
+  let key: string | null = null;
+  for (const base of ['', ...bases.bases]) {
+    const trimmed = base.endsWith('/') ? base.slice(0, -1) : base;
+    if (base !== '' && !/^https?:\/\/[^/]/.test(trimmed)) continue;
+    const prefix = `${trimmed}${tail}`;
+    if (value.startsWith(prefix)) {
+      key = value.slice(prefix.length);
+      break;
+    }
+  }
+  if (key === null) return null;
   const parsed = parseObjectKey(key);
   if (!parsed || !BARE_URL_PRIVATE_KINDS.has(parsed.kind)) return null;
-  if (parsed.rest.includes('/') || !isHexOrHyphen(parsed.rest)) return null;
-  return `/api/portal/storage/private/${key}`;
+  const name = parsed.rest;
+  const named = suffixesOf(parsed.kind).some(
+    (suffix) =>
+      name.length === 36 + suffix.length && name.endsWith(suffix) && isLowerUuid(name.slice(0, 36)),
+  );
+  return named ? `/api/portal/storage/private/${key}` : null;
 }
 
 /**

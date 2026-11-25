@@ -170,7 +170,12 @@ import {
   withoutReferences,
   type ReferenceSource,
 } from './item-references.js';
-import { orgOwner, privatePathForBareUrl } from '../storage/object-keys.js';
+import {
+  bareUrlBasesFromEnv,
+  orgOwner,
+  privatePathForBareUrl,
+  type BareUrlBases,
+} from '../storage/object-keys.js';
 import { forgetItemFeatureUsage } from '../storage/feature-usage.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from '../offline-package/offline-package.service.js';
@@ -608,15 +613,19 @@ export function itemDataStorageKeys(data: unknown): string[] {
 
 /**
  * `data` with every string value that is a bare bucket URL of a
- * private object replaced by its API path (see privatePathForBareUrl).
+ * private object of this install replaced by its API path (see
+ * privatePathForBareUrl). Other strings are left as written.
  * Returns `data` itself when nothing changes.
  */
-export function rewriteBareStorageUrls(data: Prisma.InputJsonValue): Prisma.InputJsonValue {
+export function rewriteBareStorageUrls(
+  data: Prisma.InputJsonValue,
+  bases: BareUrlBases,
+): Prisma.InputJsonValue {
   let changed = false;
   const text = JSON.stringify(data);
   const next = JSON.parse(text, (_k, v: unknown) => {
     if (typeof v !== 'string') return v;
-    const path = privatePathForBareUrl(v);
+    const path = privatePathForBareUrl(v, bases);
     if (path === null) return v;
     changed = true;
     return path;
@@ -3277,7 +3286,7 @@ export class ItemsService {
     // direct MinIO URL because the bucket policy still allows
     // anonymous GET on those.
     if (nextData !== undefined) {
-      nextData = rewriteBareStorageUrls(nextData);
+      nextData = rewriteBareStorageUrls(nextData, bareUrlBasesFromEnv());
     }
 
     // Last transform before the row is written, so nothing downstream
