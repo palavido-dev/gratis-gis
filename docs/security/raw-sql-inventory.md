@@ -16,7 +16,7 @@ builds on it.
 
 ## Totals
 
-**234 sites** in 55 files. The guard counts the same 234.
+**238 sites** in 55 files. The guard counts the same 238.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
@@ -488,15 +488,19 @@ the statement they set up.
 | 223 | `featureserver/featureserver-query.service.ts:212` | prisma | `extent` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
 | 224 | `featureserver/featureserver-query.service.ts:225` | prisma | `layerExtent` | observation | scope from FeatureServerAccessService | **item-scoped** | Same access check as row 220. Returns the extent of every version ever written, not features; not clipped, like the bbox already shown in item metadata. |
 | 225 | `featureserver/featureserver-query.service.ts:235` | prisma | `project` | none (PostGIS on bound values) | none | **system** | Reprojects an extent. Reads no table. |
-| 226 | `featureserver/featureserver-query.service.ts:250` | raw | `statistics` | none (column alias) | none | **system** | `Prisma.raw` of a fixed alias `g<n>`; no input. |
-| 227 | `featureserver/featureserver-query.service.ts:251` | raw | `statistics` | none (column alias) | none | **system** | Fixed alias `s<n>`; no input. |
-| 228 | `featureserver/featureserver-query.service.ts:255` | raw | `statistics` | none (column alias) | none | **system** | GROUP BY of the fixed `g<n>` aliases. |
-| 229 | `featureserver/featureserver-query.service.ts:256` | raw | `statistics` | none (column alias) | none | **system** | ORDER BY of the fixed `g<n>` aliases. |
-| 230 | `featureserver/featureserver-query.service.ts:258` | prisma | `statistics` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. Statistic types and fields checked in esri-query-params.ts. |
-| 231 | `featureserver/featureserver-query.service.ts:286` | raw | `distinct` | none (column alias) | none | **system** | Fixed alias `d<n>`; no input. |
-| 232 | `featureserver/featureserver-query.service.ts:290` | prisma | `distinct` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
-| 233 | `featureserver/featureserver-query.service.ts:294` | raw | `distinct` | none (column alias) | none | **system** | ORDER BY of the fixed `d<n>` aliases. |
-| 234 | `featureserver/featureserver-query.service.ts:295` | prisma | `distinct` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 226 | `featureserver/featureserver-query.service.ts:288` | raw | `statistics` | none (column alias) | none | **system** | `Prisma.raw` of a fixed alias `g<n>`; no input. |
+| 227 | `featureserver/featureserver-query.service.ts:289` | raw | `statistics` | none (column alias) | none | **system** | Fixed alias `s<n>`; no input. |
+| 228 | `featureserver/featureserver-query.service.ts:293` | raw | `statistics` | none (column alias) | none | **system** | GROUP BY of the fixed `g<n>` aliases. |
+| 229 | `featureserver/featureserver-query.service.ts:294` | raw | `statistics` | none (column alias) | none | **system** | ORDER BY of the fixed `g<n>` aliases. |
+| 230 | `featureserver/featureserver-query.service.ts:296` | prisma | `statistics` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. Statistic types and fields checked in esri-query-params.ts. |
+| 231 | `featureserver/featureserver-query.service.ts:324` | raw | `distinct` | none (column alias) | none | **system** | Fixed alias `d<n>`; no input. |
+| 232 | `featureserver/featureserver-query.service.ts:328` | prisma | `distinct` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 233 | `featureserver/featureserver-query.service.ts:332` | raw | `distinct` | none (column alias) | none | **system** | ORDER BY of the fixed `d<n>` aliases. |
+| 234 | `featureserver/featureserver-query.service.ts:333` | prisma | `distinct` | feature_oid, observation | as row 220 | **item-scoped** | As row 220. |
+| 235 | `featureserver/featureserver-query.service.ts:251` | prisma | `toWgs84` | none (PostGIS on bound values) | none | **system** | Reprojects edit geometries to EPSG:4326. Reads no table. |
+| 236 | `featureserver/featureserver-query.service.ts:272` | prisma | `outsideLimit` | none (PostGIS on bound values) | geo limit from SharingService.featureScopeFor | **system** | Same test as the feature routes' assertGeometriesInsideLimit, on applyEdits geometries. Reads no table. |
+| 237 | `engine/data-layer.ts:1276` | prisma | `commitLayersSync` | item (FOR UPDATE) | `itemId` from FeatureServerAccessService | **item-scoped** | As rows 59 and 60, for several sublayers in one transaction. Callers checked edit rights first (access.layer(..., 'edit'): ItemsService.assertCanEdit, assertLayerEditingEnabled, featureScopeFor edit). |
+| 238 | `engine/data-layer.ts:1307` | prisma | `commitLayersSync` | item (UPDATE data_json) | as row 237 | **item-scoped** | As row 237. |
 
 ## Keeping this up to date
 

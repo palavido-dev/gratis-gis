@@ -1521,6 +1521,271 @@ export class DataLayerFeaturesService {
     }
   }
 
+  /**
+   * Check a batch of creates, updates and deletes on one sublayer (the
+   * Esri FeatureServer `applyEdits`), the way the single-feature routes
+   * check them: the caller's write scope must reach every updated or
+   * deleted feature, and attributes go through the same validation.
+   * Writes nothing; commitEditPlans writes the plans of one item in one
+   * transaction.
+   */
+  async prepareEditBatch(
+    itemId: string,
+    layerId: string,
+    user: AuthUser,
+    batch: EditBatch,
+    opts: { shareScope?: FeatureScopeFilter; isTable?: boolean },
+  ): Promise<EditPlan> {
+    const isTable = opts.isTable === true;
+    const adds: EditOutcome[] = batch.adds.map(() => ({ ok: true }));
+    const updates: EditOutcome[] = batch.updates.map((u) => ({ ok: true, globalId: u.globalId }));
+    const deletes: EditOutcome[] = batch.deletes.map((id) => ({ ok: true, globalId: id }));
+    const messageOf = (err: unknown): string =>
+      err instanceof BadRequestException || err instanceof NotFoundException
+        ? String((err.getResponse() as { message?: unknown }).message ?? err.message)
+        : err instanceof Error
+          ? err.message
+          : String(err);
+
+    const schema = await this.loadLayerSchema(itemId, layerId);
+
+    const addProps: Array<Record<string, unknown> | undefined> = [];
+    for (let i = 0; i < batch.adds.length; i++) {
+      const a = batch.adds[i]!;
+      if (a.globalId !== undefined && !isUuid(a.globalId)) {
+        failEdit(adds, i, 1000, 'The GlobalID is not a valid id.');
+        addProps.push(undefined);
+        continue;
+      }
+      try {
+        const [v] = await this.validateAll(itemId, layerId, [{ properties: a.properties }], 'create', user, { schema });
+        addProps.push(v);
+      } catch (err) {
+        failEdit(adds, i, 1000, messageOf(err));
+        addProps.push(undefined);
+      }
+    }
+
+    // Every update and delete target, read once, inside the write scope.
+    const targetIds = [...new Set([...batch.updates.map((u) => u.globalId), ...batch.deletes])].filter((id) => isUuid(id));
+    const existing = new Map<string, DataLayerFeatureOut>();
+    for (let i = 0; i < targetIds.length; i += 1000) {
+      const page = await this.dataLayer.listFeatures({
+        itemId,
+        layerId,
+        entityIds: targetIds.slice(i, i + 1000),
+        limit: 1000,
+        ...(opts.shareScope ?? {}),
+        ...(isTable ? { isTable: true } : {}),
+      });
+      for (const f of page.features) existing.set(String(f.id), f as DataLayerFeatureOut);
+    }
+
+    const touched = new Set<string>();
+    const updateWrites: EditPlan['updateWrites'] = [];
+    for (let i = 0; i < batch.updates.length; i++) {
+      const u = batch.updates[i]!;
+      const cur = existing.get(u.globalId);
+      if (!cur) {
+        failEdit(updates, i, 1019, 'The feature does not exist, or you cannot edit it.');
+        continue;
+      }
+      if (touched.has(u.globalId)) {
+        failEdit(updates, i, 1000, 'The same feature is edited twice in one request.');
+        continue;
+      }
+      touched.add(u.globalId);
+      try {
+        const patch =
+          u.properties !== undefined
+            ? ((await this.validateAll(itemId, layerId, [{ properties: u.properties }], 'patch', user, { schema }))[0] ??
+              u.properties)
+            : {};
+        const head = cur.properties._observation_id;
+        updateWrites.push({
+          i,
+          properties: { ...stripUnderscoreKeys(cur.properties), ...stripUnderscoreKeys(patch) },
+          geometry: isTable ? null : u.geometry !== undefined ? u.geometry : (cur.geometry as GeoJsonGeometry | null),
+          before: cur.geometry,
+          ...(typeof head === 'string' ? { head } : {}),
+        });
+      } catch (err) {
+        failEdit(updates, i, 1000, messageOf(err));
+      }
+    }
+
+    const deleteWrites: EditPlan['deleteWrites'] = [];
+    for (let i = 0; i < batch.deletes.length; i++) {
+      const id = batch.deletes[i]!;
+      const cur = existing.get(id);
+      if (!cur) {
+        failEdit(deletes, i, 1019, 'The feature does not exist, or you cannot edit it.');
+        continue;
+      }
+      if (touched.has(id)) {
+        failEdit(deletes, i, 1000, 'The same feature is edited twice in one request.');
+        continue;
+      }
+      touched.add(id);
+      const head = cur.properties._observation_id;
+      deleteWrites.push({ i, before: cur.geometry, ...(typeof head === 'string' ? { head } : {}) });
+    }
+
+    return { layerId, isTable, batch, addProps, updateWrites, deleteWrites, adds, updates, deletes };
+  }
+
+  /**
+   * Write prepared plans of one item in one transaction. With
+   * `rollbackOnFailure` a failed check or a feature changed by someone
+   * else since it was read means nothing is written, and every edit
+   * that would have passed reports that it was not applied. Without
+   * it, what passes is written and the rest report their own error.
+   */
+  async commitEditPlans(
+    itemId: string,
+    user: AuthUser,
+    plans: EditPlan[],
+    rollbackOnFailure: boolean,
+  ): Promise<EditBatchResult[]> {
+    const result = (p: EditPlan, applied: boolean): EditBatchResult => ({
+      layerId: p.layerId,
+      adds: p.adds,
+      updates: p.updates,
+      deletes: p.deletes,
+      applied,
+    });
+    const notApplied = (): EditBatchResult[] =>
+      plans.map((p) => {
+        const mark = (list: EditOutcome[]): EditOutcome[] =>
+          list.map((o) =>
+            o.ok
+              ? {
+                  ok: false,
+                  code: 1000,
+                  message: 'Not applied: another edit in this request failed.',
+                  ...(o.globalId ? { globalId: o.globalId } : {}),
+                }
+              : o,
+          );
+        return { layerId: p.layerId, adds: mark(p.adds), updates: mark(p.updates), deletes: mark(p.deletes), applied: false };
+      });
+    const anyFailed = plans.some((p) => [...p.adds, ...p.updates, ...p.deletes].some((o) => !o.ok));
+    if (rollbackOnFailure && anyFailed) return notApplied();
+
+    const principal = { sub: user.id, displayName: user.username ?? '' };
+    const conflict = new Error('applyEdits conflict');
+    const layerIds = [...new Set(plans.map((p) => p.layerId))];
+    try {
+      await this.dataLayer.commitLayersSync(itemId, layerIds, async ({ tx, sourceFor }) => {
+        const wroteLayers = new Set<string>();
+        for (const p of plans) {
+          const source = sourceFor(p.layerId);
+          const layerId = p.layerId;
+          const addIdx = p.batch.adds.map((_, i) => i).filter((i) => p.adds[i]!.ok);
+          if (addIdx.length > 0) {
+            const args: CreateFeatureArgs[] = addIdx.map((i) => {
+              const a = p.batch.adds[i]!;
+              return {
+                itemId,
+                layerId,
+                principal,
+                source,
+                ...(a.globalId !== undefined ? { globalId: a.globalId } : {}),
+                ...(p.addProps[i] !== undefined ? { properties: p.addProps[i] } : {}),
+                geometry: p.isTable ? null : a.geometry,
+              };
+            });
+            const written = await this.dataLayer.writeFeaturesCreateIdempotent(args, tx);
+            written.forEach((w, k) => {
+              p.adds[addIdx[k]!] = { ok: true, globalId: w.globalId };
+              if (!w.deduplicated) wroteLayers.add(layerId);
+            });
+          }
+          for (const u of p.updateWrites) {
+            if (!p.updates[u.i]!.ok) continue;
+            const r = await this.dataLayer.writeFeatureUpdate(
+              {
+                itemId,
+                layerId,
+                globalId: p.batch.updates[u.i]!.globalId,
+                principal,
+                source,
+                properties: u.properties,
+                geometry: u.geometry,
+                ...(u.head !== undefined ? { expectedHeadObservationId: u.head } : {}),
+              },
+              tx,
+            );
+            if ('conflict' in r) {
+              if (rollbackOnFailure) throw conflict;
+              failEdit(p.updates, u.i, 1000, 'Someone else changed this feature since it was read. Refresh and try again.');
+            } else {
+              wroteLayers.add(layerId);
+            }
+          }
+          for (const d of p.deleteWrites) {
+            if (!p.deletes[d.i]!.ok) continue;
+            const r = await this.dataLayer.writeFeatureDelete(
+              {
+                itemId,
+                layerId,
+                globalId: p.batch.deletes[d.i]!,
+                principal,
+                source,
+                ...(d.head !== undefined ? { expectedHeadObservationId: d.head } : {}),
+              },
+              tx,
+            );
+            if ('conflict' in r) {
+              if (rollbackOnFailure) throw conflict;
+              failEdit(p.deletes, d.i, 1000, 'Someone else changed this feature since it was read. Refresh and try again.');
+            } else {
+              wroteLayers.add(layerId);
+            }
+          }
+        }
+        return { wroteLayers, value: null };
+      });
+    } catch (err) {
+      if (err !== conflict) throw err;
+      return notApplied().map((r) => ({
+        ...r,
+        updates: r.updates.map((o) =>
+          !o.ok && o.message.startsWith('Not applied')
+            ? { ...o, message: 'Not applied: a feature in this request was changed by someone else since it was read.' }
+            : o,
+        ),
+      }));
+    }
+
+    for (const p of plans) {
+      const writtenAdds = p.batch.adds.map((_, i) => i).filter((i) => p.adds[i]!.ok);
+      const writtenUpdates = p.updateWrites.filter((u) => p.updates[u.i]!.ok);
+      const writtenDeletes = p.deleteWrites.filter((d) => p.deletes[d.i]!.ok);
+      if (writtenAdds.length + writtenUpdates.length > 0) {
+        void this.cacheRefresh.notifySourceWrite(itemId, p.layerId, [
+          ...writtenAdds.map((i) => p.addProps[i]),
+          ...writtenUpdates.map((u) => u.properties),
+        ]);
+      }
+      if (p.isTable) continue;
+      if (writtenAdds.length > 0) {
+        this.scheduleBboxRefresh(itemId, { kind: 'insert', geometries: writtenAdds.map((i) => p.batch.adds[i]!.geometry) });
+      }
+      if (writtenUpdates.length > 0) {
+        this.scheduleBboxRefresh(itemId, {
+          kind: 'update',
+          before: writtenUpdates.map((u) => u.before),
+          after: writtenUpdates.map((u) => u.geometry),
+        });
+      }
+      if (writtenDeletes.length > 0) {
+        this.scheduleBboxRefresh(itemId, { kind: 'delete', geometries: writtenDeletes.map((d) => d.before) });
+      }
+    }
+    return plans.map((p) => result(p, true));
+  }
+
   /** Soft-delete a feature by appending a `kind: 'delete'`
    *  observation. The read path filters tombstones out, so the
    *  entity disappears from feature collections; nothing is
@@ -2237,3 +2502,46 @@ export function trimConflictRing<T>(ring: T[]): T[] {
   return out;
 }
 
+/** One `applyEdits` batch on a sublayer, already in GeoJSON. */
+export interface EditBatch {
+  adds: Array<{ globalId?: string; properties: Record<string, unknown>; geometry: GeoJsonGeometry | null }>;
+  updates: Array<{ globalId: string; properties?: Record<string, unknown>; geometry?: GeoJsonGeometry | null }>;
+  deletes: string[];
+}
+
+export type EditOutcome =
+  | { ok: true; globalId?: string }
+  | { ok: false; globalId?: string; code: number; message: string };
+
+/** A checked batch, ready for commitEditPlans. */
+export interface EditPlan {
+  layerId: string;
+  isTable: boolean;
+  batch: EditBatch;
+  addProps: Array<Record<string, unknown> | undefined>;
+  updateWrites: Array<{
+    i: number;
+    properties: Record<string, unknown>;
+    geometry: GeoJsonGeometry | null;
+    before: unknown;
+    head?: string;
+  }>;
+  deleteWrites: Array<{ i: number; before: unknown; head?: string }>;
+  adds: EditOutcome[];
+  updates: EditOutcome[];
+  deletes: EditOutcome[];
+}
+
+export interface EditBatchResult {
+  layerId: string;
+  adds: EditOutcome[];
+  updates: EditOutcome[];
+  deletes: EditOutcome[];
+  /** False when rollbackOnFailure stopped the batch. */
+  applied: boolean;
+}
+
+function failEdit(list: EditOutcome[], i: number, code: number, message: string): void {
+  const id = list[i]!.globalId;
+  list[i] = { ok: false, code, message, ...(id ? { globalId: id } : {}) };
+}

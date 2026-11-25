@@ -705,22 +705,64 @@ export const ROUTES: Record<string, RouteEntry> = {
     params: { featureId: 'feature' },
     ...NO_CONTROL('collection ids carry a layer suffix the probe does not build'),
   }),
+  // Anonymous callers get Esri's "token required" (401) for anything
+  // not public, so ArcGIS Pro shows its sign-in prompt; a signed-in
+  // caller who may not read it gets 404.
   'GET /api/arcgis/rest/info': none(),
+  'GET /api/arcgis/tokens/generateToken': none(),
+  'POST /api/arcgis/tokens/generateToken': none({ body: () => ({ username: 'x', password: 'y' }) }),
   'GET /api/arcgis/rest/services': pubList(),
-  'GET /api/arcgis/rest/services/:service/FeatureServer': pub({ params: { service: 'data_layer:private' } }),
+  'GET /api/arcgis/rest/services/:service/FeatureServer': pub({
+    params: { service: 'data_layer:private' },
+    expect: [401, 404],
+  }),
   'GET /api/arcgis/rest/services/:service/FeatureServer/layers': pub({
     params: { service: 'data_layer:private' },
+    expect: [401, 404],
   }),
   'GET /api/arcgis/rest/services/:service/FeatureServer/:layer': pub({
     params: { service: 'data_layer:private', layer: '=0' },
+    expect: [401, 404],
   }),
   'GET /api/arcgis/rest/services/:service/FeatureServer/:layer/query': pub({
     params: { service: 'data_layer:private', layer: '=0' },
     query: { where: '=1=1', outFields: '=*' },
+    expect: [401, 404],
   }),
   'POST /api/arcgis/rest/services/:service/FeatureServer/:layer/query': pub({
     params: { service: 'data_layer:private', layer: '=0' },
     body: () => ({ where: '1=1', outFields: '*' }),
+    expect: [401, 404],
+  }),
+  'POST /api/arcgis/rest/services/:service/FeatureServer/applyEdits': pub({
+    params: { service: 'data_layer:private' },
+    body: () => ({ edits: JSON.stringify([{ id: 0, deletes: [1] }]) }),
+    expect: [401, 404],
+    ...NO_CONTROL('edits need a signed-in editor; the anonymous control is refused by design'),
+  }),
+  'POST /api/arcgis/rest/services/:service/FeatureServer/:layer/applyEdits': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+    body: () => ({ deletes: '[1]' }),
+    expect: [401, 404],
+    ...NO_CONTROL('edits need a signed-in editor; the anonymous control is refused by design'),
+  }),
+  'POST /api/arcgis/rest/services/:service/FeatureServer/:layer/addFeatures': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+    body: () => ({ features: '[{"attributes":{"status":"x"}}]' }),
+    expect: [401, 404],
+    ...NO_CONTROL('edits need a signed-in editor; the anonymous control is refused by design'),
+  }),
+  'POST /api/arcgis/rest/services/:service/FeatureServer/:layer/updateFeatures': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+    body: () => ({ features: '[{"attributes":{"OBJECTID":1,"status":"x"}}]' }),
+    expect: [401, 404],
+    ...NO_CONTROL('edits need a signed-in editor; the anonymous control is refused by design'),
+  }),
+  'POST /api/arcgis/rest/services/:service/FeatureServer/:layer/deleteFeatures': pub({
+    params: { service: 'data_layer:private', layer: '=0' },
+    body: () => ({ where: '1=1' }),
+    expect: [401, 404],
+    ...NO_CONTROL('edits need a signed-in editor; the anonymous control is refused by design'),
   }),
   'GET /api/stac': none(),
   'GET /api/stac/api': none(),

@@ -182,7 +182,7 @@ const SQL_TYPE: Record<EsriFieldKind, string> = {
 };
 
 /** A field as it appears in a layer document or a query response. */
-export function fieldDoc(f: EsriField): Record<string, unknown> {
+export function fieldDoc(f: EsriField, editable = false): Record<string, unknown> {
   return {
     name: f.name,
     type: ESRI_TYPE[f.kind],
@@ -191,8 +191,9 @@ export function fieldDoc(f: EsriField): Record<string, unknown> {
     ...(f.length !== undefined ? { length: f.length } : {}),
     ...(f.kind === 'date' ? { length: 8 } : {}),
     nullable: f.nullable,
-    // Edits arrive in a later part; until then nothing is editable.
-    editable: false,
+    // Editable only for a caller who may edit the layer; the ObjectID
+    // and GlobalID are the server's.
+    editable: editable && f.kind !== 'oid' && f.kind !== 'globalid',
     domain: f.domain,
     defaultValue: null,
   };

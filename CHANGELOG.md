@@ -8,12 +8,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
-- ArcGIS Pro and QGIS can add a data layer as a feature layer (read only
-  for now). Each data layer item is an Esri FeatureServer at
+- ArcGIS Pro can sign in to GratisGIS and edit data layers: add, move,
+  reshape and delete features and change attributes, saved through the
+  same permission and validation checks as the portal, in one
+  transaction across the layers of a save. Sign in with your username
+  and a personal API key as the password; a read-only key can only
+  view. QGIS can edit too, with the key sent as an API header.
+- ArcGIS Pro and QGIS can add a data layer as a feature layer. Each
+  data layer item is an Esri FeatureServer at
   `/api/arcgis/rest/services/<name>/FeatureServer`, with search,
   filters, paging, statistics and reprojection. Public layers open with
-  no sign-in; private ones take a personal API key until Esri sign-in
-  arrives with editing. Migration `featureserver_layer` keeps each
+  no sign-in. Migration `featureserver_layer` keeps each
   sublayer's layer number fixed.
 - Groundwork for editing in ArcGIS Pro: every data layer feature now gets
   a permanent whole-number ObjectID, which Pro needs to name a feature.
