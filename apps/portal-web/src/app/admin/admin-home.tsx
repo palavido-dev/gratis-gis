@@ -23,6 +23,7 @@ import {
   Smartphone,
   Sparkles,
   UserCog,
+  MapPinned,
 } from 'lucide-react';
 
 import {
@@ -49,6 +50,7 @@ const ICONS: Record<string, ComponentType<{ className?: string }>> = {
   backup: Archive,
   updates: RefreshCw,
   email: Mail,
+  geocoding: MapPinned,
   support: LifeBuoy,
 };
 

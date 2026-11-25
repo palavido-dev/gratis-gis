@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS = [
   'admin.branding',
   'admin.diagnostics',
   'admin.smtp',
+  'admin.geocoder',
   'notifications.defaults',
   'notifications.template',
   'housekeeping.config',

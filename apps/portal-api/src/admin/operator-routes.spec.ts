@@ -38,6 +38,7 @@ const RULES: Record<string, Rule> = {
   'admin/maintenance-admin.controller.ts': { kind: 'operator' },
   'admin/readiness.controller.ts': { kind: 'operator' },
   'backup/backup.controller.ts': { kind: 'operator' },
+  'geocoder/geocoder-admin.controller.ts': { kind: 'operator' },
   'feedback/feedback-admin.controller.ts': { kind: 'operator' },
   'notifications/admin.controller.ts': {
     kind: 'mixed',

@@ -8,6 +8,16 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- **Admin -> Geocoding** sets up address search with no server
+  configuration: pick regions from Geofabrik's list, choose Census
+  address ranges and OpenAddresses, and portal-worker downloads the
+  data, builds an open-geocode index and serves it. Shows progress, a
+  build log and a test box, and can rebuild monthly or quarterly.
+  Address search, What's Here, the field app and spreadsheet import
+  switch to it once it answers; until then they keep using Nominatim.
+  The portal-api image now includes open-geocode 1.0.0. A locked
+  portal (PORTAL_LOCK_ADMIN_TIER) is set up with `GEOCODER_REGIONS`.
+  (#833)
 - Address search completes as you type when the portal uses
   open-geocode: "223 Merch" finds 223 Merchants Walk, and a partly
   typed place name finds the place. Map search, What's Here and the

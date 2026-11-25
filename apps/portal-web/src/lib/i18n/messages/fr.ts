@@ -93,6 +93,7 @@ export const fr: Partial<CatalogShape> = {
       signIn: { title: 'Connexion', desc: 'Comptes professionnels utilisés pour se connecter, et si un authentificateur est exigé.' },
       landing: { title: 'Page d’accueil', desc: 'Ce que les visiteurs voient sur la page d’accueil avant de se connecter.' },
       ai: { title: 'Assistant IA', desc: 'Connecter un fournisseur d’IA pour rédiger et construire. Désactivé tant qu’aucun n’est ajouté.' },
+      geocoding: { title: 'Géocodage', desc: 'Choisir les régions couvertes par la recherche d’adresses. Le portail télécharge les données cartographiques et les tient à jour.' },
       feedback: { title: 'Boîte des retours', desc: 'Ce que les personnes ont envoyé depuis le portail, du plus récent au plus ancien.' },
       jobs: { title: 'Imports et analyses', desc: 'Imports et analyses en cours et récents, avec annulation et nouvel essai.' },
       fieldQueues: { title: 'Files terrain', desc: 'Ce que chaque appareil de terrain attend de synchroniser, et sa dernière connexion.' },

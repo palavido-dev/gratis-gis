@@ -2338,6 +2338,9 @@ services:
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       # Vector tiles are also kept on disk, so maps load quickly after
       # a restart or an update. Set TILE_CACHE_DISK_MAX_BYTES=0 to turn
       # it off. The default cap is 1 GiB.
@@ -2401,12 +2404,22 @@ services:
       PORTAL_NAME: ${PORTAL_NAME:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
+      # Seeds Admin -> Geocoding on a portal whose admin page is locked
+      # (PORTAL_LOCK_ADMIN_TIER), such as a public demo: comma-separated
+      # Geofabrik ids, for example us/west-virginia.
+      GEOCODER_REGIONS: ${GEOCODER_REGIONS:-}
+      GEOCODER_TIGER: ${GEOCODER_TIGER:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
       # 06-5: search index builds run here now, queued by portal-api.
       SEARCH_INDEX_BUILD_TIMEOUT_MS: ${SEARCH_INDEX_BUILD_TIMEOUT_MS:-}
     volumes:
       - boot:/boot:ro
       - gg-staging:/var/lib/gg-staging
+      # Admin -> Geocoding: downloads, TIGER cache and the built index.
+      - geocoder-data:/var/lib/gratis/geocoder
     depends_on:
       portal-api:
         condition: service_healthy
@@ -2525,6 +2538,9 @@ services:
       # NOMINATIM_PUBLIC_FALLBACK is 0.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
       GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
       GRATIS_SESSION_IDLE_SECONDS: ${GRATIS_SESSION_IDLE_SECONDS:-}
@@ -2679,6 +2695,8 @@ volumes:
   gg-staging:
   # Vector tile disk cache. Safe to delete; tiles are rebuilt on use.
   tile-cache:
+  # Managed geocoder (portal-worker). Deleting it only costs a rebuild.
+  geocoder-data:
 
 networks:
   gratis-net:
