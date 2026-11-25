@@ -1086,6 +1086,7 @@ describe('AdminUsersController.invite of an address that already has an account'
   it.each([
     ['a signed-in member', { localInOrg: true }],
     ['an invited member who never signed in', { kcOrg: 'acme' }],
+    ['an invited member whose org attribute holds the organization id', { kcOrg: 'org-1' }],
   ])('many organizations: %s of the same organization gets 409 already_member', async (_l, opts) => {
     mode('multi');
     const { controller, kc, record } = setup(opts);

@@ -259,6 +259,7 @@ describe('people already holding an account, by organization mode', () => {
 
   it.each([
     ['its Keycloak account names the organization', { accountOrg: { jane_acme: 'acme', 'pat@acme.org': 'acme' } }],
+    ['its Keycloak account holds the organization id', { accountOrg: { jane_acme: 'org-1', 'pat@acme.org': 'org-1' } }],
     ['it has a local row in the organization', { localInOrg: ['jane_acme', 'pat_acme'] }],
   ])('many organizations: an account in the organization is matched when %s', async (_l, extra) => {
     mode('multi');

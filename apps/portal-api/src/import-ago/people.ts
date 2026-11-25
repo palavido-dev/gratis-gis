@@ -27,6 +27,7 @@ import type { GroupAccess, OrgRole } from '@prisma/client';
 
 import { isAdminTierLocked } from '../admin/admin-tier-lock.js';
 import { KeycloakAdminService } from '../admin/keycloak-admin.service.js';
+import { keycloakAccountInOrg } from '../admin/keycloak-org.js';
 import { isMultiTenant } from '../common/tenancy.js';
 import { KeycloakSyncService } from '../admin/keycloak-sync.service.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
@@ -337,7 +338,7 @@ export class AgoPeopleImportService {
     if (local) return true;
     // Created or invited but never signed in: only Keycloak knows them.
     const accounts = await this.kc.findAccountsByUsernameOrEmail(username, email);
-    return accounts.some((a) => a.attributes?.org?.includes(user.orgSlug) === true);
+    return accounts.some((a) => keycloakAccountInOrg(a, user));
   }
 }
 

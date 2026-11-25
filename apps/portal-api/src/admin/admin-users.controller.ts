@@ -34,6 +34,7 @@ import {
   KeycloakAdminService,
   type KeycloakUserRep,
 } from './keycloak-admin.service.js';
+import { keycloakAccountInOrg, keycloakOrgAttribute } from './keycloak-org.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { disableLocalAccount, enableLocalAccount } from '../auth/account-disable.js';
@@ -366,7 +367,7 @@ export class AdminUsersController {
     if (local) return true;
     // Invited but never signed in: only Keycloak knows them.
     const accounts = await this.kc.findAccountsByUsernameOrEmail(username, email);
-    return accounts.some((a) => a.attributes?.org?.includes(me.orgSlug) === true);
+    return accounts.some((a) => keycloakAccountInOrg(a, me));
   }
 
   @Patch(':id')
@@ -1235,21 +1236,13 @@ function inCallerOrg(
   kcUser: KeycloakUserRep,
   localOrgId: string | null | undefined,
 ): boolean {
-  const kcOrg = readOrgAttribute(kcUser);
-  const kcMatches = kcOrg === me.orgSlug || (kcOrg !== undefined && kcOrg === me.orgId);
+  const kcOrg = keycloakOrgAttribute(kcUser);
+  const kcMatches = keycloakAccountInOrg(kcUser, me);
   const kcConflicts = kcOrg !== undefined && !kcMatches;
   const localMatches = localOrgId != null && localOrgId === me.orgId;
   const localConflicts = localOrgId != null && localOrgId !== me.orgId;
   if (kcConflicts || localConflicts) return false;
   return kcMatches || localMatches;
-}
-
-/** Read the single-valued Keycloak `org` user-attribute. */
-function readOrgAttribute(user: KeycloakUserRep): string | undefined {
-  const arr = user.attributes?.org;
-  if (!Array.isArray(arr)) return undefined;
-  const first = arr[0];
-  return typeof first === 'string' && first.length > 0 ? first : undefined;
 }
 
 /**
