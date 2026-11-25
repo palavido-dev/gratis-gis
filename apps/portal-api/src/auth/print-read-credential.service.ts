@@ -61,6 +61,16 @@ export class PrintReadCredentialService {
   }
 
   /**
+   * The user a credential was minted for, when its signature is good
+   * and it has not expired; null otherwise. No database read, so the
+   * request limits can use it before sign-in. Says nothing about
+   * whether the request is allowed: `resolve` decides that.
+   */
+  signedUserId(token: string): string | null {
+    return verifyPrintReadCredential(token, this.key)?.uid ?? null;
+  }
+
+  /**
    * The principal a request with this credential runs as, or an
    * exception. The route, the method and the item ids are checked
    * here; the item's sharing is checked by the handler itself, as the

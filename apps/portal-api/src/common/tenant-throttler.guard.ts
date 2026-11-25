@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { Injectable, type ExecutionContext } from '@nestjs/common';
-import { ThrottlerGuard, type ThrottlerRequest } from '@nestjs/throttler';
+import { Injectable, Optional, type ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import {
+  InjectThrottlerOptions,
+  InjectThrottlerStorage,
+  ThrottlerGuard,
+  type ThrottlerModuleOptions,
+  type ThrottlerRequest,
+  type ThrottlerStorage,
+} from '@nestjs/throttler';
 
+import { looksLikePrintReadCredential } from '../auth/print-read-credential.js';
+import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
 import { isMultiTenant } from './tenancy.js';
 
 /**
@@ -20,8 +30,21 @@ import { isMultiTenant } from './tenancy.js';
  *   (`AddressThrottlerGuard`), so a flood of made-up credentials from
  *   one address is still held back.
  * - Once signed in (`OrgThrottlerGuard`, after the auth guard) it
- *   counts against the person, with the route's limit, and against
- *   the organization, with a wider ceiling.
+ *   counts against the person, with the route's limit, and then, only
+ *   when the person is still within that limit, against the
+ *   organization, with a wider ceiling. A person who is already held
+ *   back does not use up the organization's ceiling.
+ * - Every count is per route: the key holds the controller and the
+ *   handler, as the stock guard's does. So the organization ceiling is
+ *   a ceiling per route, not one budget across the whole API.
+ * - Requests the server makes to itself arrive from one address for
+ *   every organization. A print render's layer reads carry a print
+ *   credential, which is checked by its signature alone, so they count
+ *   against the person the print is for instead of that address. A
+ *   script run's API key can only be checked against the database, so
+ *   before sign-in its requests still count against the address in
+ *   the wider budget, and after sign-in against the person and the
+ *   organization like any other.
  * - On a public route, a credential that signs nobody in (the route
  *   answers it as signed out) counts against the address with the
  *   route's limit, the same budget as signed-out requests. On other
@@ -62,16 +85,37 @@ function signedIn(req: ThrottledRequest): { id: string; orgId: string } | null {
  */
 @Injectable()
 export class AddressThrottlerGuard extends ThrottlerGuard {
+  constructor(
+    @InjectThrottlerOptions() options: ThrottlerModuleOptions,
+    @InjectThrottlerStorage() storage: ThrottlerStorage,
+    reflector: Reflector,
+    @Optional() private readonly printRead?: PrintReadCredentialService,
+  ) {
+    super(options, storage, reflector);
+  }
+
   protected override async handleRequest(props: ThrottlerRequest): Promise<boolean> {
     if (!isMultiTenant()) return super.handleRequest(props);
     const { req } = this.getRequestResponse(props.context);
     if (!presentsCredential(req as ThrottledRequest)) return super.handleRequest(props);
+    const printUser = this.printCredentialUser(req as ThrottledRequest);
     const byAddress = props.getTracker;
     return super.handleRequest({
       ...props,
       limit: props.limit * CREDENTIALED_ADDRESS_FACTOR,
-      getTracker: async (r, c) => `credentialed:${await byAddress(r, c)}`,
+      getTracker: printUser
+        ? async () => `print:${printUser}`
+        : async (r, c) => `credentialed:${await byAddress(r, c)}`,
     });
+  }
+
+  /** The person a validly signed print credential is for, or null. */
+  private printCredentialUser(req: ThrottledRequest): string | null {
+    const raw = req.headers?.authorization;
+    if (!this.printRead || typeof raw !== 'string') return null;
+    const token = raw.slice('bearer '.length).trim();
+    if (!looksLikePrintReadCredential(token)) return null;
+    return this.printRead.signedUserId(token);
   }
 }
 
@@ -97,16 +141,19 @@ export class OrgThrottlerGuard extends ThrottlerGuard {
       // requests to the same route.
       return super.handleRequest(props);
     }
-    // The organization first, so the rate headers the client sees
-    // last are the person's own.
+    // The person first: a person already held back is refused here,
+    // and their requests never count against the organization. The
+    // organization's count sets no rate headers, so the headers the
+    // client sees are the person's own.
     await super.handleRequest({
       ...props,
-      limit: props.limit * ORG_CEILING_FACTOR,
-      getTracker: async () => `org:${caller.orgId}`,
+      getTracker: async () => `user:${caller.id}`,
     });
     return super.handleRequest({
       ...props,
-      getTracker: async () => `user:${caller.id}`,
+      throttler: { ...props.throttler, setHeaders: false },
+      limit: props.limit * ORG_CEILING_FACTOR,
+      getTracker: async () => `org:${caller.orgId}`,
     });
   }
 }
