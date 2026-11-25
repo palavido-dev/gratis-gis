@@ -46,6 +46,11 @@
       "pg": 0,
       "raw": 0
     },
+    "apps/portal-api/src/common/tenant-pool.ts": {
+      "prisma": 0,
+      "pg": 1,
+      "raw": 0
+    },
     "apps/portal-api/src/cron/leader-election.service.ts": {
       "prisma": 0,
       "pg": 3,

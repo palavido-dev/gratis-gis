@@ -16,18 +16,18 @@ builds on it.
 
 ## Totals
 
-**213 sites** in 52 files. The guard counts the same 213.
+**214 sites** in 53 files. The guard counts the same 214.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
 | `prisma` | 159 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
-| `pg` | 37 | node-postgres calls on connections outside Prisma (`client.query`, `admin.query`, `writer.query`, the CopyWriter `this.query<>` passthrough) |
+| `pg` | 38 | node-postgres calls on connections outside Prisma (`client.query`, `admin.query`, `writer.query`, the CopyWriter `this.query<>` passthrough) |
 | `raw` | 17 | `Prisma.raw(...)` fragments, which put text into SQL unescaped |
 
 | Class | Sites |
 | --- | ---: |
 | item-scoped | 124 |
-| system | 77 |
+| system | 78 |
 | external | 9 |
 | org-scoped | 3 |
 | user-scoped | 0 |
@@ -473,6 +473,7 @@ the statement they set up.
 | 211 | `tools/recipe-runner.service.ts:1352` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
 | 212 | `area-of-interest/area-of-interest.service.ts:62` | prisma | `register` | none (PostGIS on bound values) | none | **system** | What's Here area resolve (#796): union, make valid, buffer the caller's own shape. Reads no table. Public endpoint; input size checked first. |
 | 213 | `area-of-interest/area-of-interest.service.ts:103` | prisma | `register` | area_of_interest (INSERT ... ON CONFLICT) | hash of the resolved shape | **system** | Stores a shape only, no org and no feature data. Shared across orgs by design: the row reveals nothing, and every read that names it runs under the caller's own layer access. |
+| 214 | `common/tenant-pool.ts:213` | pg | `checkout` | none (set_config of three session settings) | org and user id from the tenant context, bound as parameters | **system** | Connection stamp for row-level security. Not used by the application yet: nothing in startup or the request path builds a `TenantPool`. Reads no table. |
 
 ## Keeping this up to date
 
