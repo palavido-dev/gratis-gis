@@ -229,6 +229,15 @@ const SHOTS = [
     },
   },
   {
+    file: 'getting-started/arcgis-pro-use-in-pro.png',
+    as: 'contributor',
+    async run(page) {
+      await go(page, `/items/${ID.facilities}`, 4000);
+      await page.getByRole('button', { name: 'Use in ArcGIS Pro' }).first().click();
+      await page.waitForTimeout(800);
+    },
+  },
+  {
     file: 'items/map-save-as.png',
     as: 'contributor',
     async run(page) {

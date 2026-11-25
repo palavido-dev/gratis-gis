@@ -2485,6 +2485,19 @@ export const es: Partial<CatalogShape> = {
     readOnlyHere:
       'Esta tabla es de solo lectura aquí. Las filas se pueden editar en las capas que tienes permiso para cambiar.',
   },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Usar en ArcGIS Pro',
+    title: 'Usar esta capa en ArcGIS Pro o QGIS',
+    urlLabel: 'URL del servicio',
+    copy: 'Copiar',
+    copied: 'Copiado',
+    step1: 'En ArcGIS Pro, en la pestaña Mapa, haz clic en Agregar datos y luego en Datos desde ruta.',
+    step2: 'Pega la URL y haz clic en Agregar.',
+    step3: 'Inicia sesión con tu usuario y contraseña de GratisGIS. Si inicias sesión con Google, Microsoft o un código de dos pasos, usa una clave de API personal como contraseña.',
+    publicNote: 'Las capas públicas se abren sin iniciar sesión.',
+    help: 'Editar en ArcGIS Pro y QGIS',
+  },
   addToMap: {
     newMap: 'Nuevo mapa',
     existingMap: 'Un mapa existente',

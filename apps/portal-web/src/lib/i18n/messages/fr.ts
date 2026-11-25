@@ -2491,6 +2491,19 @@ export const fr: Partial<CatalogShape> = {
     readOnlyHere:
       'Cette table est en lecture seule ici. Les lignes peuvent être modifiées sur les couches que vous avez le droit de changer.',
   },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Utiliser dans ArcGIS Pro',
+    title: 'Utiliser cette couche dans ArcGIS Pro ou QGIS',
+    urlLabel: 'URL du service',
+    copy: 'Copier',
+    copied: 'Copié',
+    step1: 'Dans ArcGIS Pro, onglet Carte, cliquez sur Ajouter des données, puis Données à partir du chemin.',
+    step2: 'Collez l\'URL et cliquez sur Ajouter.',
+    step3: 'Connectez-vous avec votre nom d\'utilisateur et votre mot de passe GratisGIS. Si vous vous connectez avec Google, Microsoft ou un code en deux étapes, utilisez une clé d\'API personnelle comme mot de passe.',
+    publicNote: 'Les couches publiques s’ouvrent sans connexion.',
+    help: 'Modifier dans ArcGIS Pro et QGIS',
+  },
   addToMap: {
     newMap: 'Nouvelle carte',
     existingMap: 'Une carte existante',
