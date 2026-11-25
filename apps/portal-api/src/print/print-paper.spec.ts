@@ -2,7 +2,7 @@
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 
 import { runAsOrg } from '../common/tenant-context.js';
-import { assertPrintTemplateData, printTemplatePaper } from './print-paper.js';
+import { assertPrintTemplateData, clampMarginIn, printTemplatePaper } from './print-paper.js';
 import { PrintRenderService } from './print-render.service.js';
 
 describe('print template paper', () => {
@@ -11,6 +11,7 @@ describe('print template paper', () => {
       size: 'a4',
       orientation: 'landscape',
       inches: { w: 11.69, h: 8.27 },
+      marginIn: 0.25,
     });
   });
 
@@ -24,11 +25,39 @@ describe('print template paper', () => {
     ['an unknown size', { paper: { size: 'poster' } }],
     ['a name that is not a size', { paper: { size: 'constructor' } }],
     ['no size', { paper: { orientation: 'portrait' } }],
-    ['an unknown orientation', { paper: { size: 'letter', orientation: 'sideways' } }],
     ['paper that is not an object', { paper: 'letter' }],
-  ])('refuses %s with a 400', (_label, data) => {
+  ])('refuses %s with a 400, at save and at print', (_label, data) => {
     expect(() => printTemplatePaper(data)).toThrow(BadRequestException);
     expect(() => assertPrintTemplateData(data)).toThrow(BadRequestException);
+  });
+
+  it.each(['sideways', 7, null, ''])(
+    'an unknown orientation (%p) is refused at save and prints portrait',
+    (orientation) => {
+      const data = { paper: { size: 'letter', orientation } };
+      expect(() => assertPrintTemplateData(data)).toThrow(BadRequestException);
+      const paper = printTemplatePaper(data);
+      expect(paper.orientation).toBe('portrait');
+      expect(paper.inches).toEqual({ w: 8.5, h: 11 });
+    },
+  );
+
+  it.each([
+    [-1, 0],
+    [-1e9, 0],
+    [0.5, 0.5],
+    [1e9, 8.5 / 4],
+    [Number.NaN, 0.25],
+    ['wide', 0.25],
+    [undefined, 0.25],
+  ])('a margin of %p prints as %p', (marginIn, expected) => {
+    expect(printTemplatePaper({ paper: { size: 'letter', marginIn } }).marginIn).toBe(expected);
+  });
+
+  it('clamps a margin to a quarter of the shorter side of the sheet', () => {
+    expect(clampMarginIn(5, { w: 11, h: 8.5 })).toBe(8.5 / 4);
+    expect(clampMarginIn(-0.1, { w: 11, h: 8.5 })).toBe(0);
+    expect(clampMarginIn(1, { w: 11, h: 8.5 })).toBe(1);
   });
 
   it('checks the margin when a template is saved', () => {
@@ -82,6 +111,18 @@ describe('PrintRenderService.render gives its slot back', () => {
     }
     expect(slots.total()).toBe(0);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('prints a template with an unknown orientation and a negative margin', async () => {
+    process.env.CHROMIUM_WS_ENDPOINTS = 'ws://127.0.0.1:1';
+    const { svc, create, slots } = service({
+      paper: { size: 'letter', orientation: 'sideways', marginIn: -3 },
+    });
+    const err = await runAsOrg('o1', () => svc.render(user, args)).catch((e: unknown) => e);
+    // Not refused: it went on to the browser, which this test has not.
+    expect(err).not.toBeInstanceOf(BadRequestException);
+    expect(create).toHaveBeenCalled();
+    expect(slots.total()).toBe(0);
   });
 
   it('gives the slot back when the browser cannot be reached', async () => {

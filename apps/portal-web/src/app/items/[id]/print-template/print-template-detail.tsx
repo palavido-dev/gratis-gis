@@ -36,6 +36,7 @@ import {
 } from 'react';
 import { useFormat } from '@/lib/i18n/format';
 import { useT } from '@/lib/i18n/locale-context';
+import { clampPrintMarginIn, maxPrintMarginIn } from '@/lib/print-margin';
 import {
   AlignCenter,
   AlignLeft,
@@ -938,10 +939,15 @@ function PaperPanel({
         <input
           type="number"
           min={0}
+          max={maxPrintMarginIn(resolvePaperInches(paper))}
           step={0.05}
           value={paper.marginIn}
           disabled={!canEdit}
-          onChange={(e) => onChange({ marginIn: Number(e.target.value) || 0 })}
+          onChange={(e) =>
+            onChange({
+              marginIn: clampPrintMarginIn(Number(e.target.value) || 0, resolvePaperInches(paper)),
+            })
+          }
           className="mt-1 h-8 w-full rounded-md border border-border bg-surface-0 px-2 text-xs"
         />
       </label>

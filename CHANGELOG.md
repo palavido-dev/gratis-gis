@@ -101,7 +101,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Print templates are checked when they are saved: a paper size,
   orientation or margin the print cannot use is refused with a 400
   that says what is allowed. Printing from an older template with an
-  unknown paper size answers the same 400.
+  unknown paper size answers the same 400; an unknown orientation
+  still prints portrait, and a negative or very wide margin is brought
+  into range. The designer's margin field keeps to the same range,
+  zero to a quarter of the sheet's shorter side.
 
 ### Fixed
 
