@@ -62,7 +62,10 @@ organization name, derives the auth and storage hostnames (overridable),
 generates every secret, and writes `infra/.env.prod` (mode 600). It
 also writes `CHROMIUM_TOKEN` and `SCRIPT_EXECUTOR_TOKEN`. Compose
 reads both even when you do not print maps and do not enable user
-scripts. It prints the initial credentials once: the portal sign-in
+scripts. `GRATIS_SIGNING_SECRET` signs ArcGIS Pro and QGIS sign-ins.
+`deploy.sh` adds it to an older `infra/.env.prod` that has none, so
+an upgrade needs no manual step. Changing it signs those apps out once;
+they ask to sign in again. It prints the initial credentials once: the portal sign-in
 (`admin` plus a generated password that Keycloak forces you to change
 on first login) and the Keycloak admin console password. Save them.
 

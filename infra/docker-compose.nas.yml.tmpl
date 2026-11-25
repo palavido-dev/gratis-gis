@@ -62,7 +62,9 @@ x-gratis:
   # 2: portal-api and portal-worker share the gg-staging volume.
   # 3: optional settings pass through; email links use the portal
   #    address; portal-worker leaves crons to portal-api.
-  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "3"
+  # 4: bootstrap adds GRATIS_SIGNING_SECRET (ArcGIS Pro and QGIS
+  #    sign-ins) to an existing install.
+  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "4"
   # Written into /boot/ready by bootstrap, and every service waits for
   # a marker that matches its own copy (58-4). The marker lives on a
   # volume and survives restarts, so a plain "file exists" test let
@@ -226,6 +228,9 @@ __NAS_INIT_BODY__
         . /boot/env
         set +a
         unset MINIO_ROOT_USER_FILE MINIO_ROOT_PASSWORD_FILE MINIO_ACCESS_KEY_FILE MINIO_SECRET_KEY_FILE MINIO_CONFIG_ENV_FILE
+        # Only portal-api signs ArcGIS Pro sign-ins. Keep it out of
+        # the storage server's environment.
+        unset GRATIS_SIGNING_SECRET
         exec /usr/bin/silo server /data --console-address ":9001"
     ports:
       # Browser uploads. The host port is GRATIS_S3_PORT at the top

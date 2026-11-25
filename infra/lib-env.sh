@@ -164,6 +164,7 @@ gg_require_prod_env() {
     NEXTAUTH_SECRET
     CHROMIUM_TOKEN
     SCRIPT_EXECUTOR_TOKEN
+    GRATIS_SIGNING_SECRET
   )
   missing=""
   weak=""
@@ -232,6 +233,71 @@ sys.exit(0 if len(decoded) == 32 else 1)
       return 1
       ;;
   esac
+}
+
+# Give an existing env file a GRATIS_SIGNING_SECRET when it has none.
+#
+# portal-api signs ArcGIS Pro and QGIS sign-in tokens with this secret.
+# Installs made before it existed signed them with the MinIO password,
+# which other services also hold. deploy.sh calls this on every run, so
+# an upgrade gets its own secret with nothing to do by hand. A value
+# that is already set is never changed. An empty value or GENERATE is
+# replaced. The file keeps its owner and mode.
+#
+# Usage: gg_ensure_signing_secret /path/to/.env.prod
+gg_ensure_signing_secret() {
+  local file="$1" current secret
+  if [[ ! -f "$file" ]]; then
+    echo "FATAL: env file not found: $file" >&2
+    return 1
+  fi
+  # Read it the way compose will, in a subshell so nothing leaks.
+  current="$(
+    unset GRATIS_SIGNING_SECRET
+    gg_load_env_file "$file" >/dev/null 2>&1
+    printf '%s' "${GRATIS_SIGNING_SECRET-}"
+  )"
+  if [[ -n "$current" && "$current" != "GENERATE" ]]; then
+    return 0
+  fi
+  # Same shape as bootstrap.sh: letters and digits only, so the value
+  # needs no quoting in the env file.
+  secret="$(openssl rand -base64 48 2>/dev/null | tr -d '\n/+=' | head -c 32 || true)"
+  if [[ ${#secret} -lt 32 ]]; then
+    secret="$(python3 -c 'import secrets, string; a = string.ascii_letters + string.digits; print("".join(secrets.choice(a) for _ in range(32)))')"
+  fi
+  if [[ ${#secret} -lt 32 ]]; then
+    echo "FATAL: could not generate GRATIS_SIGNING_SECRET. Check that openssl or python3 works." >&2
+    return 1
+  fi
+  if grep -Eq '^[[:space:]]*(export[[:space:]]+)?GRATIS_SIGNING_SECRET=' "$file"; then
+    # An empty or GENERATE line is already there: fill it in place.
+    # The value goes in through the environment, not argv, so `ps`
+    # never shows it.
+    GG_NEW_SECRET="$secret" python3 - "$file" <<'PY' || return 1
+import os, re, sys
+path = sys.argv[1]
+secret = os.environ["GG_NEW_SECRET"]
+pattern = re.compile(r"^\s*(export\s+)?GRATIS_SIGNING_SECRET=")
+with open(path, encoding="utf-8") as fh:
+    lines = fh.read().splitlines()
+out = [f"GRATIS_SIGNING_SECRET={secret}" if pattern.match(line) else line for line in lines]
+# Write in place so the file keeps its owner and mode.
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(out) + "\n")
+PY
+  else
+    # Start on a new line even if the file does not end with one.
+    if [[ -s "$file" && -n "$(tail -c 1 "$file")" ]]; then
+      printf '\n' >> "$file"
+    fi
+    {
+      printf '\n# Signs ArcGIS Pro and QGIS sign-ins. Added by deploy.sh on %s.\n' "$(date -u +%Y-%m-%d)"
+      printf '# Changing it signs those apps out; they ask to sign in again.\n'
+      printf 'GRATIS_SIGNING_SECRET=%s\n' "$secret"
+    } >> "$file"
+  fi
+  echo "Added GRATIS_SIGNING_SECRET to ${file}. ArcGIS Pro and QGIS users will be asked to sign in again once."
 }
 
 # Substitute ${VAR} in the Keycloak realm template and write JSON.

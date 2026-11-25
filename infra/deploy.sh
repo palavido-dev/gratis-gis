@@ -153,6 +153,14 @@ else
 fi
 echo "Version stamp: ${GG_VERSION:-'(none)'} channel ${GG_CHANNEL} (${INSTALL_TYPE})"
 
+# shellcheck source=infra/lib-env.sh
+. infra/lib-env.sh
+
+# Secrets added after an install was set up are generated here, so an
+# upgrade needs no manual step. GRATIS_SIGNING_SECRET signs ArcGIS Pro
+# and QGIS sign-ins; older files do not have it. See lib-env.sh.
+gg_ensure_signing_secret infra/.env.prod
+
 # All the GENERATE placeholders have to be replaced before deploy or
 # Keycloak / Postgres / NextAuth will refuse to start.
 if grep -q '^[A-Z_]*=GENERATE$' infra/.env.prod; then
@@ -171,8 +179,6 @@ fi
 # infra/lib-env.sh. Substitution itself is Python (no envsubst) so
 # the same path works on a TrueNAS shell.
 echo "=== Materializing Keycloak realm import ==="
-# shellcheck source=infra/lib-env.sh
-. infra/lib-env.sh
 gg_load_env_file infra/.env.prod
 gg_require_prod_env
 # The env file of an older install still carries the GG_VERSION that

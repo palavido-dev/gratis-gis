@@ -44,7 +44,9 @@ export class PrintReadCredentialService {
     cfg: ConfigService,
   ) {
     // The same secret and default StorageService signs upload handles
-    // with, under a label of its own.
+    // with, under a label of its own. Esri tokens moved to
+    // GRATIS_SIGNING_SECRET (esri-signing-secret.ts); this credential
+    // lasts one minute and reads only named items, so it stayed here.
     this.key = deriveServerSigningKey(
       cfg.get<string>('MINIO_SECRET_KEY', 'devpassword'),
       PRINT_READ_KEY_LABEL,

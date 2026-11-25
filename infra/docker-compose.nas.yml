@@ -62,7 +62,9 @@ x-gratis:
   # 2: portal-api and portal-worker share the gg-staging volume.
   # 3: optional settings pass through; email links use the portal
   #    address; portal-worker leaves crons to portal-api.
-  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "3"
+  # 4: bootstrap adds GRATIS_SIGNING_SECRET (ArcGIS Pro and QGIS
+  #    sign-ins) to an existing install.
+  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "4"
   # Written into /boot/ready by bootstrap, and every service waits for
   # a marker that matches its own copy (58-4). The marker lives on a
   # volume and survives restarts, so a plain "file exists" test let
@@ -1492,7 +1494,39 @@ services:
                 "CHROMIUM_TOKEN": rand(),
                 "INITIAL_USER_PASSWORD": rand(16),
                 "CREDENTIAL_ENCRYPTION_KEY": encryption_key(),
+                "GRATIS_SIGNING_SECRET": rand(),
             }
+
+
+        # Secrets every install has had since its first start.
+        FIRST_START_SECRETS = (
+            "POSTGRES_PASSWORD",
+            "KEYCLOAK_DB_PASSWORD",
+            "MINIO_ROOT_PASSWORD",
+            "KEYCLOAK_ADMIN_PASSWORD",
+            "KEYCLOAK_ADMIN_CLIENT_SECRET",
+            "NEXTAUTH_SECRET",
+            "CHROMIUM_TOKEN",
+            "INITIAL_USER_PASSWORD",
+            "CREDENTIAL_ENCRYPTION_KEY",
+        )
+
+        # Secrets a later release added. An install from before then gets a new
+        # random value on its next start and keeps it from then on, so an
+        # update needs no manual step. GRATIS_SIGNING_SECRET signs ArcGIS Pro
+        # and QGIS sign-ins; before it existed they were signed with the MinIO
+        # password.
+        ADDED_SECRETS = {
+            "GRATIS_SIGNING_SECRET": rand,
+        }
+
+
+        def saved_secrets(previous: dict[str, str]) -> dict[str, str]:
+            """The secrets of an existing install, with any newer ones added."""
+            secret = {key: previous[key] for key in FIRST_START_SECRETS}
+            for key, make in ADDED_SECRETS.items():
+                secret[key] = previous.get(key) or make()
+            return secret
 
 
         def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
@@ -1559,6 +1593,9 @@ services:
                 "BACKUP_DIR": "/app/backups",
                 "STORAGE_ALLOWED_ORIGINS": public,
                 "CREDENTIAL_ENCRYPTION_KEY": secret["CREDENTIAL_ENCRYPTION_KEY"],
+                # Read by portal-api only. Not in SERVICE_ENV_KEYS, so chromium
+                # and pointcloud-worker never see it.
+                "GRATIS_SIGNING_SECRET": secret["GRATIS_SIGNING_SECRET"],
                 "INITIAL_USER_PASSWORD": secret["INITIAL_USER_PASSWORD"],
                 "DEFAULT_ORG_SLUG": "gratis-gis",
                 "ACME_EMAIL": email,
@@ -1592,6 +1629,7 @@ services:
                 "CHROMIUM_TOKEN",
                 "INITIAL_USER_PASSWORD",
                 "CREDENTIAL_ENCRYPTION_KEY",
+                "GRATIS_SIGNING_SECRET",
             )
             for key in secret_keys:
                 if values[key] in WEAK or (key != "CREDENTIAL_ENCRYPTION_KEY" and len(values[key]) < 16):
@@ -2004,17 +2042,7 @@ services:
             if not os.environ.get("GRATIS_BASE_URL", "").strip() and saved_address.exists():
                 os.environ["GRATIS_BASE_URL"] = saved_address.read_text(encoding="utf-8").strip()
             if previous:
-                secret = {key: previous[key] for key in (
-                    "POSTGRES_PASSWORD",
-                    "KEYCLOAK_DB_PASSWORD",
-                    "MINIO_ROOT_PASSWORD",
-                    "KEYCLOAK_ADMIN_PASSWORD",
-                    "KEYCLOAK_ADMIN_CLIENT_SECRET",
-                    "NEXTAUTH_SECRET",
-                    "CHROMIUM_TOKEN",
-                    "INITIAL_USER_PASSWORD",
-                    "CREDENTIAL_ENCRYPTION_KEY",
-                )}
+                secret = saved_secrets(previous)
             else:
                 secret = fresh_secrets()
             # An explicit GRATIS_BASE_URL always wins, including on a restart.
@@ -2239,6 +2267,9 @@ services:
         . /boot/env
         set +a
         unset MINIO_ROOT_USER_FILE MINIO_ROOT_PASSWORD_FILE MINIO_ACCESS_KEY_FILE MINIO_SECRET_KEY_FILE MINIO_CONFIG_ENV_FILE
+        # Only portal-api signs ArcGIS Pro sign-ins. Keep it out of
+        # the storage server's environment.
+        unset GRATIS_SIGNING_SECRET
         exec /usr/bin/silo server /data --console-address ":9001"
     ports:
       # Browser uploads. The host port is GRATIS_S3_PORT at the top

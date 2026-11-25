@@ -112,6 +112,29 @@ portal-api, which Caddy routes without passing through the web tier.
   otherwise outlive the account that owns it. Disabling an account
   revokes its keys.
 
+## ArcGIS Pro and QGIS tokens
+
+ArcGIS Pro and QGIS sign in through
+`/api/geoservices/tokens/generateToken` with a password or a personal
+API key. The token they get back is signed by portal-api with HMAC
+(`src/auth/esri-token.ts`) and lasts at most 60 minutes. A token from a
+password stands for the whole user.
+
+- The signing key is derived (HKDF, label per purpose) from
+  `GRATIS_SIGNING_SECRET`. Only portal-api reads it. On a server
+  install only the portal-api service gets it; on a NAS it is not in
+  the reduced env files of chromium and the point-cloud worker.
+- `bootstrap.sh` and the NAS bootstrap generate it for a new install.
+  `deploy.sh` and the NAS bootstrap add it to an older install on the
+  next run. Until then the API signs with the MinIO secret, as before,
+  and logs a warning at startup.
+- With `NODE_ENV=production` the API refuses to start when the secret
+  it would sign with is empty or a well-known placeholder.
+- Changing the secret signs ArcGIS Pro and QGIS out. They ask the user
+  to sign in again. Nothing else is affected.
+- Upload handles and the one-minute print read credential still derive
+  their keys from the MinIO secret.
+
 ## Session Security
 
 - Access token TTL: 5 minutes

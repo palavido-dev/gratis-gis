@@ -522,6 +522,11 @@ services:
       # item_credential and system_setting becomes unreadable -- treat
       # it as effectively immutable once set.
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY must be set in .env.prod}
+      # Signs ArcGIS Pro and QGIS sign-in tokens. Only this service gets
+      # it. Empty on purpose when an older .env.prod has no line yet:
+      # the api then falls back to the MinIO secret and logs a warning,
+      # and the next ./infra/deploy.sh adds the line.
+      GRATIS_SIGNING_SECRET: ${GRATIS_SIGNING_SECRET:-}
       # MinIO / S3. Variable names match what storage.service.ts /
       # backup.service.ts read; no S3_* aliases.
       #
