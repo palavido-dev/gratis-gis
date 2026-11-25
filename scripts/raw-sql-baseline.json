@@ -92,7 +92,7 @@
       "raw": 0
     },
     "apps/portal-api/src/engine/data-layer.ts": {
-      "prisma": 24,
+      "prisma": 26,
       "pg": 8,
       "raw": 17
     },
@@ -115,6 +115,21 @@
       "prisma": 22,
       "pg": 0,
       "raw": 0
+    },
+    "apps/portal-api/src/featureserver/feature-oid.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/featureserver/feature-oid.ts": {
+      "prisma": 3,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/featureserver/featureserver-query.service.ts": {
+      "prisma": 12,
+      "pg": 0,
+      "raw": 6
     },
     "apps/portal-api/src/feedback/feedback.service.ts": {
       "prisma": 1,

@@ -7,6 +7,7 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
 import { AuthSyncService } from './auth-sync.service.js';
 import { ApiKeyService } from './api-key.service.js';
 import { ApiKeysController } from './api-keys.controller.js';
+import { EsriTokenService } from './esri-token.service.js';
 import { PrintReadCredentialService } from './print-read-credential.service.js';
 
 /**
@@ -34,7 +35,8 @@ import { PrintReadCredentialService } from './print-read-credential.service.js';
     AuthSyncService,
     ApiKeyService,
     PrintReadCredentialService,
+    EsriTokenService,
   ],
-  exports: [AuthSyncService, ApiKeyService, PrintReadCredentialService],
+  exports: [AuthSyncService, ApiKeyService, PrintReadCredentialService, EsriTokenService],
 })
 export class AuthModule {}

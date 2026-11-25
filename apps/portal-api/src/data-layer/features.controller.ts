@@ -1583,6 +1583,7 @@ export class DataLayerFeaturesController {
     } = { ...opts };
     if (at) iterOpts.at = at;
 
+    const signal = res.req ? requestAbortSignal(res.req, res) : undefined;
     if (geoParquetExportsRunning >= GEOPARQUET_EXPORT_SLOTS) {
       res.setHeader('Retry-After', '30');
       throw new HttpException(
@@ -1591,7 +1592,6 @@ export class DataLayerFeaturesController {
       );
     }
     geoParquetExportsRunning += 1;
-    const signal = res.req ? requestAbortSignal(res.req, res) : undefined;
 
     // mkdtemp: atomic + 0700, same rationale as the ingest temp
     // dirs (CodeQL js/insecure-temporary-file).

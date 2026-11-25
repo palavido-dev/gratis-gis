@@ -80,6 +80,14 @@ describe('DrawingsCollabService', () => {
     expect(() => svc.consumeTicket(issued.ticket, 'map-1', 'set-1')).toThrow();
   });
 
+  it('gives the connection an id that says nothing about the user', async () => {
+    const { svc } = makeSvc({ writable: true });
+    const issued = await svc.mintTicket(makeUser({ id: 'user-1-abcdef12' }), 'map-1', 'set-1');
+    const rec = svc.consumeTicket(issued.ticket, 'map-1', 'set-1');
+    expect(rec.connectionId).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(rec.connectionId).not.toContain('user-1');
+  });
+
   it('mints an observer ticket when write ACL fails but canRead holds', async () => {
     const { svc } = makeSvc({ writable: false });
     const issued = await svc.mintTicket(makeUser(), 'map-1', 'set-1');

@@ -104,6 +104,7 @@ export class OgcRecordsCatalogController {
       offset,
       limit,
       bbox: bboxParam,
+      scope,
     });
     return withOrgLinks(
       buildRecordsPage(rows, total, base, selfBase, params, rootHref),

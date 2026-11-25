@@ -9,6 +9,7 @@ import type {
 } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
+import { nextQueuedJobSql } from '../common/fair-queue.js';
 
 /**
  * Queue and read model for offline basemap packages (#70).
@@ -120,15 +121,10 @@ export class OfflinePackageService {
    */
   async claimNext(): Promise<OfflinePackage | null> {
     return this.prisma.$transaction(async (tx) => {
+      // Oldest first; organizations take turns when there are many
+      // (common/fair-queue.ts).
       const rows = await tx.$queryRaw<Array<{ id: string }>>(
-        Prisma.sql`
-          SELECT id
-          FROM offline_package
-          WHERE status = 'queued'
-          ORDER BY created_at ASC
-          LIMIT 1
-          FOR UPDATE SKIP LOCKED
-        `,
+        nextQueuedJobSql('offline_package'),
       );
       if (rows.length === 0) return null;
       const id = rows[0]!.id;

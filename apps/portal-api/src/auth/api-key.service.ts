@@ -53,8 +53,22 @@ export class ApiKeyService {
    * was unknown, revoked, expired, or owned by a disabled account.
    */
   async resolve(token: string): Promise<AuthUser> {
+    return this.resolveWhere({ tokenHash: hashApiKey(token) });
+  }
+
+  /**
+   * As resolve, for a key named by its row id: an Esri token carries
+   * the id, and every request that presents it checks the key again,
+   * so a revoked or expired key stops its tokens at once.
+   */
+  async resolveId(id: string): Promise<AuthUser> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new UnauthorizedException('Invalid API key.');
+    return this.resolveWhere({ id });
+  }
+
+  private async resolveWhere(where: { tokenHash: string } | { id: string }): Promise<AuthUser> {
     const row = await this.prisma.apiKey.findUnique({
-      where: { tokenHash: hashApiKey(token) },
+      where,
       include: { user: { include: { org: true } } },
     });
     if (!row) throw new UnauthorizedException('Invalid API key.');

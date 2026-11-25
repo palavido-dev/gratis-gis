@@ -5,19 +5,14 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 // puppeteer-core has been ESM-only since v25, and this app emits
 // CommonJS. That works only because Node >=22.12 can `require()` an
 // ESM module, which is why the root `engines.node` floor is 22.12.0
 // and not 22. Dropping that floor turns this line into a boot-time
 // ERR_REQUIRE_ESM for the whole API, not just for printing.
 import puppeteer from 'puppeteer-core';
-import {
-  resolvePaperInches,
-  type BasemapData,
-  type MapData,
-  type PrintPaperSpec,
-} from '@gratis-gis/shared-types';
+import { type BasemapData, type MapData } from '@gratis-gis/shared-types';
 
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -28,6 +23,7 @@ import {
 import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
+import { printTemplatePaper } from './print-paper.js';
 import { printReadItemIds } from './print-read-scope.js';
 
 export interface RenderJobBundle {
@@ -217,13 +213,9 @@ export class PrintRenderService {
     if (map.type !== 'map') {
       throw new BadRequestException(`Item ${args.mapId} is not a map`);
     }
-    const paper = (
-      (template.data as { paper?: PrintPaperSpec } | null)?.paper ?? {
-        size: 'letter',
-        orientation: 'portrait',
-        marginIn: 0.25,
-      }
-    ) as PrintPaperSpec;
+    // Everything that can refuse the request runs before a render slot
+    // is taken, so a refused request never holds one.
+    const { inches } = printTemplatePaper(template.data);
 
     // 2. Mint a render token in the shared store (PrintRenderToken).
     // In-memory would fail across the 2-replica prod topology: the
@@ -283,18 +275,22 @@ export class PrintRenderService {
       );
     }
     this.activeRenders += 1;
+    // From here on every path, a throw included, ends in the finally
+    // below, which gives the slot back.
     const renderDone = new AbortController();
-    const budget = createPrintFetchBudget(renderDone.signal);
-    const inches = resolvePaperInches(paper);
-    let browser: Awaited<ReturnType<typeof puppeteer.connect>>;
+    let browser: Awaited<ReturnType<typeof puppeteer.connect>> | undefined;
+    // A context of its own per render: storage (cookies, local and
+    // session storage, the Cache Storage a map library may fill) is
+    // never shared between two renders, which can be for different
+    // people of different organizations.
+    let context:
+      | Awaited<ReturnType<Awaited<ReturnType<typeof puppeteer.connect>>['createBrowserContext']>>
+      | undefined;
     try {
+      const budget = createPrintFetchBudget(renderDone.signal);
       browser = await puppeteer.connect({ browserWSEndpoint: endpoint });
-    } catch (err) {
-      this.activeRenders -= 1;
-      throw err;
-    }
-    try {
-      const page = await browser.newPage();
+      context = await browser.createBrowserContext();
+      const page = await context.newPage();
       try {
         // Every request the page makes goes through the filter, so a
         // user-authored URL cannot reach an internal host from here.
@@ -355,8 +351,10 @@ export class PrintRenderService {
         for (const wake of budget.waiting.splice(0)) wake();
       }
     } finally {
+      renderDone.abort();
       this.activeRenders -= 1;
-      await browser.disconnect();
+      await context?.close().catch(() => undefined);
+      await browser?.disconnect().catch(() => undefined);
     }
   }
 }

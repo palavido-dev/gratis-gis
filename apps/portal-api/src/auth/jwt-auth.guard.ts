@@ -5,6 +5,7 @@ import {
   HttpException,
   Injectable,
   Logger,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -12,6 +13,8 @@ import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
 import { isReadOnlySafeMethod, looksLikeApiKey } from './api-key-token.js';
 import { ApiKeyService } from './api-key.service.js';
+import { presentedEsriToken } from './esri-token.js';
+import { EsriTokenService } from './esri-token.service.js';
 import { looksLikePrintReadCredential } from './print-read-credential.js';
 import { PrintReadCredentialService } from './print-read-credential.service.js';
 import {
@@ -47,6 +50,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     private readonly reflector: Reflector,
     private readonly apiKeys: ApiKeyService,
     private readonly printRead: PrintReadCredentialService,
+    @Optional() private readonly esriTokens?: EsriTokenService,
   ) {
     super();
   }
@@ -56,6 +60,37 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       ctx.getHandler(),
       ctx.getClass(),
     ]);
+
+    // Esri clients (ArcGIS Pro, QGIS) sign in with a token from the
+    // FeatureServer's generateToken, sent as `token` or in
+    // X-Esri-Authorization. Only on the FeatureServer routes, which are
+    // all @Public. The method gate below does not apply: a token from a
+    // read-only key may POST a query, and the edit routes refuse it
+    // themselves. A bad token reads as anonymous and is flagged, so the
+    // route answers Esri's "invalid token" and the client signs in again.
+    if (isPublic && this.esriTokens) {
+      const req = ctx.switchToHttp().getRequest<{
+        path?: string;
+        query?: Record<string, unknown>;
+        body?: unknown;
+        headers?: Record<string, unknown>;
+        user?: unknown;
+        esriTokenInvalid?: boolean;
+      }>();
+      if (typeof req.path === 'string' && req.path.startsWith('/api/arcgis/')) {
+        const token = presentedEsriToken(req);
+        if (token !== undefined) {
+          const tokens = this.esriTokens;
+          try {
+            req.user = await runAsSystem('auth-sync', () => tokens.resolve(token));
+          } catch {
+            req.user = null;
+            req.esriTokenInvalid = true;
+          }
+          return true;
+        }
+      }
+    }
 
     // #219: a personal API key arrives in the same Authorization
     // header as a JWT, so branch on the token's own scheme marker

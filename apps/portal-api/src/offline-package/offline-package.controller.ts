@@ -161,6 +161,14 @@ export class OfflinePackageController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
+    // The item first: a caller who cannot see it gets the item's
+    // not-found before anything about its packages, so the answer
+    // does not say whether a package exists or how far it got.
+    const item = await this.items.get(user, itemId);
+    if (!item) throw new NotFoundException('Item not found');
+    if (!(await this.sharing.canRead(user, item, item.shares ?? []))) {
+      throw new ForbiddenException('You cannot read this item');
+    }
     const row = await this.packages.byId(packageId);
     // Checking the package belongs to the item in the path stops the
     // id alone from being a read primitive over every package in the
@@ -171,11 +179,6 @@ export class OfflinePackageController {
     }
     if (!row.storageKey || row.status === 'failed') {
       throw new NotFoundException('This package has not been built yet');
-    }
-    const item = await this.items.get(user, itemId);
-    if (!item) throw new NotFoundException('Item not found');
-    if (!(await this.sharing.canRead(user, item, item.shares ?? []))) {
-      throw new ForbiddenException('You cannot read this item');
     }
 
     const upstream = await this.storage.streamObject(row.storageKey, rangeHeader);

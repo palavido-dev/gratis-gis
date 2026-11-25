@@ -2,7 +2,8 @@
 import { BadGatewayException, ConflictException } from '@nestjs/common';
 import type { LeaderElectionService } from '../cron/leader-election.service.js';
 import type { SystemSettingsService } from '../notifications/system-settings.service.js';
-import { KeycloakAdminService } from './keycloak-admin.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
+import { AccountExistsException, KeycloakAdminService } from './keycloak-admin.service.js';
 
 describe('KeycloakAdminService.createUser error mapping', () => {
   const realFetch = globalThis.fetch;
@@ -45,6 +46,49 @@ describe('KeycloakAdminService.createUser error mapping', () => {
     expect((err as ConflictException).getStatus()).toBe(409);
     // The Keycloak body can echo the address; it must not leak.
     expect((err as Error).message).not.toContain('ana@example.org');
+  });
+
+  it.each(['single', 'multi'])(
+    '%s: the 409 is the typed account-exists answer with the same words',
+    async (m) => {
+      if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      resetTenancyModeForTests();
+      try {
+        respondWith(409, 'Conflict');
+        const err = await svc.createUser(input).catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(AccountExistsException);
+        expect((err as ConflictException).getResponse()).toEqual({
+          statusCode: 409,
+          error: 'Conflict',
+          message: 'A user with that username or email already exists.',
+        });
+      } finally {
+        delete process.env.GRATIS_TENANCY;
+        resetTenancyModeForTests();
+      }
+    },
+  );
+
+  it('looks up the accounts holding a username or an email', async () => {
+    const mock = jest.fn(async (url: string) => {
+      const rows = String(url).includes('email=')
+        ? [{ id: 'k2', username: 'other', attributes: { org: ['b'] } }]
+        : [{ id: 'k1', username: 'ana', attributes: { org: ['a'] } }];
+      return new Response(JSON.stringify(rows), { status: 200 });
+    });
+    globalThis.fetch = mock as unknown as typeof fetch;
+    const found = await svc.findAccountsByUsernameOrEmail('ana', 'ana@example.org');
+    expect(found.map((u) => u.id).sort()).toEqual(['k1', 'k2']);
+    expect(String(mock.mock.calls[0]![0])).toContain('exact=true');
+  });
+
+  it('looks up the username only when no email is given', async () => {
+    const mock = jest.fn(async () => new Response('[]', { status: 200 }));
+    globalThis.fetch = mock as unknown as typeof fetch;
+    await svc.findAccountsByUsernameOrEmail('ana', undefined);
+    const urls = mock.mock.calls.map((c) => String((c as unknown[])[0]));
+    expect(urls.filter((u) => u.includes('/users?'))).toHaveLength(1);
+    expect(urls.some((u) => u.includes('email='))).toBe(false);
   });
 
   it('keeps other Keycloak failures as BadGatewayException (HTTP 502)', async () => {

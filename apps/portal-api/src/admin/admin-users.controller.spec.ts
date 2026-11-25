@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
 import { AdminUsersController } from './admin-users.controller.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
-import type { KeycloakUserRep } from './keycloak-admin.service.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
+import { AccountExistsException, type KeycloakUserRep } from './keycloak-admin.service.js';
 
 /**
  * Lockout + take-over guard coverage for #133 / #134.
@@ -953,5 +956,177 @@ describe('AdminUsersController.remove for a user already gone from Keycloak', ()
     const { caller, controller, prisma } = ghostSetup('org-2');
     await expect(controller.remove(caller, 'ghost')).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.user.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('AdminUsersController.invite of an address that already has an account', () => {
+  const before = process.env.GRATIS_TENANCY;
+  const logSpies: jest.SpyInstance[] = [];
+  beforeEach(() => {
+    for (const m of ['log', 'warn', 'error', 'debug', 'verbose'] as const) {
+      logSpies.push(jest.spyOn(Logger.prototype, m).mockImplementation(() => undefined));
+    }
+  });
+  afterEach(() => {
+    if (before === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = before;
+    resetTenancyModeForTests();
+    for (const s of logSpies.splice(0)) s.mockRestore();
+  });
+  function mode(m: 'single' | 'multi'): void {
+    if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+    else delete process.env.GRATIS_TENANCY;
+    resetTenancyModeForTests();
+  }
+  function logged(): string {
+    return JSON.stringify(logSpies.flatMap((s) => s.mock.calls));
+  }
+
+  const caller = makeAuthUser({ orgId: 'org-1', orgSlug: 'acme' });
+  const dto = { username: 'Ana', email: 'Ana@example.test', orgRole: 'contributor' } as never;
+  // The other organization's slug, its id and the existing account's id.
+  const OTHER = ['other-org', 'org-other-id', 'kc-ana'];
+
+  function setup(opts: { localInOrg?: boolean; kcOrg?: string; lookupFails?: boolean }) {
+    const { kc, prisma } = makeController({ caller, targets: [], adminCount: 1 });
+    const record = jest.fn(async () => undefined);
+    const controller = new AdminUsersController(
+      kc as unknown as ConstructorParameters<typeof AdminUsersController>[0],
+      prisma as unknown as ConstructorParameters<typeof AdminUsersController>[1],
+      { invalidate: jest.fn(), invalidateAll: jest.fn() } as unknown as ConstructorParameters<
+        typeof AdminUsersController
+      >[2],
+      { record } as unknown as ConstructorParameters<typeof AdminUsersController>[3],
+    );
+    kc.createUser.mockImplementation(async () => {
+      throw new AccountExistsException();
+    });
+    const lookup = jest.fn(async () => {
+      if (opts.lookupFails) throw new BadGatewayException('Keycloak user lookup failed: 500');
+      return opts.kcOrg
+        ? [
+            {
+              id: 'kc-ana',
+              username: 'ana',
+              enabled: true,
+              attributes: { org: [opts.kcOrg], org_id: ['org-other-id'] },
+            },
+          ]
+        : [];
+    });
+    Object.assign(kc, { findAccountsByUsernameOrEmail: lookup });
+    const findFirst = jest.fn(async () => (opts.localInOrg ? { id: 'u-ana' } : null));
+    Object.assign(prisma.user, { findFirst });
+    return { controller, kc, lookup, findFirst, record };
+  }
+
+  function expectNothingDone(kc: ReturnType<typeof setup>['kc']): void {
+    expect(kc.createUser).toHaveBeenCalledTimes(1);
+    expect(kc.updateUser).not.toHaveBeenCalled();
+    expect(kc.sendExecuteActionsEmail).not.toHaveBeenCalled();
+    expect(kc.deleteUser).not.toHaveBeenCalled();
+  }
+
+  it.each([
+    ['an account in another organization', { kcOrg: 'other-org' }],
+    ['an account in no organization', {}],
+    ['a member of the organization', { localInOrg: true }],
+  ])('one organization: %s gets the 409 and its words, exactly as before', async (_l, opts) => {
+    mode('single');
+    const { controller, kc, lookup, findFirst, record } = setup(opts);
+    const err = await controller.invite(caller, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      message: 'A user with that username or email already exists.',
+    });
+    expect(lookup).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'user.invite', outcome: 'failed', targetId: '', detail: { role: 'contributor' } }),
+    );
+    expectNothingDone(kc);
+  });
+
+  it.each([
+    ['an account in another organization', { kcOrg: 'other-org' }],
+    ['an account in no organization', {}],
+  ])('many organizations: %s answers 409 address_unavailable and changes nothing', async (_l, opts) => {
+    mode('multi');
+    const { controller, kc, record } = setup(opts);
+    const err = await controller.invite(caller, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    const body = (err as ConflictException).getResponse();
+    expect(body).toEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      code: 'address_unavailable',
+      message: 'This address cannot be invited. Ask the person to contact support.',
+    });
+    expectNothingDone(kc);
+    expect(record).toHaveBeenCalledTimes(1);
+    const row = (record.mock.calls[0] as unknown[])[0];
+    expect(row).toEqual({
+      orgId: 'org-1',
+      actorUserId: caller.id,
+      action: 'user.invite',
+      targetType: 'user',
+      targetId: '',
+      outcome: 'denied',
+      detail: { role: 'contributor', code: 'address_unavailable' },
+    });
+    // Neither the answer, nor the audit row, nor the logs name the
+    // other organization or the existing account.
+    const seen = JSON.stringify([body, row, (err as Error).message]) + logged();
+    for (const v of OTHER) expect(seen).not.toContain(v);
+  });
+
+  it.each([
+    ['a signed-in member', { localInOrg: true }],
+    ['an invited member who never signed in', { kcOrg: 'acme' }],
+    ['an invited member whose org attribute holds the organization id', { kcOrg: 'org-1' }],
+  ])('many organizations: %s of the same organization gets 409 already_member', async (_l, opts) => {
+    mode('multi');
+    const { controller, kc, record } = setup(opts);
+    const err = await controller.invite(caller, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toEqual({
+      statusCode: 409,
+      error: 'Conflict',
+      code: 'already_member',
+      message: 'This person is already a member of your organization.',
+    });
+    expectNothingDone(kc);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: 'denied',
+        targetId: '',
+        detail: { role: 'contributor', code: 'already_member' },
+      }),
+    );
+  });
+
+  it('many organizations: a failed account lookup is a failure, not an answer about the address', async () => {
+    mode('multi');
+    const { controller, kc, record } = setup({ lookupFails: true });
+    const err = await controller.invite(caller, dto).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BadGatewayException);
+    expectNothingDone(kc);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'failed', detail: { role: 'contributor' } }),
+    );
+  });
+
+  it('many organizations: a new address is invited and answered as Keycloak created it', async () => {
+    mode('multi');
+    const { controller, kc, record } = setup({});
+    const rep = { id: 'kc-new', username: 'ana', enabled: true, totp: false } as KeycloakUserRep;
+    kc.createUser.mockImplementation((async () => rep) as never);
+    await expect(controller.invite(caller, dto)).resolves.toBe(rep);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: 'succeeded', targetId: 'kc-new' }),
+    );
   });
 });

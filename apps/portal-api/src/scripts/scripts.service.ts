@@ -311,14 +311,20 @@ export class ScriptsService {
   }
 
   async getRun(user: AuthUser, runId: string): Promise<ScriptRunDetail> {
-    const row = await this.prisma.scriptRun.findUnique({
+    // Only the script id first: the run's log and source are read once
+    // the caller is known to see the script.
+    const head = await this.prisma.scriptRun.findUnique({
       where: { id: runId },
+      select: { scriptId: true },
     });
-    if (!row) throw new NotFoundException('Run not found.');
+    if (!head) throw new NotFoundException('Run not found.');
     // Re-check against the script, not the run: the run row carries no
-    // sharing of its own.
-    const item = await this.items.get(user, row.scriptId);
+    // sharing of its own. A script the caller cannot see answers like a
+    // missing run.
+    const item = await runNotFoundIfHidden(() => this.items.get(user, head.scriptId));
     if (!item) throw new NotFoundException('Run not found.');
+    const row = await this.prisma.scriptRun.findUnique({ where: { id: runId } });
+    if (!row) throw new NotFoundException('Run not found.');
     return {
       ...toSummary(row),
       log: row.log,
@@ -338,7 +344,7 @@ export class ScriptsService {
       select: { id: true, scriptId: true, state: true },
     });
     if (!row) throw new NotFoundException('Run not found.');
-    await this.assertRunnable(user, row.scriptId);
+    await runNotFoundIfHidden(() => this.assertRunnable(user, row.scriptId));
 
     // Every write is conditional on the state it was decided from. The
     // claimer moves rows on its own schedule, so an unconditional write
@@ -404,3 +410,17 @@ function toSummary(row: {
 }
 
 export { clampScriptTimeout };
+
+/**
+ * Run `fn` (a read of the run's script) and turn its not-found into
+ * the run's own not-found, so a run of a script the caller cannot see
+ * answers exactly like a run id that does not exist.
+ */
+async function runNotFoundIfHidden<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof NotFoundException) throw new NotFoundException('Run not found.');
+    throw err;
+  }
+}

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { ConflictException } from '@nestjs/common';
+import { BadGatewayException, ConflictException } from '@nestjs/common';
+
+import { AccountExistsException } from '../admin/keycloak-admin.service';
 
 import type { AuthUser } from '../auth/auth-sync.service';
 
 import type { AgoClient } from './ago-client';
-import { agoRoleToPortal, AgoPeopleImportService, portalUsername } from './people';
+import { resetTenancyModeForTests } from '../common/tenancy';
+
+import { ADDRESS_UNAVAILABLE, agoRoleToPortal, AgoPeopleImportService, portalUsername } from './people';
 
 const admin = {
   id: 'me',
@@ -14,18 +18,35 @@ const admin = {
 } as unknown as AuthUser;
 
 function setup(
-  opts: { existingUsernames?: string[]; takenEmails?: string[]; existingGroups?: string[] } = {},
+  opts: {
+    existingUsernames?: string[];
+    takenEmails?: string[];
+    existingGroups?: string[];
+    /** What createUser throws for a taken email. */
+    takenError?: () => Error;
+    /** Organization slug of each existing account, by username or email. */
+    accountOrg?: Record<string, string>;
+    /** Usernames with a local row in the caller's organization. */
+    localInOrg?: string[];
+  } = {},
 ) {
   const created: Array<Record<string, unknown>> = [];
   const localUsers = [{ id: 'me', username: 'me', email: 'me@acme.org' }];
   const kc = {
     isConfigured: () => true,
+    findAccountsByUsernameOrEmail: jest.fn(async (u: string, e: string | undefined) =>
+      [u, e ?? '']
+        .filter((k) => opts.accountOrg?.[k])
+        .map((k) => ({ id: `kc-${k}`, username: k, attributes: { org: [opts.accountOrg![k]!] } })),
+    ),
     findUserIdByUsername: jest.fn(async (u: string) =>
       (opts.existingUsernames ?? []).includes(u) ? 'kc-id' : null,
     ),
     createUser: jest.fn(async (input: Record<string, unknown>) => {
       if ((opts.takenEmails ?? []).includes(input.email as string)) {
-        throw new ConflictException('A user with that username or email already exists.');
+        throw opts.takenError
+          ? opts.takenError()
+          : new ConflictException('A user with that username or email already exists.');
       }
       created.push(input);
       localUsers.push({
@@ -49,7 +70,13 @@ function setup(
     }),
   };
   const prisma = {
-    user: { findMany: jest.fn(async () => localUsers) },
+    user: {
+      findMany: jest.fn(async () => localUsers),
+      findFirst: jest.fn(async (args: { where: { OR: Array<{ username?: { equals: string } }> } }) => {
+        const name = args.where.OR[0]?.username?.equals;
+        return name && (opts.localInOrg ?? []).includes(name) ? { id: `u-${name}` } : null;
+      }),
+    },
     group: {
       findMany: jest.fn(async () =>
         (opts.existingGroups ?? []).map((t, i) => ({ id: `old-${i}`, title: t })),
@@ -85,7 +112,7 @@ function setup(
     groups as never,
     prisma as never,
   );
-  return { svc, client, created, groupsCreated, members, kc };
+  return { svc, client, created, groupsCreated, members, kc, prisma };
 }
 
 describe('AgoPeopleImportService', () => {
@@ -146,5 +173,110 @@ describe('role and username mapping', () => {
   });
   it('lower-cases usernames', () => {
     expect(portalUsername(' Jane_Acme ')).toBe('jane_acme');
+  });
+
+  it.each([
+    ['the account exists answer', () => new AccountExistsException()],
+    ['a 409 in other words', () => new ConflictException('Could not invite this address.')],
+  ])('counts a person as matched from %s, by status not text', async (_label, takenError) => {
+    const t = setup({ takenEmails: ['pat@acme.org'], takenError });
+    const { report } = await t.svc.run({
+      user: admin,
+      client: t.client,
+      options: { import: true, sendSetupEmail: true },
+    });
+    expect(report.usersMatched).toBe(1);
+    expect(report.usersCreated).toBe(2);
+  });
+
+  it('does not count another failure as matched because of its words', async () => {
+    const t = setup({
+      takenEmails: ['pat@acme.org'],
+      takenError: () => new BadGatewayException('Upstream says: user already exists'),
+    });
+    const { report } = await t.svc.run({
+      user: admin,
+      client: t.client,
+      options: { import: true, sendSetupEmail: true },
+    });
+    expect(report.usersMatched).toBe(0);
+    expect(report.usersFailed).toBe(2);
+  });
+});
+
+describe('people already holding an account, by organization mode', () => {
+  const before = process.env.GRATIS_TENANCY;
+  afterEach(() => {
+    if (before === undefined) delete process.env.GRATIS_TENANCY;
+    else process.env.GRATIS_TENANCY = before;
+    resetTenancyModeForTests();
+  });
+  function mode(m: 'single' | 'multi'): void {
+    if (m === 'multi') process.env.GRATIS_TENANCY = 'multi';
+    else delete process.env.GRATIS_TENANCY;
+    resetTenancyModeForTests();
+  }
+  // jane's username and pat's email have accounts in another organization.
+  const elsewhere = {
+    existingUsernames: ['jane_acme'],
+    takenEmails: ['pat@acme.org'],
+    accountOrg: { jane_acme: 'other-org', 'pat@acme.org': 'other-org' },
+  };
+  const run = (t: ReturnType<typeof setup>) =>
+    t.svc.run({ user: admin, client: t.client, options: { import: true, sendSetupEmail: true } });
+
+  it('one organization: such people are matched exactly as before, with no lookup', async () => {
+    mode('single');
+    const t = setup(elsewhere);
+    const { report } = await run(t);
+    expect(report.usersMatched).toBe(2);
+    expect(report.usersCreated).toBe(1);
+    expect(report).not.toHaveProperty('usersSkipped');
+    expect(t.kc.findAccountsByUsernameOrEmail).not.toHaveBeenCalled();
+    expect(t.prisma.user.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('many organizations: an account outside the organization is skipped, not matched or mapped', async () => {
+    mode('multi');
+    const t = setup(elsewhere);
+    const { report } = await run(t);
+    expect(report.usersMatched).toBe(0);
+    expect(report.usersSkipped).toBe(2);
+    expect(report.usersCreated).toBe(1);
+    expect(report.warnings).toEqual(
+      expect.arrayContaining([
+        `User Jane_Acme was skipped: ${ADDRESS_UNAVAILABLE}`,
+        `User pat_acme was skipped: ${ADDRESS_UNAVAILABLE}`,
+      ]),
+    );
+    // Only the person created here joins the group; the skipped people
+    // are never mapped to the existing accounts.
+    expect(t.members).toEqual([['g-1', 'u-bob_acme', 'member']]);
+    const text = JSON.stringify(report);
+    expect(text).not.toContain('other-org');
+    expect(text).not.toContain('kc-');
+  });
+
+  it.each([
+    ['its Keycloak account names the organization', { accountOrg: { jane_acme: 'acme', 'pat@acme.org': 'acme' } }],
+    ['its Keycloak account holds the organization id', { accountOrg: { jane_acme: 'org-1', 'pat@acme.org': 'org-1' } }],
+    ['it has a local row in the organization', { localInOrg: ['jane_acme', 'pat_acme'] }],
+  ])('many organizations: an account in the organization is matched when %s', async (_l, extra) => {
+    mode('multi');
+    const t = setup({ existingUsernames: ['jane_acme'], takenEmails: ['pat@acme.org'], ...extra });
+    const { report } = await run(t);
+    expect(report.usersMatched).toBe(2);
+    expect(report.usersSkipped).toBeUndefined();
+  });
+
+  it('many organizations: a failed lookup counts as not created, not as matched', async () => {
+    mode('multi');
+    const t = setup({ takenEmails: ['pat@acme.org'] });
+    t.kc.findAccountsByUsernameOrEmail.mockImplementation(async () => {
+      throw new BadGatewayException('Keycloak user lookup failed: 500');
+    });
+    const { report } = await run(t);
+    expect(report.usersMatched).toBe(0);
+    expect(report.usersFailed).toBe(2);
   });
 });

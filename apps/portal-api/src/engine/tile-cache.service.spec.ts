@@ -2,6 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { runAsOrg } from '../common/tenant-context.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import {
   OBSERVATION_WRITTEN_CHANNEL,
   TileCacheAbortedError,
@@ -678,6 +680,154 @@ describe('TileCacheService', () => {
         if (prev !== undefined) process.env.TILE_CACHE_MAX_CONCURRENT = prev;
         else delete process.env.TILE_CACHE_MAX_CONCURRENT;
       }
+    });
+  });
+
+  describe('caps and lanes with organizations', () => {
+    const before = {
+      tenancy: process.env.GRATIS_TENANCY,
+      cap: process.env.TILE_CACHE_MAX_CONCURRENT,
+    };
+    afterEach(() => {
+      for (const [k, v] of [
+        ['GRATIS_TENANCY', before.tenancy],
+        ['TILE_CACHE_MAX_CONCURRENT', before.cap],
+      ] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      resetTenancyModeForTests();
+    });
+
+    function setup(mode: 'single' | 'multi', cap: number): TileCacheService {
+      if (mode === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      else delete process.env.GRATIS_TENANCY;
+      process.env.TILE_CACHE_MAX_CONCURRENT = String(cap);
+      resetTenancyModeForTests();
+      return new TileCacheService();
+    }
+
+    /** A compute that waits until released. */
+    function held(): { compute: () => Promise<Buffer>; release: () => void } {
+      let done: (b: Buffer) => void = () => undefined;
+      const p = new Promise<Buffer>((r) => {
+        done = r;
+      });
+      return { compute: () => p, release: () => done(Buffer.from('x')) };
+    }
+
+    it.each(['single', 'multi'] as const)(
+      '%s: the compute cap is one overall limit, whichever organization asks',
+      async (m) => {
+        const cache = setup(m, 2);
+        const h = [held(), held()];
+        const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute)));
+        // Full: another organization gets the same overload answer.
+        const refused = await runAsOrg('org-b', () =>
+          cache.getOrCompute('b0', async () => Buffer.from('b')),
+        ).catch((e: unknown) => e);
+        expect(refused).toBeInstanceOf(TileCacheOverloadError);
+        expect((refused as TileCacheOverloadError).active).toBe(2);
+        expect((refused as TileCacheOverloadError).cap).toBe(2);
+        expect((refused as Error).message).toBe('Tile cache at capacity: 2/2 concurrent computes');
+        h[0]!.release();
+        await ps[0];
+        // A freed slot goes to whoever asks first, as before.
+        const again = await runAsOrg('org-a', () =>
+          cache.getOrCompute('a2', async () => Buffer.from('y')),
+        );
+        expect(again.buf.toString()).toBe('y');
+        h[1]!.release();
+        await ps[1];
+      },
+    );
+
+    it.each(['single', 'multi'] as const)(
+      '%s: one organization keeps the lane first come, first served, with the same lengths',
+      async (m) => {
+        const cache = setup(m, 8);
+        const lane = { name: 'agg', limit: 2, maxQueued: 3 };
+        const order: string[] = [];
+        const h = [0, 1, 2, 3, 4].map(() => held());
+        const ps = h.map((x, i) =>
+          runAsOrg('org-a', () =>
+            cache.getOrCompute(
+              `l${i}`,
+              async () => {
+                order.push(`l${i}`);
+                return x.compute();
+              },
+              { lane },
+            ),
+          ),
+        );
+        // Two running and three queued: the sixth is one too many.
+        await expect(
+          runAsOrg('org-a', () => cache.getOrCompute('l5', async () => Buffer.from('y'), { lane })),
+        ).rejects.toBeInstanceOf(TileCacheOverloadError);
+        for (const x of h) {
+          x.release();
+          await new Promise((r) => setImmediate(r));
+        }
+        await Promise.all(ps);
+        expect(order).toEqual(['l0', 'l1', 'l2', 'l3', 'l4']);
+      },
+    );
+
+    it('many organizations: the lane line is served in turns', async () => {
+      const cache = setup('multi', 8);
+      const lane = { name: 'agg', limit: 2, maxQueued: 4 };
+      const order: string[] = [];
+      const gates = new Map<string, () => void>();
+      const run = (org: string, key: string) =>
+        runAsOrg(org, () =>
+          cache.getOrCompute(
+            key,
+            () =>
+              new Promise<Buffer>((r) => {
+                order.push(key);
+                gates.set(key, () => r(Buffer.from(key)));
+              }),
+            { lane },
+          ),
+        );
+      const ps = [run('org-a', 'a0'), run('org-a', 'a1'), run('org-a', 'a2'), run('org-a', 'a3')];
+      ps.push(run('org-b', 'b0'));
+      await new Promise((r) => setImmediate(r));
+      expect(order).toEqual(['a0', 'a1']);
+      // A frees a slot: B, which runs nothing, goes before A's queue.
+      gates.get('a0')!();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(order).toEqual(['a0', 'a1', 'b0']);
+      for (const key of ['a1', 'b0']) {
+        gates.get(key)!();
+        await new Promise((r) => setImmediate(r));
+        await new Promise((r) => setImmediate(r));
+      }
+      expect(order).toEqual(['a0', 'a1', 'b0', 'a2', 'a3']);
+      for (const key of ['a2', 'a3']) gates.get(key)!();
+      await Promise.all(ps);
+    });
+
+    it('many organizations: a full line makes room for an organization with fewer places', async () => {
+      const cache = setup('multi', 8);
+      const lane = { name: 'agg', limit: 1, maxQueued: 2 };
+      const h = [held(), held(), held()];
+      const ps = h.map((x, i) =>
+        runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute, { lane })),
+      );
+      const settled = ps.map((p) => p.then(() => 'ok', (e: unknown) => e));
+      const b = runAsOrg('org-b', () =>
+        cache.getOrCompute('b0', async () => Buffer.from('b'), { lane }),
+      );
+      // A's newest waiter gave its place to B.
+      expect(await settled[2]).toBeInstanceOf(TileCacheOverloadError);
+      h[0]!.release();
+      h[1]!.release();
+      expect((await b).buf.toString()).toBe('b');
+      expect(await settled[0]).toBe('ok');
+      expect(await settled[1]).toBe('ok');
     });
   });
 

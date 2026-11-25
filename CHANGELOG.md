@@ -15,9 +15,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   **Update point**. A line or polygon starts with no vertex, and its
   form's **Shape** bar shows the vertex count with the line's length or
   the polygon's area, and has **Add vertex**, **Update vertex** (the
-  last vertex to the pin) and **Undo**. The pin follows GPS after the map's **Locate**
-  button (the fix itself is used) and stays where the map is moved by
-  hand. With a form open, Locate is the only button on the map. The
+  last vertex to the pin) and **Undo**. The pin follows GPS after the
+  map's **Locate** button (the fix itself is used) and stays where the
+  map is moved by hand. With a form open, Locate is the only button on the map. The
   armed template footer (**Add at GPS** / **Add at center**, **Vertex
   at GPS** / **Vertex at center**, **Finish**) is gone.
 - Field app: snapping. The pin snaps to the nearest vertex or edge of
@@ -26,6 +26,23 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Field app: the **Add feature** list draws each type with the same
   symbol as the **Layers** list (a dot, a stripe or a square) instead
   of a square for every type.
+- ArcGIS Pro can sign in to GratisGIS and edit data layers: add, move,
+  reshape and delete features and change attributes, saved through the
+  same permission and validation checks as the portal, in one
+  transaction across the layers of a save. Sign in with your username
+  and a personal API key as the password; a read-only key can only
+  view. QGIS can edit too, with the key sent as an API header.
+- ArcGIS Pro and QGIS can add a data layer as a feature layer. Each
+  data layer item is an Esri FeatureServer at
+  `/api/arcgis/rest/services/<name>/FeatureServer`, with search,
+  filters, paging, statistics and reprojection. Public layers open with
+  no sign-in. Migration `featureserver_layer` keeps each
+  sublayer's layer number fixed.
+- Groundwork for editing in ArcGIS Pro: every data layer feature now gets
+  a permanent whole-number ObjectID, which Pro needs to name a feature.
+  Migration `feature_oid` adds two tables and a trigger. Features from
+  before it are numbered in the background, ten minutes at a time, so
+  the upgrade itself stays fast.
 - The one-command installer checks the server first and says in plain
   words what to fix (memory, disk, web ports, internet access, Docker),
   stopping before it changes anything. It offers to install Docker and
@@ -111,6 +128,21 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - The housekeeping extent recompute uses the same rule as the
   background refresh: a map's extent draws on layers from its own
   organization or public ones.
+- A script run, an offline package file and an admin user lookup now
+  answer an id the caller cannot see exactly like an id that does not
+  exist. An offline package file checks the map before the package.
+- Each server-side print renders in a browser context of its own, so
+  two prints never share cookies, storage or cached responses.
+- Outbound fetches also refuse 192.0.0.0/24, site-local fec0::/10, and
+  IPv6 addresses that carry a private IPv4 address (NAT64 64:ff9b::/96
+  and the old ::a.b.c.d form).
+- Print templates are checked when they are saved: an unknown paper
+  size or orientation, or a margin that is not a number of inches zero
+  or more, is refused with a 400 that says what is allowed. Printing
+  from an older template with an unknown paper size answers the same
+  400, and an unknown orientation still prints portrait. The
+  designer's margin field keeps to zero to a quarter of the sheet's
+  shorter side.
 
 ### Fixed
 
@@ -119,6 +151,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   asked again every 15 seconds. The field app no longer hands table
   sublayers to the map, and a 404 TileJSON is taken as the default zoom
   range instead of a failure to retry.
+- Printing recovers on its own after prints that could not start,
+  instead of answering "busy" until the API restarts.
+- A search index build whose end could not be recorded no longer
+  stays "running" until the worker restarts: after six hours it is
+  marked failed and a new build can be queued.
 - The What's Here PDF covered only the first 30 layers of a map and left
   the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed
