@@ -260,7 +260,12 @@ tags on its own.
 
 ## Optional pieces
 
-- Geocoding: a self-hosted Nominatim can back the portal's geocoder;
+- Geocoding: the lightest option is open-geocode, which serves a
+  state from one file of tens of MB and needs well under 1 GB of
+  RAM. See `infra/OPEN-GEOCODE.md` and set `OPEN_GEOCODE_URL`. It
+  then answers address search and spreadsheet import, which takes
+  up to 10,000 address rows, and nothing goes to the public service.
+- Or a self-hosted Nominatim can back the portal's geocoder;
   see `infra/NOMINATIM.md`. If `NOMINATIM_URL` is unset and the
   local default does not answer, address search falls back to
   the public Nominatim service. Set `NOMINATIM_PUBLIC_FALLBACK=0`

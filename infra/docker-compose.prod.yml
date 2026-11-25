@@ -710,6 +710,7 @@ services:
       # Address geocoding for CSV imports. This stack runs no
       # Nominatim, so it stays off unless you point it at one.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
       # `off` stops the admin Updates page from calling GitHub.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
       # Name of the install's organization when the admin first signs
@@ -852,6 +853,7 @@ services:
       PORTAL_NAME: ${PORTAL_NAME:-}
       # CSV address geocoding runs in import jobs here.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
     volumes:
       - gg-staging:/var/lib/gg-staging
@@ -1189,6 +1191,7 @@ services:
       # NOMINATIM_URL empty, searches go to the public
       # nominatim.openstreetmap.org unless NOMINATIM_PUBLIC_FALLBACK=0.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
       NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
       # Portal cookie lifetime and idle window (docs/operations/session.md).
       GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}

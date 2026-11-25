@@ -59,4 +59,25 @@ describe('featuresFromAddresses', () => {
     expect(built.features[0]?.geometry.coordinates).toEqual([-77.0, 38.9]);
     expect(built.features[0]?.properties.name).toBe('Office');
   });
+
+  it('adds a geocode_accuracy column when the geocoder reports one', () => {
+    const plan = planAddressGeocode(
+      'name,address\nOffice,"1600 Pennsylvania Ave NW"\nAnnex,"1 Nowhere Road"\n',
+    );
+    if (plan.kind !== 'address') throw new Error('expected a plan');
+    const built = featuresFromAddresses(
+      plan,
+      [{ lat: 38.9, lon: -77.0, accuracy: 'rooftop' }, null],
+      { withAccuracy: true },
+    );
+    expect(built.fields.map((f) => f.name)).toContain('geocode_accuracy');
+    expect(built.features[0]?.properties.geocode_accuracy).toBe('rooftop');
+  });
+
+  it('adds no column for a geocoder without accuracy', () => {
+    const plan = planAddressGeocode('name,address\nOffice,"1600 Pennsylvania Ave NW"\n');
+    if (plan.kind !== 'address') throw new Error('expected a plan');
+    const built = featuresFromAddresses(plan, [{ lat: 38.9, lon: -77.0 }]);
+    expect(built.fields).toBe(plan.fields);
+  });
 });

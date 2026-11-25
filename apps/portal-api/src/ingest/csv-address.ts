@@ -17,6 +17,9 @@ export const ADDRESS_GEOCODE_LIMITS = {
   /** First rows of a spreadsheet that are sent to the local geocoder.
    *  A county-scale address file is not a bulk geocode job. */
   MAX_ROWS: 200,
+  /** The same cap when OPEN_GEOCODE_URL points at an open-geocode
+   *  server, which takes batches instead of one query at a time. */
+  OPEN_GEOCODE_MAX_ROWS: 10_000,
   /** How many of those rows are inspected before a column is trusted. */
   VALIDATION_SAMPLE_ROWS: 50,
   /** Share of the sample that must look like an address. */
@@ -77,12 +80,15 @@ export interface AddressColumnPlan {
 
 export type AddressPlan = AddressColumnPlan | { kind: 'none'; reason: string };
 
-export function planAddressGeocode(text: string): AddressPlan {
+export function planAddressGeocode(
+  text: string,
+  maxRows: number = ADDRESS_GEOCODE_LIMITS.MAX_ROWS,
+): AddressPlan {
   const clean = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   if (detectCsvColumnPair(clean).kind === 'detected') {
     return { kind: 'none', reason: 'File already has coordinates' };
   }
-  const parsed = readDelimitedSample(clean, ADDRESS_GEOCODE_LIMITS.MAX_ROWS);
+  const parsed = readDelimitedSample(clean, maxRows);
   if ('error' in parsed) return { kind: 'none', reason: parsed.error };
 
   const { header, rows } = parsed;
@@ -137,9 +143,28 @@ export function planAddressGeocode(text: string): AddressPlan {
   };
 }
 
+/** Column added to an address import when the geocoder reports how precise each point is. */
+export const GEOCODE_ACCURACY_FIELD = 'geocode_accuracy';
+
+/**
+ * The layer's fields: the spreadsheet's own, plus GEOCODE_ACCURACY_FIELD
+ * when the geocoder reports accuracy and the sheet has no such column.
+ * Probe and import both call this so they agree on the schema.
+ */
+export function addressLayerFields(
+  plan: AddressColumnPlan,
+  withAccuracy: boolean,
+): AddressColumnPlan['fields'] {
+  if (!withAccuracy || plan.fields.some((f) => f.name === GEOCODE_ACCURACY_FIELD)) {
+    return plan.fields;
+  }
+  return [...plan.fields, { name: GEOCODE_ACCURACY_FIELD, type: 'string' }];
+}
+
 export function featuresFromAddresses(
   plan: AddressColumnPlan,
-  hits: Array<{ lat: number; lon: number } | null>,
+  hits: Array<{ lat: number; lon: number; accuracy?: string | null } | null>,
+  opts: { withAccuracy?: boolean } = {},
 ): {
   features: Array<{
     type: 'Feature';
@@ -147,7 +172,11 @@ export function featuresFromAddresses(
     properties: Record<string, unknown>;
   }>;
   placed: number;
+  /** addressLayerFields(plan, opts.withAccuracy). */
+  fields: AddressColumnPlan['fields'];
 } {
+  const fields = addressLayerFields(plan, opts.withAccuracy === true);
+  const addAccuracy = fields !== plan.fields;
   const features: Array<{
     type: 'Feature';
     geometry: { type: 'Point'; coordinates: [number, number] };
@@ -162,13 +191,14 @@ export function featuresFromAddresses(
       const field = plan.fields[c]!;
       properties[field.name] = coerce(row[c] ?? '', field.type);
     }
+    if (addAccuracy) properties[GEOCODE_ACCURACY_FIELD] = hit.accuracy ?? null;
     features.push({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [hit.lon, hit.lat] },
       properties,
     });
   }
-  return { features, placed: features.length };
+  return { features, placed: features.length, fields };
 }
 
 function bestColumn(
