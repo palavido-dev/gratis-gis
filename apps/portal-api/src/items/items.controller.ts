@@ -126,6 +126,12 @@ class CopyItemDto {
   @IsOptional() @IsObject() data?: Prisma.InputJsonValue;
 }
 
+class SaveAsTemplateDto {
+  @IsString() @MinLength(1) @MaxLength(200) title!: string;
+  // The builder's live state, so unsaved changes go into the template.
+  @IsOptional() @IsObject() data?: Prisma.InputJsonValue;
+}
+
 class UpdateItemDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(200) title?: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
@@ -1025,6 +1031,23 @@ export class ItemsController {
     return this.items.copyMap(user, id, {
       title: dto.title,
       includeMarkup: dto.includeMarkup === true,
+      ...(dto.data !== undefined ? { data: dto.data } : {}),
+    });
+  }
+
+  /**
+   * "Save as template" for an app (#839). See
+   * ItemsService.saveAppAsTemplate. Read access on the app is enough;
+   * creating the template needs the usual can_publish_items.
+   */
+  @Post(':id/save-as-template')
+  saveAsTemplate(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ITEM_ID) id: string,
+    @Body() dto: SaveAsTemplateDto,
+  ) {
+    return this.items.saveAppAsTemplate(user, id, {
+      title: dto.title,
       ...(dto.data !== undefined ? { data: dto.data } : {}),
     });
   }

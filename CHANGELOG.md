@@ -178,6 +178,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The app designer names layers by their title instead of an internal
+  key such as `lyr_jg79qfks`, in the Layers panel and in every widget's
+  layer list. A name the author typed still wins. (#838)
+- Save as template works for an app that still refers to an item that
+  was deleted or is no longer shared with you. Those references are left
+  out of the template and the designer says how many; before, the whole
+  save failed with "Referenced item ... was not found". (#839)
 - Report template and What's Here PDFs whose name has Cyrillic,
   Chinese, Japanese or other non-Latin letters download again. They
   answered an error. (#842)
