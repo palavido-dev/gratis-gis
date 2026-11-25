@@ -40,6 +40,7 @@ export const ADMIN_SECTIONS: readonly AdminSection[] = [
   { id: 'backup', href: '/admin/backup', group: 'system', operatorOnly: true, keywords: 'restore snapshot export disaster' },
   { id: 'updates', href: '/admin/updates', group: 'system', keywords: 'upgrade release version new' },
   { id: 'email', href: '/admin/notifications', group: 'system', keywords: 'notifications smtp mail stuck templates' },
+  { id: 'geocoding', href: '/admin/geocoding', group: 'system', operatorOnly: true, keywords: 'geocoder address search openstreetmap nominatim open-geocode region' },
   { id: 'support', href: '/admin/diagnostics', group: 'system', keywords: 'diagnostics help bundle debug versions' },
 ];
 

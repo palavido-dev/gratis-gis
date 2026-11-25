@@ -716,6 +716,9 @@ services:
       # Nominatim, so it stays off unless you point it at one.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       # `off` stops the admin Updates page from calling GitHub.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
       # Name of the install's organization when the admin first signs
@@ -859,9 +862,19 @@ services:
       # CSV address geocoding runs in import jobs here.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
+      # Seeds Admin -> Geocoding on a portal whose admin page is locked
+      # (PORTAL_LOCK_ADMIN_TIER), such as a public demo: comma-separated
+      # Geofabrik ids, for example us/west-virginia.
+      GEOCODER_REGIONS: ${GEOCODER_REGIONS:-}
+      GEOCODER_TIGER: ${GEOCODER_TIGER:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
     volumes:
       - gg-staging:/var/lib/gg-staging
+      # Admin -> Geocoding: downloads, TIGER cache and the built index.
+      - geocoder-data:/var/lib/gratis/geocoder
 
     # Override CMD: same image but boot the worker entry point instead
     # of the http server.
@@ -1197,6 +1210,9 @@ services:
       # nominatim.openstreetmap.org unless NOMINATIM_PUBLIC_FALLBACK=0.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
       OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
       # Portal cookie lifetime and idle window (docs/operations/session.md).
       GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
@@ -1316,6 +1332,8 @@ volumes:
   # Optional disk tier of the vector tile cache (TILE_CACHE_DIR).
   # Disposable: deleting it only costs recomputing tiles.
   tile-cache:
+  # Managed geocoder (portal-worker). Deleting it only costs a rebuild.
+  geocoder-data:
 
 networks:
   gratis-net:

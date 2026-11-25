@@ -6,8 +6,14 @@ memory-mapped file. It needs no database. GratisGIS can use it for map
 address search and for spreadsheet address import in place of
 Nominatim.
 
+**Most portals do not need this page.** Admin -> Geocoding builds and
+serves an open-geocode index inside portal-worker: pick regions, click
+Build. See the Geocoding help page. What follows is for running your
+own open-geocode server elsewhere.
+
 Set `OPEN_GEOCODE_URL` on portal-web and portal-api (the VPS and NAS
-compose files pass it through). When it is set:
+compose files pass it through). It takes precedence over the managed
+geocoder. When it is set:
 
 - Map, field app and custom app address search ask open-geocode. There
   is no fallback to the public Nominatim service.

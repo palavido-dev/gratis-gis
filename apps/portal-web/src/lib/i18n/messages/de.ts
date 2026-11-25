@@ -93,6 +93,7 @@ export const de: Partial<CatalogShape> = {
       signIn: { title: 'Anmeldung', desc: 'Arbeitskonten für die Anmeldung und ob ein Authentifikator verlangt wird.' },
       landing: { title: 'Startseite', desc: 'Was Besucher vor der Anmeldung auf der Startseite sehen.' },
       ai: { title: 'KI-Assistent', desc: 'Einen KI-Anbieter für Entwürfe und das Erstellen verbinden. Aus, bis einer hinzugefügt wird.' },
+      geocoding: { title: 'Geokodierung', desc: 'Regionen für die Adresssuche wählen. Das Portal lädt die Kartendaten herunter und hält sie aktuell.' },
       feedback: { title: 'Feedback-Eingang', desc: 'Was Personen aus dem Portal gesendet haben, neueste zuerst.' },
       jobs: { title: 'Importe und Analysen', desc: 'Laufende und letzte Importe und Analysen, mit Abbrechen und Wiederholen.' },
       fieldQueues: { title: 'Feld-Warteschlangen', desc: 'Was jedes Feldgerät zur Synchronisierung bereithält und wann es sich zuletzt gemeldet hat.' },

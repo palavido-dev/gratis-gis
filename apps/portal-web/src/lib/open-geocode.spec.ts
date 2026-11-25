@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { openGeocodeUrl, toNominatimRows } from './open-geocode';
+import {
+  activeOpenGeocodeUrl,
+  openGeocodeUrl,
+  resetManagedProbe,
+  toNominatimRows,
+} from './open-geocode';
 
 describe('openGeocodeUrl', () => {
   it('is null when unset, blank or not http(s)', () => {
@@ -58,5 +63,33 @@ describe('toNominatimRows', () => {
     expect(toNominatimRows({ features: [{ geometry: { coordinates: ['x', 1] } }] })).toEqual([]);
     expect(toNominatimRows(null)).toEqual([]);
     expect(toNominatimRows({ features: [] })).toEqual([]);
+  });
+});
+
+describe('activeOpenGeocodeUrl', () => {
+  afterEach(() => resetManagedProbe());
+  const up = (async () => new Response('ok', { status: 200 })) as typeof fetch;
+  const down = (async () => {
+    throw new Error('down');
+  }) as typeof fetch;
+
+  it('prefers OPEN_GEOCODE_URL without probing', async () => {
+    expect(
+      await activeOpenGeocodeUrl(
+        { OPEN_GEOCODE_URL: 'http://og:8080', MANAGED_GEOCODER_URL: 'http://w:8091' },
+        down,
+      ),
+    ).toBe('http://og:8080');
+  });
+
+  it('uses the managed geocoder only while it answers', async () => {
+    const env = { MANAGED_GEOCODER_URL: 'http://w:8091' };
+    expect(await activeOpenGeocodeUrl(env, up, 1000)).toBe('http://w:8091');
+    resetManagedProbe();
+    expect(await activeOpenGeocodeUrl(env, down, 1000)).toBeNull();
+  });
+
+  it('is null when nothing is configured', async () => {
+    expect(await activeOpenGeocodeUrl({}, up)).toBeNull();
   });
 });

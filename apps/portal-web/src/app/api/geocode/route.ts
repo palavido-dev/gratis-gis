@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
 import { hasUsableSession } from '@/lib/session-state';
 import { nominatimTarget } from '@/lib/nominatim-config';
-import { openGeocodeUrl, toNominatimRows } from '@/lib/open-geocode';
+import { activeOpenGeocodeUrl, toNominatimRows } from '@/lib/open-geocode';
 
 const USER_AGENT =
   'GratisGIS/0.1 (https://github.com/palavido-dev/gratis-gis)';
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([], { status: 200 });
   }
 
-  const og = openGeocodeUrl();
+  const og = await activeOpenGeocodeUrl();
   if (og) {
     return searchOpenGeocode(
       og,

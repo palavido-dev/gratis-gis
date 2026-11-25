@@ -60,6 +60,40 @@ export function openGeocodeBase(
   return raw.replace(/\/+$/, '');
 }
 
+/**
+ * The managed geocoder's internal address (Admin -> Geocoding), from
+ * MANAGED_GEOCODER_URL. Compose points it at portal-worker. Unlike
+ * OPEN_GEOCODE_URL it is only used while it answers, so a portal whose
+ * admin has not built a pack yet keeps its Nominatim behaviour.
+ */
+export function managedGeocoderBase(
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  return openGeocodeBase({ OPEN_GEOCODE_URL: env.MANAGED_GEOCODER_URL });
+}
+
+const MANAGED_PROBE_TTL_MS = 30_000;
+let managedProbe: { base: string; at: number; ok: boolean } | null = null;
+
+/** True when the managed geocoder answers /readyz. Cached for 30 s. */
+export async function managedGeocoderReady(
+  fetchImpl: typeof fetch,
+  base: string,
+  now = Date.now(),
+): Promise<boolean> {
+  if (managedProbe && managedProbe.base === base && now - managedProbe.at < MANAGED_PROBE_TTL_MS) {
+    return managedProbe.ok;
+  }
+  const ok = await openGeocodeAnswers(fetchImpl, base);
+  managedProbe = { base, at: now, ok };
+  return ok;
+}
+
+/** Forget the cached probe (tests). */
+export function resetManagedProbe(): void {
+  managedProbe = null;
+}
+
 export async function openGeocodeAnswers(
   fetchImpl: typeof fetch,
   base: string,

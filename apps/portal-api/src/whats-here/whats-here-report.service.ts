@@ -95,10 +95,11 @@ export class WhatsHereReportService {
       ...(req.place ? { place: req.place } : {}),
       ...(req.mapImage ? { mapImage: req.mapImage } : {}),
     });
-    const pdf = await this.reports.pdf(html, {
-      size: req.paper,
-      orientation: 'portrait',
-    });
+    const pdf = await this.reports.pdf(
+      html,
+      { size: req.paper, orientation: 'portrait' },
+      { anonymous: user === null },
+    );
     return { pdf, fileName: title };
   }
 

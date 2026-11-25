@@ -16,18 +16,18 @@ builds on it.
 
 ## Totals
 
-**238 sites** in 55 files. The guard counts the same 238.
+**239 sites** in 55 files. The guard counts the same 239.
 
 | Kind | Sites | What it is |
 | --- | ---: | --- |
-| `prisma` | 159 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
+| `prisma` | 160 | `.$queryRaw`, `.$executeRaw`, `.$queryRawUnsafe`, `.$executeRawUnsafe` calls |
 | `pg` | 37 | node-postgres calls on connections outside Prisma (`client.query`, `admin.query`, `writer.query`, the CopyWriter `this.query<>` passthrough) |
 | `raw` | 17 | `Prisma.raw(...)` fragments, which put text into SQL unescaped |
 
 | Class | Sites |
 | --- | ---: |
 | item-scoped | 124 |
-| system | 77 |
+| system | 78 |
 | external | 9 |
 | org-scoped | 3 |
 | user-scoped | 0 |
@@ -476,8 +476,8 @@ the statement they set up.
 | 211 | `tools/recipe-runner.service.ts:1352` | prisma | `computeAoiBbox` | observation | AOI layer item id from the request | **item-scoped** | Sign-in required, then ItemsService.isFeatureReadLimited (runs items.get, refuses row or area limited shares). |
 | 212 | `area-of-interest/area-of-interest.service.ts:62` | prisma | `register` | none (PostGIS on bound values) | none | **system** | What's Here area resolve (#796): union, make valid, buffer the caller's own shape. Reads no table. Public endpoint; input size checked first. |
 | 213 | `area-of-interest/area-of-interest.service.ts:103` | prisma | `register` | area_of_interest (INSERT ... ON CONFLICT) | hash of the resolved shape | **system** | Stores a shape only, no org and no feature data. Shared across orgs by design: the row reveals nothing, and every read that names it runs under the caller's own layer access. |
-| 214 | `featureserver/feature-oid.service.ts:76` | prisma | `ensureScope` | none (SET LOCAL statement_timeout) | none | **system** | Lifts the timeout for one ObjectID backfill transaction. |
-| 215 | `featureserver/feature-oid.service.ts:77` | prisma | `ensureScope` | feature_oid (INSERT ... SELECT from observation) | scope from an item the cron listed, or from a FeatureServer route that already checked the caller can read the layer | **item-scoped** | Writes only ObjectID numbers for one scope; returns nothing. Leader cron (system) or the FeatureServer routes (PR 2+), which check layer access first. |
+| 214 | `featureserver/feature-oid.service.ts:156` | prisma | `backfill` | none (SET LOCAL statement_timeout) | none | **system** | Lifts the timeout for one ObjectID backfill transaction. |
+| 215 | `featureserver/feature-oid.service.ts:162` | prisma | `backfill` | feature_oid (INSERT ... SELECT from observation) | scope from an item the cron listed, or from a FeatureServer route that already checked the caller can read the layer | **item-scoped** | Writes only ObjectID numbers for one scope; returns nothing. Leader cron (system) or the FeatureServer routes (PR 2+), which check layer access first. |
 | 216 | `featureserver/feature-oid.ts:28` | prisma | `forgetItemOids` | feature_oid (DELETE by scope prefix) | `itemId` of the item being purged | **item-scoped** | Called from tearDownItemBackingStorage, same checks as rows 154 to 156. |
 | 217 | `featureserver/feature-oid.ts:29` | prisma | `forgetItemOids` | feature_oid_scope (DELETE by scope prefix) | `itemId` of the item being purged | **item-scoped** | As row 216. |
 | 218 | `featureserver/feature-oid.ts:30` | prisma | `forgetItemOids` | featureserver_layer (DELETE by item id) | `itemId` of the item being purged | **item-scoped** | As row 216. |
@@ -501,6 +501,7 @@ the statement they set up.
 | 236 | `featureserver/featureserver-query.service.ts:272` | prisma | `outsideLimit` | none (PostGIS on bound values) | geo limit from SharingService.featureScopeFor | **system** | Same test as the feature routes' assertGeometriesInsideLimit, on applyEdits geometries. Reads no table. |
 | 237 | `engine/data-layer.ts:1276` | prisma | `commitLayersSync` | item (FOR UPDATE) | `itemId` from FeatureServerAccessService | **item-scoped** | As rows 59 and 60, for several sublayers in one transaction. Callers checked edit rights first (access.layer(..., 'edit'): ItemsService.assertCanEdit, assertLayerEditingEnabled, featureScopeFor edit). |
 | 238 | `engine/data-layer.ts:1307` | prisma | `commitLayersSync` | item (UPDATE data_json) | as row 237 | **item-scoped** | As row 237. |
+| 239 | `featureserver/feature-oid.service.ts:159` | prisma | `backfill` | none (pg_advisory_xact_lock) | scope as row 215, bound as a parameter | **system** | Lets one replica at a time backfill a scope. Takes a lock and reads no table. |
 
 ## Keeping this up to date
 
