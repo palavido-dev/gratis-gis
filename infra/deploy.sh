@@ -364,6 +364,8 @@ json.dump(client, sys.stdout)
   # --- native OIDC clients ---
   kc_ensure_client qgis-plugin
   kc_ensure_client field-app
+  # Password check for ArcGIS Pro sign-in (generateToken).
+  kc_ensure_client esri-desktop
 
   # --- field-app: native redirect only ---
   # The first realm import gave field-app a portal-wide https redirect

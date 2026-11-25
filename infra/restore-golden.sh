@@ -645,6 +645,8 @@ json.dump(client, sys.stdout)
   # --- native OIDC clients ---
   kc_ensure_client qgis-plugin
   kc_ensure_client field-app
+  # Password check for ArcGIS Pro sign-in (generateToken).
+  kc_ensure_client esri-desktop
 
   # --- field-app: native redirect only (see deploy.sh for why) ---
   GG_FIELD_CID="$(kc_client_id field-app)"

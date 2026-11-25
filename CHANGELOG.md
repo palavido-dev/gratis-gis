@@ -11,12 +11,15 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - ArcGIS Pro can sign in to GratisGIS and edit data layers: add, move,
   reshape and delete features and change attributes, saved through the
   same permission and validation checks as the portal, in one
-  transaction across the layers of a save. Sign in with your username
-  and a personal API key as the password; a read-only key can only
-  view. QGIS can edit too, with the key sent as an API header.
+  transaction across the layers of a save. Sign in with your GratisGIS
+  username and password. Accounts that use Google or Microsoft sign-in
+  or a two-step code use a personal API key as the password instead; a
+  read-only key can only view. QGIS can edit too, with the key sent as
+  an API header. Keycloak gains an `esri-desktop` client; deploy.sh
+  adds it to existing realms.
 - ArcGIS Pro and QGIS can add a data layer as a feature layer. Each
   data layer item is an Esri FeatureServer at
-  `/api/arcgis/rest/services/<name>/FeatureServer`, with search,
+  `/api/geoservices/rest/services/<name>/FeatureServer`, with search,
   filters, paging, statistics and reprojection. Public layers open with
   no sign-in. Migration `featureserver_layer` keeps each
   sublayer's layer number fixed.

@@ -77,7 +77,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         user?: unknown;
         esriTokenInvalid?: boolean;
       }>();
-      if (typeof req.path === 'string' && req.path.startsWith('/api/arcgis/')) {
+      if (typeof req.path === 'string' && req.path.startsWith('/api/geoservices/')) {
         const token = presentedEsriToken(req);
         if (token !== undefined) {
           const tokens = this.esriTokens;

@@ -3,12 +3,14 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /**
  * Tokens for Esri clients (ArcGIS Pro, QGIS), minted by the
- * FeatureServer's generateToken from a personal API key.
+ * FeatureServer's generateToken from the user's password or a
+ * personal API key.
  *
- * `ggesri.<claims>.<mac>`. The claims name the API key by id and carry
- * an expiry; nothing secret is inside. Every request that presents
- * one resolves the key again, so revoking or expiring the key, or
- * disabling its owner, stops its tokens at once.
+ * `ggesri.<claims>.<mac>`. The claims name either the API key (by id)
+ * or the user, and carry an expiry; nothing secret is inside. Every
+ * request that presents one checks the key or the account again, so
+ * revoking the key, or disabling or deleting the account, stops its
+ * tokens at once.
  */
 
 export const ESRI_TOKEN_PREFIX = 'ggesri.';
@@ -18,12 +20,11 @@ export const ESRI_TOKEN_MAX_MINUTES = 60;
 
 const MAX_LENGTH = 1024;
 
-export interface EsriTokenClaims {
-  /** ApiKey row id. */
-  kid: string;
-  /** Expiry, epoch milliseconds. */
-  exp: number;
-}
+export type EsriTokenClaims =
+  /** Minted from a personal API key: the ApiKey row id. */
+  | { kid: string; exp: number }
+  /** Minted from the user's password: the local user id. */
+  | { uid: string; exp: number };
 
 function mac(key: Buffer, body: string): Buffer {
   return createHmac('sha256', key).update(`esri-token.v1.${body}`).digest();
@@ -52,10 +53,11 @@ export function verifyEsriToken(value: unknown, key: Buffer, now = Date.now()): 
   } catch {
     return null;
   }
-  const c = parsed as Partial<EsriTokenClaims> | null;
-  if (!c || typeof c.kid !== 'string' || typeof c.exp !== 'number') return null;
-  if (c.exp < now) return null;
-  return { kid: c.kid, exp: c.exp };
+  const c = parsed as { kid?: unknown; uid?: unknown; exp?: unknown } | null;
+  if (!c || typeof c.exp !== 'number' || c.exp < now) return null;
+  if (typeof c.kid === 'string' && c.uid === undefined) return { kid: c.kid, exp: c.exp };
+  if (typeof c.uid === 'string' && c.kid === undefined) return { uid: c.uid, exp: c.exp };
+  return null;
 }
 
 /**
