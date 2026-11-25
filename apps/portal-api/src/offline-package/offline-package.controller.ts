@@ -25,6 +25,7 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
+import { orgOwner } from '../storage/object-keys.js';
 import { StorageService } from '../storage/storage.service.js';
 import { OfflinePackageService } from './offline-package.service.js';
 import { readAreas } from './offline-package.worker.js';
@@ -178,7 +179,11 @@ export class OfflinePackageController {
       throw new ForbiddenException('You cannot read this item');
     }
 
-    const upstream = await this.storage.streamObject(row.storageKey, rangeHeader);
+    const upstream = await this.storage.streamObject(
+      row.storageKey,
+      orgOwner(item.orgId),
+      rangeHeader,
+    );
     res.status(upstream.statusCode);
     if (upstream.contentRange) {
       res.setHeader('Content-Range', upstream.contentRange);

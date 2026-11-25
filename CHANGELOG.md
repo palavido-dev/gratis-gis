@@ -55,9 +55,54 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   spreadsheet, the PDF and share links (#796).
 - Migration `area_of_interest`: a new, empty table. Nothing to do on
   upgrade.
+- Storage usage: the server keeps a running total of the bytes each
+  organization stores in object storage (thumbnails, files, tile
+  layers, point clouds, attachments, map icons, offline packages) and
+  an estimate of its feature data (live feature count times average
+  feature size; edit history and indexes are not counted). An org
+  admin reads it at `GET /api/admin/storage-usage`. A daily job checks
+  the totals against the bucket and repairs them; it never deletes
+  anything. Image data cached for the outline tool counts
+  against the organization that owns the imagery and is kept to 128
+  map areas per imagery layer, least recently used removed first.
+- Upgrade note for storage usage: on a standard install nothing changes
+  for existing files and there is nothing to do. On the first start
+  after upgrading, the server fills the usage totals for files stored
+  before this release. It starts at once on the replica that runs
+  scheduled jobs, logs when it starts and when it ends, runs while the
+  portal serves, and after a failure resumes where it stopped; on a
+  large bucket it can take a while. `node
+  dist/storage/storage-usage-backfill.main.js --apply` does the same
+  work by hand (dry run without `--apply`) and can be run right after
+  migrating. On an install set up to keep several organizations apart,
+  files stored before this release are served under the item
+  permission checks alone until the first fill has finished, and
+  after it such a file that no row ties to an organization is not
+  served (each refusal is logged at most once a minute and counted in
+  `gratisgis_storage_legacy_key_refusals_total`).
+  `gratisgis_storage_usage_first_fill_pending` is 1 until the first
+  fill has finished. Files with no known owner are never deleted; the
+  daily check logs a warning with their count.
+- Migration `storage_usage_ledger`: three new, empty tables. Nothing to
+  do on upgrade.
+- Migration `storage_usage_read_and_errors`: two nullable columns and
+  one index on the new storage tables. Nothing to do on upgrade.
+
+### Changed
+
+- New uploads are stored under a key that names their organization
+  (`<kind>/o/<orgId>/<id>`). Existing files keep their keys and stay
+  readable; nothing is moved.
 
 ### Security
 
+- Every storage read, write, delete and signed upload URL now checks
+  that the object belongs to the organization of the item that
+  authorised it. A key, id or crafted path that names an object of
+  another organization answers 404.
+- Analysis jobs (hillshade, contours, mosaics, point cloud merges, the
+  outline tool and the others) refuse a source file whose key names an
+  organization other than that of the item the job runs on.
 - A layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature
   routes, and a map's or editor's stored extent only draws on layers

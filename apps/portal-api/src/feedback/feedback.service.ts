@@ -145,6 +145,7 @@ export class FeedbackService {
       try {
         const { key } = await this.storage.uploadBuffer(
           'feedback-screenshot',
+          input.orgId ? { orgId: input.orgId } : null,
           input.screenshot.body,
           input.screenshot.contentType,
         );

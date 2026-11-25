@@ -9,6 +9,7 @@ import type { DataLayerTablesService } from '../data-layer/tables.service.js';
 import type { DataLayerSearchIndexService } from '../data-layer/search-index.service.js';
 import type { CredentialService } from '../items/credential.service.js';
 import type { StorageService } from '../storage/storage.service.js';
+import { storageKey, suffixesOf, type ObjectKind } from '../storage/object-keys.js';
 
 /**
  * Orphaned-upload sweep behavior pins.
@@ -175,8 +176,10 @@ describe('HousekeepingService orphaned uploads', () => {
     const result = await svc.purgeOrphanedUploads();
 
     expect(deleteObject).toHaveBeenCalledTimes(2);
-    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-a');
-    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-b');
+    // The sweep is install-wide system work.
+    const sweep = { system: 'housekeeping:orphan-sweep' };
+    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-a', sweep);
+    expect(deleteObject).toHaveBeenCalledWith('map-icon/orp-b', sweep);
     expect(deleteObject).not.toHaveBeenCalledWith('map-icon/keep-fresh');
     expect(result.deletedCount).toBe(1);
     expect(result.freedBytes).toBe(30);
@@ -235,8 +238,33 @@ describe('STORAGE_KEY_REF_PATTERN', () => {
     expect(scan(json)).toEqual([`map-icon/${uuid}`]);
   });
 
+  it('matches whole keys in the org-prefixed layout, so a referenced new object is never an orphan', () => {
+    const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const json = JSON.stringify({
+      storageKey: `item-file/o/${org}/${uuid}`,
+      url: `/api/portal/storage/private/item-tile-layer/o/${org}/${uuid}`,
+      iconName: `upload:map-icon/o/${org}/${uuid}.png`,
+    });
+    expect(scan(json)).toEqual([
+      `item-file/o/${org}/${uuid}`,
+      `item-tile-layer/o/${org}/${uuid}`,
+      `map-icon/o/${org}/${uuid}.png`,
+    ]);
+  });
+
   it('adds no suffix to the other prefixes', () => {
     const json = JSON.stringify({ a: `item-file/${uuid}.png`, b: `feature-attachment/${uuid}` });
     expect(scan(json)).toEqual([`item-file/${uuid}`, `feature-attachment/${uuid}`]);
+  });
+
+  it('captures every key a swept kind can be given, whole, with each suffix that kind allows', () => {
+    const org = '0a1b2c3d-0000-4000-8000-00000000000a';
+    const swept: ObjectKind[] = ['feature-attachment', 'item-file', 'item-tile-layer', 'item-point-cloud', 'map-icon'];
+    for (const kind of swept) {
+      for (const suffix of suffixesOf(kind)) {
+        const key = storageKey(kind, org, suffix);
+        expect({ key, found: scan(JSON.stringify({ k: key })) }).toEqual({ key, found: [key] });
+      }
+    }
   });
 });

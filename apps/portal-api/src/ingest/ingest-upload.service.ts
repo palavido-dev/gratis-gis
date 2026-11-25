@@ -29,6 +29,8 @@ import {
   MAX_OPEN_UPLOADS_PER_USER,
   declaredSizeOfKey,
   uploadObjectKey,
+  ownerOfUploadKey,
+  userUploadPrefixes,
   partCountFor,
   partLength,
   requiredFreeBytes,
@@ -38,6 +40,10 @@ import {
   type UploadClaims,
 } from './ingest-upload-handle.js';
 import { RunAsSystem } from '../common/tenant-context.js';
+import { isKeyOfKind, isLowerUuid, keyOrgId, orgOwner, systemOwner } from '../storage/object-keys.js';
+
+/** The hourly sweep of finished uploads that were never staged. */
+const UPLOAD_SWEEP = systemOwner('cron:ingest-upload-sweep');
 
 /** Most part URLs one sign request may ask for. */
 export const MAX_SIGN_BATCH = 100;
@@ -118,10 +124,11 @@ export class IngestUploadService {
    */
   async start(
     userId: string,
+    orgId: string,
     fileName: string,
     sizeBytes: number,
   ): Promise<StartedUpload> {
-    if (!USER_ID.test(userId)) {
+    if (!USER_ID.test(userId) || !isLowerUuid(orgId)) {
       throw new ForbiddenException('This account cannot start an upload.');
     }
     if (!Number.isSafeInteger(sizeBytes) || sizeBytes <= 0) {
@@ -145,7 +152,11 @@ export class IngestUploadService {
     // and their declared sizes are added to this one's below.
     let openKeys: string[] = [];
     try {
-      openKeys = await this.storage.listMultipartUploadsUnder(INGEST_UPLOAD_PREFIX);
+      // Install-wide: the free-space check counts every open upload.
+      openKeys = await this.storage.listMultipartUploadsUnder(
+        INGEST_UPLOAD_PREFIX,
+        systemOwner('ingest-upload:disk-check'),
+      );
     } catch (err) {
       // A store that will not list open uploads still gets the
       // per-upload free-space check below; do not refuse every upload.
@@ -153,7 +164,8 @@ export class IngestUploadService {
         `Could not list open import uploads: ${err instanceof Error ? err.message : err}`,
       );
     }
-    const mine = openKeys.filter((k) => k.startsWith(`${INGEST_UPLOAD_PREFIX}${userId}/`));
+    const prefixes = userUploadPrefixes(orgId, userId);
+    const mine = openKeys.filter((k) => prefixes.some((p) => k.startsWith(p)));
     if (mine.length >= MAX_OPEN_UPLOADS_PER_USER) {
       throw new HttpException(
         `You already have ${mine.length} uploads in progress. Finish or cancel one, then try again.`,
@@ -187,8 +199,8 @@ export class IngestUploadService {
 
     const partSize = choosePartSize(sizeBytes);
     const partCount = partCountFor(sizeBytes, partSize);
-    const key = uploadObjectKey(userId, sizeBytes, randomUUID());
-    const uploadId = await this.storage.createMultipartUpload(key);
+    const key = uploadObjectKey(orgId, userId, sizeBytes, randomUUID());
+    const uploadId = await this.storage.createMultipartUpload(key, orgOwner(orgId));
     const exp = Date.now() + UPLOAD_HANDLE_TTL_MS;
     const claims: UploadClaims = {
       uid: userId,
@@ -222,7 +234,15 @@ export class IngestUploadService {
         'This upload is no longer valid. Start the upload again.',
       );
     }
-    if (claims.uid !== userId || !claims.key.startsWith(`${INGEST_UPLOAD_PREFIX}${userId}/`)) {
+    // The user's id is in the key in both layouts. The org segment,
+    // when present, is checked again by the storage owner check.
+    const org = keyOrgId(claims.key);
+    const prefixes = org ? userUploadPrefixes(org, userId) : [`${INGEST_UPLOAD_PREFIX}${userId}/`];
+    if (
+      claims.uid !== userId ||
+      !isKeyOfKind(claims.key, 'ingest-upload') ||
+      !prefixes.some((p) => claims.key.startsWith(p))
+    ) {
       throw new ForbiddenException('This upload was started by another user.');
     }
     return claims;
@@ -253,6 +273,7 @@ export class IngestUploadService {
         partNumber,
         url: await this.storage.presignUploadPart(
           claims.key,
+          ownerOfUploadKey(claims.key),
           claims.upl,
           partNumber,
           partLength(claims.size, claims.part, partNumber),
@@ -291,7 +312,11 @@ export class IngestUploadService {
   ): Promise<Array<{ partNumber: number; etag: string; size: number }>> {
     let stored: Array<{ partNumber: number; etag: string; size: number }>;
     try {
-      stored = await this.storage.listUploadedParts(claims.key, claims.upl);
+      stored = await this.storage.listUploadedParts(
+        claims.key,
+        ownerOfUploadKey(claims.key),
+        claims.upl,
+      );
     } catch (err) {
       if (isMissingUpload(err)) {
         throw new NotFoundException(
@@ -330,6 +355,7 @@ export class IngestUploadService {
     try {
       await this.storage.completeMultipartUpload(
         claims.key,
+        ownerOfUploadKey(claims.key),
         claims.upl,
         parts.filter((p) => p.partNumber <= count),
       );
@@ -342,7 +368,7 @@ export class IngestUploadService {
       throw err;
     }
     try {
-      const object = await this.storage.streamObject(claims.key);
+      const object = await this.storage.streamObject(claims.key, ownerOfUploadKey(claims.key));
       const staged = await this.staging.stageStream({
         stream: object.body,
         originalName: claims.name,
@@ -357,15 +383,16 @@ export class IngestUploadService {
       }
       return staged;
     } finally {
-      await this.storage.deleteObject(claims.key);
+      await this.storage.deleteObject(claims.key, ownerOfUploadKey(claims.key));
     }
   }
 
   /** Stop the upload and remove whatever was stored for it. */
   async abort(userId: string, handle: unknown): Promise<{ aborted: true }> {
     const claims = this.claimsFor(userId, handle);
-    await this.storage.abortMultipartUpload(claims.key, claims.upl);
-    await this.storage.deleteObject(claims.key);
+    const owner = ownerOfUploadKey(claims.key);
+    await this.storage.abortMultipartUpload(claims.key, owner, claims.upl);
+    await this.storage.deleteObject(claims.key, owner);
     return { aborted: true };
   }
 
@@ -383,12 +410,12 @@ export class IngestUploadService {
   async sweepLeftoverObjectsNow(now = Date.now()): Promise<number> {
     let removed = 0;
     try {
-      const objects = await this.storage.listObjectsUnder(INGEST_UPLOAD_PREFIX);
+      const objects = await this.storage.listObjectsUnder(INGEST_UPLOAD_PREFIX, UPLOAD_SWEEP);
       for (const obj of objects) {
         // Unknown age counts as fresh.
         const age = obj.lastModified ? now - obj.lastModified.getTime() : 0;
         if (age < COMPLETED_OBJECT_MAX_AGE_MS) continue;
-        if (await this.storage.deleteObject(obj.key)) removed += 1;
+        if (await this.storage.deleteObject(obj.key, UPLOAD_SWEEP)) removed += 1;
       }
     } catch (err) {
       this.log.warn(

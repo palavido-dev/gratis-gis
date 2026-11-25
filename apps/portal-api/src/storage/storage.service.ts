@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import {
   AbortMultipartUploadCommand,
@@ -18,10 +17,20 @@ import {
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IMAGE_UPLOAD_MAX_BYTES } from '@gratis-gis/shared-types';
 import { deriveServerSigningKey } from './signing-key.js';
+import {
+  assertObjectOwner,
+  parseKeyOfKind,
+  parseObjectKey,
+  storageKey,
+  unownedKey,
+  type KeySuffix,
+  type ObjectOwner,
+} from './object-keys.js';
+import { StorageLedgerService, isCountedKind } from './storage-ledger.service.js';
 
 /**
  * Kinds of content we host. Each gets its own path prefix inside the
@@ -168,7 +177,10 @@ export class StorageService implements OnModuleInit {
     };
   }
 
-  constructor(private readonly cfg: ConfigService) {
+  constructor(
+    private readonly cfg: ConfigService,
+    @Optional() private readonly ledger?: StorageLedgerService,
+  ) {
     const endpoint = cfg.get<string>('MINIO_ENDPOINT', 'http://localhost:9000');
     const accessKeyId = cfg.get<string>('MINIO_ACCESS_KEY', 'gratisgis');
     const secretAccessKey = cfg.get<string>('MINIO_SECRET_KEY', 'devpassword');
@@ -323,6 +335,7 @@ export class StorageService implements OnModuleInit {
    */
   async presignUpload(
     kind: AssetKind,
+    owner: { readonly orgId: string },
     contentType: string,
     sizeBytes: number,
   ): Promise<PresignResult> {
@@ -380,7 +393,7 @@ export class StorageService implements OnModuleInit {
         )} MB.`,
       );
     }
-    const key = `${kind}/${randomUUID()}`;
+    const key = storageKey(kind, owner.orgId);
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -449,8 +462,82 @@ export class StorageService implements OnModuleInit {
     return deriveServerSigningKey(this.s3SecretAccessKey, label);
   }
 
+  /**
+   * The owner check every key-taking method runs first. Throws
+   * ObjectKeyRefusedError (a 404) when `key` does not belong to
+   * `owner`; see object-keys.ts.
+   */
+  async assertKeyOwner(key: string, owner: ObjectOwner): Promise<void> {
+    const ledger = this.ledger;
+    await assertObjectOwner(
+      key,
+      owner,
+      ledger
+        ? { orgOf: (k) => ledger.orgOfKey(k), ledgerFilled: () => ledger.ledgerFilled() }
+        : async () => null,
+    );
+  }
+
+  /** The org to record a new object under, or null for system work. */
+  private static ledgerOrg(key: string, owner: ObjectOwner): string | null {
+    if ('orgId' in owner) return owner.orgId;
+    return parseObjectKey(key)?.orgId ?? null;
+  }
+
+  /**
+   * Record `key` in the usage ledger at `bytes`, a size read from
+   * the store (HeadObject, the stat of the file we sent, the length of
+   * the buffer we sent), never a size the client declared. Never fails
+   * the caller: the object is stored either way, and the daily reconcile
+   * repairs a row that could not be written now.
+   */
+  async recordStoredSize(
+    key: string,
+    owner: ObjectOwner,
+    bytes: number,
+    itemId?: string | null,
+  ): Promise<void> {
+    if (!this.ledger) return;
+    const parsed = parseObjectKey(key);
+    const orgId = StorageService.ledgerOrg(key, owner);
+    if (!parsed || !orgId || !isCountedKind(parsed.kind)) return;
+    try {
+      await this.ledger.record({ key, orgId, kind: parsed.kind, bytes, itemId: itemId ?? null });
+    } catch (err) {
+      this.log.warn(
+        `Usage ledger record for ${key} failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
+
+  /**
+   * Note that `key` was just served (cached embeddings are capped per
+   * item, least recently used first). Never fails the caller.
+   */
+  async noteRead(key: string): Promise<void> {
+    if (!this.ledger) return;
+    await this.ledger.touchRead(key);
+  }
+
+  /**
+   * Record an object the browser uploaded with a presigned PUT, once
+   * the upload is attached to something. The size comes from the
+   * store, never from the client. Returns the stored size, or null
+   * when no object exists under the key.
+   */
+  async recordUploaded(
+    key: string,
+    owner: ObjectOwner,
+    opts: { itemId?: string | null } = {},
+  ): Promise<number | null> {
+    const size = await this.headObjectSize(key, owner);
+    if (size !== null) await this.recordStoredSize(key, owner, size, opts.itemId);
+    return size;
+  }
+
   /** Start an S3 multipart upload and return its upload id. */
-  async createMultipartUpload(key: string): Promise<string> {
+  async createMultipartUpload(key: string, owner: ObjectOwner): Promise<string> {
+    await this.assertKeyOwner(key, owner);
     await this.ensureReady();
     const res = await this.client.send(
       new CreateMultipartUploadCommand({
@@ -472,11 +559,13 @@ export class StorageService implements OnModuleInit {
    */
   async presignUploadPart(
     key: string,
+    owner: ObjectOwner,
     uploadId: string,
     partNumber: number,
     contentLength: number,
     expiresIn: number,
   ): Promise<string> {
+    await this.assertKeyOwner(key, owner);
     const cmd = new UploadPartCommand({
       Bucket: this.bucket,
       Key: key,
@@ -490,8 +579,10 @@ export class StorageService implements OnModuleInit {
   /** Every part stored so far for one multipart upload, in order. */
   async listUploadedParts(
     key: string,
+    owner: ObjectOwner,
     uploadId: string,
   ): Promise<Array<{ partNumber: number; etag: string; size: number }>> {
+    await this.assertKeyOwner(key, owner);
     const out: Array<{ partNumber: number; etag: string; size: number }> = [];
     let marker: string | undefined;
     for (;;) {
@@ -518,9 +609,11 @@ export class StorageService implements OnModuleInit {
   /** Join the listed parts into one object. */
   async completeMultipartUpload(
     key: string,
+    owner: ObjectOwner,
     uploadId: string,
     parts: Array<{ partNumber: number; etag: string }>,
   ): Promise<void> {
+    await this.assertKeyOwner(key, owner);
     await this.client.send(
       new CompleteMultipartUploadCommand({
         Bucket: this.bucket,
@@ -531,15 +624,14 @@ export class StorageService implements OnModuleInit {
         },
       }),
     );
+    const kind = parseObjectKey(key)?.kind;
+    if (kind && isCountedKind(kind)) await this.recordUploaded(key, owner);
   }
 
-  /**
-   * Drop an unfinished multipart upload and the parts stored for it.
-   * A missing upload counts as done, so a repeated abort is harmless.
-   */
   /** Keys of multipart uploads started under `prefix` and not yet
    *  completed or aborted. */
-  async listMultipartUploadsUnder(prefix: string): Promise<string[]> {
+  async listMultipartUploadsUnder(prefix: string, owner: ObjectOwner): Promise<string[]> {
+    StorageService.checkListPrefix(prefix, owner);
     await this.ensureReady();
     const out: string[] = [];
     let keyMarker: string | undefined;
@@ -562,7 +654,12 @@ export class StorageService implements OnModuleInit {
     return out;
   }
 
-  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  /**
+   * Drop an unfinished multipart upload and the parts stored for it.
+   * A missing upload counts as done, so a repeated abort is harmless.
+   */
+  async abortMultipartUpload(key: string, owner: ObjectOwner, uploadId: string): Promise<void> {
+    await this.assertKeyOwner(key, owner);
     try {
       await this.client.send(
         new AbortMultipartUploadCommand({
@@ -604,9 +701,11 @@ export class StorageService implements OnModuleInit {
    */
   async uploadBuffer(
     kind: AssetKind,
+    owner: { readonly orgId: string } | null,
     body: Buffer,
     contentType = 'application/octet-stream',
-    keySuffix: '' | '.png' = '',
+    keySuffix: KeySuffix = '',
+    opts: { itemId?: string | null } = {},
   ): Promise<{ key: string; publicUrl: string }> {
     if (!this.bootstrapped) {
       try {
@@ -618,7 +717,10 @@ export class StorageService implements OnModuleInit {
         );
       }
     }
-    const key = `${kind}/${randomUUID()}${keySuffix}`;
+    // An object with no org (feedback sent without one) keeps the
+    // older layout and is never counted.
+    const orgId = owner?.orgId ?? null;
+    const key = orgId === null ? unownedKey(kind) : storageKey(kind, orgId, keySuffix);
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -627,6 +729,9 @@ export class StorageService implements OnModuleInit {
       Body: body,
     });
     await this.client.send(cmd);
+    if (orgId !== null) {
+      await this.recordStoredSize(key, { orgId }, body.length, opts.itemId);
+    }
     const publicUrl = StorageService.isPrivateKind(kind)
       ? this.apiUrlFor(kind, key)
       : `${this.publicBase.replace(/\/$/, '')}/${this.bucket}/${key}`;
@@ -635,8 +740,10 @@ export class StorageService implements OnModuleInit {
 
   async uploadLocalFile(
     kind: AssetKind,
+    owner: { readonly orgId: string },
     localPath: string,
     contentType = 'application/octet-stream',
+    opts: { itemId?: string | null } = {},
   ): Promise<{ key: string; publicUrl: string }> {
     if (!this.bootstrapped) {
       try {
@@ -650,7 +757,7 @@ export class StorageService implements OnModuleInit {
     }
     const { createReadStream, statSync } = await import('node:fs');
     const stats = statSync(localPath);
-    const key = `${kind}/${randomUUID()}`;
+    const key = storageKey(kind, owner.orgId);
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -659,6 +766,7 @@ export class StorageService implements OnModuleInit {
       Body: createReadStream(localPath),
     });
     await this.client.send(cmd);
+    await this.recordStoredSize(key, owner, stats.size, opts.itemId);
     const publicUrl = StorageService.isPrivateKind(kind)
       ? this.apiUrlFor(kind, key)
       : `${this.publicBase.replace(/\/$/, '')}/${this.bucket}/${key}`;
@@ -688,11 +796,14 @@ export class StorageService implements OnModuleInit {
 
   /** The api route that serves a private-kind key, with a sharing check. */
   static privateApiUrl(kind: AssetKind, key: string): string {
-    // Strip the kind prefix off the key for the api-side URL since
-    // the route segment already implies it.  E.g.
-    // `feature-attachment/abc...` -> `/api/portal/storage/private/feature-attachment/abc...`.
-    const bareKey = key.startsWith(`${kind}/`) ? key.slice(kind.length + 1) : key;
-    return `/api/portal/storage/private/${kind}/${bareKey}`;
+    // The route is `private/<kind>/<key after the kind>`, in either
+    // layout: `feature-attachment/abc...` and
+    // `feature-attachment/o/<org>/abc...` both map to their own path.
+    // A key that is not of `kind` is a caller bug; it is still placed
+    // under the kind, where the route refuses it.
+    const parsed = parseKeyOfKind(key, kind);
+    const rest = parsed ? key.slice(kind.length + 1) : key;
+    return `/api/portal/storage/private/${kind}/${rest}`;
   }
 
   /**
@@ -732,6 +843,7 @@ export class StorageService implements OnModuleInit {
    */
   async streamObject(
     key: string,
+    owner: ObjectOwner,
     range?: string,
   ): Promise<{
     statusCode: number;
@@ -742,6 +854,7 @@ export class StorageService implements OnModuleInit {
     acceptRanges: string | undefined;
     body: Readable;
   }> {
+    await this.assertKeyOwner(key, owner);
     const cmd = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -774,16 +887,26 @@ export class StorageService implements OnModuleInit {
    *
    * Errors propagate. Caller owns the destination file lifecycle.
    */
-  async streamObjectToDisk(key: string, destPath: string): Promise<void> {
+  async streamObjectToDisk(key: string, owner: ObjectOwner, destPath: string): Promise<void> {
     const { createWriteStream } = await import('node:fs');
     const { pipeline } = await import('node:stream/promises');
-    const obj = await this.streamObject(key);
+    const obj = await this.streamObject(key, owner);
     await pipeline(obj.body, createWriteStream(destPath));
   }
 
   /** True when an object exists under the key. Head request only. */
-  async objectExists(key: string): Promise<boolean> {
-    return (await this.headObjectSize(key)) !== null;
+  async objectExists(key: string, owner: ObjectOwner): Promise<boolean> {
+    return (await this.headObjectSize(key, owner)) !== null;
+  }
+
+  /**
+   * The GDAL path for a raster read straight from the store, after the
+   * owner check. GDAL reads with the server's credentials, so this is
+   * the only way a key reaches `/vsis3/`.
+   */
+  async vsis3Path(key: string, owner: ObjectOwner): Promise<string> {
+    await this.assertKeyOwner(key, owner);
+    return `/vsis3/${this.bucket}/${key}`;
   }
 
   /**
@@ -791,7 +914,8 @@ export class StorageService implements OnModuleInit {
    * Used by attachment register to persist the real size rather
    * than the client-claimed sizeBytes.
    */
-  async headObjectSize(key: string): Promise<number | null> {
+  async headObjectSize(key: string, owner: ObjectOwner): Promise<number | null> {
+    await this.assertKeyOwner(key, owner);
     try {
       const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
       const res = await this.client.send(
@@ -804,18 +928,36 @@ export class StorageService implements OnModuleInit {
     }
   }
 
+  /**
+   * Like headObjectSize, but only a missing object answers null. Any
+   * other failure (a timeout, a refused connection, a denied request)
+   * throws, so a caller that acts on "gone" never acts on a hiccup.
+   */
+  async headObjectSizeStrict(key: string, owner: ObjectOwner): Promise<number | null> {
+    await this.assertKeyOwner(key, owner);
+    const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
+    try {
+      const res = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      const n = res.ContentLength;
+      return typeof n === 'number' && Number.isFinite(n) ? n : 0;
+    } catch (err) {
+      if (isMissingObjectError(err)) return null;
+      throw err;
+    }
+  }
+
   /** Delete an object by key. Idempotent. Used when a feature
    *  attachment row is removed so we don't leak bytes in MinIO.
    *  Returns whether the delete call succeeded so callers that
    *  report counts (the housekeeping orphan sweep) can be honest
    *  about partial failures; existing callers ignore the value. */
-  async deleteObject(key: string): Promise<boolean> {
+  async deleteObject(key: string, owner: ObjectOwner): Promise<boolean> {
+    await this.assertKeyOwner(key, owner);
     try {
       const { DeleteObjectCommand } = await import('@aws-sdk/client-s3');
       await this.client.send(
         new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
       );
-      return true;
     } catch (err) {
       // Non-fatal: log, don't throw. A stuck metadata row is worse
       // than a leaked 25 MB object.
@@ -823,6 +965,29 @@ export class StorageService implements OnModuleInit {
         `Failed to delete ${key}: ${err instanceof Error ? err.message : err}`,
       );
       return false;
+    }
+    if (this.ledger) {
+      try {
+        await this.ledger.markDeleted(key, 'orgId' in owner ? owner.orgId : undefined);
+      } catch (err) {
+        this.log.warn(
+          `Usage ledger delete for ${key} failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    return true;
+  }
+
+  /**
+   * A listing names other objects' keys, so an org may list only under
+   * one of its own prefixes (`<kind>/o/<orgId>/...`). System work may
+   * list anything.
+   */
+  private static checkListPrefix(prefix: string, owner: ObjectOwner): void {
+    if ('system' in owner) return;
+    const parsed = parseObjectKey(`${prefix}x`);
+    if (!parsed || parsed.orgId !== owner.orgId) {
+      throw new Error('Listing outside the caller organization is not allowed');
     }
   }
 
@@ -836,9 +1001,10 @@ export class StorageService implements OnModuleInit {
    * all the objects" (the caller treats a throw as "storage
    * unavailable" and reports that instead of guessing).
    */
-  async listObjectsUnder(prefix: string): Promise<
+  async listObjectsUnder(prefix: string, owner: ObjectOwner): Promise<
     Array<{ key: string; sizeBytes: number; lastModified: Date | null }>
   > {
+    StorageService.checkListPrefix(prefix, owner);
     const out: Array<{
       key: string;
       sizeBytes: number;
@@ -867,6 +1033,41 @@ export class StorageService implements OnModuleInit {
         : undefined;
     } while (continuationToken);
     return out;
+  }
+
+  /**
+   * Walk the objects under `prefix` one page (up to 1000 keys) at a
+   * time, without holding the whole listing in memory. System work
+   * only: the usage reconcile and backfill.
+   */
+  async *listObjectPages(
+    prefix: string,
+    owner: ObjectOwner,
+    startAfter?: string,
+  ): AsyncGenerator<Array<{ key: string; sizeBytes: number; lastModified: Date | null }>> {
+    StorageService.checkListPrefix(prefix, owner);
+    await this.ensureReady();
+    let continuationToken: string | undefined;
+    do {
+      const res = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(continuationToken
+            ? { ContinuationToken: continuationToken }
+            : startAfter
+              ? { StartAfter: startAfter }
+              : {}),
+        }),
+      );
+      const page: Array<{ key: string; sizeBytes: number; lastModified: Date | null }> = [];
+      for (const obj of res.Contents ?? []) {
+        if (!obj.Key) continue;
+        page.push({ key: obj.Key, sizeBytes: obj.Size ?? 0, lastModified: obj.LastModified ?? null });
+      }
+      yield page;
+      continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (continuationToken);
   }
 
   /** Exposed for DTO tests and error messages. */
@@ -930,4 +1131,17 @@ export class StorageService implements OnModuleInit {
       return null;
     }
   }
+}
+
+/** True for the S3 answers that mean "no object under this key". */
+export function isMissingObjectError(err: unknown): boolean {
+  const e = err as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } } | null;
+  if (!e) return false;
+  return (
+    e.name === 'NotFound' ||
+    e.name === 'NoSuchKey' ||
+    e.Code === 'NoSuchKey' ||
+    e.Code === 'NotFound' ||
+    e.$metadata?.httpStatusCode === 404
+  );
 }

@@ -12,6 +12,7 @@ import type { TenancyMode } from '../../common/tenancy.js';
 import { changedTables, fingerprint } from './fingerprint.js';
 import { AppModule } from '../../app.module.js';
 import { discoverRoutes } from './route-discovery.js';
+import { STORAGE_TOPICS } from './storage-topics.js';
 import { AREAS, LAYER_ID, api, mapLayer, tokenFor, type ApiResult } from './seed.js';
 import type { SuiteState, Verdict } from './suite.js';
 
@@ -1056,7 +1057,9 @@ function appTemplateTopic(): Topic {
 }
 
 export function topicsFor(mode: TenancyMode): Array<[string, Topic]> {
-  return TOPICS.filter((t) => t.modes.includes(mode)).map((t) => [t.name, t]);
+  return [...TOPICS, ...STORAGE_TOPICS]
+    .filter((t) => t.modes.includes(mode))
+    .map((t) => [t.name, t]);
 }
 
 // ---------------------------------------------------------------- lists hold the org's own items

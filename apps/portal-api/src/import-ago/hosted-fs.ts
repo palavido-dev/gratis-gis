@@ -745,6 +745,7 @@ export class AgoHostedFsImportService {
           const buf = Buffer.from(await res.arrayBuffer());
           const upload = await this.storage.uploadBuffer(
             'feature-attachment',
+            { orgId: args.user.orgId },
             buf,
             att.contentType,
           );

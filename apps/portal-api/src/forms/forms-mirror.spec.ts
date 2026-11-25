@@ -147,7 +147,8 @@ describe('form mirror repair re-registers photos after the presign grant expires
     };
     const attachments = new DataLayerAttachmentsService(
       prisma as never,
-      { headObjectSize: jest.fn(async () => 10) } as never,
+      // The stored size goes into the usage ledger after register.
+      { headObjectSize: jest.fn(async () => 10), recordStoredSize: jest.fn(async () => undefined) } as never,
       { listFeatures: jest.fn(async () => ({ features: [{}] })) } as never,
     );
     const svc = new FormsService(

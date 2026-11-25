@@ -23,7 +23,7 @@ function build(stillTrashed: Set<string>) {
     ),
     item: {
       // The blob is read per item, under the row lock.
-      findUnique: jest.fn(async () => ({ type: 'data_layer', data: {} })),
+      findUnique: jest.fn(async () => ({ type: 'data_layer', data: {}, orgId: 'o1' })),
       delete: jest.fn(async ({ where }: { where: { id: string } }) => {
         deleted.push(where.id);
         return {};
@@ -60,7 +60,7 @@ describe('TrashPurgeService', () => {
     expect(out.items).toBe(1);
     expect(deleted).toEqual(['gone']);
     expect(teardown).toHaveBeenCalledTimes(1);
-    expect(teardown).toHaveBeenCalledWith('gone', 'data_layer', {});
+    expect(teardown).toHaveBeenCalledWith('gone', 'data_layer', {}, 'o1');
   });
 
   it('lists candidates by id only, without their data blobs', async () => {

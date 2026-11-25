@@ -360,7 +360,7 @@ export class IngestController {
     @Body() body: StartIngestUploadDto,
   ) {
     this.requireImportCapability(user);
-    return this.uploadService().start(user.id, body.fileName, body.sizeBytes);
+    return this.uploadService().start(user.id, user.orgId, body.fileName, body.sizeBytes);
   }
 
   /** Presigned part URLs, at most 100 per call. */

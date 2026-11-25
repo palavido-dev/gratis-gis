@@ -29,6 +29,7 @@ import {
   trashRetentionDays,
 } from '../maintenance/trash-retention.js';
 import { operatorOrgId } from '../backup/operator-org.js';
+import { publicUrlObject } from '../storage/object-keys.js';
 
 /** How long /users/me reuses a user's Keycloak names. */
 const KC_NAME_CACHE_MS = 5 * 60_000;
@@ -104,15 +105,20 @@ export class UsersController {
   /**
    * Only the portal's own avatar uploads may be stored. The value is
    * rendered as an <img src> for other users and anonymous visitors,
-   * so any other URL lets a user log who views their name.
+   * so any other URL lets a user log who views their name. The URL is
+   * read with the shared key parser, so both key layouts pass: an
+   * older `user-avatar/<uuid>` and a newer `user-avatar/o/<orgId>/<uuid>`,
+   * where the org must be the caller's.
    */
-  private assertOwnAvatarUrl(url: string): void {
+  private assertOwnAvatarUrl(url: string, orgId: string): void {
     const get = (k: string, d: string) => this.cfg?.get<string>(k) ?? process.env[k] ?? d;
     const endpoint = get('MINIO_ENDPOINT', 'http://localhost:9000');
-    const base = get('MINIO_PUBLIC_BASE', endpoint).replace(/\/$/, '');
-    const prefix = `${base}/${get('MINIO_BUCKET', 'gratisgis')}/user-avatar/`;
-    const rest = url.startsWith(prefix) ? url.slice(prefix.length) : null;
-    if (rest === null || !/^[0-9a-f-]{36}[A-Za-z0-9._-]*$/i.test(rest)) {
+    const object = publicUrlObject(
+      url,
+      { publicBase: get('MINIO_PUBLIC_BASE', endpoint), bucket: get('MINIO_BUCKET', 'gratisgis') },
+      'user-avatar',
+    );
+    if (!object || (object.orgId !== null && object.orgId !== orgId)) {
       throw new BadRequestException(
         'avatarUrl must be an image uploaded to this portal.',
       );
@@ -280,7 +286,7 @@ export class UsersController {
       lastName?: string;
       email?: string;
     } = {};
-    if (typeof dto.avatarUrl === 'string') this.assertOwnAvatarUrl(dto.avatarUrl);
+    if (typeof dto.avatarUrl === 'string') this.assertOwnAvatarUrl(dto.avatarUrl, user.orgId);
     if (dto.firstName !== undefined) identityPatch.firstName = dto.firstName.trim();
     if (dto.lastName !== undefined) identityPatch.lastName = dto.lastName.trim();
     if (dto.email !== undefined) identityPatch.email = dto.email.trim();

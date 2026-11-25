@@ -1,0 +1,149 @@
+{
+  "_comment": "Object key cases shared by the API parser (object-keys.ts), the web mirror (portal-web src/lib/storage-key.ts) and the worker mirror (runner.py). parsed is [kind, orgId or null, rest] or null when refused.",
+  "cases": [
+    {
+      "key": "item-file/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": ["item-file", null, "5f0e2d1c-1111-4222-8333-444455556666"]
+    },
+    {
+      "key": "item-file/o/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": [
+        "item-file",
+        "0a1b2c3d-0000-4000-8000-000000000001",
+        "5f0e2d1c-1111-4222-8333-444455556666"
+      ]
+    },
+    {
+      "key": "map-icon/o/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666.png",
+      "parsed": [
+        "map-icon",
+        "0a1b2c3d-0000-4000-8000-000000000001",
+        "5f0e2d1c-1111-4222-8333-444455556666.png"
+      ]
+    },
+    {
+      "key": "sam-embed/o/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666/16/3/4.bin",
+      "parsed": [
+        "sam-embed",
+        "0a1b2c3d-0000-4000-8000-000000000001",
+        "5f0e2d1c-1111-4222-8333-444455556666/16/3/4.bin"
+      ]
+    },
+    {
+      "key": "sam-embed/5f0e2d1c-1111-4222-8333-444455556666/16/3/4.json",
+      "parsed": ["sam-embed", null, "5f0e2d1c-1111-4222-8333-444455556666/16/3/4.json"]
+    },
+    {
+      "key": "ingest-upload/5f0e2d1c-1111-4222-8333-444455556666/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": [
+        "ingest-upload",
+        null,
+        "5f0e2d1c-1111-4222-8333-444455556666/5f0e2d1c-1111-4222-8333-444455556666"
+      ]
+    },
+    {
+      "key": "feature-attachment/layer/b.txt",
+      "parsed": ["feature-attachment", null, "layer/b.txt"]
+    },
+    {
+      "key": "user-avatar/o/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": [
+        "user-avatar",
+        "0a1b2c3d-0000-4000-8000-000000000001",
+        "5f0e2d1c-1111-4222-8333-444455556666"
+      ]
+    },
+    {
+      "key": "",
+      "parsed": null
+    },
+    {
+      "key": "item-file",
+      "parsed": null
+    },
+    {
+      "key": "item-file/",
+      "parsed": null
+    },
+    {
+      "key": "/item-file/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file//5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/./5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/../5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/o/0a1b2c3d-0000-4000-8000-000000000001/../5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file%2F5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/o/0a1b2c3d-0000-4000-8000-000000000001%2F5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file\\5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/5f0e2d1c-1111-4222-8333-444455556666 ",
+      "parsed": null
+    },
+    {
+      "key": "item-file/5f0e2d1c-1111-4222-8333-444455556666\u0000",
+      "parsed": null
+    },
+    {
+      "key": "item-fil\u0435/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "Item-File/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "unknown-kind/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/o/0A1B2C3D-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/O/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": [
+        "item-file",
+        null,
+        "O/0a1b2c3d-0000-4000-8000-000000000001/5f0e2d1c-1111-4222-8333-444455556666"
+      ]
+    },
+    {
+      "key": "item-file/o/0a1b2c3d-0000-4000-8000-000000000001",
+      "parsed": null
+    },
+    {
+      "key": "item-file/o/0a1b2c3d-0000-4000-8000-000000000001/",
+      "parsed": null
+    },
+    {
+      "key": "item-file/o/not-a-uuid/5f0e2d1c-1111-4222-8333-444455556666",
+      "parsed": null
+    },
+    {
+      "key": "item-file/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "parsed": null
+    }
+  ]
+}

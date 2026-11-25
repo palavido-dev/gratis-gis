@@ -789,6 +789,14 @@ export const ROUTES: Record<string, RouteEntry> = {
     control: 'skip',
     reason: 'the attachment bytes are not in storage here',
   }),
+  'GET /api/storage/private/:kind/o/:org/:key': pub({
+    params: { kind: '=feature-attachment', org: 'orgId', key: 'attachmentKey' },
+    control: 'skip',
+    reason: 'objects in this layout are probed by the storage topics',
+  }),
+  // Reads the caller's own org only; the answer to org B must hold
+  // nothing of org A's.
+  'GET /api/admin/storage-usage': list(),
   'POST /api/storage/presign-upload': own({
     body: () => ({ kind: 'item-thumb', contentType: 'image/png', sizeBytes: 10 }),
   }),

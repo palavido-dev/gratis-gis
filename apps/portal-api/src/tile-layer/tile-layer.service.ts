@@ -27,6 +27,12 @@ import { ItemsService, itemDataStorageKeys } from '../items/items.service.js';
 import { SharingService } from '../items/sharing.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import {
+  assertKeysMayBelongToOrg,
+  isKeyOfKind,
+  orgOwner,
+  type ObjectOwner,
+} from '../storage/object-keys.js';
+import {
   assertKeysAttachable,
   deleteIfUnreferenced,
 } from '../storage/key-ownership.js';
@@ -64,16 +70,15 @@ const RAW_RASTER_HEADROOM = 2.5;
 const PRE_TILED_HEADROOM = 1.5;
 
 /**
- * Storage-key prefix the presign path mints for tile-layer uploads
- * (StorageService composes keys as `<kind>/<uuid>` and the upload
- * kind here is `item-tile-layer`).  Every client-supplied or
- * item-data-supplied key must sit under it before we read or
- * delete through it with portal-api's credentials: the serve proxy
- * is @Public, so an unpinned key would let any MinIO object
- * (feature-attachment/..., item-file/...) be exfiltrated through a
- * tile_layer item.  Mirrors the point-cloud finalize guard.
+ * Every client-supplied or item-data-supplied key must be an
+ * `item-tile-layer` key (either layout, read with the shared parser
+ * in object-keys.ts) before we read or delete through it with
+ * portal-api's credentials: the serve proxy is @Public, so an
+ * unpinned key would let any MinIO object (attachments, file items)
+ * be read through a tile_layer item. Mirrors the point-cloud
+ * finalize guard.
  */
-const TILE_LAYER_KEY_PREFIX = 'item-tile-layer/';
+const TILE_LAYER_KIND = 'item-tile-layer';
 
 /**
  * How many open PMTiles archives the XYZ endpoint keeps around.
@@ -200,7 +205,7 @@ export class TileLayerService {
     // client-supplied, and a key pointing into another prefix
     // (attachments, file items) must not become readable through
     // the public tile-layer proxy.
-    if (!input.storageKey.startsWith(TILE_LAYER_KEY_PREFIX)) {
+    if (!isKeyOfKind(input.storageKey, TILE_LAYER_KIND)) {
       throw new BadRequestException('storageKey is not a tile-layer upload');
     }
     // The prefix alone does not make the key this caller's: another
@@ -208,10 +213,12 @@ export class TileLayerService {
     // finalize deletes the source once it converts.
     await assertKeysAttachable(
       this.prisma,
-      user.id,
+      user,
       [input.storageKey],
       itemDataStorageKeys(item.data),
     );
+    // Every object this finalize reads or writes belongs to the item's org.
+    const owner = { orgId: item.orgId };
     if (typeof input.storageUrl !== 'string' || input.storageUrl.length === 0) {
       throw new BadRequestException('storageUrl is required');
     }
@@ -251,7 +258,7 @@ export class TileLayerService {
         // round-trip through the public-base hostname when MINIO_
         // PUBLIC_BASE is a CDN-fronted URL.
         (destPath) =>
-          this.storage.streamObjectToDisk(input.storageKey, destPath),
+          this.storage.streamObjectToDisk(input.storageKey, owner, destPath),
         input.fileName,
       );
     } catch (err) {
@@ -280,8 +287,10 @@ export class TileLayerService {
           conversion.format === 'cog' ? 'image/tiff' : 'application/octet-stream';
         const uploaded = await this.storage.uploadLocalFile(
           'item-tile-layer',
+          owner,
           conversion.outputPath,
           contentType,
+          { itemId },
         );
         effectiveStorageKey = uploaded.key;
         effectiveStorageUrl = uploaded.publicUrl;
@@ -296,6 +305,7 @@ export class TileLayerService {
             this.prisma,
             this.storage,
             input.storageKey,
+            owner,
             { itemId },
           );
         } catch (err) {
@@ -377,7 +387,7 @@ export class TileLayerService {
     let header: Header | null = null;
     let metadata: Record<string, unknown> = {};
     try {
-      const source = new StorageRangeSource(this.storage, effectiveStorageKey);
+      const source = new StorageRangeSource(this.storage, effectiveStorageKey, owner);
       const pmt = new PMTiles(source, undefined, cappedPmtilesDecompress);
       header = await pmt.getHeader();
       metadata = (await pmt.getMetadata()) as Record<string, unknown>;
@@ -409,6 +419,11 @@ export class TileLayerService {
       uploadedAt: new Date().toISOString() as ISODateString,
       originalFormat,
     };
+    // A pass-through upload is served as uploaded: count it at the
+    // stored size. A converted one was counted by uploadLocalFile.
+    if (effectiveStorageKey === input.storageKey) {
+      await this.storage.recordUploaded(input.storageKey, owner, { itemId });
+    }
     if (originalFormat !== 'pmtiles') {
       data.originalFileName = input.fileName;
       data.originalSizeBytes = input.sizeBytes;
@@ -481,7 +496,16 @@ export class TileLayerService {
     itemId: string,
     format?: 'pmtiles' | 'cog',
   ): Promise<string> {
-    const data = await this.readTileLayerDataDualAcl(user, itemId);
+    return (await this.resolveServedObject(user, itemId, format)).storageKey;
+  }
+
+  /** The key to serve and the org it must belong to (the item's). */
+  async resolveServedObject(
+    user: AuthUser | null,
+    itemId: string,
+    format?: 'pmtiles' | 'cog',
+  ): Promise<{ storageKey: string; owner: ObjectOwner }> {
+    const { data, orgId } = await this.readTileLayerDataDualAcl(user, itemId);
     if (!isTileLayerData(data)) {
       throw new NotFoundException(
         'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
@@ -495,7 +519,7 @@ export class TileLayerService {
     // prefix's objects with portal-api's credentials.  A
     // non-conforming key is treated as absent.
     const tileKey = (v: unknown): string | null =>
-      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+      isKeyOfKind(v, TILE_LAYER_KIND) ? v : null;
     // #185: an explicit format pins the bytes a client gets. Map
     // layers stamp a format-suffixed URL at add time; without the
     // pin, a layer stamped cog:// during the pre-pyramid window
@@ -504,7 +528,7 @@ export class TileLayerService {
     // preferring the pyramid.
     if (format === 'pmtiles') {
       const pmtilesKey = tileKey(d.pmtilesStorageKey);
-      if (pmtilesKey) return pmtilesKey;
+      if (pmtilesKey) return { storageKey: pmtilesKey, owner: orgOwner(orgId) };
       // Pass-through uploads (a .pmtiles the user handed us, or an
       // .mbtiles / XYZ zip the converter repacked) never run the
       // pyramid worker, so nothing ever sets pmtilesStorageKey on
@@ -514,7 +538,7 @@ export class TileLayerService {
       // pmtiles client with GeoTIFF bytes.
       if (d.format === 'pmtiles') {
         const passthroughKey = tileKey(d.storageKey);
-        if (passthroughKey) return passthroughKey;
+        if (passthroughKey) return { storageKey: passthroughKey, owner: orgOwner(orgId) };
       }
       throw new NotFoundException(
         'This layer has no optimized tile file yet.',
@@ -522,7 +546,7 @@ export class TileLayerService {
     }
     if (format === 'cog') {
       const cogKey = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
-      if (cogKey) return cogKey;
+      if (cogKey) return { storageKey: cogKey, owner: orgOwner(orgId) };
       throw new NotFoundException('This layer has no image file.');
     }
     // Bare endpoint: prefer the active PMTiles key (set after the
@@ -537,7 +561,7 @@ export class TileLayerService {
     if (!key) {
       throw new NotFoundException('Tile layer storage key is missing.');
     }
-    return key;
+    return { storageKey: key, owner: orgOwner(orgId) };
   }
 
   /**
@@ -562,9 +586,10 @@ export class TileLayerService {
   ): Promise<{
     kind: 'pmtiles' | 'cog';
     storageKey: string;
+    owner: ObjectOwner;
     bbox?: [number, number, number, number];
   }> {
-    const data = await this.readTileLayerDataDualAcl(user, itemId);
+    const { data, orgId } = await this.readTileLayerDataDualAcl(user, itemId);
     if (!isTileLayerData(data)) {
       throw new NotFoundException(
         'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
@@ -576,7 +601,7 @@ export class TileLayerService {
     // escaped the finalize check must never make this @Public route
     // read another prefix with portal-api's credentials.
     const tileKey = (v: unknown): string | null =>
-      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+      isKeyOfKind(v, TILE_LAYER_KIND) ? v : null;
     const bbox =
       Array.isArray(d.bbox) &&
       d.bbox.length === 4 &&
@@ -586,7 +611,7 @@ export class TileLayerService {
 
     const pmtiles = tileKey(d.pmtilesStorageKey);
     if (pmtiles) {
-      return { kind: 'pmtiles', storageKey: pmtiles, ...(bbox ? { bbox } : {}) };
+      return { kind: 'pmtiles', storageKey: pmtiles, owner: orgOwner(orgId), ...(bbox ? { bbox } : {}) };
     }
     // A pass-through upload (a .pmtiles the user handed us, or an
     // .mbtiles the converter repacked) never runs the pyramid
@@ -598,13 +623,14 @@ export class TileLayerService {
         return {
           kind: 'pmtiles',
           storageKey: passthrough,
+          owner: orgOwner(orgId),
           ...(bbox ? { bbox } : {}),
         };
       }
     }
     const cog = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
     if (cog) {
-      return { kind: 'cog', storageKey: cog, ...(bbox ? { bbox } : {}) };
+      return { kind: 'cog', storageKey: cog, owner: orgOwner(orgId), ...(bbox ? { bbox } : {}) };
     }
     throw new NotFoundException('Tile layer storage key is missing.');
   }
@@ -617,13 +643,13 @@ export class TileLayerService {
   private async readTileLayerDataDualAcl(
     user: AuthUser | null,
     itemId: string,
-  ): Promise<unknown> {
+  ): Promise<{ data: unknown; orgId: string }> {
     if (user) {
       const item = await this.items.get(user, itemId);
       if (item.type !== 'tile_layer') {
         throw new BadRequestException(`Item ${itemId} is not a tile_layer.`);
       }
-      return item.data;
+      return { data: item.data, orgId: item.orgId };
     }
     const item = await this.prisma.item.findFirst({
       where: {
@@ -632,12 +658,12 @@ export class TileLayerService {
         access: 'public',
         deletedAt: null,
       },
-      select: { data: true },
+      select: { data: true, orgId: true },
     });
     if (!item) {
       throw new NotFoundException('Tile layer not found.');
     }
-    return item.data;
+    return { data: item.data, orgId: item.orgId };
   }
 
   /**
@@ -662,8 +688,8 @@ export class TileLayerService {
     x: number,
     y: number,
   ): Promise<{ data: Buffer; contentType: string } | null> {
-    const storageKey = await this.resolveStorageKey(user, itemId, 'pmtiles');
-    return this.getPmtilesTileByKey(storageKey, z, x, y);
+    const { storageKey, owner } = await this.resolveServedObject(user, itemId, 'pmtiles');
+    return this.getPmtilesTileByKey(storageKey, owner, z, x, y);
   }
 
   /**
@@ -676,14 +702,18 @@ export class TileLayerService {
    */
   async getPmtilesTileByKey(
     storageKey: string,
+    owner: ObjectOwner,
     z: number,
     x: number,
     y: number,
   ): Promise<{ data: Buffer; contentType: string } | null> {
+    // Checked on every call, not only when the archive is first
+    // opened: the cached instance must not answer for another owner.
+    await this.storage.assertKeyOwner(storageKey, owner);
     const archive = this.archives.get(
       storageKey,
       (key) =>
-        new PMTiles(new StorageRangeSource(this.storage, key), undefined, cappedPmtilesDecompress),
+        new PMTiles(new StorageRangeSource(this.storage, key, owner), undefined, cappedPmtilesDecompress),
     );
     let tile: Awaited<ReturnType<PMTiles['getZxy']>>;
     let header: Awaited<ReturnType<PMTiles['getHeader']>>;
@@ -721,9 +751,10 @@ export class TileLayerService {
     itemId: string,
   ): Promise<{
     storageKey: string;
+    owner: ObjectOwner;
     bbox?: [number, number, number, number];
   }> {
-    const data = await this.readTileLayerDataDualAcl(user, itemId);
+    const { data, orgId } = await this.readTileLayerDataDualAcl(user, itemId);
     if (!isTileLayerData(data)) {
       throw new NotFoundException(
         'Tile layer has not been uploaded yet (or the upload finalize step did not run).',
@@ -734,7 +765,7 @@ export class TileLayerService {
       throw new NotFoundException('Not an elevation layer.');
     }
     const tileKey = (v: unknown): string | null =>
-      typeof v === 'string' && v.startsWith(TILE_LAYER_KEY_PREFIX) ? v : null;
+      isKeyOfKind(v, TILE_LAYER_KIND) ? v : null;
     const storageKey = tileKey(d.cogStorageKey) ?? tileKey(d.storageKey);
     if (!storageKey) {
       throw new NotFoundException('This layer has no elevation file.');
@@ -745,7 +776,7 @@ export class TileLayerService {
       d.bbox.every((n) => typeof n === 'number' && Number.isFinite(n))
         ? ([...d.bbox] as [number, number, number, number])
         : undefined;
-    return { storageKey, ...(bbox ? { bbox } : {}) };
+    return { storageKey, owner: orgOwner(orgId), ...(bbox ? { bbox } : {}) };
   }
 
   // ---------------------- imagery mosaic (#199) ----------------------
@@ -775,11 +806,11 @@ export class TileLayerService {
     const sources = validateMosaicSources(body.sources);
     await assertKeysAttachable(
       this.prisma,
-      user.id,
+      user,
       sources.map((s) => s.storageKey),
       itemDataStorageKeys(item.data),
     );
-    await this.useStoredMosaicSizes(sources);
+    await this.useStoredMosaicSizes(sources, orgOwner(item.orgId), item.id);
     // A rebuild over already-registered sources (the failed-build
     // retry path) keeps each source's original addedAt instead of
     // restamping history.
@@ -811,11 +842,11 @@ export class TileLayerService {
     const added = validateMosaicSources(body.sources);
     await assertKeysAttachable(
       this.prisma,
-      user.id,
+      user,
       added.map((s) => s.storageKey),
       itemDataStorageKeys(item.data),
     );
-    await this.useStoredMosaicSizes(added);
+    await this.useStoredMosaicSizes(added, orgOwner(item.orgId), item.id);
     const prev = isTileLayerData(item.data) ? item.data : null;
     const existingSources = [...(prev?.sources ?? [])];
     // Adding images to a layer that was a single-file upload: fold
@@ -825,10 +856,9 @@ export class TileLayerService {
     // fold in, so extending it is refused with guidance.
     if (existingSources.length === 0 && prev?.storageKey) {
       const originalKey =
-        typeof prev.cogStorageKey === 'string' &&
-        prev.cogStorageKey.startsWith(TILE_LAYER_KEY_PREFIX)
+        isKeyOfKind(prev.cogStorageKey, TILE_LAYER_KIND)
           ? prev.cogStorageKey
-          : prev.storageKey.startsWith(TILE_LAYER_KEY_PREFIX) &&
+          : isKeyOfKind(prev.storageKey, TILE_LAYER_KIND) &&
               prev.format === 'cog'
             ? prev.storageKey
             : null;
@@ -873,15 +903,20 @@ export class TileLayerService {
    * body's numbers are the client's: `sizeBytes: 1` on multi-GB images
    * got a 4 hour build past it.
    */
-  private async useStoredMosaicSizes(sources: TileLayerSource[]): Promise<void> {
+  private async useStoredMosaicSizes(
+    sources: TileLayerSource[],
+    owner: ObjectOwner,
+    itemId: string,
+  ): Promise<void> {
     for (const s of sources) {
-      const size = await this.storage.headObjectSize(s.storageKey);
+      const size = await this.storage.headObjectSize(s.storageKey, owner);
       if (size === null) {
         throw new BadRequestException(
           `The image ${s.fileName} has not finished uploading.`,
         );
       }
       s.sizeBytes = size;
+      await this.storage.recordStoredSize(s.storageKey, owner, size, itemId);
     }
   }
 
@@ -910,7 +945,7 @@ export class TileLayerService {
     user: AuthUser,
     itemId: string,
     verb: 'build' | 'add',
-  ): Promise<{ id: string; data: unknown }> {
+  ): Promise<{ id: string; orgId: string; data: unknown }> {
     assertServerHeavyTier(this.cfg, 'Building imagery mosaics');
     const item = await this.items.get(user, itemId);
     if (item.type !== 'tile_layer') {
@@ -947,9 +982,15 @@ export class TileLayerService {
    */
   private async enqueueMosaic(
     user: AuthUser,
-    item: { id: string; data: unknown },
+    item: { id: string; orgId: string; data: unknown },
     sources: TileLayerSource[],
   ): Promise<{ jobId: string; itemId: string; estimatedSec: number; humanEstimate: string }> {
+    // The worker reads every source with the server's credentials, so
+    // each must belong to this item's organization.
+    assertKeysMayBelongToOrg(
+      sources.map((s) => s.storageKey),
+      item.orgId,
+    );
     await this.assertNoMosaicInFlight(item.id);
     const totalBytes = sources.reduce((n, s) => n + s.sizeBytes, 0);
     const estimate = estimateMosaic(totalBytes, sources.length);
@@ -1361,6 +1402,7 @@ class StorageRangeSource implements Source {
   constructor(
     private readonly storage: StorageService,
     private readonly key: string,
+    private readonly owner: ObjectOwner,
   ) {}
 
   getKey(): string {
@@ -1379,6 +1421,7 @@ class StorageRangeSource implements Source {
     }
     const upstream = await this.storage.streamObject(
       this.key,
+      this.owner,
       `bytes=${offset}-${offset + length - 1}`,
     );
     const buf = await collectStream(upstream.body, length);

@@ -836,6 +836,22 @@ def item_data(conn, item_id: str) -> dict:
     return row[0] or {}
 
 
+def item_source(conn, item_id: str) -> tuple[dict, str]:
+    """A source item's data and its org, in one read. The org is what
+    the item's file keys must name (see pinned_source_key)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT data_json, org_id::text FROM item WHERE id = %s AND deleted_at IS NULL",
+            (item_id,),
+        )
+        row = cur.fetchone()
+    # Same reason as item_data: never leave the read transaction open.
+    conn.commit()
+    if row is None:
+        raise RuntimeError("Source item no longer exists.")
+    return (row[0] or {}), row[1]
+
+
 def merge_item_data(conn, item_id: str, patch: dict) -> None:
     # Merge `patch` into item.data_json instead of replacing the
     # whole document. Jobs here run for hours, and the API keeps
@@ -904,13 +920,200 @@ RASTER_TARGET_KINDS = {
 }
 
 
-TILE_LAYER_KEY_PREFIX = "item-tile-layer/"
-POINT_CLOUD_KEY_PREFIX = "item-point-cloud/"
+
+_ORG_UUID = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
+
+# The object key layout, mirrored from
+# apps/portal-api/src/storage/object-keys.ts (the shared parser on the
+# API side). Both sides are tested against the same cases in
+# apps/portal-api/src/storage/object-key-cases.json.
+OBJECT_KINDS = frozenset(
+    {
+        "item-thumb",
+        "group-thumb",
+        "user-avatar",
+        "org-hero",
+        "feature-attachment",
+        "item-file",
+        "item-tile-layer",
+        "item-point-cloud",
+        "map-icon",
+        "feedback-screenshot",
+        "offline-package",
+        "analysis-artifact",
+        "sam-embed",
+        "ingest-upload",
+    }
+)
+ORG_SEGMENT = "o"
+MAX_OBJECT_KEY_LENGTH = 512
+# Suffixes a kind may carry after its UUID; every other kind has none.
+KIND_SUFFIXES = {"map-icon": ("", ".png"), "analysis-artifact": ("", ".geojson")}
+
+TILE_LAYER_KIND = "item-tile-layer"
+POINT_CLOUD_KIND = "item-point-cloud"
 
 
-def pinned_source_key(data: dict, prefix: str, *fields: str) -> str | None:
-    """The first non-empty key among `fields`, refused unless it sits
-    under `prefix`.
+def parse_object_key(key):
+    """(kind, org_id or None, rest) for a key this install could have
+    written, else None. Same rules as parseObjectKey in the API:
+    printable ASCII only, no `%` or backslash, no empty, `.` or `..`
+    segment, a known kind, and for `<kind>/o/<orgId>/...` a lowercase
+    org UUID followed by at least one segment."""
+    if not isinstance(key, str) or not key or len(key) > MAX_OBJECT_KEY_LENGTH:
+        return None
+    for ch in key:
+        c = ord(ch)
+        if c < 0x21 or c > 0x7E or ch in "%\\":
+            return None
+    segments = key.split("/")
+    if any(seg in ("", ".", "..") for seg in segments):
+        return None
+    kind = segments[0]
+    if kind not in OBJECT_KINDS or len(segments) < 2:
+        return None
+    if segments[1] == ORG_SEGMENT:
+        if len(segments) < 4 or not _ORG_UUID.match(segments[2]):
+            return None
+        return (kind, segments[2], "/".join(segments[3:]))
+    return (kind, None, "/".join(segments[1:]))
+
+
+def key_may_belong_to_org(key, org_id) -> bool:
+    """True when `key` is well formed and, if it names an org, names
+    `org_id`. Older keys name none and keep their earlier checks."""
+    parsed = parse_object_key(key)
+    return parsed is not None and (parsed[1] is None or parsed[1] == str(org_id or ""))
+
+
+def require_job_key(key, org_id, kind: str, what: str) -> str:
+    """A key a job was handed. It must parse and be of `kind`; in the
+    org layout it must also name `org_id`, the org of the item that
+    authorised the job: this worker reads with credentials that can
+    read the whole bucket. Older keys of `kind` are passed through as
+    before."""
+    parsed = parse_object_key(key)
+    if parsed is None or parsed[0] != kind:
+        raise RuntimeError(f"{what} is not a stored file of the expected type, so it was not read.")
+    if parsed[1] is not None and parsed[1] != str(org_id or ""):
+        raise RuntimeError(f"{what} is not stored with this layer's files, so it was not read.")
+    return key
+
+
+def org_prefix(kind: str, org_id) -> str:
+    """Prefix of new objects of `kind` owned by `org_id`. Same layout as
+    apps/portal-api/src/storage/object-keys.ts: the kind first (the
+    bucket's public-read rules match on it), then `o/<orgId>/`."""
+    if kind not in OBJECT_KINDS:
+        raise RuntimeError(f"Unknown object kind: {kind}")
+    org = str(org_id or "")
+    if not _ORG_UUID.match(org):
+        raise RuntimeError("This job has no organization to store its result under.")
+    return f"{kind}/{ORG_SEGMENT}/{org}/"
+
+
+def storage_key(kind: str, org_id, suffix: str = "") -> str:
+    """Key for a new object: `<kind>/o/<orgId>/<uuid><suffix>`."""
+    if suffix not in KIND_SUFFIXES.get(kind, ("",)):
+        raise RuntimeError(f"Kind {kind} does not take the suffix {suffix!r}")
+    return f"{org_prefix(kind, org_id)}{uuid.uuid4()}{suffix}"
+
+
+def _rollback_ledger(conn) -> None:
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ROLLBACK TO SAVEPOINT usage_ledger")
+        conn.commit()
+    except Exception:  # noqa: BLE001 - the connection is reset by the caller's next error path
+        conn.rollback()
+
+
+def ledger_record(conn, key: str, org_id, kind: str, size: int, item_id=None) -> None:
+    """Count a stored object in its org's storage usage (the same
+    statements as the API's usage ledger). A key written again, or
+    written again after it was marked deleted, updates its row and the
+    totals by the difference. Never fails the job: the API's daily
+    reconcile records anything missed here."""
+    # Committed at once so the org's totals row is not held locked
+    # while the job runs on. A savepoint keeps a failure here from
+    # rolling back anything else on this connection.
+    org = str(org_id)
+    size = int(size)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT usage_ledger")
+            cur.execute(
+                "INSERT INTO storage_object (key, org_id, kind, bytes, item_id) "
+                "VALUES (%s, %s::uuid, %s, %s, %s::uuid) "
+                "ON CONFLICT (key) DO NOTHING RETURNING bytes",
+                (key, org, kind, size, item_id),
+            )
+            if cur.fetchone() is not None:
+                delta, objects = size, 1
+            else:
+                # The row exists. Lock it, read the old values and write
+                # the new ones in one statement, filtered by the org so
+                # another org's row is never changed.
+                cur.execute(
+                    "UPDATE storage_object s SET bytes = %s, deleted_at = NULL, "
+                    "item_id = COALESCE(%s::uuid, s.item_id) "
+                    "FROM (SELECT key, bytes, deleted_at FROM storage_object "
+                    "WHERE key = %s AND org_id = %s::uuid FOR UPDATE) old "
+                    "WHERE s.key = old.key "
+                    "RETURNING old.bytes, old.deleted_at IS NOT NULL",
+                    (size, item_id, key, org),
+                )
+                prev = cur.fetchone()
+                if prev is None:
+                    log(f"  usage ledger: {key} is recorded for another organization; left unchanged")
+                    delta, objects = 0, 0
+                elif prev[1]:
+                    delta, objects = size, 1
+                else:
+                    delta, objects = size - int(prev[0]), 0
+            if delta != 0 or objects != 0:
+                cur.execute(
+                    "INSERT INTO org_storage_usage (org_id, bytes, objects, updated_at) "
+                    "VALUES (%s::uuid, %s, %s, now()) "
+                    "ON CONFLICT (org_id) DO UPDATE SET "
+                    "bytes = org_storage_usage.bytes + EXCLUDED.bytes, "
+                    "objects = org_storage_usage.objects + EXCLUDED.objects, updated_at = now()",
+                    (org, delta, objects),
+                )
+        conn.commit()
+    except Exception as err:  # noqa: BLE001 - usage is best effort
+        _rollback_ledger(conn)
+        log(f"  usage ledger: could not record {key}: {err}")
+
+
+def ledger_deleted(conn, key: str, org_id) -> None:
+    """Take a deleted object off its org's storage usage."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SAVEPOINT usage_ledger")
+            cur.execute(
+                "UPDATE storage_object SET deleted_at = now() "
+                "WHERE key = %s AND org_id = %s::uuid AND deleted_at IS NULL "
+                "RETURNING bytes",
+                (key, str(org_id)),
+            )
+            row = cur.fetchone()
+            if row is not None:
+                cur.execute(
+                    "UPDATE org_storage_usage SET bytes = bytes - %s, "
+                    "objects = objects - 1, updated_at = now() WHERE org_id = %s::uuid",
+                    (int(row[0]), str(org_id)),
+                )
+        conn.commit()
+    except Exception as err:  # noqa: BLE001 - usage is best effort
+        _rollback_ledger(conn)
+        log(f"  usage ledger: could not mark {key} deleted: {err}")
+
+
+def pinned_source_key(data: dict, kind: str, *fields: str, org_id) -> str | None:
+    """The first non-empty key among `fields`, refused unless it is a
+    key of `kind` and, in the org layout, names `org_id` (the org of
+    the source item).
 
     Source item data is owner-writable through the generic items PATCH,
     and this worker downloads with service credentials that can read
@@ -925,11 +1128,8 @@ def pinned_source_key(data: dict, prefix: str, *fields: str) -> str | None:
         key = data.get(field)
         if not key:
             continue
-        if (
-            not isinstance(key, str)
-            or not key.startswith(prefix)
-            or any(seg in ("", ".", "..") for seg in key[len(prefix):].split("/"))
-        ):
+        parsed = parse_object_key(key)
+        if parsed is None or parsed[0] != kind or not key_may_belong_to_org(key, org_id):
             raise RuntimeError(
                 "This layer's file is not stored where this kind of layer "
                 "keeps its files, so it was not read."
@@ -1302,8 +1502,8 @@ def do_hillshade(conn, s3, job) -> None:
     if not (0.25 <= resolution <= 50):
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
-    source = item_data(conn, job["source_item_id"])
-    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
+    source, source_org = item_source(conn, job["source_item_id"])
+    storage_key = pinned_source_key(source, POINT_CLOUD_KIND, "storageKey", org_id=source_org)
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -1367,13 +1567,14 @@ def do_hillshade(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 85)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         # Stamp the pre-created tile_layer item into the cog-ready
@@ -1435,8 +1636,8 @@ def do_elevation(conn, s3, job) -> None:
     if not (0.25 <= resolution <= 50):
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
-    source = item_data(conn, job["source_item_id"])
-    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
+    source, source_org = item_source(conn, job["source_item_id"])
+    storage_key = pinned_source_key(source, POINT_CLOUD_KIND, "storageKey", org_id=source_org)
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -1493,13 +1694,14 @@ def do_elevation(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 85)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -1572,9 +1774,9 @@ def do_viewshed(conn, s3, job) -> None:
             "Look distance must be between 100 and 20000 meters."
         )
 
-    source = item_data(conn, job["source_item_id"])
+    source, source_org = item_source(conn, job["source_item_id"])
     storage_key = pinned_source_key(
-        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+        source, TILE_LAYER_KIND, "cogStorageKey", "storageKey", org_id=source_org
     )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
@@ -1711,13 +1913,14 @@ def do_viewshed(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 88)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -1821,9 +2024,9 @@ def do_contours(conn, s3, job):
             "The height between lines must be between 0.5 and 500 meters."
         )
 
-    source = item_data(conn, job["source_item_id"])
+    source, source_org = item_source(conn, job["source_item_id"])
     storage_key = pinned_source_key(
-        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+        source, TILE_LAYER_KIND, "cogStorageKey", "storageKey", org_id=source_org
     )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
@@ -1895,13 +2098,14 @@ def do_contours(conn, s3, job):
         seq.unlink(missing_ok=True)
         set_progress(conn, job["id"], 72)
 
-        key = f"analysis-artifact/{uuid.uuid4()}.geojson"
+        key = storage_key("analysis-artifact", job["org_id"], ".geojson")
         size = wgs.stat().st_size
         log(f"  uploading {size} bytes ({count} lines) to {key}")
         transfer_file(
             s3, "upload", key, wgs, job["id"],
             ExtraArgs={"ContentType": "application/geo+json"},
         )
+        ledger_record(conn, key, job["org_id"], "analysis-artifact", size, job.get("target_item_id"))
 
         # Hand off to the API-side bridge: merge the artifact key
         # into params and flip the state. The bridge stages the
@@ -1936,6 +2140,7 @@ def do_contours(conn, s3, job):
             # as a cancel (best effort, artifacts are small).
             try:
                 s3.delete_object(Bucket=BUCKET, Key=key)
+                ledger_deleted(conn, key, job["org_id"])
             except Exception:
                 pass
             raise JobCancelled()
@@ -2004,10 +2209,12 @@ def do_zonal_stats(conn, s3, job):
     zones_key = params.get("zonesKey")
     if not zones_key:
         raise RuntimeError("The zone features were not staged for this job.")
+    # Staged by the API under the org of the caller who queued the job.
+    require_job_key(zones_key, job["org_id"], "item-file", "The zone features")
 
-    source = item_data(conn, job["source_item_id"])
+    source, source_org = item_source(conn, job["source_item_id"])
     storage_key = pinned_source_key(
-        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+        source, TILE_LAYER_KIND, "cogStorageKey", "storageKey", org_id=source_org
     )
     if not storage_key:
         raise RuntimeError("The raster layer has no file.")
@@ -2146,13 +2353,14 @@ def do_zonal_stats(conn, s3, job):
         )
         set_progress(conn, job["id"], 72)
 
-        key = f"analysis-artifact/{uuid.uuid4()}.geojson"
+        key = storage_key("analysis-artifact", job["org_id"], ".geojson")
         size = out_path.stat().st_size
         log(f"  uploading {size} bytes ({len(out_features)} zones) to {key}")
         transfer_file(
             s3, "upload", key, out_path, job["id"],
             ExtraArgs={"ContentType": "application/geo+json"},
         )
+        ledger_record(conn, key, job["org_id"], "analysis-artifact", size, job.get("target_item_id"))
 
         new_params = dict(params)
         new_params["artifactKey"] = key
@@ -2176,12 +2384,14 @@ def do_zonal_stats(conn, s3, job):
         if flipped == 0:
             try:
                 s3.delete_object(Bucket=BUCKET, Key=key)
+                ledger_deleted(conn, key, job["org_id"])
             except Exception:
                 pass
             raise JobCancelled()
         # Best-effort cleanup of the staged zones input.
         try:
             s3.delete_object(Bucket=BUCKET, Key=zones_key)
+            ledger_deleted(conn, zones_key, job["org_id"])
         except Exception:
             pass
         return "handoff"
@@ -2196,9 +2406,9 @@ def do_steepness(conn, s3, job) -> None:
     ramp (flat to steep) into an RGBA COG that rides the normal
     cog->pmtiles pyramid path. Nodata stays transparent.
     """
-    source = item_data(conn, job["source_item_id"])
+    source, source_org = item_source(conn, job["source_item_id"])
     storage_key = pinned_source_key(
-        source, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+        source, TILE_LAYER_KIND, "cogStorageKey", "storageKey", org_id=source_org
     )
     if not storage_key:
         raise RuntimeError("The elevation layer has no file.")
@@ -2289,13 +2499,14 @@ def do_steepness(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 85)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -2348,8 +2559,8 @@ def do_heightmap(conn, s3, job) -> None:
     if not (0.25 <= resolution <= 50):
         raise RuntimeError("Resolution must be between 0.25 and 50 meters.")
 
-    source = item_data(conn, job["source_item_id"])
-    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
+    source, source_org = item_source(conn, job["source_item_id"])
+    storage_key = pinned_source_key(source, POINT_CLOUD_KIND, "storageKey", org_id=source_org)
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
@@ -2454,13 +2665,14 @@ def do_heightmap(conn, s3, job) -> None:
         )
         set_progress(conn, job["id"], 88)
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         log(f"  uploading {size} bytes to {key}")
         transfer_file(
             s3, "upload", key, cog, job["id"],
             ExtraArgs={"ContentType": "image/tiff"},
         )
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         bbox = wgs84_bbox(cog)
@@ -2539,6 +2751,86 @@ def supertile_bounds(z: int, gx: int, gy: int):
     return x0, y1 - size, x0 + size, y1
 
 
+# Cached embeddings kept per imagery item. One supertile is a 4 MiB
+# .bin plus a small .json, so the cap holds an item's cache near
+# 512 MiB. They count against the imagery owner's storage; past the
+# cap the least recently used supertiles are removed (the API notes
+# each read in storage_object.last_read_at).
+SAM_EMBED_MAX_CELLS_PER_ITEM = 128
+
+
+def sam_embed_cell(key: str, item_id: str) -> str | None:
+    """The supertile a cached embedding key belongs to (the key without
+    its .bin/.json ending), or None when the key is not an embedding
+    of `item_id` in either layout."""
+    parsed = parse_object_key(key)
+    if parsed is None or parsed[0] != "sam-embed":
+        return None
+    rest = parsed[2]
+    if not rest.startswith(f"{item_id}/"):
+        return None
+    for ext in (".bin", ".json"):
+        if key.endswith(ext):
+            return key[: -len(ext)]
+    return None
+
+
+def sam_embed_evictions(rows, item_id: str, cap: int, keep_base: str | None = None) -> list:
+    """Rows (key, org_id, last_used) of an item's live cached embeddings
+    to remove so at most `cap` supertiles stay: whole supertiles, least
+    recently used first, never `keep_base`. Pure, for the unit tests."""
+    cells: dict = {}
+    for key, org, used in rows:
+        cell = sam_embed_cell(key, item_id)
+        if cell is None:
+            continue
+        entry = cells.setdefault(cell, {"used": used, "rows": []})
+        if used is not None and (entry["used"] is None or used > entry["used"]):
+            entry["used"] = used
+        entry["rows"].append((key, org))
+    over = len(cells) - cap
+    if over <= 0:
+        return []
+    candidates = [c for c in cells if c != keep_base]
+    candidates.sort(key=lambda c: (cells[c]["used"] is not None, cells[c]["used"] or 0, c))
+    out = []
+    for cell in candidates[:over]:
+        out.extend(cells[cell]["rows"])
+    return out
+
+
+def evict_sam_embeddings(conn, s3, item_id: str, org_id, keep_base: str | None = None) -> int:
+    """Keep an item's cached embeddings within the per-item cap. Best
+    effort: a failure leaves the extra cells for the next write. Only
+    rows of `org_id`, the imagery item's org, are considered."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT key, org_id::text, COALESCE(last_read_at, created_at) FROM storage_object "
+                "WHERE org_id = %s::uuid AND item_id = %s::uuid AND kind = 'sam-embed' "
+                "AND deleted_at IS NULL",
+                (str(org_id), item_id),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    except Exception as err:  # noqa: BLE001 - the cap is best effort
+        conn.rollback()
+        log(f"  embedding cache: could not list cached cells: {err}")
+        return 0
+    removed = 0
+    for key, org in sam_embed_evictions(rows, item_id, SAM_EMBED_MAX_CELLS_PER_ITEM, keep_base):
+        try:
+            s3.delete_object(Bucket=BUCKET, Key=key)
+        except Exception as err:  # noqa: BLE001
+            log(f"  embedding cache: could not remove {key}: {err}")
+            continue
+        ledger_deleted(conn, key, org)
+        removed += 1
+    if removed:
+        log(f"  embedding cache: removed {removed} least recently used objects")
+    return removed
+
+
 def do_sam_embed(conn, s3, job) -> None:
     params = job["params"] or {}
     z = int(params["z"])
@@ -2547,8 +2839,8 @@ def do_sam_embed(conn, s3, job) -> None:
     if not (14 <= z <= 22):
         raise RuntimeError("Zoom in further to use the outline tool.")
 
-    source = item_data(conn, job["source_item_id"])
-    key = pinned_source_key(source, TILE_LAYER_KEY_PREFIX, "cogStorageKey")
+    source, source_org = item_source(conn, job["source_item_id"])
+    key = pinned_source_key(source, TILE_LAYER_KIND, "cogStorageKey", org_id=source_org)
     if not key:
         raise RuntimeError("This imagery layer has no image file.")
 
@@ -2609,28 +2901,37 @@ def do_sam_embed(conn, s3, job) -> None:
     set_progress(conn, job["id"], 85)
     emb = np.ascontiguousarray(embedding.astype(np.float32))
 
-    base = f"sam-embed/{job['source_item_id']}/{z}/{gx}/{gy}"
+    # Embeddings belong to the imagery item's org (the viewer who asked
+    # may be reading another org's public layer). Same layout the API
+    # reads first: sam-embed/o/<orgId>/<itemId>/<z>/<gx>/<gy>.
+    item_org = source_org
+    base = f"{org_prefix('sam-embed', item_org)}{job['source_item_id']}/{z}/{gx}/{gy}"
+    emb_bytes = emb.tobytes()
     s3.put_object(
         Bucket=BUCKET,
         Key=f"{base}.bin",
-        Body=emb.tobytes(),
+        Body=emb_bytes,
         ContentType="application/octet-stream",
     )
+    ledger_record(conn, f"{base}.bin", item_org, "sam-embed", len(emb_bytes), job["source_item_id"])
+    meta = json.dumps(
+        {
+            "version": "mobilesam-v1",
+            "shape": list(emb.shape),
+            "mercBounds": [x0, y0, x1, y1],
+            "z": z,
+            "gx": gx,
+            "gy": gy,
+        }
+    ).encode()
     s3.put_object(
         Bucket=BUCKET,
         Key=f"{base}.json",
-        Body=json.dumps(
-            {
-                "version": "mobilesam-v1",
-                "shape": list(emb.shape),
-                "mercBounds": [x0, y0, x1, y1],
-                "z": z,
-                "gx": gx,
-                "gy": gy,
-            }
-        ).encode(),
+        Body=meta,
         ContentType="application/json",
     )
+    ledger_record(conn, f"{base}.json", item_org, "sam-embed", len(meta), job["source_item_id"])
+    evict_sam_embeddings(conn, s3, job["source_item_id"], item_org, keep_base=base)
 
 
 def copc_header_meta(path: Path, conn=None, job_id: str | None = None) -> dict:
@@ -2797,19 +3098,19 @@ def do_colorize(conn, s3, job) -> None:
     if not target_id:
         raise RuntimeError("Colorize job is missing its target item.")
 
-    source = item_data(conn, job["source_item_id"])
-    storage_key = pinned_source_key(source, POINT_CLOUD_KEY_PREFIX, "storageKey")
+    source, source_org = item_source(conn, job["source_item_id"])
+    storage_key = pinned_source_key(source, POINT_CLOUD_KIND, "storageKey", org_id=source_org)
     if not storage_key:
         raise RuntimeError("Source point cloud has no uploaded file.")
 
-    raster = item_data(conn, raster_item_id)
+    raster, raster_org = item_source(conn, raster_item_id)
     if raster.get("dem"):
         raise RuntimeError(
             "Elevation layers have no color to paint with. "
             "Pick an aerial or satellite imagery layer."
         )
     raster_key = pinned_source_key(
-        raster, TILE_LAYER_KEY_PREFIX, "cogStorageKey", "storageKey"
+        raster, TILE_LAYER_KIND, "cogStorageKey", "storageKey", org_id=raster_org
     )
     if not raster_key:
         raise RuntimeError("The imagery layer has no image file yet.")
@@ -2950,13 +3251,14 @@ def do_colorize(conn, s3, job) -> None:
         set_progress(conn, job["id"], 88)
 
         out_meta = copc_header_meta(colored_copc, conn, job["id"])
-        key = f"item-point-cloud/{uuid.uuid4()}"
+        key = storage_key("item-point-cloud", job["org_id"])
         size = colored_copc.stat().st_size
         log(
             f"  uploading colored COPC ({size} bytes, "
             f"{out_meta['count']} pts, hasRgb={out_meta['hasRgb']}) to {key}"
         )
         transfer_file(s3, "upload", key, colored_copc, job["id"])
+        ledger_record(conn, key, job["org_id"], "item-point-cloud", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 95)
 
         patch = {
@@ -3067,8 +3369,11 @@ def do_copc_build(conn, s3, job) -> None:
     # merge runs for hours and the API keeps updating this item
     # meanwhile (newly uploaded source tiles land in sourceKeys), so
     # the final stamp below re-reads current state inside its own
-    # transaction instead of trusting a job-start snapshot.
-    item_data(conn, item_id)
+    # transaction instead of trusting a job-start snapshot. The org is
+    # what every source tile's key must name.
+    _, item_org = item_source(conn, item_id)
+    for key in source_keys:
+        require_job_key(key, item_org, POINT_CLOUD_KIND, "A source tile")
 
     work = SCRATCH / f"copc-{job['id']}"
     srcdir = work / "src"
@@ -3151,7 +3456,7 @@ def do_copc_build(conn, s3, job) -> None:
         meta = copc_header_meta(merged, conn, job["id"])
         set_progress(conn, job["id"], 82)
 
-        key = f"item-point-cloud/{uuid.uuid4()}"
+        key = storage_key("item-point-cloud", job["org_id"])
         size = merged.stat().st_size
         # Baseline timing (#205): one structured line per completed
         # merge so we can fit a "X GB / N tiles -> ~H hours" model and
@@ -3166,6 +3471,7 @@ def do_copc_build(conn, s3, job) -> None:
         )
         log(f"  uploading merged COPC ({size} bytes, {meta['count']} pts) to {key}")
         transfer_file(s3, "upload", key, merged, job["id"])
+        ledger_record(conn, key, job["org_id"], "item-point-cloud", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 92)
 
         # Final stamp: patch only the keys this worker owns. Writing
@@ -3229,6 +3535,7 @@ def do_copc_build(conn, s3, job) -> None:
         if prev_key and prev_key != key and prev_key not in source_keys:
             try:
                 s3.delete_object(Bucket=BUCKET, Key=prev_key)
+                ledger_deleted(conn, prev_key, job["org_id"])
             except Exception as err:
                 log(f"  warn: could not delete old merged {prev_key}: {err}")
     except Exception as exc:
@@ -3353,7 +3660,9 @@ def do_imagery_mosaic(conn, s3, job) -> None:
     item_id = job["target_item_id"] or job["source_item_id"]
     # Existence check only; the final stamp re-reads current state
     # under its own row lock, same reasoning as copc-build.
-    item_data(conn, item_id)
+    _, item_org = item_source(conn, item_id)
+    for key in source_keys:
+        require_job_key(key, item_org, TILE_LAYER_KIND, "A source image")
 
     work = SCRATCH / f"mosaic-{job['id']}"
     srcdir = work / "src"
@@ -3509,7 +3818,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
         except Exception:
             max_zoom = None  # metadata only; never fail the job over it
 
-        key = f"item-tile-layer/{uuid.uuid4()}"
+        key = storage_key("item-tile-layer", job["org_id"])
         size = cog.stat().st_size
         total_secs = int(time.time() - t_start)
         # Baseline timing (#205 rule): one structured line per build
@@ -3523,6 +3832,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
         )
         log(f"  uploading mosaic COG ({size} bytes) to {key}")
         transfer_file(s3, "upload", key, cog, job["id"])
+        ledger_record(conn, key, job["org_id"], "item-tile-layer", size, job.get("target_item_id"))
         set_progress(conn, job["id"], 92)
 
         patch = {
@@ -3600,6 +3910,7 @@ def do_imagery_mosaic(conn, s3, job) -> None:
             if stale and stale not in keep:
                 try:
                     s3.delete_object(Bucket=BUCKET, Key=stale)
+                    ledger_deleted(conn, stale, job["org_id"])
                 except Exception as err:
                     log(f"  warn: could not delete superseded {stale}: {err}")
     except Exception as exc:

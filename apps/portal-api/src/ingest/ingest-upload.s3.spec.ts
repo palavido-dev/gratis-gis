@@ -28,6 +28,9 @@ import { IngestService } from './ingest.service.js';
 import { IngestStagingService } from './ingest-staging.service.js';
 import { IngestUploadService } from './ingest-upload.service.js';
 import { resetIngestSlotsForTests } from './ingest-slots.js';
+import { systemOwner } from '../storage/object-keys.js';
+
+const SYSTEM = systemOwner('test');
 
 const ENDPOINT = process.env.S3_TEST_ENDPOINT;
 const d = ENDPOINT ? describe : describe.skip;
@@ -126,7 +129,7 @@ d('resumable import upload against S3', () => {
 
   it('uploads in parts, reports parts done for resume, and stages the exact bytes', async () => {
     const bytes = randomBytes(40 * MIB + 123);
-    const started = await uploads.start(alice.id, 'big parcels.gpkg', bytes.length);
+    const started = await uploads.start(alice.id, alice.orgId, 'big parcels.gpkg', bytes.length);
     expect(started.partSize).toBe(16 * MIB);
     expect(started.partCount).toBe(3);
 
@@ -155,7 +158,8 @@ d('resumable import upload against S3', () => {
     expect(got.originalName).toBe('big parcels.gpkg');
 
     // The completed object is gone from the bucket.
-    expect(await storage.objectExists(uploads.claimsFor(alice.id, started.handle).key)).toBe(false);
+    const doneKey = uploads.claimsFor(alice.id, started.handle).key;
+    expect(await storage.objectExists(doneKey, SYSTEM)).toBe(false);
     await staging.dropStaging(staged.stagingId);
   });
 
@@ -258,20 +262,21 @@ d('resumable import upload against S3', () => {
   });
 
   it('removes a completed object that was never staged once it is old', async () => {
+    // A key in the older layout, as a handle signed before keys carried an org.
     const key = `ingest-upload/${alice.id}/${randomUUID()}`;
     // Write a stray object under the upload prefix the way a crashed
     // complete would leave it.
-    const id = await storage.createMultipartUpload(key);
-    const url = await storage.presignUploadPart(key, id, 1, 1, 60);
+    const id = await storage.createMultipartUpload(key, SYSTEM);
+    const url = await storage.presignUploadPart(key, SYSTEM, id, 1, 1, 60);
     await fetch(url, { method: 'PUT', body: Buffer.from('x') });
-    const parts = await storage.listUploadedParts(key, id);
-    await storage.completeMultipartUpload(key, id, parts);
-    expect(await storage.objectExists(key)).toBe(true);
+    const parts = await storage.listUploadedParts(key, SYSTEM, id);
+    await storage.completeMultipartUpload(key, SYSTEM, id, parts);
+    expect(await storage.objectExists(key, SYSTEM)).toBe(true);
 
     expect(await uploads.sweepLeftoverObjectsNow(Date.now())).toBe(0);
-    expect(await storage.objectExists(key)).toBe(true);
+    expect(await storage.objectExists(key, SYSTEM)).toBe(true);
     const later = Date.now() + 7 * 60 * 60 * 1000;
     expect(await uploads.sweepLeftoverObjectsNow(later)).toBeGreaterThanOrEqual(1);
-    expect(await storage.objectExists(key)).toBe(false);
+    expect(await storage.objectExists(key, SYSTEM)).toBe(false);
   });
 });

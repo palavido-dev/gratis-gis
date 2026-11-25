@@ -23,6 +23,10 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { systemOwner } from '../storage/object-keys.js';
+
+/** Feedback triage is install-wide, behind the operator check. */
+const FEEDBACK_TRIAGE = systemOwner('feedback-triage');
 
 const STATUSES = ['new', 'handled', 'spam'] as const;
 type FeedbackStatusValue = (typeof STATUSES)[number];
@@ -136,7 +140,7 @@ export class FeedbackAdminController {
     });
     if (!row?.screenshotKey) throw new NotFoundException('No screenshot.');
 
-    const upstream = await this.storage.streamObject(row.screenshotKey);
+    const upstream = await this.storage.streamObject(row.screenshotKey, FEEDBACK_TRIAGE);
     if (upstream.contentType) res.setHeader('content-type', upstream.contentType);
     if (upstream.contentLength !== undefined) {
       res.setHeader('content-length', String(upstream.contentLength));
@@ -197,7 +201,7 @@ export class FeedbackAdminController {
 
     if (row.screenshotKey) {
       try {
-        await this.storage.deleteObject(row.screenshotKey);
+        await this.storage.deleteObject(row.screenshotKey, FEEDBACK_TRIAGE);
       } catch {
         // An orphaned object is worth less than a blocked delete:
         // the admin asked for the row to go, so it goes. The object

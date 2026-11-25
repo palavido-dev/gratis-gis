@@ -13,6 +13,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 import { PrismaService, type DbPoolStats } from '../prisma/prisma.service.js';
 import { FAILED_WINDOW_SECONDS, JOB_TYPES, JobMetricsReader } from './job-metrics.js';
+import { legacyKeyCounters } from '../storage/object-keys.js';
+import { LEDGER_FILLED_SETTING } from '../storage/storage-ledger.service.js';
 
 /**
  * What /metrics reads from the tile cache. A structural subset of
@@ -69,7 +71,7 @@ export class MetricsService {
   private readonly jobs: JobMetricsReader;
 
   constructor(
-    prisma: PrismaService,
+    private readonly prisma: PrismaService,
     @Optional() @Inject(TILE_CACHE_STATS)
     private readonly tileCache: TileCacheStatsSource | null,
     @Optional() @Inject(DB_POOL_STATS)
@@ -104,6 +106,7 @@ export class MetricsService {
     this.registerTileCache(registry);
     this.registerDbPool(registry);
     this.registerJobs(registry);
+    this.registerStorageUsage(registry);
     this.registry = registry;
   }
 
@@ -248,6 +251,75 @@ export class MetricsService {
     });
   }
 
+  /**
+   * The last storage usage reconcile, install-wide. Read from its saved
+   * summary; no org is ever a label.
+   */
+  private registerStorageUsage(registry: Registry): void {
+    const prisma = this.prisma;
+    let pending: Promise<StorageReconcileSnapshot | null> | null = null;
+    const snapshot = () => {
+      if (!pending) {
+        pending = readStorageReconcile(prisma).finally(() => {
+          pending = null;
+        });
+      }
+      return pending;
+    };
+    new Gauge({
+      name: 'gratisgis_storage_usage_reconcile_finished_seconds',
+      help: 'Unix time the last storage usage reconcile finished, 0 before the first.',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.finishedSeconds ?? 0);
+      },
+    });
+    new Gauge({
+      name: 'gratisgis_storage_usage_drift_bytes',
+      help: 'Bytes the last storage usage reconcile repaired, summed over organizations as absolute values.',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.driftBytes ?? 0);
+      },
+    });
+    new Gauge({
+      name: 'gratisgis_storage_usage_first_fill_pending',
+      help: '1 until the storage usage ledger has been filled once on this install, then 0.',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.filled === false ? 1 : 0);
+      },
+    });
+    // Process-wide totals kept by the owner check; reset() then inc()
+    // copies them in on each scrape.
+    new Counter({
+      name: 'gratisgis_storage_legacy_key_refusals_total',
+      help: 'Older file keys refused because the filled usage ledger has no row for them (this process).',
+      registers: [registry],
+      collect() {
+        this.reset();
+        this.inc(legacyKeyCounters.refusedNoRow);
+      },
+    });
+    new Counter({
+      name: 'gratisgis_storage_legacy_key_unfilled_passes_total',
+      help: 'Older file keys served before the usage ledger was filled, with no ledger row (this process).',
+      registers: [registry],
+      collect() {
+        this.reset();
+        this.inc(legacyKeyCounters.passedBeforeFill);
+      },
+    });
+    new Gauge({
+      name: 'gratisgis_storage_usage_unattributed_objects',
+      help: 'Stored objects the last reconcile could not tie to an organization (reported, never deleted).',
+      registers: [registry],
+      async collect() {
+        this.set((await snapshot())?.unattributed ?? 0);
+      },
+    });
+  }
+
   private registerJobs(registry: Registry): void {
     const jobs = this.jobs;
     // Read once per scrape and shared by the gauges below. The reader
@@ -312,5 +384,33 @@ export class MetricsService {
         this.set(jobs.lastError ? 1 : 0);
       },
     });
+  }
+}
+
+type StorageReconcileSnapshot = {
+  finishedSeconds: number;
+  driftBytes: number;
+  unattributed: number;
+  /** Whether the ledger has been filled once (its durable marker exists). */
+  filled: boolean;
+};
+
+async function readStorageReconcile(prisma: PrismaService): Promise<StorageReconcileSnapshot | null> {
+  try {
+    const [row, marker] = await Promise.all([
+      prisma.systemSetting.findUnique({ where: { key: 'storage_usage.last_reconcile' } }),
+      prisma.systemSetting.findUnique({ where: { key: LEDGER_FILLED_SETTING } }),
+    ]);
+    const v = row?.value as
+      | { finishedAt?: string; unattributed?: number; orgs?: Array<{ drift?: number }> }
+      | undefined;
+    return {
+      finishedSeconds: v?.finishedAt ? Math.floor(Date.parse(v.finishedAt) / 1000) || 0 : 0,
+      driftBytes: (v?.orgs ?? []).reduce((n, o) => n + Math.abs(o.drift ?? 0), 0),
+      unattributed: v?.unattributed ?? 0,
+      filled: marker !== null,
+    };
+  } catch {
+    return null;
   }
 }

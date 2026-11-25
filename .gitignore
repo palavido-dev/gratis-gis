@@ -135,6 +135,8 @@ docs/marketing/
 !/scripts/check-doc-versions.mjs
 !/scripts/check-raw-sql.mjs
 !/scripts/raw-sql-baseline.json
+!/scripts/check-storage-keys.mjs
+!/scripts/check-storage-keys.allow
 
 # Internal security review documents.  These contain exploitable
 # vulnerability details and MUST NOT be committed.  The committable

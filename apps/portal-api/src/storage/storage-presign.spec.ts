@@ -5,6 +5,9 @@ import { validate } from 'class-validator';
 
 import { PresignUploadDto } from './storage.controller.js';
 import { StorageService } from './storage.service.js';
+import { systemOwner } from './object-keys.js';
+
+const OWNER = { orgId: '00000000-0000-4000-8000-0000000000cc' };
 
 /**
  * The presign size guard, end to end.
@@ -72,7 +75,7 @@ describe('StorageService.presignUpload size guard', () => {
   it('refuses an over-cap size with the cap in the message', async () => {
     // 5 MB is the thumbnail cap.
     await expect(
-      service().presignUpload('item-thumb', 'image/png', 5 * 1024 * 1024 + 1),
+      service().presignUpload('item-thumb', OWNER, 'image/png', 5 * 1024 * 1024 + 1),
     ).rejects.toThrow(/too large.*5 MB/);
   });
 
@@ -80,19 +83,19 @@ describe('StorageService.presignUpload size guard', () => {
     // 6 MB is over the thumbnail cap and well under the attachment one.
     const six = 6 * 1024 * 1024;
     await expect(
-      service().presignUpload('item-thumb', 'image/png', six),
+      service().presignUpload('item-thumb', OWNER, 'image/png', six),
     ).rejects.toThrow(/too large/);
     await expect(
-      service().presignUpload('feature-attachment', 'image/png', six),
+      service().presignUpload('feature-attachment', OWNER, 'image/png', six),
     ).resolves.toMatchObject({ maxBytes: 25 * 1024 * 1024 });
   });
 
   it('refuses a size that is not a real byte count', async () => {
     await expect(
-      service().presignUpload('item-thumb', 'image/png', -1),
+      service().presignUpload('item-thumb', OWNER, 'image/png', -1),
     ).rejects.toThrow('Invalid upload size.');
     await expect(
-      service().presignUpload('item-thumb', 'image/png', Number.NaN),
+      service().presignUpload('item-thumb', OWNER, 'image/png', Number.NaN),
     ).rejects.toThrow('Invalid upload size.');
   });
 
@@ -101,8 +104,7 @@ describe('StorageService.presignUpload size guard', () => {
     // whose Content-Length differs from the presigned one fails the
     // signature check at the bucket. Without this the size check above
     // would only be advice.
-    const { uploadUrl, contentType } = await service().presignUpload(
-      'item-file',
+    const { uploadUrl, contentType } = await service().presignUpload('item-file', OWNER,
       'application/zip',
       4096,
     );
@@ -115,8 +117,8 @@ describe('StorageService.presignUpload size guard', () => {
 
   it('accepts an empty file, which is a legitimate zero', async () => {
     await expect(
-      service().presignUpload('item-file', 'text/plain', 0),
-    ).resolves.toMatchObject({ key: expect.stringMatching(/^item-file\//) });
+      service().presignUpload('item-file', OWNER, 'text/plain', 0),
+    ).resolves.toMatchObject({ key: expect.stringMatching(/^item-file\/o\//) });
   });
 });
 
@@ -124,6 +126,7 @@ describe('StorageService.presignUploadPart', () => {
   it('signs the part length, so a part PUT cannot carry more bytes', async () => {
     const url = await service().presignUploadPart(
       'ingest-upload/u/k',
+      systemOwner('test'),
       'upload-1',
       3,
       16 * 1024 * 1024,

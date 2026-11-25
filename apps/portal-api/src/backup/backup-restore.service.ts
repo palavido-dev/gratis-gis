@@ -21,6 +21,7 @@ import { ConfigService } from '@nestjs/config';
 
 import { TileCacheService } from '../engine/tile-cache.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { forgetLedgerState } from '../storage/storage-ledger.service.js';
 import {
   BackupService,
   MINIO_META_MEMBER,
@@ -485,6 +486,9 @@ export class BackupRestoreService {
       if (e instanceof RestoreNotStartedError) throw e;
       throw notStarted(msg);
     } finally {
+      // The storage usage ledger re-reads its fill marker and owners
+      // from the database as it now is.
+      forgetLedgerState();
       if (stageDir) await fs.rm(stageDir, { recursive: true, force: true });
     }
   }

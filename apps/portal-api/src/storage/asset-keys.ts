@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { parseKeyOfKind } from './object-keys.js';
 import type { AssetKind } from './storage.service.js';
 
 /**
  * The three item types that name a single MinIO object from their
- * data_json. StorageService composes keys as `<kind>/<uuid>`, so an
- * item of one of these types may only ever reference a key under its
- * own kind's prefix.
+ * data_json. Keys start with their kind (`<kind>/<uuid>`, or
+ * `<kind>/o/<orgId>/<uuid>` for newer objects), so an item of one of
+ * these types may only ever reference a key of its own kind.
  *
  * This exists because the constraint is enforced in several places
  * that must agree: item create/update (the generic /items DTO
@@ -48,21 +49,16 @@ export function isAssetKeyedItemType(
 }
 
 /**
- * True when `key` is a well-formed object key belonging to `kind`.
- *
- * Rejects traversal and empty segments as well as the wrong prefix.
- * S3 keys are opaque strings rather than paths, so `..` does not
- * actually escape in MinIO, but any proxy or client that normalises
- * on the way through would make it escape, and nothing legitimate
- * ever mints such a key.
+ * True when `key` is a well-formed object key belonging to `kind`, in
+ * either layout. Uses the shared parser (object-keys.ts), which
+ * rejects traversal, empty segments, encoded separators and anything
+ * outside printable ASCII as well as the wrong kind. S3 keys are opaque
+ * strings rather than paths, so `..` does not actually escape in
+ * MinIO, but any proxy or client that normalises on the way through
+ * would make it escape, and nothing legitimate ever mints such a key.
  */
 export function isValidAssetKey(key: unknown, kind: AssetKind): boolean {
-  if (typeof key !== 'string' || key.length === 0) return false;
-  const prefix = `${kind}/`;
-  if (!key.startsWith(prefix)) return false;
-  const rest = key.slice(prefix.length);
-  if (rest.length === 0) return false;
-  return rest.split('/').every((seg) => seg.length > 0 && seg !== '.' && seg !== '..');
+  return parseKeyOfKind(key, kind) !== null;
 }
 
 /**

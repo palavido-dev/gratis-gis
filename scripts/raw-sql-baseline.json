@@ -241,8 +241,23 @@
       "pg": 0,
       "raw": 0
     },
+    "apps/portal-api/src/storage/feature-usage.ts": {
+      "prisma": 11,
+      "pg": 0,
+      "raw": 0
+    },
     "apps/portal-api/src/storage/key-ownership.ts": {
       "prisma": 1,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/storage/storage-ledger.service.ts": {
+      "prisma": 15,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/storage/storage-usage-reconcile.service.ts": {
+      "prisma": 5,
       "pg": 0,
       "raw": 0
     },

@@ -409,35 +409,296 @@ def test_cancelled_job_stamps_its_husk_item():
     assert "cancelled" in db.item_patches[0]["processingError"]
 
 
+ORG_A = "0a1b2c3d-0000-4000-8000-000000000001"
+ORG_B = "0a1b2c3d-0000-4000-8000-000000000002"
+
+
 def test_source_keys_are_pinned_to_the_layer_prefix():
-    tl = runner.TILE_LAYER_KEY_PREFIX
+    tl = runner.TILE_LAYER_KIND
     assert (
-        runner.pinned_source_key({"cogStorageKey": tl + "a/cog.tif"}, tl, "cogStorageKey")
-        == tl + "a/cog.tif"
+        runner.pinned_source_key({"cogStorageKey": tl + "/a/cog.tif"}, tl, "cogStorageKey", org_id=ORG_A)
+        == tl + "/a/cog.tif"
     )
     # Falls through to the next field when the first is empty.
     assert (
         runner.pinned_source_key(
-            {"cogStorageKey": "", "storageKey": tl + "b.tif"},
+            {"cogStorageKey": "", "storageKey": tl + "/b.tif"},
             tl,
             "cogStorageKey",
             "storageKey",
+            org_id=ORG_A,
         )
-        == tl + "b.tif"
+        == tl + "/b.tif"
     )
-    assert runner.pinned_source_key({}, tl, "cogStorageKey") is None
+    assert runner.pinned_source_key({}, tl, "cogStorageKey", org_id=ORG_A) is None
     for bad in (
         "feedback-screenshot/x.png",
         "item-point-cloud/y.copc.laz",
-        tl + "../feedback-screenshot/x.png",
+        tl + "/../feedback-screenshot/x.png",
+        tl + "/",
         tl,
+        tl + "%2Fx",
     ):
         raised = False
         try:
-            runner.pinned_source_key({"cogStorageKey": bad}, tl, "cogStorageKey")
+            runner.pinned_source_key({"cogStorageKey": bad}, tl, "cogStorageKey", org_id=ORG_A)
         except RuntimeError:
             raised = True
         assert raised, bad
+
+
+def test_source_key_in_org_layout_must_name_the_source_item_org():
+    tl = runner.TILE_LAYER_KIND
+    own = runner.storage_key(tl, ORG_A)
+    other = runner.storage_key(tl, ORG_B)
+    assert runner.pinned_source_key({"cogStorageKey": own}, tl, "cogStorageKey", org_id=ORG_A) == own
+    for org in (ORG_B, None, ""):
+        try:
+            runner.pinned_source_key({"cogStorageKey": own}, tl, "cogStorageKey", org_id=org)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"accepted a key of org A for org {org!r}")
+    try:
+        runner.pinned_source_key({"cogStorageKey": other}, tl, "cogStorageKey", org_id=ORG_A)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("accepted another org's key")
+    # Older keys name no org and keep their earlier behaviour.
+    older = tl + "/5f0e2d1c-1111-4222-8333-444455556666"
+    assert runner.pinned_source_key({"storageKey": older}, tl, "storageKey", org_id=ORG_B) == older
+
+
+def test_job_keys_in_org_layout_must_name_the_job_org():
+    pc = runner.POINT_CLOUD_KIND
+    own = runner.storage_key(pc, ORG_A)
+    assert runner.require_job_key(own, ORG_A, pc, "A source tile") == own
+    older = "item-point-cloud/5f0e2d1c-1111-4222-8333-444455556666"
+    assert runner.require_job_key(older, ORG_B, pc, "A source tile") == older
+    try:
+        runner.require_job_key(own, ORG_B, pc, "A source tile")
+    except RuntimeError as err:
+        assert "A source tile" in str(err)
+    else:
+        raise AssertionError("accepted another org's source tile")
+
+
+def test_job_keys_must_parse_and_be_of_the_expected_kind():
+    pc = runner.POINT_CLOUD_KIND
+    own_file = runner.storage_key("item-file", ORG_A)
+    older_file = "item-file/5f0e2d1c-1111-4222-8333-444455556666"
+    for bad in (
+        own_file,
+        older_file,
+        "",
+        None,
+        "not-a-kind/5f0e2d1c-1111-4222-8333-444455556666",
+        "item-point-cloud/../item-file/x",
+        "item-point-cloud//x",
+        "item-point-cloud",
+        "item-point-cloud/o/NOT-AN-ORG/x",
+        "item-point-cloud/%2e%2e/x",
+    ):
+        try:
+            runner.require_job_key(bad, ORG_A, pc, "A source tile")
+        except RuntimeError:
+            continue
+        raise AssertionError(f"accepted {bad!r} as a point cloud source")
+    # Older keys of the right kind keep working for any org.
+    assert runner.require_job_key(older_file, ORG_B, "item-file", "The zone features") == older_file
+    assert runner.require_job_key(own_file, ORG_A, "item-file", "The zone features") == own_file
+
+
+def test_parser_matches_the_shared_cases():
+    cases_path = (
+        Path(__file__).parent.parent.parent
+        / "apps"
+        / "portal-api"
+        / "src"
+        / "storage"
+        / "object-key-cases.json"
+    )
+    cases = json.loads(cases_path.read_text())["cases"]
+    assert len(cases) > 20
+    for case in cases:
+        got = runner.parse_object_key(case["key"])
+        want = tuple(case["parsed"]) if case["parsed"] is not None else None
+        assert got == want, (case["key"], got, want)
+
+
+def test_suffixes_are_limited_per_kind():
+    assert runner.storage_key("map-icon", ORG_A, ".png").endswith(".png")
+    assert runner.storage_key("analysis-artifact", ORG_A, ".geojson").endswith(".geojson")
+    for kind, suffix in (("item-file", ".png"), ("item-tile-layer", ".geojson"), ("map-icon", ".geojson")):
+        try:
+            runner.storage_key(kind, ORG_A, suffix)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"{kind} took {suffix}")
+    try:
+        runner.storage_key("not-a-kind", ORG_A)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("accepted an unknown kind")
+
+
+def test_embedding_cap_removes_least_recently_used_cells():
+    item = "5f0e2d1c-1111-4222-8333-444455556666"
+    other_item = "5f0e2d1c-1111-4222-8333-444455556667"
+
+    def cell(i, org=ORG_A):
+        return f"sam-embed/o/{org}/{item}/16/{i}/0"
+
+    rows = []
+    for i in range(5):
+        rows.append((cell(i) + ".bin", ORG_A, 100 + i))
+        rows.append((cell(i) + ".json", ORG_A, 100 + i))
+    # Cell 0 was read recently, so cell 1 is now the oldest.
+    rows.append((cell(0) + ".bin", ORG_A, 500))
+    # An older-layout cell with no read time goes first.
+    rows.append((f"sam-embed/{item}/16/9/9.bin", ORG_A, None))
+    # Rows that are not this item's embeddings are never touched.
+    rows.append((f"sam-embed/o/{ORG_A}/{other_item}/16/0/0.bin", ORG_A, 1))
+    rows.append((f"item-file/o/{ORG_A}/{item}", ORG_A, 1))
+    out = runner.sam_embed_evictions(rows, item, cap=3, keep_base=cell(4))
+    keys = sorted(k for k, _ in out)
+    assert keys == sorted(
+        [f"sam-embed/{item}/16/9/9.bin", cell(1) + ".bin", cell(1) + ".json", cell(2) + ".bin", cell(2) + ".json"]
+    ), keys
+    # 6 cells, cap 3: three whole cells go; the kept cell never does.
+    assert len({runner.sam_embed_cell(k, item) for k, _ in out}) == 3
+    assert all(runner.sam_embed_cell(k, item) != cell(4) for k, _ in out)
+    assert runner.sam_embed_evictions(rows, item, cap=10) == []
+
+
+class _EvictConn:
+    def __init__(self, rows):
+        self.rows = rows
+        self.executed = []
+
+    def cursor(self):
+        conn = self
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                conn.executed.append((sql, params))
+                self._last = sql
+
+            def fetchall(self):
+                return conn.rows
+
+            def fetchone(self):
+                return (4,)
+
+        return Cursor()
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+
+class _S3:
+    def __init__(self):
+        self.deleted = []
+
+    def delete_object(self, Bucket, Key):
+        self.deleted.append(Key)
+
+
+def test_embedding_cap_deletes_objects_and_ledger_rows():
+    item = "5f0e2d1c-1111-4222-8333-444455556666"
+    rows = [(f"sam-embed/o/{ORG_A}/{item}/16/{i}/0.bin", ORG_A, i) for i in range(3)]
+    conn = _EvictConn(rows)
+    s3 = _S3()
+    saved = runner.SAM_EMBED_MAX_CELLS_PER_ITEM
+    runner.SAM_EMBED_MAX_CELLS_PER_ITEM = 2
+    try:
+        removed = runner.evict_sam_embeddings(conn, s3, item, ORG_A, keep_base=None)
+    finally:
+        runner.SAM_EMBED_MAX_CELLS_PER_ITEM = saved
+    assert removed == 1
+    assert s3.deleted == [f"sam-embed/o/{ORG_A}/{item}/16/0/0.bin"]
+    # The listing is limited to the imagery item's org.
+    select_sql, select_params = conn.executed[0]
+    assert "org_id = %s::uuid AND item_id = %s::uuid" in select_sql, select_sql
+    assert select_params == (ORG_A, item)
+    # The ledger row of the removed object is marked deleted.
+    assert any("UPDATE storage_object SET deleted_at" in sql for sql, _ in conn.executed)
+
+
+class _LedgerConn:
+    """Connection double for ledger_record: answers each fetchone from
+    a script and records every statement."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.executed = []
+        self.commits = 0
+
+    def cursor(self):
+        conn = self
+
+        class Cursor:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                conn.executed.append((sql, params))
+
+            def fetchone(self):
+                return conn.answers.pop(0)
+
+        return Cursor()
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        pass
+
+    def totals(self):
+        return [p for sql, p in self.executed if sql.startswith("INSERT INTO org_storage_usage")]
+
+
+def test_ledger_record_counts_new_rewritten_and_revived_keys():
+    key = f"sam-embed/o/{ORG_A}/5f0e2d1c-1111-4222-8333-444455556666/16/1/2.bin"
+    # A new key: inserted and counted once.
+    conn = _LedgerConn([(100,)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 100)
+    assert conn.totals() == [(ORG_A, 100, 1)]
+    # A key marked deleted by the cache cap and written again: the row
+    # comes back and its bytes and object count are added again.
+    conn = _LedgerConn([None, (100, True)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 120)
+    update_sql, update_params = conn.executed[2]
+    assert "deleted_at = NULL" in update_sql and "org_id = %s::uuid" in update_sql
+    assert update_params == (120, None, key, ORG_A)
+    assert conn.totals() == [(ORG_A, 120, 1)]
+    # A live key written again: only the size difference is added.
+    conn = _LedgerConn([None, (100, False)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 130)
+    assert conn.totals() == [(ORG_A, 30, 0)]
+    # Same size again: totals untouched.
+    conn = _LedgerConn([None, (130, False)])
+    runner.ledger_record(conn, key, ORG_A, "sam-embed", 130)
+    assert conn.totals() == []
+    # A row of another org is left alone and nothing is counted.
+    conn = _LedgerConn([None, None])
+    runner.ledger_record(conn, key, ORG_B, "sam-embed", 130)
+    assert conn.totals() == []
+    assert conn.commits == 1
 
 
 class _ReadConn:
@@ -630,6 +891,23 @@ def test_grid_vrt_spans_the_planned_extent():
         runner.run, runner.run_long, runner.plan_grid_chunks = orig
 
 
+def test_new_object_keys_carry_the_org():
+    org = "0a1b2c3d-0000-4000-8000-000000000001"
+    key = runner.storage_key("item-tile-layer", org)
+    assert key.startswith(f"item-tile-layer/o/{org}/"), key
+    assert len(key.split("/")[-1]) == 36, key
+    art = runner.storage_key("analysis-artifact", org, ".geojson")
+    assert art.endswith(".geojson") and art.startswith(f"analysis-artifact/o/{org}/"), art
+    # The layer pin accepts the new layout for the key's own org.
+    assert runner.pinned_source_key({"storageKey": key}, runner.TILE_LAYER_KIND, "storageKey", org_id=org) == key
+    for bad in (None, "", "ORG", org.upper(), "../x"):
+        try:
+            runner.storage_key("item-tile-layer", bad)
+        except RuntimeError:
+            continue
+        raise AssertionError(f"accepted org {bad!r}")
+
+
 if __name__ == "__main__":
     test_is_cancel_requested()
     test_add_feet_field()
@@ -654,4 +932,13 @@ if __name__ == "__main__":
     test_failure_stamp_keeps_a_handler_message()
     test_non_metric_crs_is_refused()
     test_grid_vrt_spans_the_planned_extent()
+    test_new_object_keys_carry_the_org()
+    test_source_key_in_org_layout_must_name_the_source_item_org()
+    test_job_keys_in_org_layout_must_name_the_job_org()
+    test_job_keys_must_parse_and_be_of_the_expected_kind()
+    test_parser_matches_the_shared_cases()
+    test_suffixes_are_limited_per_kind()
+    test_embedding_cap_removes_least_recently_used_cells()
+    test_embedding_cap_deletes_objects_and_ledger_rows()
+    test_ledger_record_counts_new_rewritten_and_revived_keys()
     print("test_runner_units: all assertions passed")

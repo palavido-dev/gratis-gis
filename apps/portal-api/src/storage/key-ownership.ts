@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 
 import type { PrismaService } from '../prisma/prisma.service.js';
 import type { AssetKind } from './storage.service.js';
+import { keyOrgId, type ObjectOwner } from './object-keys.js';
 
 /**
  * Ownership of client-supplied storage keys.
@@ -25,6 +26,11 @@ import type { AssetKind } from './storage.service.js';
  *      sources already registered).
  *   2. An object is deleted only when no other item or attachment row
  *      still references its key.
+ *
+ * On top of both, a key in the org-prefixed layout is attachable only
+ * by a caller of that org, and every byte-level read, write and delete
+ * goes through the owner check in object-keys.ts (`assertObjectOwner`),
+ * which StorageService runs on every key it is given.
  */
 
 /** Kinds whose keys clients hand back to attach paths. */
@@ -104,10 +110,11 @@ export async function recordUploadGrant(
  */
 export async function assertKeysAttachable(
   prisma: PrismaService,
-  userId: string,
+  caller: { readonly id: string; readonly orgId: string },
   keys: Iterable<string | null | undefined>,
   current: Iterable<string | null | undefined> = [],
 ): Promise<void> {
+  const userId = caller.id;
   const have = new Set<string>();
   for (const k of current) if (typeof k === 'string' && k) have.add(k);
   const wanted = [
@@ -118,6 +125,17 @@ export async function assertKeysAttachable(
     ),
   ];
   if (wanted.length === 0) return;
+  // A key that names an org must name the caller's. The grant check
+  // below already ties a key to one user; this holds even for a grant
+  // row that was copied or restored from elsewhere.
+  for (const k of wanted) {
+    const org = keyOrgId(k);
+    if (org !== null && org !== caller.orgId) {
+      throw new BadRequestException(
+        'That upload was not issued to you. Upload the file again and retry.',
+      );
+    }
+  }
   const granted = await prisma.storageUploadGrant.findMany({
     where: { key: { in: wanted }, userId },
     select: { key: true },
@@ -179,11 +197,12 @@ export async function isKeyReferencedElsewhere(
  */
 export async function deleteIfUnreferenced(
   prisma: PrismaService,
-  storage: { deleteObject(key: string): Promise<unknown> },
+  storage: { deleteObject(key: string, owner: ObjectOwner): Promise<unknown> },
   key: string,
+  owner: ObjectOwner,
   except: { itemId?: string | null; attachmentId?: string | null } = {},
 ): Promise<boolean> {
   if (await isKeyReferencedElsewhere(prisma, key, except)) return false;
-  await storage.deleteObject(key);
+  await storage.deleteObject(key, owner);
   return true;
 }

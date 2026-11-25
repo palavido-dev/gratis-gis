@@ -10,6 +10,7 @@ import {
   type CacheHit,
 } from '../engine/tile-cache.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import type { ObjectOwner } from '../storage/object-keys.js';
 import { TileLayerService } from './tile-layer.service.js';
 import {
   MOSAIC_TILE_SIZE,
@@ -27,6 +28,8 @@ import { ensureVsis3, loadGdal } from './gdal-s3.js';
 interface ResolvedDem {
   itemId: string;
   storageKey: string;
+  /** The org the key must belong to: the item's. */
+  owner: ObjectOwner;
   bbox?: [number, number, number, number];
 }
 
@@ -155,6 +158,8 @@ export class ElevationMosaicService {
     for (const itemId of stackItemIds) {
       try {
         const dem = await this.tileLayer.resolveDemSource(user, itemId);
+        // A key the item's org does not own drops out like a missing item.
+        await this.storage.assertKeyOwner(dem.storageKey, dem.owner);
         out.push({ itemId, ...dem });
       } catch (err) {
         const status = (err as { status?: number } | null)?.status;
@@ -186,7 +191,6 @@ export class ElevationMosaicService {
 
     const gdal = await this.loadGdal();
     this.ensureVsis3(gdal);
-    const { bucket } = this.storage.vsis3Config();
     const bb = tileBbox3857(z, x, y);
     const pixel = (bb.maxX - bb.minX) / size;
     const dest = new Float32Array(size * size).fill(NaN);
@@ -198,7 +202,11 @@ export class ElevationMosaicService {
       let src: import('gdal-async').Dataset | null = null;
       let warped: import('gdal-async').Dataset | null = null;
       try {
-        src = await gdal.openAsync(`/vsis3/${bucket}/${entry.storageKey}`, 'r', ['GTiff']);
+        src = await gdal.openAsync(
+          await this.storage.vsis3Path(entry.storageKey, entry.owner),
+          'r',
+          ['GTiff'],
+        );
         warped = await gdal.drivers
           .get('MEM')
           .createAsync('', size, size, 1, 'Float32');

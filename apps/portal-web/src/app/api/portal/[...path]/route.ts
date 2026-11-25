@@ -24,6 +24,7 @@ import {
   printReadBearer,
   securityResponseHeaders,
 } from '@/lib/bff-guards';
+import { isPrivateStorageProxyPath } from '@/lib/storage-key';
 import { PAGE_CSP } from '@/lib/content-security-policy.mjs';
 
 const API_BASE = process.env.PORTAL_API_URL ?? 'http://localhost:4000';
@@ -77,6 +78,7 @@ function warnStaleSession(method: string, suffix: string): void {
  *   - items/:id/proxy/...                -> public/items/:id/proxy/...
  *   - items/:id/thumbnail.svg            -> items/:id/thumbnail.svg (passthrough)
  *   - storage/private/:kind/:key         -> storage/private/:kind/:key (passthrough)
+ *   - storage/private/:kind/o/:org/:key  -> same (passthrough)
  *
  * Anything else (item lists, dependents lookups, write verbs)
  * stays auth-gated. Lists are deliberately not in the allowlist
@@ -184,11 +186,9 @@ function publicRewriteForAnonymousGet(suffix: string): string | null {
   // not the BFF). Passthrough: the portal-api route is the same
   // for anon and authed; no /public/storage/ controller exists
   // because we don't need one.
-  if (
-    /^storage\/private\/(item-file|item-tile-layer|item-point-cloud|feature-attachment)\/[A-Za-z0-9._-]+$/.test(
-      suffix,
-    )
-  ) {
+  // Both key layouts, read with the shared key parser mirror:
+  // `<kind>/<key>` and `<kind>/o/<orgId>/<key>`.
+  if (isPrivateStorageProxyPath(suffix)) {
     return suffix;
   }
   // #179 point-cloud range proxy. A public map with a point cloud

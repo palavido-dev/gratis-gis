@@ -21,6 +21,12 @@ import type { AuthUser } from '../auth/auth-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ItemsService } from '../items/items.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import {
+  ObjectKeyRefusedError,
+  assertKeysMayBelongToOrg,
+  orgOwner,
+  samEmbedKeys,
+} from '../storage/object-keys.js';
 import { assertServerHeavyTier } from './analysis-tiers.js';
 
 /**
@@ -88,7 +94,31 @@ export class SamController {
         'The outline tool needs an imagery layer with its original image file.',
       );
     }
+    // The worker reads this file with the server's credentials.
+    assertKeysMayBelongToOrg([data.cogStorageKey], item.orgId);
     return item;
+  }
+
+  /**
+   * The stored key of one supertile's embedding, or null when none is
+   * stored yet. Embeddings belong to the imagery item's org. New ones
+   * sit under the org prefix; ones cached before that keep the older
+   * key and are still found.
+   */
+  private async findEmbedding(
+    item: { orgId: string },
+    itemId: string,
+    cell: { z: number; gx: number; gy: number },
+  ): Promise<string | null> {
+    const owner = orgOwner(item.orgId);
+    for (const key of samEmbedKeys(item.orgId, itemId, cell)) {
+      try {
+        if (await this.storage.objectExists(key, owner)) return key;
+      } catch (err) {
+        if (!(err instanceof ObjectKeyRefusedError)) throw err;
+      }
+    }
+    return null;
   }
 
   /**
@@ -111,8 +141,7 @@ export class SamController {
       throw new BadRequestException('That view is outside this imagery layer.');
     }
 
-    const key = `sam-embed/${itemId}/${z}/${gx}/${gy}.bin`;
-    if (await this.storage.objectExists(key)) {
+    if (await this.findEmbedding(item, item.id, { z, gx, gy })) {
       return { state: 'ready' as const };
     }
     const existing = await this.prisma.analysisJob.findFirst({
@@ -165,10 +194,9 @@ export class SamController {
     @Param('gx') gx: string,
     @Param('gy') gy: string,
   ) {
-    await this.assertReadableImagery(user, itemId);
+    const item = await this.assertReadableImagery(user, itemId);
     const parsed = this.parseKey(z, gx, gy);
-    const key = `sam-embed/${itemId}/${parsed.z}/${parsed.gx}/${parsed.gy}.bin`;
-    if (await this.storage.objectExists(key)) {
+    if (await this.findEmbedding(item, item.id, parsed)) {
       return { state: 'ready' as const };
     }
     const job = await this.prisma.analysisJob.findFirst({
@@ -197,12 +225,12 @@ export class SamController {
     @Param('gy') gy: string,
     @Res() res: Response,
   ) {
-    await this.assertReadableImagery(user, itemId);
+    const item = await this.assertReadableImagery(user, itemId);
     const parsed = this.parseKey(z, gx, gy);
-    const key = `sam-embed/${itemId}/${parsed.z}/${parsed.gx}/${parsed.gy}.bin`;
+    const key = (await this.findEmbedding(item, item.id, parsed)) ?? samEmbedKeys(item.orgId, item.id, parsed)[0];
     let obj: Awaited<ReturnType<StorageService['streamObject']>>;
     try {
-      obj = await this.storage.streamObject(key);
+      obj = await this.storage.streamObject(key, orgOwner(item.orgId));
     } catch (err) {
       // Only a missing object means "not ready yet". A storage outage
       // reported as 404 made the client keep polling.
@@ -215,6 +243,8 @@ export class SamController {
       }
       throw err;
     }
+    // Served: the per-item cap removes the least recently used first.
+    void this.storage.noteRead(key);
     res.status(200);
     res.setHeader('Content-Type', 'application/octet-stream');
     if (obj.contentLength !== undefined) {

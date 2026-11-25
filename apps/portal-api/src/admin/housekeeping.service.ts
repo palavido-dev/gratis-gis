@@ -31,6 +31,7 @@ import {
   type DanglingRefCandidate,
 } from './dangling-refs.js';
 import { StorageService } from '../storage/storage.service.js';
+import { systemOwner } from '../storage/object-keys.js';
 
 /**
  * Heuristics-based analytics for the /admin/housekeeping page.
@@ -127,8 +128,10 @@ export type StaleCandidate = {
  * carry a `.png` suffix after the UUID, and a style references them by
  * that full key, so the suffix is captured for map-icon only.
  */
+// Keys in both layouts: `<kind>/<uuid>` and `<kind>/o/<orgId>/<uuid>`.
+// Every repetition is bounded, so the match costs the same on any text.
 export const STORAGE_KEY_REF_PATTERN =
-  '((?:feature-attachment|item-file|item-tile-layer|item-point-cloud)/[0-9a-fA-F-]{36}|map-icon/[0-9a-fA-F-]{36}(?:\\.png)?)';
+  '((?:feature-attachment|item-file|item-tile-layer|item-point-cloud)/(?:o/[0-9a-f-]{36}/)?[0-9a-fA-F-]{36}|map-icon/(?:o/[0-9a-f-]{36}/)?[0-9a-fA-F-]{36}(?:\\.png)?)';
 
 @Injectable()
 export class HousekeepingService {
@@ -1436,7 +1439,10 @@ export class HousekeepingService {
     try {
       referenced = await this.referencedStorageKeys();
       for (const prefix of HousekeepingService.ORPHAN_SWEEP_PREFIXES) {
-        const objects = await this.storage.listObjectsUnder(`${prefix}/`);
+        const objects = await this.storage.listObjectsUnder(
+          `${prefix}/`,
+          systemOwner('housekeeping:orphan-sweep'),
+        );
         let orphanCount = 0;
         let orphanBytes = 0;
         for (const obj of objects) {
@@ -1523,7 +1529,10 @@ export class HousekeepingService {
     let freedBytes = 0;
     let failedCount = 0;
     for (const orphan of collected.orphans) {
-      const ok = await this.storage.deleteObject(orphan.key);
+      const ok = await this.storage.deleteObject(
+        orphan.key,
+        systemOwner('housekeeping:orphan-sweep'),
+      );
       if (ok) {
         deletedCount += 1;
         freedBytes += orphan.sizeBytes;

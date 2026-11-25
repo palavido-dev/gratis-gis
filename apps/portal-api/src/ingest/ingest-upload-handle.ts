@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { keyOrgId, orgOwner, orgPrefix, systemOwner, type ObjectOwner } from '../storage/object-keys.js';
 
 /**
  * Pure pieces of the resumable import upload: part sizing, the signed
@@ -39,8 +40,34 @@ export const MAX_OPEN_UPLOADS_PER_USER = 3;
  * that the bytes every open upload will need can be read back from a
  * plain listing of open uploads, with no table to keep in step.
  */
-export function uploadObjectKey(userId: string, sizeBytes: number, id: string): string {
-  return `${INGEST_UPLOAD_PREFIX}${userId}/${sizeBytes}b-${id}`;
+export function uploadObjectKey(
+  orgId: string,
+  userId: string,
+  sizeBytes: number,
+  id: string,
+): string {
+  return `${orgPrefix('ingest-upload', orgId)}${userId}/${sizeBytes}b-${id}`;
+}
+
+/**
+ * Prefixes one user's upload keys may start with: the org-prefixed
+ * layout, then the older `ingest-upload/<userId>/` that handles signed
+ * before it still carry.
+ */
+export function userUploadPrefixes(orgId: string, userId: string): [string, string] {
+  return [`${orgPrefix('ingest-upload', orgId)}${userId}/`, `${INGEST_UPLOAD_PREFIX}${userId}/`];
+}
+
+/**
+ * Who an upload key belongs to for the storage owner check. The key
+ * comes from a handle this server signed and bound to one user, so
+ * its org segment is trusted. A handle signed before keys carried an
+ * org is checked as server work; the signature and the user binding
+ * in claimsFor are what authorise it.
+ */
+export function ownerOfUploadKey(key: string): ObjectOwner {
+  const org = keyOrgId(key);
+  return org ? orgOwner(org) : systemOwner('ingest-upload:signed-handle');
 }
 
 /** Declared size in an upload key, or 0 for a key without one. */

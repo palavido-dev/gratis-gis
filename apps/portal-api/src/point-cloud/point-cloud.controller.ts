@@ -149,7 +149,7 @@ export class PointCloudController {
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    const storageKey = await this.pointCloud.resolveStorageKey(user, itemId);
+    const { storageKey, owner } = await this.pointCloud.resolveServedObject(user, itemId);
     const etag = `"pc-${createHash('sha256').update(storageKey).digest('hex').slice(0, 24)}"`;
     const cacheControl = `${user ? 'private' : 'public'}, no-cache`;
     const ifNoneMatch = req.headers['if-none-match'];
@@ -160,7 +160,7 @@ export class PointCloudController {
       res.end();
       return;
     }
-    const upstream = await this.storage.streamObject(storageKey, rangeHeader);
+    const upstream = await this.storage.streamObject(storageKey, owner, rangeHeader);
     res.status(upstream.statusCode);
     if (upstream.contentRange) {
       res.setHeader('Content-Range', upstream.contentRange);
