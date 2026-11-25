@@ -114,6 +114,29 @@ describe('isPrivateOrLoopbackHost', () => {
     },
   );
 
+  it.each([
+    '64:ff9b::7f00:1',
+    '[64:ff9b::a00:1]',
+    '64:ff9b::192.168.1.1',
+    '64:ff9b:1::1',
+    'fec0::1',
+    '[feff::1]',
+    '::127.0.0.1',
+    '::a9fe:a9fe',
+    '198.18.0.1',
+    '198.19.255.255',
+    '192.0.0.8',
+  ])('blocks the reserved or embedded private address %s', (host) => {
+    expect(isPrivateOrLoopbackHost(host)).toBe(true);
+  });
+
+  it.each(['64:ff9b::808:808', '198.17.0.1', '198.20.0.1', '192.0.1.1', '::8.8.8.8'])(
+    'still allows the public address %s',
+    (host) => {
+      expect(isPrivateOrLoopbackHost(host)).toBe(false);
+    },
+  );
+
   it('allows a public FQDN', () => {
     expect(isPrivateOrLoopbackHost('tiles.example.com')).toBe(false);
   });

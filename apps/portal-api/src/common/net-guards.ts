@@ -116,9 +116,10 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
   // Numeric IPv4. Block RFC1918 + loopback + link-local.
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
   if (m) {
-    const [, a, b] = m;
+    const [, a, b, c] = m;
     const aN = Number(a);
     const bN = Number(b);
+    const cN = Number(c);
     // 0.0.0.0/8 ("this network").  0.0.0.0 in particular connects
     // to the local host on Linux (the kernel treats it like
     // 127.0.0.1), so it is loopback in every way that matters.
@@ -131,6 +132,10 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     // Carrier-grade NAT (RFC 6598).  Not strictly necessary today
     // but cheap to add and matches the spirit of the rule.
     if (aN === 100 && bN >= 64 && bN <= 127) return true;
+    // IETF protocol assignments 192.0.0.0/24 (RFC 6890) and the
+    // benchmarking range 198.18.0.0/15 (RFC 2544): never a public host.
+    if (aN === 192 && bN === 0 && cN === 0) return true;
+    if (aN === 198 && (bN === 18 || bN === 19)) return true;
     // Multicast and reserved (224.0.0.0/4 and above, including
     // 255.255.255.255).
     if (aN >= 224) return true;
@@ -153,6 +158,11 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     const head = bare.split('%')[0]?.split(':')[0] ?? '';
     if (/^fe[89ab][0-9a-f]$/.test(head)) return true;
     if (/^ff[0-9a-f]{2}$/.test(head)) return true;
+    // Site-local fec0::/10 (deprecated, but a stack may still route it).
+    if (/^fe[c-f][0-9a-f]$/.test(head)) return true;
+    // Local-use NAT64 64:ff9b:1::/48 (RFC 8215) translates to whatever
+    // the local network decides, so it is never a known public host.
+    if (bare.startsWith('64:ff9b:1:')) return true;
     // IPv4-mapped addresses (::ffff:a.b.c.d, or the equivalent
     // hex groups ::ffff:aabb:ccdd).  The socket connects to the
     // embedded IPv4 address, so the IPv4 rules decide; without
@@ -160,15 +170,12 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
     // checks above.  Only a private verdict short-circuits here:
     // public mapped forms still fall through to the hostname
     // heuristics below so this stays a strictly tightening check.
-    const dotted = /^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(bare);
-    if (dotted && isPrivateOrLoopbackHost(dotted[1] ?? '')) return true;
-    const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(bare);
-    if (hex) {
-      const hi = parseInt(hex[1] ?? '0', 16);
-      const lo = parseInt(hex[2] ?? '0', 16);
-      const quad = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
-      if (isPrivateOrLoopbackHost(quad)) return true;
-    }
+    // The same holds for the other forms that carry an IPv4 address in
+    // the last 32 bits: NAT64 64:ff9b::/96 (RFC 6052), where a
+    // translator connects to the embedded address, and the deprecated
+    // IPv4-compatible ::a.b.c.d.
+    const embedded = embeddedIpv4(bare);
+    if (embedded !== null && isPrivateOrLoopbackHost(embedded)) return true;
     // A colon address that was not a private range is a public IPv6
     // address. It is not a docker service name.
     return false;
@@ -189,6 +196,29 @@ export function isPrivateOrLoopbackHost(host: string): boolean {
   // user-supplied URL.  Real external services always have FQDNs.
   if (!host.includes('.') && !host.startsWith('[')) return true;
   return false;
+}
+
+/**
+ * The IPv4 address in the last 32 bits of an IPv4-mapped (::ffff:),
+ * NAT64 (64:ff9b::) or IPv4-compatible (::) address, in either the
+ * dotted or the two-group hex spelling; null for any other address.
+ */
+function embeddedIpv4(bare: string): string | null {
+  let rest: string | null = null;
+  for (const prefix of ['::ffff:', '64:ff9b::', '::']) {
+    if (bare.startsWith(prefix)) {
+      rest = bare.slice(prefix.length);
+      break;
+    }
+  }
+  if (rest === null) return null;
+  const dotted = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(rest);
+  if (dotted) return `${dotted[1]}.${dotted[2]}.${dotted[3]}.${dotted[4]}`;
+  const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
+  if (!hex) return null;
+  const hi = parseInt(hex[1] ?? '0', 16);
+  const lo = parseInt(hex[2] ?? '0', 16);
+  return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
 }
 
 export class UnsafeOutboundUrlError extends Error {

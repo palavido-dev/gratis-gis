@@ -311,15 +311,20 @@ export class ScriptsService {
   }
 
   async getRun(user: AuthUser, runId: string): Promise<ScriptRunDetail> {
-    const row = await this.prisma.scriptRun.findUnique({
+    // Only the script id first: the run's log and source are read once
+    // the caller is known to see the script.
+    const head = await this.prisma.scriptRun.findUnique({
       where: { id: runId },
+      select: { scriptId: true },
     });
-    if (!row) throw new NotFoundException('Run not found.');
+    if (!head) throw new NotFoundException('Run not found.');
     // Re-check against the script, not the run: the run row carries no
     // sharing of its own. A script the caller cannot see answers like a
     // missing run.
-    const item = await runNotFoundIfHidden(() => this.items.get(user, row.scriptId));
+    const item = await runNotFoundIfHidden(() => this.items.get(user, head.scriptId));
     if (!item) throw new NotFoundException('Run not found.');
+    const row = await this.prisma.scriptRun.findUnique({ where: { id: runId } });
+    if (!row) throw new NotFoundException('Run not found.');
     return {
       ...toSummary(row),
       log: row.log,

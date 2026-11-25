@@ -1025,10 +1025,13 @@ export class ItemsService {
       // whole-world box used to collect ids from every org and bind
       // them all back into the page query and the count. When the
       // list is held to the caller's org (common/list-scope.ts), the
-      // pre-filter is too, so it never reads another org's rows.
+      // pre-filter is too, so it never reads another org's rows; and a
+      // list of the caller's own items needs only those.
       const listScope = ownOrgListScope(user);
       const reachable = listScope
-        ? Prisma.sql`"org_id" = ${listScope.orgId}::uuid`
+        ? opts.mine
+          ? Prisma.sql`"owner_id" = ${user.id}::uuid`
+          : Prisma.sql`"org_id" = ${listScope.orgId}::uuid`
         : Prisma.sql`(
             "org_id" = ${user.orgId}::uuid
             OR "access" = 'public'

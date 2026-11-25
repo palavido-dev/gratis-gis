@@ -50,12 +50,13 @@ d('review fixes SQL against Postgres', () => {
     storageRef?: string | null;
     deleted?: boolean;
     orgId?: string;
+    ownerId?: string;
   }): Promise<string> {
     const id = randomUUID();
     await admin.query(
       `INSERT INTO ${schema}.item
-         (id, type, data_json, access, bbox, storage_ref, deleted_at, org_id, created_at, updated_at)
-       VALUES ($1, $2::${schema}."ItemType", $3, $4, $5, $6, $7, $8, now(), now())`,
+         (id, type, data_json, access, bbox, storage_ref, deleted_at, org_id, owner_id, created_at, updated_at)
+       VALUES ($1, $2::${schema}."ItemType", $3, $4, $5, $6, $7, $8, $9, now(), now())`,
       [
         id,
         row.type ?? 'map',
@@ -65,6 +66,7 @@ d('review fixes SQL against Postgres', () => {
         row.storageRef ?? null,
         row.deleted ? new Date() : null,
         row.orgId ?? null,
+        row.ownerId ?? null,
       ],
     );
     return id;
@@ -93,6 +95,7 @@ d('review fixes SQL against Postgres', () => {
         ) STORED,
         storage_ref text,
         org_id uuid,
+        owner_id uuid,
         deleted_at timestamp(3),
         created_at timestamp(3) NOT NULL,
         updated_at timestamp(3) NOT NULL
@@ -246,6 +249,29 @@ d('review fixes SQL against Postgres', () => {
       expect(ids.sort()).toEqual([mine, minePub].sort());
       expect(ids).not.toContain(pub);
       expect(ids).not.toContain(shared);
+    });
+
+    it('spatial list ids of the caller own items read only those', async () => {
+      const org = randomUUID();
+      const me = randomUUID();
+      const box = [15, 15, 16, 16];
+      const mine = await insert({ bbox: box, access: 'private', orgId: org, ownerId: me });
+      const colleague = await insert({ bbox: box, access: 'private', orgId: org, ownerId: randomUUID() });
+      const svc = Object.create(ItemsService.prototype) as ItemsService;
+      Object.assign(svc, {
+        prisma: client,
+        sharing: { visibleWhere: () => ({}), listWhere: () => ({}) },
+      });
+      const where = (await (
+        svc as unknown as {
+          buildListWhere(u: unknown, o: unknown): Promise<{ AND: Array<{ id?: { in: string[] } }> }>;
+        }
+      ).buildListWhere({ id: me, orgId: org }, { bbox: [14, 14, 17, 17], mine: true })) as {
+        AND: Array<{ id?: { in: string[] } }>;
+      };
+      const ids = where.AND.find((c) => c.id)!.id!.in;
+      expect(ids).toEqual([mine]);
+      expect(ids).not.toContain(colleague);
     });
 
     it('records bbox ids', async () => {
