@@ -31,42 +31,26 @@ describe('ingest slots', () => {
     expect(() => acquireIngestSlot('a')).not.toThrow();
   });
 
-  describe('per organization', () => {
+  describe.each(['single', 'multi'] as const)('%s tenancy', (mode) => {
     const before = process.env.GRATIS_TENANCY;
+    beforeEach(() => {
+      if (mode === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      else delete process.env.GRATIS_TENANCY;
+      resetTenancyModeForTests();
+    });
     afterEach(() => {
       if (before === undefined) delete process.env.GRATIS_TENANCY;
       else process.env.GRATIS_TENANCY = before;
       resetTenancyModeForTests();
     });
 
-    it('one organization: two of its users may hold both slots, as before', () => {
-      delete process.env.GRATIS_TENANCY;
-      resetTenancyModeForTests();
-      const r1 = runAsOrg('org-a', () => acquireIngestSlot('a1'));
-      const r2 = runAsOrg('org-a', () => acquireIngestSlot('a2'));
-      r1();
-      r2();
-    });
-
-    it('many organizations: one organization alone may hold both slots', () => {
-      process.env.GRATIS_TENANCY = 'multi';
-      resetTenancyModeForTests();
-      const r1 = runAsOrg('org-a', () => acquireIngestSlot('a1'));
-      const r2 = runAsOrg('org-a', () => acquireIngestSlot('a2'));
-      r1();
-      r2();
-    });
-
-    it('many organizations: a freed slot goes to the organization that was turned away', () => {
-      process.env.GRATIS_TENANCY = 'multi';
-      resetTenancyModeForTests();
+    it('one overall limit, whichever organization asks', () => {
       const r1 = runAsOrg('org-a', () => acquireIngestSlot('a1'));
       const r2 = runAsOrg('org-a', () => acquireIngestSlot('a2'));
       expect(() => runAsOrg('org-b', () => acquireIngestSlot('b1'))).toThrow(IngestBusyException);
       r1();
-      // B is waiting and A is at its share, so A's next try is refused.
-      expect(() => runAsOrg('org-a', () => acquireIngestSlot('a3'))).toThrow(IngestBusyException);
-      const r3 = runAsOrg('org-b', () => acquireIngestSlot('b1'));
+      // A freed slot goes to whoever asks first.
+      const r3 = runAsOrg('org-a', () => acquireIngestSlot('a3'));
       r2();
       r3();
     });

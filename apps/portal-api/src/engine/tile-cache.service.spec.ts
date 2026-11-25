@@ -683,7 +683,7 @@ describe('TileCacheService', () => {
     });
   });
 
-  describe('share of the cap per organization', () => {
+  describe('caps and lanes with organizations', () => {
     const before = {
       tenancy: process.env.GRATIS_TENANCY,
       cap: process.env.TILE_CACHE_MAX_CONCURRENT,
@@ -716,57 +716,31 @@ describe('TileCacheService', () => {
       return { compute: () => p, release: () => done(Buffer.from('x')) };
     }
 
-    it('one organization may use the whole cap, as before', async () => {
-      const cache = setup('single', 3);
-      const h = [held(), held(), held()];
-      const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`k${i}`, x.compute)));
-      await expect(
-        runAsOrg('org-a', () => cache.getOrCompute('k3', async () => Buffer.from('y'))),
-      ).rejects.toBeInstanceOf(TileCacheOverloadError);
-      h.forEach((x) => x.release());
-      await Promise.all(ps);
-    });
-
-    it('many organizations: one organization alone may use the whole cap', async () => {
-      const cache = setup('multi', 3);
-      const h = [held(), held(), held()];
-      const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`k${i}`, x.compute)));
-      await expect(
-        runAsOrg('org-a', () => cache.getOrCompute('k3', async () => Buffer.from('y'))),
-      ).rejects.toBeInstanceOf(TileCacheOverloadError);
-      h.forEach((x) => x.release());
-      await Promise.all(ps);
-    });
-
-    it('many organizations: a freed slot goes to the organization that was turned away', async () => {
-      const cache = setup('multi', 2);
-      const h = [held(), held()];
-      const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute)));
-      // B is turned away while A holds the whole cap.
-      await expect(
-        runAsOrg('org-b', () => cache.getOrCompute('b0', async () => Buffer.from('b'))),
-      ).rejects.toBeInstanceOf(TileCacheOverloadError);
-      h[0]!.release();
-      await ps[0];
-      // A asks again at once, but B is waiting and holds less than A.
-      await expect(
-        runAsOrg('org-a', () => cache.getOrCompute('a2', async () => Buffer.from('y'))),
-      ).rejects.toBeInstanceOf(TileCacheOverloadError);
-      const b = await runAsOrg('org-b', () =>
-        cache.getOrCompute('b0', async () => Buffer.from('b')),
-      );
-      expect(b.buf.toString()).toBe('b');
-      h[1]!.release();
-      await ps[1];
-    });
-
-    it('many organizations: a cached answer for an organization still hits', async () => {
-      const cache = setup('multi', 2);
-      const compute = jest.fn(async () => Buffer.from('t'));
-      await runAsOrg('org-a', () => cache.getOrCompute('tile', compute));
-      await runAsOrg('org-a', () => cache.getOrCompute('tile', compute));
-      expect(compute).toHaveBeenCalledTimes(1);
-    });
+    it.each(['single', 'multi'] as const)(
+      '%s: the compute cap is one overall limit, whichever organization asks',
+      async (m) => {
+        const cache = setup(m, 2);
+        const h = [held(), held()];
+        const ps = h.map((x, i) => runAsOrg('org-a', () => cache.getOrCompute(`a${i}`, x.compute)));
+        // Full: another organization gets the same overload answer.
+        const refused = await runAsOrg('org-b', () =>
+          cache.getOrCompute('b0', async () => Buffer.from('b')),
+        ).catch((e: unknown) => e);
+        expect(refused).toBeInstanceOf(TileCacheOverloadError);
+        expect((refused as TileCacheOverloadError).active).toBe(2);
+        expect((refused as TileCacheOverloadError).cap).toBe(2);
+        expect((refused as Error).message).toBe('Tile cache at capacity: 2/2 concurrent computes');
+        h[0]!.release();
+        await ps[0];
+        // A freed slot goes to whoever asks first, as before.
+        const again = await runAsOrg('org-a', () =>
+          cache.getOrCompute('a2', async () => Buffer.from('y')),
+        );
+        expect(again.buf.toString()).toBe('y');
+        h[1]!.release();
+        await ps[1];
+      },
+    );
 
     it.each(['single', 'multi'] as const)(
       '%s: one organization keeps the lane first come, first served, with the same lengths',

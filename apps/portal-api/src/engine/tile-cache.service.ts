@@ -5,9 +5,9 @@ import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { Client as PgClient } from 'pg';
 
 import { parseIntEnv, textEnv } from '../common/env.js';
-import { fairShareBucket, OrgSlotCounter } from '../common/org-fair-share.js';
 import { isMultiTenant } from '../common/tenancy.js';
 
+import { LaneTurnCounter, laneBucket } from './aggregate-lane-turns.js';
 import { TileDiskCache, type TileDiskStats } from './tile-disk-cache.js';
 
 // Re-exported because the aggregate knobs in data-layer.ts and this
@@ -145,16 +145,8 @@ export class TileCacheService implements OnModuleDestroy {
   private rejectedOverload = 0;
   private abandoned = 0;
   private activeComputes = 0;
-  /**
-   * The same slots per organization. On an install that serves many,
-   * a busy organization leaves freed slots to the ones waiting (see
-   * common/org-fair-share.ts), so a busy map of one cannot answer
-   * every other organization's tiles with 503. One organization:
-   * the whole cap, as before.
-   */
-  private readonly computesByOrg = new OrgSlotCounter();
   /** Running lane slots per organization, per lane. */
-  private readonly laneByOrg = new Map<string, OrgSlotCounter>();
+  private readonly laneByOrg = new Map<string, LaneTurnCounter>();
   private invalidations = 0;
 
   /**
@@ -585,7 +577,15 @@ export class TileCacheService implements OnModuleDestroy {
     // of answering most of its tiles with 503 while eight compute.
     const disk = opts.persist && this.disk?.enabled ? this.disk : null;
     const capNow = counted && !disk;
-    const bucket = fairShareBucket();
+    if (capNow && this.activeComputes >= this.maxConcurrentComputes) {
+      this.rejectedOverload += 1;
+      throw new TileCacheOverloadError(
+        this.activeComputes,
+        this.maxConcurrentComputes,
+      );
+    }
+    // The lane's turn-taking bucket (aggregate-lane-turns.ts).
+    const bucket = lane ? laneBucket() : '';
 
     this.ensureListener();
 
@@ -595,9 +595,7 @@ export class TileCacheService implements OnModuleDestroy {
     // onto it instead of queueing their own copy.
     // A laned compute is bounded by its lane, not by the tile cap, so
     // queued aggregates never make the map's tiles 503.
-    // Nothing between here and the promise below can throw, and the
-    // promise's finally gives the slot back.
-    if (capNow) this.takeComputeSlot(bucket);
+    if (capNow) this.activeComputes += 1;
     let holdsSlot = capNow;
     const seqAtStart = this.invalidationSeq;
     const entry: InFlightEntry = {
@@ -623,7 +621,14 @@ export class TileCacheService implements OnModuleDestroy {
           return { buf: stored, etag };
         }
         if (counted) {
-          this.takeComputeSlot(bucket);
+          if (this.activeComputes >= this.maxConcurrentComputes) {
+            this.rejectedOverload += 1;
+            throw new TileCacheOverloadError(
+              this.activeComputes,
+              this.maxConcurrentComputes,
+            );
+          }
+          this.activeComputes += 1;
           holdsSlot = true;
         }
       }
@@ -688,10 +693,7 @@ export class TileCacheService implements OnModuleDestroy {
         return { buf, etag };
       } finally {
         if (lane) this.releaseLane(lane.name, bucket);
-        else if (holdsSlot) {
-          this.activeComputes -= 1;
-          this.computesByOrg.release(bucket);
-        }
+        else if (holdsSlot) this.activeComputes -= 1;
       }
     })().finally(() => {
       this.inFlight.delete(key);
@@ -843,8 +845,8 @@ export class TileCacheService implements OnModuleDestroy {
    *
    * One organization: first come, first served, as always.
    *
-   * Many organizations: running slots follow the fair share rule of
-   * common/org-fair-share.ts, with the buckets in the line counted as
+   * Many organizations: running slots follow the rule of
+   * aggregate-lane-turns.ts, with the buckets in the line counted as
    * waiting. The line is served in turns: when a slot frees, the
    * waiting bucket that runs the fewest computes goes next, oldest
    * first within it. The line keeps its length; when it is full and a
@@ -868,7 +870,7 @@ export class TileCacheService implements OnModuleDestroy {
     lane.maxQueued = spec.maxQueued ?? Infinity;
     let byOrg = this.laneByOrg.get(spec.name);
     if (!byOrg) {
-      byOrg = new OrgSlotCounter();
+      byOrg = new LaneTurnCounter();
       this.laneByOrg.set(spec.name, byOrg);
     }
     const multi = isMultiTenant();
@@ -969,7 +971,7 @@ export class TileCacheService implements OnModuleDestroy {
    * Many organizations: grant free slots to the line in turns (see
    * acquireLane). Stops when no waiter may take a slot.
    */
-  private serveLane(lane: Lane, byOrg: OrgSlotCounter): void {
+  private serveLane(lane: Lane, byOrg: LaneTurnCounter): void {
     while (lane.active < lane.limit && lane.waiters.length > 0) {
       const waitingBuckets = lane.waiters.map((w) => w.bucket);
       let pick = -1;
@@ -987,27 +989,6 @@ export class TileCacheService implements OnModuleDestroy {
       const [next] = lane.waiters.splice(pick, 1);
       next!.grant();
     }
-  }
-
-  /**
-   * Take a compute slot, or throw the overload error when the cap is
-   * used up or the slot is left for a waiting organization
-   * (common/org-fair-share.ts).
-   */
-  private takeComputeSlot(bucket: string): void {
-    const max = this.maxConcurrentComputes;
-    if (!this.computesByOrg.tryTake(bucket, max)) {
-      this.rejectedOverload += 1;
-      if (this.activeComputes >= max) {
-        throw new TileCacheOverloadError(this.activeComputes, max);
-      }
-      throw new TileCacheOverloadError(
-        this.computesByOrg.heldBy(bucket),
-        max,
-        'concurrent computes, the share of one organization',
-      );
-    }
-    this.activeComputes += 1;
   }
 
   /**
@@ -1306,7 +1287,7 @@ interface InFlightEntry {
 }
 
 interface LaneWaiter {
-  /** The fair share bucket the waiting compute counts against. */
+  /** The bucket the waiting compute counts against (aggregate-lane-turns.ts). */
   bucket: string;
   /** Give the waiter a running slot. */
   grant: () => void;

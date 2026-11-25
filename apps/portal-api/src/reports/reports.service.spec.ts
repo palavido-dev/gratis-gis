@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+import { ServiceUnavailableException } from '@nestjs/common';
+
 import type { AuthUser } from '../auth/auth-sync.service';
+import { runAsOrg } from '../common/tenant-context';
+import { resetTenancyModeForTests } from '../common/tenancy';
 
 import { readReportTemplate, reportFileName, ReportsService } from './reports.service';
 
@@ -114,5 +118,50 @@ describe('readReportTemplate and reportFileName', () => {
   it('cleans file names', () => {
     expect(reportFileName('Site / "North" inspections')).toBe('Site North inspections.pdf');
     expect(reportFileName('***')).toBe('report.pdf');
+  });
+});
+
+describe.each(['single', 'multi'] as const)('ReportsService.pdf render limit, %s tenancy', (mode) => {
+  const before = {
+    tenancy: process.env.GRATIS_TENANCY,
+    endpoints: process.env.CHROMIUM_WS_ENDPOINTS,
+  };
+  beforeEach(() => {
+    if (mode === 'multi') process.env.GRATIS_TENANCY = 'multi';
+    else delete process.env.GRATIS_TENANCY;
+    // Nothing listens there: a render that gets a slot fails to connect.
+    process.env.CHROMIUM_WS_ENDPOINTS = 'ws://127.0.0.1:1';
+    resetTenancyModeForTests();
+  });
+  afterEach(() => {
+    for (const [k, v] of [
+      ['GRATIS_TENANCY', before.tenancy],
+      ['CHROMIUM_WS_ENDPOINTS', before.endpoints],
+    ] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    resetTenancyModeForTests();
+  });
+
+  const page = { size: 'letter', orientation: 'portrait' } as Parameters<ReportsService['pdf']>[1];
+
+  it('turns a render away when two are running, whichever organization asks', async () => {
+    const { svc } = setup();
+    const running = svc as unknown as { activeRenders: number };
+    running.activeRenders = 2;
+    const err = await runAsOrg('org-b', () => svc.pdf('<p></p>', page)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ServiceUnavailableException);
+    expect((err as Error).message).toBe('The report service is busy. Try again in a minute.');
+    expect(running.activeRenders).toBe(2);
+  });
+
+  it('takes the second slot and gives it back when the render fails', async () => {
+    const { svc } = setup();
+    const running = svc as unknown as { activeRenders: number };
+    running.activeRenders = 1;
+    const err = await runAsOrg('org-b', () => svc.pdf('<p></p>', page)).catch((e: unknown) => e);
+    expect(err).not.toBeInstanceOf(ServiceUnavailableException);
+    expect(running.activeRenders).toBe(1);
   });
 });

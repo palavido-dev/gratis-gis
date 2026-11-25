@@ -101,13 +101,13 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Outbound fetches also refuse 192.0.0.0/24, site-local fec0::/10, and
   IPv6 addresses that carry a private IPv4 address (NAT64 64:ff9b::/96
   and the old ::a.b.c.d form).
-- Print templates are checked when they are saved: a paper size,
-  orientation or margin the print cannot use is refused with a 400
-  that says what is allowed. Printing from an older template with an
-  unknown paper size answers the same 400; an unknown orientation
-  still prints portrait, and a negative or very wide margin is brought
-  into range. The designer's margin field keeps to the same range,
-  zero to a quarter of the sheet's shorter side.
+- Print templates are checked when they are saved: an unknown paper
+  size or orientation, or a margin that is not a number of inches zero
+  or more, is refused with a 400 that says what is allowed. Printing
+  from an older template with an unknown paper size answers the same
+  400, and an unknown orientation still prints portrait. The
+  designer's margin field keeps to zero to a quarter of the sheet's
+  shorter side.
 
 ### Fixed
 

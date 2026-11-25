@@ -5,7 +5,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 // puppeteer-core has been ESM-only since v25, and this app emits
 // CommonJS. That works only because Node >=22.12 can `require()` an
 // ESM module, which is why the root `engines.node` floor is 22.12.0
@@ -23,7 +23,6 @@ import {
 import { ItemsService } from '../items/items.service.js';
 import { AuthSyncService, type AuthUser } from '../auth/auth-sync.service.js';
 import { PrintReadCredentialService } from '../auth/print-read-credential.service.js';
-import { fairShareBucket, OrgSlotCounter } from '../common/org-fair-share.js';
 import { printTemplatePaper } from './print-paper.js';
 import { printReadItemIds } from './print-read-scope.js';
 
@@ -77,11 +76,8 @@ const MAX_CONCURRENT_RENDERS = 4;
 
 @Injectable()
 export class PrintRenderService {
-  /**
-   * Renders running in this process, by organization; its total is
-   * held to MAX_CONCURRENT_RENDERS. See common/org-fair-share.ts.
-   */
-  private readonly rendersByOrg = new OrgSlotCounter();
+  /** Renders running in this process; see MAX_CONCURRENT_RENDERS. */
+  private activeRenders = 0;
 
   private readonly log = new Logger(PrintRenderService.name);
 
@@ -273,12 +269,12 @@ export class PrintRenderService {
     // Renders hold a Chromium page for up to 45 s and buffer the
     // page's third-party resources in this process, so a replica runs
     // only a few at once and turns the rest away.
-    const renderBucket = fairShareBucket();
-    if (!this.rendersByOrg.tryTake(renderBucket, MAX_CONCURRENT_RENDERS)) {
+    if (this.activeRenders >= MAX_CONCURRENT_RENDERS) {
       throw new ServiceUnavailableException(
         'The print service is busy. Try again in a minute.',
       );
     }
+    this.activeRenders += 1;
     // From here on every path, a throw included, ends in the finally
     // below, which gives the slot back.
     const renderDone = new AbortController();
@@ -356,7 +352,7 @@ export class PrintRenderService {
       }
     } finally {
       renderDone.abort();
-      this.rendersByOrg.release(renderBucket);
+      this.activeRenders -= 1;
       await context?.close().catch(() => undefined);
       await browser?.disconnect().catch(() => undefined);
     }

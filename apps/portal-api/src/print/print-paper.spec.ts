@@ -2,6 +2,7 @@
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 
 import { runAsOrg } from '../common/tenant-context.js';
+import { resetTenancyModeForTests } from '../common/tenancy.js';
 import { assertPrintTemplateData, clampMarginIn, printTemplatePaper } from './print-paper.js';
 import { PrintRenderService } from './print-render.service.js';
 
@@ -95,7 +96,8 @@ describe('PrintRenderService.render gives its slot back', () => {
       {} as never,
       { mint: () => 'ggprint.x.y' } as never,
     );
-    const slots = (svc as unknown as { rendersByOrg: { total(): number } }).rendersByOrg;
+    const running = svc as unknown as { activeRenders: number };
+    const slots = { total: () => running.activeRenders };
     return { svc, create, slots };
   }
 
@@ -136,3 +138,76 @@ describe('PrintRenderService.render gives its slot back', () => {
     expect(slots.total()).toBe(0);
   });
 });
+
+/**
+ * A replica runs at most four renders at once and turns the rest away,
+ * with the same limit and answer whichever organization asks.
+ */
+describe.each(['single', 'multi'] as const)(
+  'PrintRenderService render limit, %s tenancy',
+  (mode) => {
+    const before = {
+      tenancy: process.env.GRATIS_TENANCY,
+      endpoints: process.env.CHROMIUM_WS_ENDPOINTS,
+    };
+    beforeEach(() => {
+      if (mode === 'multi') process.env.GRATIS_TENANCY = 'multi';
+      else delete process.env.GRATIS_TENANCY;
+      // Nothing listens there: a render that gets a slot fails to connect.
+      process.env.CHROMIUM_WS_ENDPOINTS = 'ws://127.0.0.1:1';
+      resetTenancyModeForTests();
+    });
+    afterEach(() => {
+      for (const [k, v] of [
+        ['GRATIS_TENANCY', before.tenancy],
+        ['CHROMIUM_WS_ENDPOINTS', before.endpoints],
+      ] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      resetTenancyModeForTests();
+    });
+
+    function service(): { svc: PrintRenderService; running: { activeRenders: number } } {
+      const get = jest.fn(async (_user: unknown, id: string) => ({
+        id,
+        title: id,
+        type: id === 'map-1' ? 'map' : 'print_template',
+        data: {},
+      }));
+      const prisma = {
+        printRenderToken: {
+          create: jest.fn(async () => ({})),
+          deleteMany: jest.fn(async () => ({ count: 0 })),
+        },
+      };
+      const svc = new PrintRenderService(
+        prisma as never,
+        { get } as never,
+        {} as never,
+        { mint: () => 'ggprint.x.y' } as never,
+      );
+      return { svc, running: svc as unknown as { activeRenders: number } };
+    }
+
+    const user = { id: 'u1', orgId: 'org-b' } as never;
+    const args = { templateId: 'tpl-1', mapId: 'map-1' };
+
+    it('turns a render away when four are running', async () => {
+      const { svc, running } = service();
+      running.activeRenders = 4;
+      const err = await runAsOrg('org-b', () => svc.render(user, args)).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ServiceUnavailableException);
+      expect((err as Error).message).toBe('The print service is busy. Try again in a minute.');
+      expect(running.activeRenders).toBe(4);
+    });
+
+    it('takes the fourth slot and gives it back when the render fails', async () => {
+      const { svc, running } = service();
+      running.activeRenders = 3;
+      const err = await runAsOrg('org-b', () => svc.render(user, args)).catch((e: unknown) => e);
+      expect(err).not.toBeInstanceOf(ServiceUnavailableException);
+      expect(running.activeRenders).toBe(3);
+    });
+  },
+);

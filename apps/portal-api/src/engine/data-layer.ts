@@ -47,9 +47,8 @@ import {
   tileCacheKey,
   viaKeysCacheKey,
 } from './tile-cache.service.js';
-import type { AuthUser } from '../auth/auth-sync.service.js';
+import { runServingOrg } from './aggregate-lane-turns.js';
 import { validateGeoJson } from '../common/geometry-validation.js';
-import { runServingOrg } from '../common/org-fair-share.js';
 import { currentTenant } from '../common/tenant-context.js';
 import { isMultiTenant } from '../common/tenancy.js';
 import { isUuidShape } from '../common/uuid-shape.js';
@@ -1076,9 +1075,6 @@ const AGGREGATE_CACHE_TTL_MS = parseIntEnv('AGGREGATE_CACHE_TTL_MS', 600_000, {
  * the floor of one; the tile knobs accept zero because for them it
  * means "off", not "stuck".
  */
-/** Item organizations remembered before the memo is simply cleared. */
-const ITEM_ORG_MEMO_MAX = 10_000;
-
 const AGGREGATE_MAX_CONCURRENT = parseIntEnv('AGGREGATE_MAX_CONCURRENT', 3, {
   min: 1,
 });
@@ -1115,6 +1111,9 @@ function asItemData(value: unknown): {
   return parsed as { version?: number; layers?: Array<Record<string, unknown>> };
 }
 
+/** Item organizations remembered before the memo is simply cleared. */
+const ITEM_ORG_MEMO_MAX = 10_000;
+
 @Injectable()
 export class DataLayerEngine {
   constructor(
@@ -1131,15 +1130,15 @@ export class DataLayerEngine {
     );
   }
 
-  /** Item id to its organization, for signed-out fair share buckets. */
+  /** Item id to its organization, for signed-out aggregate lane turns. */
   private readonly itemOrgs = new Map<string, string | null>();
 
   /**
    * The organization that owns `itemId`, when signed-out work on an
-   * install that serves many organizations needs it: its tile and
-   * aggregate computes then count against that organization's fair
-   * share (common/org-fair-share.ts), not one bucket that every
-   * signed-out viewer shares. Undefined otherwise, without a query.
+   * install that serves many organizations needs it: its aggregate
+   * computes then take their turn in the aggregate lane as that
+   * organization (aggregate-lane-turns.ts), not as one bucket that
+   * every signed-out viewer shares. Undefined otherwise, without a query.
    * An item never changes organization, so the answer is remembered.
    */
   private async servingOrgOf(itemId: string): Promise<string | undefined> {
@@ -4516,8 +4515,7 @@ export class DataLayerEngine {
       const etag = `"${createHash('sha256').update(cacheKey).update(buf).digest('base64url').slice(0, 16)}"`;
       return { mvt: buf, etag };
     }
-    const servingOrg = await this.servingOrgOf(args.itemId);
-    const result = await runServingOrg(servingOrg, () => this.tileCache.getOrCompute(
+    const result = await this.tileCache.getOrCompute(
       cacheKey,
       () => this.computeMvtTileBytes(args, scope),
       // persist: the disk tier, when configured, keeps this tile across
@@ -4527,7 +4525,7 @@ export class DataLayerEngine {
       // restore, a raw DELETE) it can be older than the parent version
       // the file would be named by, and the disk would keep it forever.
       { dependsOn, persist: !args.via },
-    ));
+    );
     return { mvt: result.buf, etag: result.etag };
   }
 
