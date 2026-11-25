@@ -10,10 +10,12 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 - Field app: features are placed with a pin in the middle of the map,
   as in ArcGIS Field Maps. The form opens straight away for a point, a
-  line or a polygon, over half of the map. A point starts at the pin
-  and **Update point** moves it there again; a line or polygon gets its
-  first vertex at the pin, and its form's **Shape** bar has **Add
-  vertex** and **Undo**. The pin follows GPS after the map's **Locate**
+  line or a polygon, over half of the map. A new point is **Not set**
+  until **Add point** puts it at the pin; the button then reads
+  **Update point**. A line or polygon starts with no vertex, and its
+  form's **Shape** bar shows the vertex count with the line's length or
+  the polygon's area, and has **Add vertex**, **Update vertex** (the
+  last vertex to the pin) and **Undo**. The pin follows GPS after the map's **Locate**
   button (the fix itself is used) and stays where the map is moved by
   hand. With a form open, Locate is the only button on the map. The
   armed template footer (**Add at GPS** / **Add at center**, **Vertex
@@ -21,6 +23,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - Field app: snapping. The pin snaps to the nearest vertex or edge of
   a feature already on the map; **Snap to features** in the **⋮** menu
   turns it off, kept per device.
+- Field app: the **Add feature** list draws each type with the same
+  symbol as the **Layers** list (a dot, a stripe or a square) instead
+  of a square for every type.
 - The one-command installer checks the server first and says in plain
   words what to fix (memory, disk, web ports, internet access, Docker),
   stopping before it changes anything. It offers to install Docker and

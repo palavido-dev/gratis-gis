@@ -31,6 +31,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { MapFeatureSnapper, SNAP_MARKER_COLOR, type SnapMap } from '@/lib/map-snap';
+import { formatArea, formatLength, lineLengthMeters, ringAreaSquareMeters } from '@/lib/measure';
 import { DRAW_COORD_PRECISION } from '../map/use-terra-draw';
 import * as maplibregl from 'maplibre-gl';
 import type {
@@ -471,6 +472,11 @@ interface FieldTemplate {
   sublabel: string;
   /** Color swatch matching how this class renders on the map. */
   color: string;
+  /** The map layer it adds to: the picker draws the same swatch as the
+   *  Layers list. */
+  mapLayer: MapLayer;
+  /** One class of a unique-values layer: its swatch takes `color`. */
+  isClass: boolean;
   /**
    * Attribute name -> value to pre-fill on add. Empty when the layer
    * uses a simple renderer; for unique-values, the renderer's `field`
@@ -2056,23 +2062,24 @@ export function FieldRuntime({
         : prev,
     );
   }, [pinCoordinate, pinColor]);
-  const capturePointRef = useRef(capturePoint);
-  capturePointRef.current = capturePoint;
 
   /** Add vertex: the next vertex goes where the pin is. */
   const addVertex = useCallback(() => {
     const at = pinCoordinate();
     if (at) setPendingVertices((prev) => [...prev, at]);
   }, [pinCoordinate]);
-  const addVertexRef = useRef(addVertex);
-  addVertexRef.current = addVertex;
+  /** Update vertex: the last vertex moves to where the pin is. */
+  const updateVertex = useCallback(() => {
+    const at = pinCoordinate();
+    if (at) setPendingVertices((prev) => (prev.length === 0 ? prev : [...prev.slice(0, -1), at]));
+  }, [pinCoordinate]);
   const undoVertex = useCallback(() => {
     setPendingVertices((prev) => (prev.length === 0 ? prev : prev.slice(0, -1)));
   }, []);
 
-  // A new form starts at the pin: the point's first position, or the
-  // line's or polygon's first vertex. A related record or a copy that
-  // already has a point is brought under the pin instead.
+  // A new point is "Not set" and a new line or polygon has no vertex
+  // until Add point / Add vertex puts one at the pin. A related record
+  // that already has a point is brought under the pin instead.
   const formKey = formModal ? `${formModal.mode}:${formModal.featureId}` : null;
   useEffect(() => {
     clearVertices();
@@ -2081,12 +2088,7 @@ export function FieldRuntime({
     const fm = formModalRef.current;
     const map = mapRef.current;
     if (!fm || fm.mode !== 'add' || !map) return;
-    const gt = fm.layer.geometryType;
-    if (gt === 'line' || gt === 'polygon') {
-      addVertexRef.current();
-      return;
-    }
-    if (gt !== 'point') return;
+    if (fm.layer.geometryType !== 'point') return;
     if (fm.geometry?.type === 'Point') {
       const [lng, lat] = fm.geometry.coordinates as [number, number];
       if (!pendingMarkerRef.current) {
@@ -2095,9 +2097,7 @@ export function FieldRuntime({
           .addTo(map);
       }
       map.easeTo({ center: [lng, lat], duration: 350 });
-      return;
     }
-    capturePointRef.current();
   }, [formKey]);
 
   // The line or polygon as it stands: drawn on the map with a dot per
@@ -2953,7 +2953,12 @@ export function FieldRuntime({
               ? {
                   count: pendingVertices.length,
                   min: formModal.layer.geometryType === 'polygon' ? 3 : 2,
+                  measure: shapeMeasure(
+                    pendingVertices,
+                    formModal.layer.geometryType === 'polygon',
+                  ),
                   onAdd: addVertex,
+                  onUpdate: updateVertex,
                   onUndo: undoVertex,
                 }
               : undefined
@@ -3117,6 +3122,8 @@ function buildTemplates(
         label: layer.layerLabel,
         sublabel: layer.dataLayerTitle,
         color: fallbackColor,
+        mapLayer: ml,
+        isClass: false,
         presetAttributes: {},
       });
       continue;
@@ -3133,6 +3140,8 @@ function buildTemplates(
           label: cat.value,
           sublabel: layer.layerLabel,
           color: cat.color,
+          mapLayer: ml,
+          isClass: true,
           presetAttributes: { [renderer.field]: cat.value },
         });
       }
@@ -3150,6 +3159,8 @@ function buildTemplates(
         label: layer.layerLabel,
         sublabel: layer.dataLayerTitle,
         color: fallbackColor,
+        mapLayer: ml,
+        isClass: false,
         presetAttributes: {},
       });
     }
@@ -3337,10 +3348,11 @@ function TemplatePicker({
                         onClick={() => onPick(t)}
                         className="flex min-h-11 w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-2 active:bg-surface-3"
                       >
-                        <span
-                          aria-hidden="true"
-                          className="h-5 w-5 shrink-0 rounded-sm border border-border"
-                          style={{ backgroundColor: t.color }}
+                        <LayerSwatch
+                          layer={t.mapLayer}
+                          dimmed={false}
+                          geometryType={t.layer.geometryType ?? 'polygon'}
+                          colorOverride={t.isClass ? t.color : undefined}
                         />
                         <span className="min-w-0 flex-1 truncate text-sm text-ink-0">
                           {t.label}
@@ -3947,6 +3959,7 @@ function LayerSwatch({
   layer,
   dimmed,
   geometryType,
+  colorOverride,
 }: {
   layer: MapLayer;
   dimmed: boolean;
@@ -3955,6 +3968,9 @@ function LayerSwatch({
    *  polygon) so the legend matches what the worker sees on the
    *  map. Falls back to polygon when null/undefined. */
   geometryType?: LayerGeometryType;
+  /** One class of a unique-values layer (an Add feature template):
+   *  the swatch is drawn as a simple one in this colour. */
+  colorOverride?: string | undefined;
 }) {
   const geom = geometryType ?? 'polygon';
   // Pick a primary color for the simple-renderer fallback. Match the
@@ -3970,6 +3986,7 @@ function LayerSwatch({
         ? layer.style?.line?.color
         : layer.style?.polygon?.fillColor;
   const fallback =
+    colorOverride ||
     primary ||
     layer.style?.polygon?.fillColor ||
     layer.style?.point?.color ||
@@ -4007,13 +4024,13 @@ function LayerSwatch({
   const polygonHollowProps = polygonHollow
     ? {
         backgroundColor: 'transparent',
-        borderColor: stroke,
+        borderColor: colorOverride ?? stroke,
         borderWidth: 2,
         opacity,
       }
     : null;
 
-  if (layer.renderer?.kind === 'unique-values') {
+  if (!colorOverride && layer.renderer?.kind === 'unique-values') {
     const cats = layer.renderer.categories ?? [];
     const sample = cats.slice(0, 3);
     if (sample.length === 0) {
@@ -4048,7 +4065,7 @@ function LayerSwatch({
     );
   }
 
-  if (layer.renderer?.kind === 'class-breaks') {
+  if (!colorOverride && layer.renderer?.kind === 'class-breaks') {
     const colors = layer.renderer.colors ?? [];
     if (colors.length === 0) {
       return (
@@ -4116,8 +4133,20 @@ interface VertexControl {
   count: number;
   /** Vertices it needs: 2 for a line, 3 for a polygon. */
   min: number;
+  /** The line's length or the polygon's area, once it has enough
+   *  vertices to have one. */
+  measure: string | null;
   onAdd: () => void;
+  /** Move the last vertex to the pin. */
+  onUpdate: () => void;
   onUndo: () => void;
+}
+
+/** "120.5 m" for a line with 2+ vertices, "1.25 ha" for a polygon
+ *  with 3+, else null. */
+function shapeMeasure(verts: Array<[number, number]>, isPolygon: boolean): string | null {
+  if (isPolygon) return verts.length >= 3 ? formatArea(ringAreaSquareMeters(verts)) : null;
+  return verts.length >= 2 ? formatLength(lineLengthMeters(verts)) : null;
 }
 
 /** A line or polygon from its vertices, or null with too few. A
@@ -4275,6 +4304,14 @@ function FormModal({
   useEffect(() => {
     setActiveGeometry(modal.geometry);
   }, [modal.geometry]);
+  // A new point has a position once Add point puts it at the pin
+  // (Add point, then Update point); "place the point first" clears then.
+  const newPoint = modal.mode === 'add' && modal.layer.geometryType === 'point';
+  const pointPlaced = activeGeometry?.type === 'Point';
+  const notPlacedMessage = t('fieldRuntime.pointNotPlaced');
+  useEffect(() => {
+    if (pointPlaced) setError((e) => (e === notPlacedMessage ? null : e));
+  }, [pointPlaced, notPlacedMessage]);
   const shapeNeedsMessage = t('fieldRuntime.shapeNeedsVertices', {
     count: vertexControl?.min ?? 2,
   });
@@ -4356,6 +4393,10 @@ function FormModal({
 
   async function submitResponse(response: FormResponse) {
     setError(null);
+    if (newPoint && !pointPlaced) {
+      setError(notPlacedMessage);
+      throw new Error('');
+    }
     if (vertexControl && vertexControl.count < vertexControl.min) {
       setError(shapeNeedsMessage);
       // Refuse the submit without FormRuntime repeating the message (it
@@ -4759,20 +4800,24 @@ function FormModal({
             <button
               type="button"
               onClick={onUpdatePoint}
-              title={t('fieldRuntime.updatePointTitle')}
+              title={
+                pointPlaced
+                  ? t('fieldRuntime.updatePointTitle')
+                  : t('fieldRuntime.addPointTitle')
+              }
               className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90 disabled:opacity-50"
             >
               <Crosshair className="h-4 w-4" />
-              {t('fieldRuntime.updatePoint')}
+              {pointPlaced ? t('fieldRuntime.updatePoint') : t('fieldRuntime.addPoint')}
             </button>
           </div>
         ) : null}
-        {/* The same bar for a new line or polygon: its vertex count,
-            Undo and Add vertex, which puts the next vertex at the
-            centre pin. */}
+        {/* The same bar for a new line or polygon: its vertex count and
+            length or area, then Undo, Update vertex (the last vertex to
+            the pin) and Add vertex (the next one at the pin). */}
         {vertexControl ? (
-          <div className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-0 px-3 py-2">
-            <div className="min-w-0 flex-1">
+          <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface-0 px-3 py-2">
+            <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-muted">
                 {t('fieldRuntime.shape')}
               </p>
@@ -4784,27 +4829,45 @@ function FormModal({
                       })
                     : ''
                 }`}
+                {vertexControl.measure ? (
+                  <>
+                    <span className="text-muted"> · </span>
+                    <span className="font-mono tabular-nums">{vertexControl.measure}</span>
+                  </>
+                ) : null}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={vertexControl.onUndo}
-              disabled={vertexControl.count === 0}
-              title={t('fieldRuntime.undoVertexTitle')}
-              className="inline-flex h-10 shrink-0 items-center gap-1 rounded-md border border-border bg-surface-1 px-2.5 text-sm font-medium text-ink-1 hover:bg-surface-2 disabled:opacity-50"
-            >
-              <Undo2 className="h-4 w-4" />
-              {t('fieldRuntime.undoVertex')}
-            </button>
-            <button
-              type="button"
-              onClick={vertexControl.onAdd}
-              title={t('fieldRuntime.addVertexTitle')}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90"
-            >
-              <Crosshair className="h-4 w-4" />
-              {t('fieldRuntime.addVertex')}
-            </button>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={vertexControl.onUndo}
+                disabled={vertexControl.count === 0}
+                title={t('fieldRuntime.undoVertexTitle')}
+                aria-label={t('fieldRuntime.undoVertex')}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-surface-1 text-ink-1 hover:bg-surface-2 disabled:opacity-50"
+              >
+                <Undo2 className="h-4 w-4" />
+              </button>
+              {vertexControl.count > 0 ? (
+                <button
+                  type="button"
+                  onClick={vertexControl.onUpdate}
+                  title={t('fieldRuntime.updateVertexTitle')}
+                  className="inline-flex h-10 shrink-0 items-center rounded-md border border-accent bg-surface-1 px-2.5 text-sm font-semibold text-accent hover:bg-surface-2"
+                >
+                  {t('fieldRuntime.updateVertex')}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={vertexControl.onAdd}
+                title={t('fieldRuntime.addVertexTitle')}
+                className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-accent px-3 text-sm font-semibold text-accent-foreground shadow-card hover:opacity-90"
+              >
+                <Crosshair className="h-4 w-4" />
+                {t('fieldRuntime.addVertex')}
+              </button>
+            </div>
           </div>
         ) : null}
         <div className="min-h-0 flex-1 overflow-y-auto p-3">

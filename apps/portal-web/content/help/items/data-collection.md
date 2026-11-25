@@ -77,18 +77,20 @@ point, a line or a polygon. While it is open a pin sits in the middle
 of the map and **Locate** is the only button left on the map; pinch
 to zoom.
 
-- **A point** starts where the pin is. Its form's **Location** shows
-  the coordinates, and **Update point** moves the point to the pin
-  again. The placed point is marked on the map, and only the button
+- **A point** is **Not set** until **Add point** puts it where the pin
+  is. Its form's **Location** then shows the coordinates, and the
+  button, now **Update point**, moves the point to the pin again. The placed point is marked on the map, and only the button
   moves it.
-- **A line or polygon** gets its first vertex where the pin is. The
-  form's **Shape** bar shows how many vertices there are: **Add
-  vertex** puts the next one at the pin and **Undo** removes the last.
+- **A line or polygon** starts with no vertex. The form's **Shape**
+  bar shows how many vertices there are, with the line's length or the
+  polygon's area beside them: **Add vertex** puts the next one at the
+  pin, **Update vertex** moves the last one to the pin, and **Undo**
+  (the arrow) removes the last.
   The shape is drawn on the map as it grows. A line needs 2 vertices
   and a polygon 3 (it closes itself) before it can be saved.
 - **The pin goes where the map goes.** Tap **Locate** and the map,
-  with the pin, follows your GPS position; Update point and Add
-  vertex then use the fix itself. Move the map by hand, or tap a spot
+  with the pin, follows your GPS position; the point and vertex
+  buttons then use the fix itself. Move the map by hand, or tap a spot
   to bring it under the pin, and the pin stays where you put it until
   you tap **Locate** again.
 - **Snapping.** The pin snaps to the nearest vertex, or failing that
