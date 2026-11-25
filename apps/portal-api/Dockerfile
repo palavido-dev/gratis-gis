@@ -231,6 +231,28 @@ RUN mkdir -p /pmtiles-build && cd /pmtiles-build \
     && go version -m /go/bin/go-pmtiles | grep -q "google.golang.org/grpc[[:space:]]*v${PMTILES_GRPC_VERSION}" \
     && go version -m /go/bin/go-pmtiles | grep -q "github.com/go-jose/go-jose/v4[[:space:]]*v${PMTILES_GOJOSE_VERSION}"
 
+# open-geocode for the managed geocoder (Admin -> Geocoding). portal-
+# worker runs it to build and serve an address index; see
+# src/geocoder/. The static musl release, pinned by version and
+# checksum for each architecture.
+FROM base AS open-geocode-fetch
+ARG TARGETARCH
+ARG OPEN_GEOCODE_VERSION=1.0.0
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates xz-utils \
+    && rm -rf /var/lib/apt/lists/* \
+    && case "${TARGETARCH:-amd64}" in \
+         amd64) triple=x86_64-unknown-linux-musl; sum=f50885796ed3e7c897eee31bb8726471fdf7e6fc6265dd73378f0992c35d36d8 ;; \
+         arm64) triple=aarch64-unknown-linux-musl; sum=1175821a4f543053784fcc8a7d7a24a57b7b7d2ee7933b8dbf3c589d745fd3bd ;; \
+         *) echo "no open-geocode build for ${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/og.tar.xz "https://github.com/open-geocode-rs/open-geocode/releases/download/v${OPEN_GEOCODE_VERSION}/open-geocode-${triple}.tar.xz" \
+    && echo "${sum}  /tmp/og.tar.xz" | sha256sum -c - \
+    && mkdir -p /tmp/og && tar -xJf /tmp/og.tar.xz -C /tmp/og \
+    && install -m 0755 "$(find /tmp/og -type f -name open-geocode | head -n1)" /usr/local/bin/open-geocode \
+    && mkdir -p /usr/share/doc/open-geocode \
+    && cp /tmp/og/*/LICENSE /tmp/og/*/NOTICE /tmp/og/*/THIRD-PARTY-LICENSES /usr/share/doc/open-geocode/ \
+    && /usr/local/bin/open-geocode --help > /dev/null
+
 FROM base AS runtime
 WORKDIR /app
 # Runtime deps for GDAL, the Prisma engine, and TLS. No build chain.
@@ -297,6 +319,13 @@ RUN /usr/local/bin/pmtiles version
 # Drop privileges. Postgres connections, file uploads, and GDAL all
 # work fine for a non-root user.
 RUN groupadd -r app && useradd -r -g app -m -d /home/app app
+
+COPY --from=open-geocode-fetch /usr/local/bin/open-geocode /usr/local/bin/open-geocode
+COPY --from=open-geocode-fetch /usr/share/doc/open-geocode /usr/share/doc/open-geocode
+# Pack, downloads and TIGER cache for the managed geocoder. Compose
+# mounts a volume here on portal-worker; the image owns the path so a
+# fresh volume is writable by `app`.
+RUN mkdir -p /var/lib/gratis/geocoder && chown app:app /var/lib/gratis/geocoder
 
 COPY --from=build --chown=app:app /out /app
 # Prisma migrations live alongside schema.prisma and aren't part of the

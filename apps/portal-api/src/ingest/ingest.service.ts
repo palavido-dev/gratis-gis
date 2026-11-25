@@ -40,6 +40,8 @@ import {
   nominatimAnswers,
 } from './nominatim-search.js';
 import {
+  managedGeocoderBase,
+  managedGeocoderReady,
   openGeocodeAnswers,
   openGeocodeBase,
   openGeocodeQueries,
@@ -462,7 +464,7 @@ export class IngestService {
             geometryType: 'point',
             fields: addressLayerFields(
               addressed,
-              addressGeocoder()?.kind === 'open-geocode',
+              (await resolveAddressGeocoder())?.kind === 'open-geocode',
             ),
             featureCount: addressed.rows.length,
           },
@@ -1246,7 +1248,7 @@ export class IngestService {
     layerLabel?: string,
   ): Promise<(AddressColumnPlan & { layerName: string }) | null> {
     if (!looksLikeTabularText(filePath)) return null;
-    const backend = addressGeocoder();
+    const backend = await resolveAddressGeocoder();
     const text = await this.readDelimitedPrefix(
       filePath,
       backend?.readBytes ?? IngestService.ADDRESS_READ_BYTES,
@@ -1326,7 +1328,7 @@ export class IngestService {
     driver: string;
     sourceSrs: string;
   } | null> {
-    const backend = addressGeocoder();
+    const backend = await resolveAddressGeocoder();
     if (!backend) return null;
     let text = buffer
       .subarray(0, Math.min(buffer.length, backend.readBytes))
@@ -1408,7 +1410,7 @@ export class IngestService {
     hits: Array<{ lat: number; lon: number; accuracy?: string | null } | null>;
     built: ReturnType<typeof featuresFromAddresses>;
   } | null> {
-    const backend = addressGeocoder();
+    const backend = await resolveAddressGeocoder();
     if (!backend) return null;
     const hits =
       backend.kind === 'open-geocode'
@@ -1661,6 +1663,23 @@ export function addressGeocoder(
     maxRows: ADDRESS_GEOCODE_LIMITS.MAX_ROWS,
     readBytes: 1024 * 1024,
   };
+}
+
+/**
+ * addressGeocoder, plus the managed geocoder (Admin -> Geocoding) when
+ * no OPEN_GEOCODE_URL is set and the managed one answers.
+ */
+export async function resolveAddressGeocoder(
+  env: NodeJS.ProcessEnv = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AddressGeocoder | null> {
+  if (!openGeocodeBase(env)) {
+    const managed = managedGeocoderBase(env);
+    if (managed && (await managedGeocoderReady(fetchImpl, managed))) {
+      return addressGeocoder({ ...env, OPEN_GEOCODE_URL: managed });
+    }
+  }
+  return addressGeocoder(env);
 }
 
 function addressGeocoderAnswers(backend: AddressGeocoder): Promise<boolean> {

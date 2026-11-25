@@ -51,6 +51,20 @@ outside of npm, with their licenses and provenance.
   `apps/portal-web/src/app/items/[id]/map/map-icons.ts` by
   `scripts/gen-map-icons.cjs`, used as map point symbols.
 
+## open-geocode
+
+- Source: [open-geocode](https://github.com/open-geocode-rs/open-geocode),
+  Apache License 2.0.
+- What we ship: nothing in the repository. The portal-api image
+  downloads the v1.0.0 release binary at build time (pinned by
+  checksum) for the managed geocoder, with its LICENSE, NOTICE and
+  THIRD-PARTY-LICENSES under `/usr/share/doc/open-geocode/`; see
+  `apps/portal-api/Dockerfile`.
+- Data it builds from: OpenStreetMap (ODbL), U.S. Census TIGER
+  (public domain) and, when the admin turns it on, OpenAddresses
+  sources (each under its own licence; open-geocode leaves out
+  sources that forbid commercial use unless told otherwise).
+
 ## OpenStreetMap data
 
 - Source: [OpenStreetMap](https://www.openstreetmap.org/) via the

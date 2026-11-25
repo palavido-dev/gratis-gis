@@ -9,6 +9,7 @@ import { OfflinePackageWorkerModule } from './offline-package/offline-package-wo
 import { AnalysisBridgeModule } from './analysis/analysis-bridge.module.js';
 import { ScriptsModule } from './scripts/scripts.module.js';
 import { SearchIndexWorkerModule } from './data-layer/search-index-worker.module.js';
+import { GeocoderWorkerModule } from './geocoder/geocoder-worker.module.js';
 
 /**
  * Module graph for the portal-worker process.
@@ -50,6 +51,7 @@ import { SearchIndexWorkerModule } from './data-layer/search-index-worker.module
     // 06-5: runs the housekeeping "Build search indexes" requests the
     // API queues, so index builds never run inside an HTTP request.
     SearchIndexWorkerModule,
+    GeocoderWorkerModule,
   ],
 })
 export class WorkerAppModule {}
