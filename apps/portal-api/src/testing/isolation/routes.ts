@@ -709,8 +709,11 @@ export const ROUTES: Record<string, RouteEntry> = {
   // not public, so ArcGIS Pro shows its sign-in prompt; a signed-in
   // caller who may not read it gets 404.
   'GET /api/arcgis/rest/info': none(),
-  'GET /api/arcgis/tokens/generateToken': none(),
-  'POST /api/arcgis/tokens/generateToken': none({ body: () => ({ username: 'x', password: 'y' }) }),
+  'GET /api/arcgis/tokens/generateToken': none({ expect: [400] }),
+  'POST /api/arcgis/tokens/generateToken': none({
+    body: () => ({ username: 'x', password: 'y' }),
+    expect: [400],
+  }),
   'GET /api/arcgis/rest/services': pubList(),
   'GET /api/arcgis/rest/services/:service/FeatureServer': pub({
     params: { service: 'data_layer:private' },
