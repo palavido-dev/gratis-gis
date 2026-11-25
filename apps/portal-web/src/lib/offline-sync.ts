@@ -152,10 +152,23 @@ export interface SyncResult {
  */
 class ReplayFailure extends Error {
   readonly offline: OfflineMessage;
+  /** Which request failed and with what HTTP status, when the failure
+   *  came from a response. Lets a caller tell one refusal from another
+   *  (a 403 on an attachment register is a layer setting, not a blip)
+   *  without parsing the reason text. */
+  readonly step?: ReplayStep;
+  readonly status?: number;
 
-  constructor(offline: OfflineMessage) {
+  constructor(
+    offline: OfflineMessage,
+    origin?: { step: ReplayStep; status: number },
+  ) {
     super(offline.code);
     this.offline = offline;
+    if (origin) {
+      this.step = origin.step;
+      this.status = origin.status;
+    }
     this.name = 'ReplayFailure';
   }
 }
@@ -166,8 +179,11 @@ class ReplayFailure extends Error {
  * marking it failed.
  */
 class ReplayRejected extends ReplayFailure {
-  constructor(offline: OfflineMessage) {
-    super(offline);
+  constructor(
+    offline: OfflineMessage,
+    origin?: { step: ReplayStep; status: number },
+  ) {
+    super(offline, origin);
     this.name = 'ReplayRejected';
   }
 }
@@ -763,12 +779,22 @@ async function sweepOrphanedBlobs(
     } catch (err) {
       // Still offline, or the server refused. The file is untouched
       // and stays queued; record why so it can be shown.
+      //
+      // A 403 on the register step is terminal: the layer has
+      // attachments switched off, so the same file gets the same
+      // answer on every sync until someone changes the layer. It is
+      // flagged for a person rather than treated as a blip, but the
+      // file is NOT deleted: re-enabling attachments and syncing again
+      // will send it, and discarding it is the collector's call.
       errors.push({
         recordId: '',
         op: 'update',
         layerLabel: file.layerKey,
         reason: replayErrorReason(err),
-        terminal: false,
+        terminal:
+          err instanceof ReplayRejected &&
+          err.step === 'attachment-register' &&
+          err.status === 403,
       });
     }
   }
@@ -951,8 +977,9 @@ async function throwIfNotOk(
   } else {
     reason = stepFailure(step, res.status);
   }
-  if (outcome === 'rejected') throw new ReplayRejected(reason);
-  throw new ReplayFailure(reason);
+  const origin = { step, status: res.status };
+  if (outcome === 'rejected') throw new ReplayRejected(reason, origin);
+  throw new ReplayFailure(reason, origin);
 }
 
 /**

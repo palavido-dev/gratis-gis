@@ -221,6 +221,11 @@ export interface EditableLayer {
    * inviting field collectors to author records into it.
    */
   addable?: boolean;
+  /** False when the layer's schema turns attachments off, which makes
+   *  the server refuse every attachment write. Absent means enabled,
+   *  matching the server's own check, so the field app does not offer
+   *  a camera whose photos could never upload. */
+  attachmentsEnabled?: boolean;
   /** Optional explicit form binding from the data_collection's
    *  formBindings map. When absent, an auto-form is generated. */
   boundFormItemId?: string;
@@ -5048,6 +5053,7 @@ function FormModal({
               currentUserId={currentUserId}
               featureExistsOnServer={modal.mode === 'edit'}
               isOnline={isOnline}
+              attachmentsEnabled={modal.layer.attachmentsEnabled !== false}
             />
           </div>
           {/* Phase C: child layers in the same data_layer that
@@ -5626,6 +5632,9 @@ function FieldFeaturePopupSheet({
                     featureExistsOnServer
                     isOnline={isOnline}
                     canCapture={false}
+                    attachmentsEnabled={
+                      parentEditable.attachmentsEnabled !== false
+                    }
                   />
                 </div>
               ) : null}

@@ -431,6 +431,45 @@ describe('orphaned file sweep: reporting', () => {
     expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
   });
 
+  it('treats a 403 on register as terminal and keeps the file queued', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(
+        json(403, { message: 'Attachments are disabled on this layer' }),
+      );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    // Still counted as not sent, and the server's own words are the
+    // reason. Terminal because the layer setting will not change by
+    // itself, but the photo is not thrown away.
+    expect(result.failed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      recordId: '',
+      terminal: true,
+      reason: {
+        code: 'sync.serverRefused',
+        params: { serverMessage: 'Attachments are disabled on this layer' },
+      },
+    });
+    expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
+  });
+
+  it('keeps a 404 on register non-terminal', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(json(404, { message: 'Feature not found' }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.errors[0]?.terminal).toBe(false);
+  });
+
   it('falls back to the attachment step code when the server gave no reason', async () => {
     await putPendingBlob(blob());
     fetchMock
@@ -444,7 +483,8 @@ describe('orphaned file sweep: reporting', () => {
       code: 'sync.attachmentRegisterFailed',
       params: { status: 403 },
     });
-    expect(result.errors[0]?.terminal).toBe(false);
+    // A bare 403 on register is terminal too, whatever the body.
+    expect(result.errors[0]?.terminal).toBe(true);
   });
 
   it('one failing feature does not stop the next one uploading', async () => {
