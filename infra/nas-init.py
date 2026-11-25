@@ -1584,6 +1584,38 @@ def grant_service_account_roles(internal: str, auth: dict[str, str]) -> None:
     print("Keycloak admin service account can list and manage users.", flush=True)
 
 
+def ensure_clients(internal: str, auth: dict[str, str], values: dict[str, str]) -> None:
+    """Create any client the realm template has and this realm lacks.
+
+    `--import-realm` only runs on a first boot, so a client added in a
+    later release (esri-desktop, for ArcGIS Pro sign-in) never reached
+    an install that was already set up. Runs on every start. Never
+    changes a client that exists: an operator's edits stay.
+    """
+    base = f"{internal}/admin/realms/gratis-gis/clients"
+    for client in build_realm(values).get("clients", []):
+        cid = client.get("clientId")
+        if not cid:
+            continue
+        query = urllib.parse.urlencode({"clientId": cid})
+        status, raw = _request(f"{base}?{query}", "GET", None, auth)
+        if status != 200:
+            print(f"WARN: could not look up the {cid} client (HTTP {status}).")
+            continue
+        if json.loads(raw):
+            continue
+        status, _ = _request(
+            base,
+            "POST",
+            json.dumps(client).encode(),
+            {**auth, "Content-Type": "application/json"},
+        )
+        if status not in (200, 201, 204):
+            print(f"WARN: could not create the {cid} client (HTTP {status}).")
+            continue
+        print(f"Keycloak client {cid} added.", flush=True)
+
+
 def ensure_default_offline_access(internal: str, auth: dict[str, str]) -> None:
     """Make offline_access part of the realm's default role.
 
@@ -1715,6 +1747,7 @@ def patch_keycloak(values: dict[str, str]) -> None:
     token = json.loads(raw).get("access_token") or ""
     auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     grant_service_account_roles(internal, auth)
+    ensure_clients(internal, auth, values)
     ensure_default_offline_access(internal, auth)
     sync_sign_in_address(internal, auth, values)
     status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
