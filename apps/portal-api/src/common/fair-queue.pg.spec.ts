@@ -156,4 +156,26 @@ d('job queues take turns between organizations', () => {
     resetTenancyModeForTests();
     expect(await pick()).toBe(bJob);
   });
+
+  it.each(QUEUES)(
+    '%s: with many organizations the claim looks up last starts in the (org_id, started_at) index',
+    async (queue) => {
+      process.env.GRATIS_TENANCY = 'multi';
+      resetTenancyModeForTests();
+      const c = await pool.connect();
+      try {
+        await c.query('BEGIN');
+        // The test tables hold a handful of rows, where a sequential
+        // scan is cheaper; turn it off to see which index the plan can use.
+        await c.query('SET LOCAL enable_seqscan = off');
+        const sql = nextQueuedJobSql(queue);
+        const plan = await c.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql.text}`, sql.values);
+        const text = plan.rows.map((r) => r['QUERY PLAN']).join('\n');
+        expect(text).toContain(`${queue}_org_id_started_at_idx`);
+        await c.query('ROLLBACK');
+      } finally {
+        c.release();
+      }
+    },
+  );
 });
