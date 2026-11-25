@@ -8,6 +8,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- Field app: features are placed with a pin in the middle of the map,
+  as in ArcGIS Field Maps. The form opens straight away for a point, a
+  line or a polygon, over half of the map. A point starts at the pin
+  and **Update point** moves it there again; a line or polygon gets its
+  first vertex at the pin, and its form's **Shape** bar has **Add
+  vertex** and **Undo**. The pin follows GPS after the map's **Locate**
+  button (the fix itself is used) and stays where the map is moved by
+  hand. With a form open, Locate is the only button on the map. The
+  armed template footer (**Add at GPS** / **Add at center**, **Vertex
+  at GPS** / **Vertex at center**, **Finish**) is gone.
+- Field app: snapping. The pin snaps to the nearest vertex or edge of
+  a feature already on the map; **Snap to features** in the **⋮** menu
+  turns it off, kept per device.
 - The one-command installer checks the server first and says in plain
   words what to fix (memory, disk, web ports, internet access, Docker),
   stopping before it changes anything. It offers to install Docker and
@@ -96,6 +109,11 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- Field app and maps: a table sublayer (a related table such as
+  inspections) asked for a TileJSON it does not have, and the 404 was
+  asked again every 15 seconds. The field app no longer hands table
+  sublayers to the map, and a 404 TileJSON is taken as the default zoom
+  range instead of a failure to retry.
 - The What's Here PDF covered only the first 30 layers of a map and left
   the rest out without saying so. It now covers up to 200 (#796).
 - An app built on a map now draws exactly the map's layers. A layer removed
