@@ -77,6 +77,22 @@ describe('data layer source zoom', () => {
     now.mockRestore();
   });
 
+  it('takes a 404 (a table sublayer has no tiles) as the default, not a failure to retry', async () => {
+    const t0 = Date.now();
+    const now = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const onChange = jest.fn();
+    const missing = jest.fn(async () => ({ ok: false, status: 404, json: async () => ({}) })) as unknown as typeof fetch;
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'table' }], onChange, missing);
+    await flush();
+    await flush();
+    now.mockReturnValue(t0 + 20_000);
+    ensureSourceZooms([{ itemId: 'i', layerKey: 'table' }], onChange, missing);
+    expect(missing).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(dataLayerSourceZoom({ itemId: 'i', layerKey: 'table' })).toEqual(DEFAULT_SOURCE_ZOOM);
+    now.mockRestore();
+  });
+
   it('reads the range again after a minute, so changed tile settings show up', async () => {
     const t0 = Date.now();
     const now = jest.spyOn(Date, 'now').mockReturnValue(t0);
