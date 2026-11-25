@@ -1377,7 +1377,39 @@ def fresh_secrets() -> dict[str, str]:
         "CHROMIUM_TOKEN": rand(),
         "INITIAL_USER_PASSWORD": rand(16),
         "CREDENTIAL_ENCRYPTION_KEY": encryption_key(),
+        "GRATIS_SIGNING_SECRET": rand(),
     }
+
+
+# Secrets every install has had since its first start.
+FIRST_START_SECRETS = (
+    "POSTGRES_PASSWORD",
+    "KEYCLOAK_DB_PASSWORD",
+    "MINIO_ROOT_PASSWORD",
+    "KEYCLOAK_ADMIN_PASSWORD",
+    "KEYCLOAK_ADMIN_CLIENT_SECRET",
+    "NEXTAUTH_SECRET",
+    "CHROMIUM_TOKEN",
+    "INITIAL_USER_PASSWORD",
+    "CREDENTIAL_ENCRYPTION_KEY",
+)
+
+# Secrets a later release added. An install from before then gets a new
+# random value on its next start and keeps it from then on, so an
+# update needs no manual step. GRATIS_SIGNING_SECRET signs ArcGIS Pro
+# and QGIS sign-ins; before it existed they were signed with the MinIO
+# password.
+ADDED_SECRETS = {
+    "GRATIS_SIGNING_SECRET": rand,
+}
+
+
+def saved_secrets(previous: dict[str, str]) -> dict[str, str]:
+    """The secrets of an existing install, with any newer ones added."""
+    secret = {key: previous[key] for key in FIRST_START_SECRETS}
+    for key, make in ADDED_SECRETS.items():
+        secret[key] = previous.get(key) or make()
+    return secret
 
 
 def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
@@ -1444,6 +1476,9 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "BACKUP_DIR": "/app/backups",
         "STORAGE_ALLOWED_ORIGINS": public,
         "CREDENTIAL_ENCRYPTION_KEY": secret["CREDENTIAL_ENCRYPTION_KEY"],
+        # Read by portal-api only. Not in SERVICE_ENV_KEYS, so chromium
+        # and pointcloud-worker never see it.
+        "GRATIS_SIGNING_SECRET": secret["GRATIS_SIGNING_SECRET"],
         "INITIAL_USER_PASSWORD": secret["INITIAL_USER_PASSWORD"],
         "DEFAULT_ORG_SLUG": "gratis-gis",
         "ACME_EMAIL": email,
@@ -1477,6 +1512,7 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "CHROMIUM_TOKEN",
         "INITIAL_USER_PASSWORD",
         "CREDENTIAL_ENCRYPTION_KEY",
+        "GRATIS_SIGNING_SECRET",
     )
     for key in secret_keys:
         if values[key] in WEAK or (key != "CREDENTIAL_ENCRYPTION_KEY" and len(values[key]) < 16):
@@ -1889,17 +1925,7 @@ def main() -> None:
     if not os.environ.get("GRATIS_BASE_URL", "").strip() and saved_address.exists():
         os.environ["GRATIS_BASE_URL"] = saved_address.read_text(encoding="utf-8").strip()
     if previous:
-        secret = {key: previous[key] for key in (
-            "POSTGRES_PASSWORD",
-            "KEYCLOAK_DB_PASSWORD",
-            "MINIO_ROOT_PASSWORD",
-            "KEYCLOAK_ADMIN_PASSWORD",
-            "KEYCLOAK_ADMIN_CLIENT_SECRET",
-            "NEXTAUTH_SECRET",
-            "CHROMIUM_TOKEN",
-            "INITIAL_USER_PASSWORD",
-            "CREDENTIAL_ENCRYPTION_KEY",
-        )}
+        secret = saved_secrets(previous)
     else:
         secret = fresh_secrets()
     # An explicit GRATIS_BASE_URL always wins, including on a restart.

@@ -187,10 +187,11 @@ KEYCLOAK_ADMIN_CLIENT_SECRET="$(gen)"
 NEXTAUTH_SECRET="$(gen)"
 CHROMIUM_TOKEN="$(gen)"
 SCRIPT_EXECUTOR_TOKEN="$(gen)"
+GRATIS_SIGNING_SECRET="$(gen)"
 CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -base64 32 | tr -d '\n')"
 INITIAL_USER_PASSWORD="$(gen_typeable)"
 
-if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$INITIAL_USER_PASSWORD" ] || [ -z "$CREDENTIAL_ENCRYPTION_KEY" ]; then
+if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$INITIAL_USER_PASSWORD" ] || [ -z "$CREDENTIAL_ENCRYPTION_KEY" ] || [ -z "$GRATIS_SIGNING_SECRET" ]; then
   die "openssl did not produce a secret. Check that openssl works and re-run."
 fi
 
@@ -302,6 +303,10 @@ DEFAULT_ORG_SLUG=gratis-gis
 
 # --- NextAuth ---
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+
+# Signs ArcGIS Pro and QGIS sign-ins. Only portal-api gets it.
+# Changing it signs those apps out; they ask to sign in again.
+GRATIS_SIGNING_SECRET=${GRATIS_SIGNING_SECRET}
 
 # Print sidecars. Required even if you never print. An empty Dockge
 # or TrueNAS env box fails with "CHROMIUM_TOKEN is missing".

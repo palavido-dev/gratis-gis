@@ -7,6 +7,7 @@ import { deriveServerSigningKey } from '../storage/signing-key.js';
 import { AuthSyncService, type AuthUser } from './auth-sync.service.js';
 import { hashApiKey, looksLikeApiKey } from './api-key-token.js';
 import { ApiKeyService } from './api-key.service.js';
+import { esriSigningSecret } from './esri-signing-secret.js';
 import {
   ESRI_TOKEN_KEY_LABEL,
   ESRI_TOKEN_MAX_MINUTES,
@@ -36,9 +37,16 @@ export class EsriTokenService {
     private readonly authSync: AuthSyncService,
     cfg: ConfigService,
   ) {
-    // The same secret the print credential and upload handles use,
-    // under a label of its own.
-    this.key = deriveServerSigningKey(cfg.get<string>('MINIO_SECRET_KEY', 'devpassword'), ESRI_TOKEN_KEY_LABEL);
+    // A token stands for a whole user, so it is signed with a secret
+    // of its own (GRATIS_SIGNING_SECRET), not the MinIO secret other
+    // services hold. Until an older install gets one, the MinIO secret
+    // is used as before; main.ts warns about that and refuses a
+    // placeholder in production. See esri-signing-secret.ts.
+    const { secret } = esriSigningSecret({
+      GRATIS_SIGNING_SECRET: cfg.get<string>('GRATIS_SIGNING_SECRET'),
+      MINIO_SECRET_KEY: cfg.get<string>('MINIO_SECRET_KEY'),
+    });
+    this.key = deriveServerSigningKey(secret, ESRI_TOKEN_KEY_LABEL);
   }
 
   /**

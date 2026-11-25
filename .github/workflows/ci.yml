@@ -241,6 +241,7 @@ jobs:
           node infra/field-bundle/read-recovery.test.mjs
           bash infra/publish-gate.test.sh
           bash infra/lib-deploy.test.sh
+          bash infra/lib-env.test.sh
           bash infra/install.test.sh
 
   recovery-integration:

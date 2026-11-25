@@ -274,6 +274,12 @@ once, on the first start, and then only lives in Keycloak after you
 change it. Keep `boot` and the database volume when you are only
 updating the stack.
 
+A later release can add a secret. The bootstrap adds it to the
+`boot` volume on the next start with the current compose file, and
+keeps every existing one. `GRATIS_SIGNING_SECRET`, which signs ArcGIS
+Pro and QGIS sign-ins, arrived this way. Those apps ask to sign in
+again once after it is added.
+
 If you forgot the portal password, do not delete volumes. Deleting
 `pgdata` or `miniodata` erases the maps and files. Deleting `boot`
 creates new secrets and the old database can no longer sign in or
