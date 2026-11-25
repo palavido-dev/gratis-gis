@@ -63,7 +63,9 @@ function setup() {
         : { truncated: false, groups: [{ key: {}, values: { count: 3, measure: 1000 } }] },
     ),
   };
-  const reports = { pdf: jest.fn(async (html: string) => Buffer.from(html)) };
+  const reports = {
+    pdf: jest.fn(async (html: string, _page?: unknown, _opts?: unknown) => Buffer.from(html)),
+  };
   const svc = new WhatsHereReportService(
     areas as never,
     prisma as never,
@@ -129,6 +131,14 @@ describe('WhatsHereReportService (#796)', () => {
     const { pdf } = await svc.pdf({ id: 'u1' } as never, body(PRIVATE_ITEM));
     expect(v3.aggregateFeatures).not.toHaveBeenCalled();
     expect(pdf.toString()).toContain('unavailable Parcels');
+  });
+
+  it('renders in the anonymous pool only for a caller who is not signed in', async () => {
+    const { svc, reports } = setup();
+    await svc.pdf(null, body(PUBLIC_ITEM));
+    expect(reports.pdf.mock.calls[0]![2]).toEqual({ anonymous: true });
+    await svc.pdf({ id: 'u1' } as never, body(PUBLIC_ITEM));
+    expect(reports.pdf.mock.calls[1]![2]).toEqual({ anonymous: false });
   });
 
   it('lets an anonymous caller read public layers only', async () => {

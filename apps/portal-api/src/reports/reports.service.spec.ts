@@ -148,20 +148,176 @@ describe.each(['single', 'multi'] as const)('ReportsService.pdf render limit, %s
 
   it('turns a render away when two are running, whichever organization asks', async () => {
     const { svc } = setup();
-    const running = svc as unknown as { activeRenders: number };
-    running.activeRenders = 2;
+    const running = svc as unknown as { signedInRenders: number };
+    running.signedInRenders = 2;
     const err = await runAsOrg('org-b', () => svc.pdf('<p></p>', page)).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ServiceUnavailableException);
     expect((err as Error).message).toBe('The report service is busy. Try again in a minute.');
-    expect(running.activeRenders).toBe(2);
+    expect(running.signedInRenders).toBe(2);
   });
 
   it('takes the second slot and gives it back when the render fails', async () => {
     const { svc } = setup();
-    const running = svc as unknown as { activeRenders: number };
-    running.activeRenders = 1;
+    const running = svc as unknown as { signedInRenders: number };
+    running.signedInRenders = 1;
     const err = await runAsOrg('org-b', () => svc.pdf('<p></p>', page)).catch((e: unknown) => e);
     expect(err).not.toBeInstanceOf(ServiceUnavailableException);
-    expect(running.activeRenders).toBe(1);
+    expect(running.signedInRenders).toBe(1);
+  });
+});
+
+describe('ReportsService.pdf signed-in and anonymous pools', () => {
+  const before = process.env.CHROMIUM_WS_ENDPOINTS;
+  beforeEach(() => {
+    process.env.CHROMIUM_WS_ENDPOINTS = 'ws://chromium:3000';
+  });
+  afterEach(() => {
+    if (before === undefined) delete process.env.CHROMIUM_WS_ENDPOINTS;
+    else process.env.CHROMIUM_WS_ENDPOINTS = before;
+  });
+
+  const page = { size: 'letter', orientation: 'portrait' } as Parameters<ReportsService['pdf']>[1];
+  const BUSY = 'The report service is busy. Try again in a minute.';
+
+  /**
+   * A service whose Chromium is a stand-in. Each render waits on
+   * `setContent` until the test lets it go, so slots can be held.
+   */
+  function rig(opts: { connectFails?: boolean; renderFails?: boolean } = {}) {
+    const holds: Array<() => void> = [];
+    const tabs: Array<{ close: jest.Mock; setContent: jest.Mock; pdf: jest.Mock }> = [];
+    const disconnect = jest.fn(async () => undefined);
+    class Stubbed extends ReportsService {
+      protected override connect() {
+        if (opts.connectFails) return Promise.reject(new Error('connect refused'));
+        return Promise.resolve({
+          newPage: async () => {
+            const tab = {
+              setJavaScriptEnabled: jest.fn(async () => undefined),
+              setRequestInterception: jest.fn(async () => undefined),
+              on: jest.fn(),
+              setContent: jest.fn(
+                () =>
+                  new Promise<void>((resolve, reject) =>
+                    holds.push(() =>
+                      opts.renderFails ? reject(new Error('timed out')) : resolve(),
+                    ),
+                  ),
+              ),
+              pdf: jest.fn(async () => new Uint8Array([37, 80, 68, 70])),
+              close: jest.fn(async () => undefined),
+            };
+            tabs.push(tab);
+            return tab;
+          },
+          disconnect,
+        } as never);
+      }
+    }
+    const svc = new Stubbed({} as never, {} as never, {} as never, {} as never, {} as never);
+    const slots = svc as unknown as { signedInRenders: number; anonymousRenders: number };
+    const started = () => tabs.filter((t) => t.setContent.mock.calls.length > 0).length;
+    // Let queued promise steps run until every started render is waiting.
+    const settle = () => new Promise((r) => setImmediate(r));
+    const releaseAll = async () => {
+      while (holds.length > 0) holds.shift()!();
+      await settle();
+    };
+    return { svc, slots, tabs, disconnect, started, settle, releaseAll };
+  }
+
+  it('still starts a signed-in render while the anonymous slot is busy', async () => {
+    const t = rig();
+    const anon = t.svc.pdf('<p></p>', page, { anonymous: true });
+    await t.settle();
+    expect(t.slots.anonymousRenders).toBe(1);
+
+    const second = await t.svc.pdf('<p></p>', page, { anonymous: true }).catch((e: unknown) => e);
+    expect(second).toBeInstanceOf(ServiceUnavailableException);
+    expect((second as Error).message).toBe(BUSY);
+
+    const signedIn = t.svc.pdf('<p></p>', page);
+    await t.settle();
+    expect(t.slots.signedInRenders).toBe(1);
+    expect(t.started()).toBe(2);
+
+    await t.releaseAll();
+    await expect(anon).resolves.toBeInstanceOf(Buffer);
+    await expect(signedIn).resolves.toBeInstanceOf(Buffer);
+    expect(t.slots).toMatchObject({ signedInRenders: 0, anonymousRenders: 0 });
+  });
+
+  it('still starts an anonymous render while both signed-in slots are busy', async () => {
+    const t = rig();
+    const a = t.svc.pdf('<p></p>', page);
+    const b = t.svc.pdf('<p></p>', page);
+    await t.settle();
+    expect(t.slots.signedInRenders).toBe(2);
+
+    const anon = t.svc.pdf('<p></p>', page, { anonymous: true });
+    await t.settle();
+    expect(t.slots.anonymousRenders).toBe(1);
+    expect(t.started()).toBe(3);
+
+    const third = await t.svc.pdf('<p></p>', page).catch((e: unknown) => e);
+    expect(third).toBeInstanceOf(ServiceUnavailableException);
+    expect((third as Error).message).toBe(BUSY);
+
+    await t.releaseAll();
+    await Promise.all([a, b, anon]);
+    expect(t.slots).toMatchObject({ signedInRenders: 0, anonymousRenders: 0 });
+  });
+
+  it.each([false, true])(
+    'gives the slot back after a render that works (anonymous %s)',
+    async (anonymous) => {
+      const t = rig();
+      const done = t.svc.pdf('<p></p>', page, { anonymous });
+      await t.settle();
+      await t.releaseAll();
+      await expect(done).resolves.toEqual(Buffer.from('%PDF'));
+      expect(t.slots).toMatchObject({ signedInRenders: 0, anonymousRenders: 0 });
+      expect(t.tabs[0]!.close).toHaveBeenCalled();
+      expect(t.disconnect).toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    'gives the slot back and closes the tab when a render fails (anonymous %s)',
+    async (anonymous) => {
+      const t = rig({ renderFails: true });
+      const done = t.svc.pdf('<p></p>', page, { anonymous }).catch((e: unknown) => e);
+      await t.settle();
+      await t.releaseAll();
+      expect(((await done) as Error).message).toBe('timed out');
+      expect(t.slots).toMatchObject({ signedInRenders: 0, anonymousRenders: 0 });
+      expect(t.tabs[0]!.close).toHaveBeenCalled();
+      expect(t.tabs[0]!.pdf).not.toHaveBeenCalled();
+      expect(t.disconnect).toHaveBeenCalled();
+    },
+  );
+
+  it.each([false, true])(
+    'gives the slot back when Chromium cannot be reached (anonymous %s)',
+    async (anonymous) => {
+      const t = rig({ connectFails: true });
+      const err = await t.svc.pdf('<p></p>', page, { anonymous }).catch((e: unknown) => e);
+      expect((err as Error).message).toBe('connect refused');
+      expect(t.slots).toMatchObject({ signedInRenders: 0, anonymousRenders: 0 });
+    },
+  );
+
+  it('gives anonymous renders shorter time limits than signed-in ones', async () => {
+    const t = rig();
+    const signedIn = t.svc.pdf('<p></p>', page);
+    const anon = t.svc.pdf('<p></p>', page, { anonymous: true });
+    await t.settle();
+    await t.releaseAll();
+    await Promise.all([signedIn, anon]);
+    const [s, a] = t.tabs;
+    expect(s!.setContent.mock.calls[0]![1]).toMatchObject({ timeout: 60_000 });
+    expect(s!.pdf.mock.calls[0]![0]).toMatchObject({ timeout: 120_000 });
+    expect(a!.setContent.mock.calls[0]![1]).toMatchObject({ timeout: 20_000 });
+    expect(a!.pdf.mock.calls[0]![0]).toMatchObject({ timeout: 40_000 });
   });
 });

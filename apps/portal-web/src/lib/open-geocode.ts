@@ -36,6 +36,45 @@ export function openGeocodeUrl(
   return raw.replace(/\/+$/, '');
 }
 
+const MANAGED_PROBE_TTL_MS = 30_000;
+let managedProbe: { base: string; at: number; ok: boolean } | null = null;
+
+/**
+ * Where address search should go: OPEN_GEOCODE_URL when set, else the
+ * managed geocoder (Admin -> Geocoding, MANAGED_GEOCODER_URL) while it
+ * answers /readyz, else null for the Nominatim path. The readiness
+ * probe is cached for 30 seconds.
+ */
+export async function activeOpenGeocodeUrl(
+  env: Record<string, string | undefined> = process.env,
+  fetchImpl: typeof fetch = fetch,
+  now = Date.now(),
+): Promise<string | null> {
+  const explicit = openGeocodeUrl(env);
+  if (explicit) return explicit;
+  const managed = openGeocodeUrl({ OPEN_GEOCODE_URL: env.MANAGED_GEOCODER_URL });
+  if (!managed) return null;
+  if (!managedProbe || managedProbe.base !== managed || now - managedProbe.at >= MANAGED_PROBE_TTL_MS) {
+    let ok = false;
+    try {
+      const res = await fetchImpl(`${managed}/readyz`, {
+        signal: AbortSignal.timeout(1_500),
+        cache: 'no-store',
+      });
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
+    managedProbe = { base: managed, at: now, ok };
+  }
+  return managedProbe.ok ? managed : null;
+}
+
+/** Forget the cached probe (tests). */
+export function resetManagedProbe(): void {
+  managedProbe = null;
+}
+
 interface OgFeature {
   geometry?: { coordinates?: unknown };
   bbox?: unknown;

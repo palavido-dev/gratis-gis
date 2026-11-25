@@ -117,7 +117,7 @@
       "raw": 0
     },
     "apps/portal-api/src/featureserver/feature-oid.service.ts": {
-      "prisma": 2,
+      "prisma": 3,
       "pg": 0,
       "raw": 0
     },

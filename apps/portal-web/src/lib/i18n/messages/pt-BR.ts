@@ -91,6 +91,7 @@ export const ptBR: Partial<CatalogShape> = {
       signIn: { title: 'Login', desc: 'Contas de trabalho usadas para entrar e se um autenticador é exigido.' },
       landing: { title: 'Página inicial', desc: 'O que os visitantes veem na página inicial antes de entrar.' },
       ai: { title: 'Assistente de IA', desc: 'Conectar um provedor de IA para rascunhos e criação. Desligado até você adicionar um.' },
+      geocoding: { title: 'Geocodificação', desc: 'Escolher as regiões cobertas pela busca de endereços. O portal baixa os dados do mapa e os mantém atualizados.' },
       feedback: { title: 'Caixa de feedback', desc: 'O que as pessoas enviaram pelo portal, do mais recente ao mais antigo.' },
       jobs: { title: 'Importações e análises', desc: 'Importações e análises em andamento e recentes, com cancelar e tentar de novo.' },
       fieldQueues: { title: 'Filas de campo', desc: 'O que cada dispositivo de campo tem para sincronizar e quando se conectou pela última vez.' },
