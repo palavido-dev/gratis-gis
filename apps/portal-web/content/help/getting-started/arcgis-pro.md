@@ -37,6 +37,8 @@ history.
 2. Click **Use in ArcGIS Pro**.
 3. Click **Copy**.
 
+![Use in ArcGIS Pro open on a data layer page, with the service URL, a Copy button and three steps](/help/getting-started/arcgis-pro-use-in-pro.png)
+
 The URL ends in `/FeatureServer`. It looks like this:
 
 ```
