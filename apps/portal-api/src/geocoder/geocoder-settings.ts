@@ -43,6 +43,8 @@ export interface GeocoderSettings {
   tiger: boolean;
   /** OpenAddresses points. Needs the token. */
   openAddresses: boolean;
+  /** OpenAddresses username the token was created for, when connected from the page. */
+  oaAccount: string | null;
   refresh: GeocoderRefresh;
   status: GeocoderStatus;
   /** Short human line about the current step. */
@@ -61,6 +63,7 @@ export const EMPTY_GEOCODER_SETTINGS: GeocoderSettings = {
   regions: [],
   tiger: true,
   openAddresses: false,
+  oaAccount: null,
   refresh: 'off',
   status: 'none',
   statusMessage: null,
@@ -125,6 +128,7 @@ export function parseGeocoderSettings(value: unknown): GeocoderSettings {
     regions,
     tiger: typeof v.tiger === 'boolean' ? v.tiger : true,
     openAddresses: v.openAddresses === true,
+    oaAccount: str(v.oaAccount),
     refresh,
     status,
     statusMessage: str(v.statusMessage),

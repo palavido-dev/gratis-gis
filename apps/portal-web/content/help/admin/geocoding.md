@@ -26,7 +26,18 @@ see it.
    add it. Add more than one if you need them.
 3. Under **Data**, leave **U.S. Census address ranges** on for U.S.
    regions. Turn on **OpenAddresses** for exact matches on many more
-   addresses. It needs a free token from batch.openaddresses.io.
+   addresses. It needs a free OpenAddresses account, and you never
+   have to leave the page:
+   - **I have an account**: enter your OpenAddresses username or email
+     and password, then **Connect**. The portal creates a token for
+     itself.
+   - **Create a free account**: enter an email, username and
+     password. OpenAddresses emails you a confirmation link. Click it,
+     then sign in on the **I have an account** tab.
+   - **Paste a token** if you already made one on their site.
+
+   Your OpenAddresses password goes to OpenAddresses once and is not
+   stored. Only the token is kept, encrypted.
 4. Pick how often to rebuild with fresh data.
 5. Click **Save and build**.
 

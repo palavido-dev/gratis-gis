@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 
@@ -30,6 +31,12 @@ import {
 } from '../ingest/open-geocode.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { coversUnitedStates, extractBytes, geofabrikRegions } from './geocoder-regions.js';
+import {
+  connectOpenAddresses,
+  createOpenAddressesAccount,
+  OpenAddressesError,
+  signupProblem,
+} from './openaddresses-account.js';
 import { geocoderPaths } from './geocoder-runner.js';
 import {
   readGeocoderSetting,
@@ -142,6 +149,7 @@ export class GeocoderAdminController {
           tiger: body?.tiger !== false,
           openAddresses: body?.openAddresses === true,
           refresh,
+          ...(oaToken !== undefined ? { oaAccount: null } : {}),
         },
         { oaToken, userId: user.id },
       ),
@@ -185,6 +193,90 @@ export class GeocoderAdminController {
       detail: { regions: settings.regions.map((r) => r.id).join(',') },
     });
     return this.view();
+  }
+
+  /**
+   * Create an OpenAddresses account for the admin. OpenAddresses emails
+   * a confirmation link; after it is clicked the admin connects below.
+   * Nothing is stored here: the password goes to OpenAddresses only.
+   */
+  @Post('openaddresses/signup')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  async openAddressesSignup(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { username?: unknown; email?: unknown; password?: unknown },
+  ) {
+    this.refuseWhenLocked();
+    const input = {
+      username: typeof body?.username === 'string' ? body.username.trim() : '',
+      email: typeof body?.email === 'string' ? body.email.trim() : '',
+      password: typeof body?.password === 'string' ? body.password : '',
+    };
+    const problem = signupProblem(input);
+    if (problem) throw new BadRequestException(problem);
+    try {
+      await createOpenAddressesAccount(input);
+    } catch (err) {
+      throw this.oaFailure(err);
+    }
+    await this.audit.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'admin.geocoder',
+      targetType: 'openaddresses',
+      targetId: 'signup',
+      outcome: 'succeeded',
+    });
+    return { username: input.username };
+  }
+
+  /**
+   * Sign in to OpenAddresses, create an API token and save it. Turns
+   * OpenAddresses on. The password is not stored.
+   */
+  @Post('openaddresses/connect')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async openAddressesConnect(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { username?: unknown; password?: unknown },
+  ): Promise<GeocoderAdminView> {
+    this.refuseWhenLocked();
+    const username = typeof body?.username === 'string' ? body.username.trim() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (!username || username.length > 200 || !password || password.length > 200) {
+      throw new BadRequestException('Enter your OpenAddresses username or email and password.');
+    }
+    let connected: { token: string; username: string };
+    try {
+      connected = await connectOpenAddresses({ username, password }, 'GratisGIS geocoder');
+    } catch (err) {
+      throw this.oaFailure(err);
+    }
+    await runAsSystem('geocoder-oa', () =>
+      writeGeocoderSetting(
+        this.prisma,
+        { openAddresses: true, oaAccount: connected.username },
+        { oaToken: connected.token, userId: user.id },
+      ),
+    );
+    await this.audit.record({
+      orgId: user.orgId,
+      actorUserId: user.id,
+      action: 'admin.geocoder',
+      targetType: 'openaddresses',
+      targetId: 'connect',
+      outcome: 'succeeded',
+    });
+    return this.view();
+  }
+
+  private oaFailure(err: unknown): Error {
+    if (err instanceof OpenAddressesError) {
+      return err.status >= 500
+        ? new ServiceUnavailableException(err.message)
+        : new BadRequestException(err.message);
+    }
+    return new ServiceUnavailableException('Could not reach OpenAddresses.');
   }
 
   /** Try the managed geocoder from the admin page. */

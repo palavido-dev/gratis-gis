@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, Play, Plus, Save, Search, X } from 'lucide-react';
 
 import { useT } from '@/lib/i18n/locale-context';
+import { OpenAddressesConnect } from './openaddresses-connect';
 
 export type GeocoderStatus = 'none' | 'queued' | 'downloading' | 'building' | 'ready' | 'failed';
 export type GeocoderRefresh = 'off' | 'monthly' | 'quarterly';
@@ -19,6 +20,7 @@ export interface GeocoderAdminView {
     regions: Array<{ id: string; name: string; pbfUrl: string }>;
     tiger: boolean;
     openAddresses: boolean;
+    oaAccount: string | null;
     refresh: GeocoderRefresh;
     status: GeocoderStatus;
     statusMessage: string | null;
@@ -414,30 +416,17 @@ export function GeocodingView({ initial }: { initial: GeocoderAdminView }) {
             <span>{t('adminGeocoding.sourceOa')}</span>
           </label>
           {openAddresses && !readOnly ? (
-            <div className="ml-6 space-y-1">
-              <input
-                type="password"
-                autoComplete="off"
-                className={inputClass}
-                placeholder={
-                  view.oaTokenSaved ? t('adminGeocoding.oaTokenSaved') : t('adminGeocoding.oaTokenPlaceholder')
-                }
-                value={oaToken}
-                onChange={(e) => setOaToken(e.target.value)}
-                aria-label={t('adminGeocoding.oaTokenPlaceholder')}
-              />
-              <p className="text-xs text-muted">{t('adminGeocoding.oaTokenHelp')}</p>
-              {view.oaTokenSaved ? (
-                <button
-                  type="button"
-                  className="text-xs text-danger underline"
-                  onClick={() => void clearToken()}
-                  disabled={saving}
-                >
-                  {t('adminGeocoding.oaTokenClear')}
-                </button>
-              ) : null}
-            </div>
+            <OpenAddressesConnect
+              view={view}
+              onView={(next) => {
+                setView(next);
+                setOpenAddresses(next.settings.openAddresses);
+              }}
+              oaToken={oaToken}
+              setOaToken={setOaToken}
+              onClear={() => void clearToken()}
+              busy={saving}
+            />
           ) : null}
           <label className="flex items-center gap-2">
             <span>{t('adminGeocoding.refresh')}</span>

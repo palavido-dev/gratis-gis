@@ -17,7 +17,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   switch to it once it answers; until then they keep using Nominatim.
   The portal-api image now includes open-geocode 1.0.0. A locked
   portal (PORTAL_LOCK_ADMIN_TIER) is set up with `GEOCODER_REGIONS`.
-  (#833)
+  OpenAddresses can be connected without leaving the page: sign in to
+  an existing account or create one (OpenAddresses emails a
+  confirmation link), and the portal creates and stores the token. The
+  password is not stored. (#833)
 - Address search completes as you type when the portal uses
   open-geocode: "223 Merch" finds 223 Merchants Walk, and a partly
   typed place name finds the place. Map search, What's Here and the
