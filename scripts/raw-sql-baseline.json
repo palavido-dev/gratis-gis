@@ -116,6 +116,16 @@
       "pg": 0,
       "raw": 0
     },
+    "apps/portal-api/src/featureserver/feature-oid.service.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
+    "apps/portal-api/src/featureserver/feature-oid.ts": {
+      "prisma": 2,
+      "pg": 0,
+      "raw": 0
+    },
     "apps/portal-api/src/feedback/feedback.service.ts": {
       "prisma": 1,
       "pg": 0,

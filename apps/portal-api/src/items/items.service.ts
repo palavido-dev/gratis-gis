@@ -191,6 +191,7 @@ import {
   stampScriptProvenance,
 } from '../scripts/script-provenance.js';
 import { dropGeocoderIndexes } from '../geocoding/geocoder-indexes.js';
+import { forgetItemOids } from '../featureserver/feature-oid.js';
 
 // Optional fields use `| undefined` explicitly so class-validator DTOs
 // (which leave unset keys present-as-undefined) can satisfy these types
@@ -3999,6 +4000,8 @@ export class ItemsService {
               DELETE FROM observation
               WHERE scope LIKE ${`data_layer:${itemId}:%`}
             `;
+            // Their FeatureServer ObjectIDs go with them.
+            await forgetItemOids(tx, itemId);
           },
           { maxWait: 10_000, timeout: PURGE_TX_TIMEOUT_MS },
         );
