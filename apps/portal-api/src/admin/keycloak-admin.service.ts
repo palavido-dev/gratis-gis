@@ -414,19 +414,18 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
 
   /**
    * The accounts that hold exactly this username or exactly this email
-   * (at most a few each), with their attributes. Used to tell which
-   * organization a taken address belongs to.
+   * (at most a few each; the email is skipped when empty), with their attributes. Used to tell whether a taken
+   * address belongs to the caller's organization.
    */
   async findAccountsByUsernameOrEmail(
     username: string,
-    email: string,
+    email: string | undefined,
   ): Promise<KeycloakUserRep[]> {
     const token = await this.getAccessToken();
     const found = new Map<string, KeycloakUserRep>();
-    for (const [field, value] of [
-      ['username', username],
-      ['email', email],
-    ] as const) {
+    const lookups: Array<readonly ['username' | 'email', string]> = [['username', username]];
+    if (email) lookups.push(['email', email]);
+    for (const [field, value] of lookups) {
       const qs = new URLSearchParams([
         [field, value],
         ['exact', 'true'],
@@ -1191,7 +1190,7 @@ export class KeycloakAdminService implements OnApplicationBootstrap {
   }
 }
 
-export function combineName(
+function combineName(
   firstName: string | undefined,
   lastName: string | undefined,
   username: string,

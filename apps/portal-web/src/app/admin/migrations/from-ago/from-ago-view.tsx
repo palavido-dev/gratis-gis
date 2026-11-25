@@ -100,6 +100,7 @@ interface PeopleReport {
   usersCreated: number;
   usersMatched: number;
   usersFailed: number;
+  usersSkipped?: number;
   groupsCreated: number;
   groupsMatched: number;
   memberships: number;
@@ -992,7 +993,8 @@ export function FromAgoView() {
             <div className="mt-2 text-xs text-ink-1">
               <p>
                 Users: {importReport.people.usersCreated} created, {importReport.people.usersMatched} already here
-                {importReport.people.usersFailed > 0 ? `, ${importReport.people.usersFailed} not created` : ''}. Groups:{' '}
+                {importReport.people.usersFailed > 0 ? `, ${importReport.people.usersFailed} not created` : ''}
+                {importReport.people.usersSkipped ? `, ${importReport.people.usersSkipped} skipped` : ''}. Groups:{' '}
                 {importReport.people.groupsCreated} created
                 {importReport.people.groupsMatched > 0 ? `, ${importReport.people.groupsMatched} reused` : ''} with{' '}
                 {importReport.people.memberships} memberships. Item shares with groups: {importReport.people.sharesAdded}.

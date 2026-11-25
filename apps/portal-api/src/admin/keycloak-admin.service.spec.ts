@@ -82,6 +82,15 @@ describe('KeycloakAdminService.createUser error mapping', () => {
     expect(String(mock.mock.calls[0]![0])).toContain('exact=true');
   });
 
+  it('looks up the username only when no email is given', async () => {
+    const mock = jest.fn(async () => new Response('[]', { status: 200 }));
+    globalThis.fetch = mock as unknown as typeof fetch;
+    await svc.findAccountsByUsernameOrEmail('ana', undefined);
+    const urls = mock.mock.calls.map((c) => String((c as unknown[])[0]));
+    expect(urls.filter((u) => u.includes('/users?'))).toHaveLength(1);
+    expect(urls.some((u) => u.includes('email='))).toBe(false);
+  });
+
   it('keeps other Keycloak failures as BadGatewayException (HTTP 502)', async () => {
     respondWith(500, 'Internal Server Error');
     const err = await svc.createUser(input).catch((e: unknown) => e);
