@@ -493,6 +493,7 @@ export const ROUTES: Record<string, RouteEntry> = {
     body: () => ({ type: 'file', title: 'B created', data: {}, access: 'private' }),
   }),
   'POST /api/items/:id/copy': write({ body: () => ({ title: 'copied' }), expect: [404] }),
+  'POST /api/items/:id/save-as-template': write({ body: () => ({ title: 'template' }), expect: [404] }),
   'PATCH /api/items/:id': write({ body: () => ({ title: 'renamed' }) }),
   'PATCH /api/items/:id/owner': write({ body: (_v, c) => ({ newOwnerId: c.users.admin.id }) }),
   'POST /api/items/:id/share': write({

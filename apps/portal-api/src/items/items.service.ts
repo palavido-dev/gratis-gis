@@ -2362,6 +2362,64 @@ export class ItemsService {
   }
 
   /**
+   * "Save as template" for an app (#839). Anyone who can read an app
+   * and create items can save its blueprint as a private app_template.
+   *
+   * The template is a new item, so every reference in it is new and
+   * would be checked like any create. An app keeps references that were
+   * valid when they were saved, and the item may have been deleted or
+   * unshared since; refusing the whole template for that left the author
+   * with no way forward but finding the id by hand. As Save as does for
+   * maps, references the caller cannot read are left out and their ids
+   * returned, with nothing more about those items.
+   *
+   * `data` carries the builder's live state, so unsaved changes go into
+   * the template. Without it the template is the app as last saved.
+   */
+  async saveAppAsTemplate(
+    user: AuthUser,
+    id: string,
+    input: { title: string; data?: unknown },
+  ) {
+    const source = await this.get(user, id);
+    if (source.type !== 'web_app') {
+      throw new BadRequestException('Only apps can be saved as a template.');
+    }
+    const base = input.data !== undefined ? input.data : source.data;
+    if (!base || typeof base !== 'object' || Array.isArray(base)) {
+      throw new BadRequestException('App data must be an object.');
+    }
+    const refs = referencedItemIds({ type: 'app_template', data: base });
+    const hidden =
+      refs.length > 0 ? await this.unreadableItemIds(user, refs) : new Set<string>();
+    const omittedItemIds = refs.filter((ref) => hidden.has(ref));
+    const data =
+      omittedItemIds.length > 0 ? withoutReferences(base, new Set(omittedItemIds)) : base;
+    const created = await this.create(
+      user,
+      {
+        type: 'app_template',
+        title: input.title,
+        description: `Saved from ${source.title}`,
+        tags: ['user-saved'],
+        data: data as Prisma.InputJsonValue,
+        access: 'private',
+      },
+      {
+        clientKeys: true,
+        checkedReferenceIds: refs.filter((ref) => !hidden.has(ref)),
+      },
+    );
+    return {
+      ...created,
+      omittedItemIds,
+      warnings: omittedItemIds.map(
+        (ref) => `A reference to item ${ref} was left out: the item was not found.`,
+      ),
+    };
+  }
+
+  /**
    * The caller's read scope on one layer of a data layer item, from
    * the shared resolver. `layerKey` picks a v3 sublayer's
    * editingPolicy; a v1/v2 item reads it from item.data.
