@@ -1331,7 +1331,7 @@ def resolve_urls(previous: dict[str, str] | None) -> dict[str, str]:
             print(
                 f"WARN: uploads will go to {s3}, but port {s3_port} serves plain HTTP. "
                 "Set GRATIS_S3_URL to an https address that forwards to it "
-                "(for example a second Tailscale Serve listener on that port). "
+                "(for example a second Tailscale Serve listener on another port, such as 8443). "
                 "See docs/truenas.md.",
                 flush=True,
             )
