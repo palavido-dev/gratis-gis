@@ -30,7 +30,12 @@ import {
   openGeocodeBase,
 } from '../ingest/open-geocode.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { coversUnitedStates, extractBytes, geofabrikRegions } from './geocoder-regions.js';
+import {
+  coversUnitedStates,
+  extractBytes,
+  geofabrikOutlines,
+  geofabrikRegions,
+} from './geocoder-regions.js';
 import {
   connectOpenAddresses,
   createOpenAddressesAccount,
@@ -96,6 +101,19 @@ export class GeocoderAdminController {
     } catch (err) {
       throw new ServiceUnavailableException(
         `Could not read the Geofabrik region list: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /** Region outlines one level down, for the map picker. No parent: the continents. */
+  @Get('regions/outlines')
+  async outlines(@Query('parent') parent?: string) {
+    const p = parent && /^[A-Za-z0-9/_-]{1,100}$/.test(parent) ? parent : null;
+    try {
+      return await geofabrikOutlines(p);
+    } catch (err) {
+      throw new ServiceUnavailableException(
+        `Could not read the Geofabrik region outlines: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

@@ -100,9 +100,71 @@ export async function geofabrikRegions(
   return regions;
 }
 
+export interface RegionOutlineCollection {
+  type: 'FeatureCollection';
+  features: Array<{
+    type: 'Feature';
+    geometry: unknown;
+    properties: { id: string; name: string; hasChildren: boolean };
+  }>;
+}
+
+/**
+ * Outlines of the regions directly under `parent` (null: the
+ * continents), from the index with geometry. Several MB in all, so the
+ * map asks for one level at a time.
+ */
+export function outlinesUnder(body: unknown, parent: string | null): RegionOutlineCollection {
+  const features = (body as { features?: unknown } | null)?.features;
+  if (!Array.isArray(features)) return { type: 'FeatureCollection', features: [] };
+  const parents = new Set<string>();
+  for (const f of features as Array<{ properties?: { parent?: unknown } }>) {
+    if (typeof f?.properties?.parent === 'string') parents.add(f.properties.parent);
+  }
+  const out: RegionOutlineCollection['features'] = [];
+  for (const f of features as Array<{
+    geometry?: unknown;
+    properties?: { id?: unknown; name?: unknown; parent?: unknown; urls?: { pbf?: unknown } };
+  }>) {
+    const p = f?.properties;
+    const id = typeof p?.id === 'string' ? p.id : null;
+    const name = typeof p?.name === 'string' ? p.name : null;
+    const pbf = typeof p?.urls?.pbf === 'string' ? p.urls.pbf : null;
+    if (!id || !name || !pbf || !isGeofabrikPbfUrl(pbf) || !f.geometry) continue;
+    const itsParent = typeof p?.parent === 'string' ? p.parent : null;
+    if (itsParent !== parent) continue;
+    out.push({
+      type: 'Feature',
+      geometry: f.geometry,
+      properties: { id, name, hasChildren: parents.has(id) },
+    });
+  }
+  return { type: 'FeatureCollection', features: out };
+}
+
+let geomCache: { at: number; body: unknown } | null = null;
+
+/** Region outlines under `parent`, from Geofabrik's index with geometry, cached for a day. */
+export async function geofabrikOutlines(
+  parent: string | null,
+  fetchImpl: typeof fetch = fetch,
+  now = Date.now(),
+): Promise<RegionOutlineCollection> {
+  if (!geomCache || now - geomCache.at >= INDEX_TTL_MS) {
+    const res = await fetchImpl(GEOFABRIK_INDEX_GEOM_URL, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Geofabrik index answered HTTP ${res.status}`);
+    geomCache = { at: now, body: await res.json() };
+  }
+  return outlinesUnder(geomCache.body, parent);
+}
+
 /** Forget the cached index (tests). */
 export function resetRegionCache(): void {
   cache = null;
+  geomCache = null;
 }
 
 /** Download size of an extract in bytes, or null when the server does not say. */

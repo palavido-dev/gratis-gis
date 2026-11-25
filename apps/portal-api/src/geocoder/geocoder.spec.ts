@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-import { coversUnitedStates, parseGeofabrikIndex } from './geocoder-regions.js';
+import { coversUnitedStates, outlinesUnder, parseGeofabrikIndex } from './geocoder-regions.js';
 import { buildArgs, extractFileName, lineSplitter } from './geocoder-runner.js';
 import {
   isGeofabrikPbfUrl,
@@ -77,6 +77,19 @@ describe('parseGeofabrikIndex', () => {
     const wv = regions.find((r) => r.id === 'us/west-virginia');
     expect(wv?.path).toEqual(['North America', 'United States of America']);
     expect(regions.some((r) => r.id === 'bad')).toBe(false);
+  });
+
+  it('gives the outlines one level down, marking regions with children', () => {
+    const geo = {
+      features: index.features.map((f) => ({ ...f, geometry: { type: 'Polygon', coordinates: [] } })),
+    };
+    const top = outlinesUnder(geo, null);
+    expect(top.features.map((f) => f.properties)).toEqual([
+      { id: 'north-america', name: 'North America', hasChildren: true },
+    ]);
+    const us = outlinesUnder(geo, 'us');
+    expect(us.features.map((f) => f.properties.id)).toEqual(['us/west-virginia']);
+    expect(us.features[0]?.properties.hasChildren).toBe(false);
   });
 
   it('knows which picks are in the United States', () => {

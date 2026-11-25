@@ -20,7 +20,9 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
   OpenAddresses can be connected without leaving the page: sign in to
   an existing account or create one (OpenAddresses emails a
   confirmation link), and the portal creates and stores the token. The
-  password is not stored. (#833)
+  password is not stored. Regions can also be picked on a map,
+  starting at the continents and opening down to states and
+  provinces. (#833)
 - Address search completes as you type when the portal uses
   open-geocode: "223 Merch" finds 223 Merchants Walk, and a partly
   typed place name finds the place. Map search, What's Here and the

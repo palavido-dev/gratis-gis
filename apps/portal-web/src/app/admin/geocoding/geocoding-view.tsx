@@ -7,6 +7,7 @@ import { Loader2, Play, Plus, Save, Search, X } from 'lucide-react';
 import { formatBytes } from '@/lib/format-bytes';
 import { useT } from '@/lib/i18n/locale-context';
 import { OpenAddressesConnect } from './openaddresses-connect';
+import { RegionMap } from './region-map';
 
 export type GeocoderStatus = 'none' | 'queued' | 'downloading' | 'building' | 'ready' | 'failed';
 export type GeocoderRefresh = 'off' | 'monthly' | 'quarterly';
@@ -72,6 +73,7 @@ export function GeocodingView({ initial }: { initial: GeocoderAdminView }) {
   const [regions, setRegions] = useState<RegionOption[] | null>(null);
   const [regionError, setRegionError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [pickMode, setPickMode] = useState<'list' | 'map'>('list');
   const [sizes, setSizes] = useState<{ total: number | null; us: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -341,46 +343,77 @@ export function GeocodingView({ initial }: { initial: GeocoderAdminView }) {
         ) : null}
 
         {!readOnly ? (
-          <div className="mt-3">
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted" />
-              <input
-                className={`${inputClass} pl-8`}
-                placeholder={t('adminGeocoding.searchPlaceholder')}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                aria-label={t('adminGeocoding.searchPlaceholder')}
+          <>
+            <div role="tablist" className="mt-3 flex gap-1">
+              {(['list', 'map'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={pickMode === m}
+                  className={`rounded-md px-2 py-1 text-xs ${
+                    pickMode === m ? 'bg-accent/10 font-medium text-accent' : 'text-muted hover:bg-surface-2'
+                  }`}
+                  onClick={() => setPickMode(m)}
+                >
+                  {m === 'list' ? t('adminGeocoding.pickList') : t('adminGeocoding.pickMap')}
+                </button>
+              ))}
+            </div>
+            {pickMode === 'map' ? (
+              <RegionMap
+                pickedIds={picked.map((p) => p.id)}
+                onAdd={(r) =>
+                  setPicked((prev) =>
+                    prev.some((p) => p.id === r.id)
+                      ? prev
+                      : [...prev, regions?.find((x) => x.id === r.id) ?? { id: r.id, name: r.name, path: [] }],
+                  )
+                }
               />
-            </label>
-            {regionError ? <p className="mt-2 text-sm text-danger">{regionError}</p> : null}
-            {regions === null && !regionError ? (
-              <p className="mt-2 text-sm text-muted">{t('adminGeocoding.loadingRegions')}</p>
-            ) : null}
-            {matches.length > 0 ? (
-              <ul className="mt-2 max-h-72 divide-y divide-border overflow-auto rounded-md border border-border">
-                {matches.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      type="button"
-                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2"
-                      onClick={() => {
-                        setPicked((prev) => [...prev, r]);
-                        setQuery('');
-                      }}
-                    >
-                      <span>
-                        <span className="font-medium">{r.name}</span>
-                        {r.path.length > 0 ? (
-                          <span className="ml-2 text-muted">{r.path.join(' / ')}</span>
-                        ) : null}
-                      </span>
-                      <Plus className="h-4 w-4 shrink-0 text-muted" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
+            ) : (
+              <div className="mt-3">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted" />
+                <input
+                  className={`${inputClass} pl-8`}
+                  placeholder={t('adminGeocoding.searchPlaceholder')}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  aria-label={t('adminGeocoding.searchPlaceholder')}
+                />
+              </label>
+              {regionError ? <p className="mt-2 text-sm text-danger">{regionError}</p> : null}
+              {regions === null && !regionError ? (
+                <p className="mt-2 text-sm text-muted">{t('adminGeocoding.loadingRegions')}</p>
+              ) : null}
+              {matches.length > 0 ? (
+                <ul className="mt-2 max-h-72 divide-y divide-border overflow-auto rounded-md border border-border">
+                  {matches.map((r) => (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2"
+                        onClick={() => {
+                          setPicked((prev) => [...prev, r]);
+                          setQuery('');
+                        }}
+                      >
+                        <span>
+                          <span className="font-medium">{r.name}</span>
+                          {r.path.length > 0 ? (
+                            <span className="ml-2 text-muted">{r.path.join(' / ')}</span>
+                          ) : null}
+                        </span>
+                        <Plus className="h-4 w-4 shrink-0 text-muted" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            )}
+          </>
         ) : null}
       </section>
 
