@@ -148,7 +148,7 @@ export class FeatureServerQueryService {
   }
 
   private async prepare(layer: QueryLayer, q: EsriQuery): Promise<Prisma.Sql> {
-    await this.oids.ensureScope(layer.scope);
+    await this.oids.ensureScopeForRequest(layer.scope);
     if (q.geometry) await this.checkSr(q.inSr);
     return this.rowsSql(layer, q, this.filterGeomSql(q));
   }

@@ -18,7 +18,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import puppeteer from 'puppeteer-core';
+import puppeteer, { type Browser } from 'puppeteer-core';
 import sharp from 'sharp';
 import {
   MAX_REPORT_BODY,
@@ -55,8 +55,27 @@ const MAX_PHOTOS_PER_FEATURE = 12;
 const PHOTO_MAX_PX = 1200;
 /** Largest stored photo read for a report. */
 const PHOTO_MAX_BYTES = 30 * 1024 * 1024;
-/** Chromium sessions one API process holds for reports at once. */
-const MAX_CONCURRENT_RENDERS = 2;
+/**
+ * Chromium sessions one API process holds at once, in two separate
+ * pools. The What's Here PDF can be asked for without signing in, so
+ * anonymous renders get a pool of their own: one address sending slow
+ * reports can then fill only that pool, and signed-in users still get
+ * theirs. Neither lane ever borrows a slot from the other.
+ */
+const MAX_SIGNED_IN_RENDERS = 2;
+const MAX_ANONYMOUS_RENDERS = 1;
+
+/**
+ * How long Chromium may take to load and to print, in milliseconds.
+ * A signed-in report template can hold up to its feature limit with a
+ * dozen photos each, so it gets a lot of time. An anonymous What's Here
+ * report is tables of numbers and at most one inline map image, with
+ * scripts and network off, so it loads and prints in a few seconds even
+ * at the size limits. The shorter limits stop a deliberately heavy
+ * request from holding the anonymous slot for long.
+ */
+const SIGNED_IN_TIMEOUTS = { load: 60_000, print: 120_000 };
+const ANONYMOUS_TIMEOUTS = { load: 20_000, print: 40_000 };
 
 const PUPPETEER_FORMAT: Record<ReportPageSize, 'letter' | 'legal' | 'a4' | 'a3' | 'tabloid'> = {
   letter: 'letter',
@@ -100,7 +119,8 @@ export function readReportTemplate(data: unknown): ReportTemplateData {
 @Injectable()
 export class ReportsService {
   private readonly log = new Logger(ReportsService.name);
-  private activeRenders = 0;
+  private signedInRenders = 0;
+  private anonymousRenders = 0;
 
   constructor(
     private readonly items: ItemsService,
@@ -369,8 +389,21 @@ export class ReportsService {
     return `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title><style>${REPORT_CSS}</style></head><body>${sections}</body></html>`;
   }
 
-  /** Print a document to PDF in Chromium with scripts and network off. */
-  async pdf(html: string, page: ReportTemplateData['page']): Promise<Buffer> {
+  /** Opens the remote Chromium. Kept apart so tests can stand in for it. */
+  protected connect(browserWSEndpoint: string): Promise<Browser> {
+    return puppeteer.connect({ browserWSEndpoint });
+  }
+
+  /**
+   * Print a document to PDF in Chromium with scripts and network off.
+   * Pass `anonymous` for a caller who is not signed in: the render then
+   * uses the anonymous pool and its shorter time limits.
+   */
+  async pdf(
+    html: string,
+    page: ReportTemplateData['page'],
+    opts: { anonymous?: boolean } = {},
+  ): Promise<Buffer> {
     const endpoints = (process.env.CHROMIUM_WS_ENDPOINTS ?? '')
       .split(',')
       .map((s) => s.trim())
@@ -380,14 +413,17 @@ export class ReportsService {
         'PDF output is not set up on this server (no Chromium endpoint).',
       );
     }
-    if (this.activeRenders >= MAX_CONCURRENT_RENDERS) {
+    const anonymous = opts.anonymous === true;
+    const inUse = anonymous ? this.anonymousRenders : this.signedInRenders;
+    if (inUse >= (anonymous ? MAX_ANONYMOUS_RENDERS : MAX_SIGNED_IN_RENDERS)) {
       throw new ServiceUnavailableException('The report service is busy. Try again in a minute.');
     }
-    this.activeRenders += 1;
+    const timeouts = anonymous ? ANONYMOUS_TIMEOUTS : SIGNED_IN_TIMEOUTS;
+    // Taken with no await before the try, so every path below gives it back.
+    if (anonymous) this.anonymousRenders += 1;
+    else this.signedInRenders += 1;
     try {
-      const browser = await puppeteer.connect({
-        browserWSEndpoint: endpoints[Math.floor(Math.random() * endpoints.length)]!,
-      });
+      const browser = await this.connect(endpoints[Math.floor(Math.random() * endpoints.length)]!);
       try {
         const tab = await browser.newPage();
         try {
@@ -398,7 +434,7 @@ export class ReportsService {
             if (req.url().startsWith('data:') || req.url() === 'about:blank') void req.continue();
             else void req.abort();
           });
-          await tab.setContent(html, { waitUntil: 'load', timeout: 60_000 });
+          await tab.setContent(html, { waitUntil: 'load', timeout: timeouts.load });
           const pdf = await tab.pdf({
             format: PUPPETEER_FORMAT[page.size],
             landscape: page.orientation === 'landscape',
@@ -408,7 +444,7 @@ export class ReportsService {
             headerTemplate: '<span></span>',
             footerTemplate:
               '<div style="width:100%;font-size:8pt;color:#666;text-align:center;font-family:Arial,sans-serif">Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>',
-            timeout: 120_000,
+            timeout: timeouts.print,
           });
           return Buffer.from(pdf);
         } finally {
@@ -418,7 +454,8 @@ export class ReportsService {
         await browser.disconnect();
       }
     } finally {
-      this.activeRenders -= 1;
+      if (anonymous) this.anonymousRenders -= 1;
+      else this.signedInRenders -= 1;
     }
   }
 }

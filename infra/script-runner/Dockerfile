@@ -156,7 +156,7 @@ ENV SCRIPT_TMPDIR=/var/tmp/ggscript
 # the values inherited from portal-api. publish-images.yml passes them.
 ARG GG_VERSION=dev
 ARG GIT_SHA=
-ARG REQUIRED_COMPOSE_REV=3
+ARG REQUIRED_COMPOSE_REV=4
 ENV GG_VERSION=$GG_VERSION \
     GIT_SHA=$GIT_SHA \
     REQUIRED_COMPOSE_REV=$REQUIRED_COMPOSE_REV

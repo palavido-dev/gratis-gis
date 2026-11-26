@@ -93,6 +93,7 @@ export const de: Partial<CatalogShape> = {
       signIn: { title: 'Anmeldung', desc: 'Arbeitskonten für die Anmeldung und ob ein Authentifikator verlangt wird.' },
       landing: { title: 'Startseite', desc: 'Was Besucher vor der Anmeldung auf der Startseite sehen.' },
       ai: { title: 'KI-Assistent', desc: 'Einen KI-Anbieter für Entwürfe und das Erstellen verbinden. Aus, bis einer hinzugefügt wird.' },
+      geocoding: { title: 'Geokodierung', desc: 'Regionen für die Adresssuche wählen. Das Portal lädt die Kartendaten herunter und hält sie aktuell.' },
       feedback: { title: 'Feedback-Eingang', desc: 'Was Personen aus dem Portal gesendet haben, neueste zuerst.' },
       jobs: { title: 'Importe und Analysen', desc: 'Laufende und letzte Importe und Analysen, mit Abbrechen und Wiederholen.' },
       fieldQueues: { title: 'Feld-Warteschlangen', desc: 'Was jedes Feldgerät zur Synchronisierung bereithält und wann es sich zuletzt gemeldet hat.' },
@@ -1826,6 +1827,11 @@ export const de: Partial<CatalogShape> = {
     connectProvider: "Einen Anbieter unter Admin, KI-Assistent verbinden",
   },
   fieldQueue: {
+    syncProblemChip: 'Sync-Problem',
+    syncProblemChipTitle: 'Etwas wurde nicht synchronisiert. Tippen, um den Grund zu lesen.',
+    syncProblemTitle: 'Sync-Probleme',
+    syncProblemIntro:
+      'Diese Elemente wurden nicht fertig synchronisiert. Sie bleiben auf diesem Gerät und werden bei der nächsten Synchronisierung erneut versucht.',
     rejectedChip:
       '{count, plural, one {# Änderung braucht Aufmerksamkeit} other {# Änderungen brauchen Aufmerksamkeit}}',
     rejectedChipTitle:
@@ -2485,6 +2491,19 @@ export const de: Partial<CatalogShape> = {
     savingCell: 'Wird gespeichert...',
     readOnlyHere:
       'Diese Tabelle ist hier schreibgeschützt. Zeilen können auf Ebenen bearbeitet werden, für die Sie Änderungsrechte haben.',
+  },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'In ArcGIS Pro verwenden',
+    title: 'Diesen Layer in ArcGIS Pro oder QGIS verwenden',
+    urlLabel: 'Dienst-URL',
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    step1: 'Klicken Sie in ArcGIS Pro auf der Registerkarte Karte auf Daten hinzufügen und dann auf Daten aus Pfad.',
+    step2: 'Fügen Sie die URL ein und klicken Sie auf Hinzufügen.',
+    step3: 'Melden Sie sich mit Ihrem GratisGIS-Benutzernamen und Passwort an. Wenn Sie sich mit Google, Microsoft oder einem Zwei-Schritt-Code anmelden, verwenden Sie einen persönlichen API-Schlüssel als Passwort.',
+    publicNote: 'Öffentliche Layer öffnen sich ohne Anmeldung.',
+    help: 'Bearbeiten in ArcGIS Pro und QGIS',
   },
   addToMap: {
     newMap: 'Neue Karte',

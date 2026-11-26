@@ -93,6 +93,7 @@ export const fr: Partial<CatalogShape> = {
       signIn: { title: 'Connexion', desc: 'Comptes professionnels utilisés pour se connecter, et si un authentificateur est exigé.' },
       landing: { title: 'Page d’accueil', desc: 'Ce que les visiteurs voient sur la page d’accueil avant de se connecter.' },
       ai: { title: 'Assistant IA', desc: 'Connecter un fournisseur d’IA pour rédiger et construire. Désactivé tant qu’aucun n’est ajouté.' },
+      geocoding: { title: 'Géocodage', desc: 'Choisir les régions couvertes par la recherche d’adresses. Le portail télécharge les données cartographiques et les tient à jour.' },
       feedback: { title: 'Boîte des retours', desc: 'Ce que les personnes ont envoyé depuis le portail, du plus récent au plus ancien.' },
       jobs: { title: 'Imports et analyses', desc: 'Imports et analyses en cours et récents, avec annulation et nouvel essai.' },
       fieldQueues: { title: 'Files terrain', desc: 'Ce que chaque appareil de terrain attend de synchroniser, et sa dernière connexion.' },
@@ -1827,6 +1828,11 @@ export const fr: Partial<CatalogShape> = {
     connectProvider: "Connecter un fournisseur dans Administration, Assistant IA",
   },
   fieldQueue: {
+    syncProblemChip: 'Problème de synchro',
+    syncProblemChipTitle: "Un élément n'a pas été synchronisé. Touchez pour lire la raison.",
+    syncProblemTitle: 'Problèmes de synchronisation',
+    syncProblemIntro:
+      "Ces éléments n'ont pas fini de se synchroniser. Ils restent sur cet appareil et seront réessayés à la prochaine synchronisation.",
     rejectedChip:
       '{count, plural, one {# modification à examiner} other {# modifications à examiner}}',
     rejectedChipTitle:
@@ -2487,6 +2493,19 @@ export const fr: Partial<CatalogShape> = {
     savingCell: 'Enregistrement...',
     readOnlyHere:
       'Cette table est en lecture seule ici. Les lignes peuvent être modifiées sur les couches que vous avez le droit de changer.',
+  },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Utiliser dans ArcGIS Pro',
+    title: 'Utiliser cette couche dans ArcGIS Pro ou QGIS',
+    urlLabel: 'URL du service',
+    copy: 'Copier',
+    copied: 'Copié',
+    step1: 'Dans ArcGIS Pro, onglet Carte, cliquez sur Ajouter des données, puis Données à partir du chemin.',
+    step2: 'Collez l\'URL et cliquez sur Ajouter.',
+    step3: 'Connectez-vous avec votre nom d\'utilisateur et votre mot de passe GratisGIS. Si vous vous connectez avec Google, Microsoft ou un code en deux étapes, utilisez une clé d\'API personnelle comme mot de passe.',
+    publicNote: 'Les couches publiques s’ouvrent sans connexion.',
+    help: 'Modifier dans ArcGIS Pro et QGIS',
   },
   addToMap: {
     newMap: 'Nouvelle carte',

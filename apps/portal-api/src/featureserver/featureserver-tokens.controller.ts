@@ -9,14 +9,15 @@ import { EsriErrorFilter, EsriHttpError } from './esri-error.filter.js';
 import { param, type RawParams } from './esri-query-params.js';
 
 /**
- * `/api/arcgis/tokens/generateToken`, where Esri clients sign in. The
- * username is the GratisGIS username (or email) and the password is a
- * personal API key, so accounts that sign in through single sign-on,
- * and have no password here, can use ArcGIS Pro too. A read-only key
- * gives a token that can query but not edit.
+ * `/api/geoservices/tokens/generateToken`, where Esri clients sign in
+ * with the GratisGIS username (or email) and either the account's
+ * password or a personal API key. Accounts that sign in through
+ * Google or Microsoft, or use two-step sign-in, have no password this
+ * can check, so they use a key. A read-only key gives a token that can
+ * query but not edit.
  */
 @ApiTags('featureserver')
-@Controller('arcgis/tokens')
+@Controller('geoservices/tokens')
 @UseFilters(EsriErrorFilter)
 export class FeatureServerTokensController {
   constructor(private readonly tokens: EsriTokenService) {}
@@ -41,15 +42,15 @@ export class FeatureServerTokensController {
 
   private async generate(p: RawParams) {
     const username = param(p, 'username') ?? '';
-    const password = param(p, 'password') ?? '';
+    const secret = param(p, 'password') ?? '';
     const minutes = Number(param(p, 'expiration') ?? '60');
     try {
-      const { token, expires } = await this.tokens.generate(username, password, minutes);
+      const { token, expires } = await this.tokens.generate(username, secret, minutes);
       return { token, expires, ssl: true };
     } catch (err) {
       if (err instanceof UnauthorizedException) {
         throw new EsriHttpError(400, 400, 'Unable to generate token.', [
-          'Invalid username or password. Use your GratisGIS username and a personal API key as the password.',
+          'Invalid username or password. If you sign in to GratisGIS with Google or Microsoft, or with a two-step code, use a personal API key as the password.',
         ]);
       }
       throw err;

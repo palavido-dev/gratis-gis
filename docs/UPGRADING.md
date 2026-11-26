@@ -104,6 +104,13 @@ Migrations are forward-only. Down migrations are not provided.
 
 Most releases need nothing beyond `deploy.sh`. The exceptions:
 
+**ArcGIS Pro and QGIS sign-in secret (`GRATIS_SIGNING_SECRET`).**
+Nothing to do by hand. `deploy.sh` adds the secret to `infra/.env.prod`,
+and a NAS adds it on the next start with the current compose file.
+Anyone signed in from ArcGIS Pro or QGIS is asked to sign in again once.
+Until the secret is added, the API keeps signing with the MinIO secret
+and logs a warning.
+
 **The first release after v1.6.1: Postgres base image moved to Debian
 trixie (#748).** The Postgres image is now `postgis/postgis:17-3.6`
 instead of `17-3.5`. The Postgres major stays 17, so the existing data

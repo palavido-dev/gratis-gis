@@ -157,3 +157,6 @@ GG_STATUS_FILE prod status page progress file; only the NAS stack has the status
 # which is what these mean when unset.
 GRATIS_TENANCY nas hosted service only; a NAS install is single-org
 GRATIS_TENANCY_STRICT nas debug aid for multi mode, which a NAS install never runs
+GEOCODER_DIR both managed geocoder data folder; the image default matches the compose volume, override only for local dev
+GEOCODER_PORT both managed geocoder port; MANAGED_GEOCODER_URL in compose assumes the default 8091
+OPEN_GEOCODE_BIN both path to the open-geocode binary; the image installs it at the default, override only for local dev

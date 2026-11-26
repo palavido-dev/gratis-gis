@@ -353,6 +353,11 @@ export default async function FieldRuntimePage(props: Props) {
       // share grant.
       editingPolicy: sublayer.editingPolicy ?? 'all-rows',
       addable,
+      // Only the explicit false is carried; absent means enabled, as
+      // the server reads it.
+      ...(sublayer.attachmentsEnabled === false
+        ? { attachmentsEnabled: false }
+        : {}),
       ...(binding ? { boundFormItemId: binding.formItemId } : {}),
       ...(childLayers.length > 0 ? { childLayers } : {}),
     });
@@ -387,6 +392,9 @@ export default async function FieldRuntimePage(props: Props) {
         // A related table marked not editable is still listed so its
         // rows show, but the popup must not offer Add or Edit on it.
         addable: sub.editingEnabled !== false && parent.addable !== false,
+        ...(sub.attachmentsEnabled === false
+          ? { attachmentsEnabled: false }
+          : {}),
         ...(binding ? { boundFormItemId: binding.formItemId } : {}),
       });
       seenLayerKey.add(key);

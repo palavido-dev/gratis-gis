@@ -284,6 +284,88 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class SigningSecretTests(unittest.TestCase):
+    """GRATIS_SIGNING_SECRET signs ArcGIS Pro sign-ins, portal-api only."""
+
+    def test_new_install_gets_one(self):
+        mod = load()
+        secret = mod.fresh_secrets()["GRATIS_SIGNING_SECRET"]
+        self.assertEqual(len(secret), 32)
+        self.assertNotEqual(secret, mod.fresh_secrets()["GRATIS_SIGNING_SECRET"])
+
+    def test_older_install_gets_one_and_keeps_the_rest(self):
+        mod = load()
+        old = mod.fresh_secrets()
+        del old["GRATIS_SIGNING_SECRET"]
+        carried = mod.saved_secrets(old)
+        self.assertEqual(len(carried["GRATIS_SIGNING_SECRET"]), 32)
+        for key, value in old.items():
+            self.assertEqual(carried[key], value, key)
+        # An empty saved value is replaced too.
+        self.assertEqual(len(mod.saved_secrets({**old, "GRATIS_SIGNING_SECRET": ""})["GRATIS_SIGNING_SECRET"]), 32)
+
+    def test_a_saved_value_is_kept(self):
+        mod = load()
+        old = mod.fresh_secrets()
+        self.assertEqual(mod.saved_secrets(old)["GRATIS_SIGNING_SECRET"], old["GRATIS_SIGNING_SECRET"])
+
+    def test_upgrade_adds_it_on_the_next_start(self):
+        import contextlib
+        import io
+        import os
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            boot = Path(tmp) / "boot"
+            env = {
+                "BOOT_DIR": str(boot),
+                "GRATIS_BASE_URL": "http://192.168.4.15:8080",
+                "GRATIS_SKIP_PATCH": "1",
+            }
+            with mock.patch.dict(os.environ, env):
+                for name in ("GRATIS_MODE", "GRATIS_TLS", "CHROMIUM_ENV_DIR", "POINTCLOUD_ENV_DIR"):
+                    os.environ.pop(name, None)
+                mod = load()
+                mod.STATUS_DIR = Path(tmp) / "status"
+
+                def start():
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        mod.main()
+                    return mod.read_env(boot / "env")
+
+                first = start()
+                # Pretend this env file came from a release before the
+                # secret existed.
+                older = {k: v for k, v in first.items() if k != "GRATIS_SIGNING_SECRET"}
+                mod.write_env(boot / "env", older)
+                upgraded = start()
+                added = upgraded["GRATIS_SIGNING_SECRET"]
+                self.assertEqual(len(added), 32)
+                self.assertNotEqual(added, upgraded["MINIO_SECRET_KEY"])
+                for key in mod.FIRST_START_SECRETS:
+                    self.assertEqual(upgraded[key], first[key], key)
+                # Stable from then on.
+                self.assertEqual(start()["GRATIS_SIGNING_SECRET"], added)
+                # Services that parse untrusted input never get it.
+                for name in mod.SERVICE_ENV_KEYS:
+                    self.assertNotIn(added, (boot / name).read_text(), name)
+
+    def test_not_in_reduced_service_envs(self):
+        mod = load()
+        for name, keys in mod.SERVICE_ENV_KEYS.items():
+            self.assertNotIn("GRATIS_SIGNING_SECRET", keys, name)
+
+    def test_weak_value_is_refused(self):
+        mod = load()
+        secret = mod.fresh_secrets()
+        secret["GRATIS_SIGNING_SECRET"] = "devpassword"
+        urls = {"mode": "lan", "public": "http://192.168.4.15:8080", "auth": "http://192.168.4.15:8080/auth",
+                "s3": "http://192.168.4.15:8900", "tls": ""}
+        with self.assertRaises(SystemExit):
+            mod.assemble(urls, secret)
+
+
 class DefaultOfflineAccessTests(unittest.TestCase):
     """New users need offline_access for the field app and QGIS."""
 

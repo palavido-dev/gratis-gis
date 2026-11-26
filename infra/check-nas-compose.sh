@@ -129,6 +129,8 @@ assert vals["PORTAL_BASE_URL"] == vals["PUBLIC_URL"]
 assert len(vals["INITIAL_USER_PASSWORD"]) >= 16
 assert vals["INITIAL_USER_PASSWORD"] not in {"admin", "password", "gratisgis"}
 assert len(base64.b64decode(vals["CREDENTIAL_ENCRYPTION_KEY"], validate=True)) == 32
+assert len(vals["GRATIS_SIGNING_SECRET"]) >= 32
+assert vals["GRATIS_SIGNING_SECRET"] != vals["MINIO_SECRET_KEY"]
 assert "GENERATE" not in (boot / "env").read_text()
 chromium_env = mod.read_env(boot / "env.chromium")
 assert chromium_env == {"CHROMIUM_TOKEN": vals["CHROMIUM_TOKEN"]}, chromium_env
@@ -480,6 +482,7 @@ PY
   --env-file "$tmp/vps.env" --realm-out "$tmp/realm.json"
 grep -E '^CHROMIUM_TOKEN=.{16,}$' "$tmp/vps.env" >/dev/null
 grep -E '^SCRIPT_EXECUTOR_TOKEN=.{16,}$' "$tmp/vps.env" >/dev/null
+grep -E '^GRATIS_SIGNING_SECRET=.{32,}$' "$tmp/vps.env" >/dev/null
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$tmp/realm.json"
 
 echo "check-nas-compose: ok"

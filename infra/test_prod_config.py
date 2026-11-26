@@ -52,6 +52,19 @@ class ProdComposeTests(unittest.TestCase):
     def test_api_replicas_follow_the_env_file(self):
         self.assertIn("replicas: ${GG_API_REPLICAS:-2}", service_block("portal-api"))
 
+    def test_signing_secret_reaches_portal_api_only(self):
+        # It signs ArcGIS Pro sign-ins for any user. Services that parse
+        # untrusted files or run user code must not hold it. The default
+        # is empty, not a :? guard, so an older env file still starts.
+        api = uncommented(service_block("portal-api"))
+        self.assertIn("GRATIS_SIGNING_SECRET: ${GRATIS_SIGNING_SECRET:-}", api)
+        others = re.findall(r"(?m)^  ([A-Za-z0-9_-]+):\n", PROD[: PROD.index("\nvolumes:")])
+        self.assertIn("pointcloud-worker", others)
+        for name in others:
+            if name == "portal-api":
+                continue
+            self.assertNotIn("GRATIS_SIGNING_SECRET", uncommented(service_block(name)), name)
+
 
 class CaddyTests(unittest.TestCase):
     def test_trusts_no_upstream_proxy(self):

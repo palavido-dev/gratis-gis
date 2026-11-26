@@ -8,6 +8,42 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- A monthly release schedule: a new version on the second Tuesday of
+  each month at 9:00 AM Pacific, starting 2027-01-12, with patch
+  releases in between only for security, data loss or blocking bugs.
+  See docs/VERSIONING.md.
+- **Admin -> Geocoding** sets up address search with no server
+  configuration: pick regions from Geofabrik's list, choose Census
+  address ranges and OpenAddresses, and portal-worker downloads the
+  data, builds an open-geocode index and serves it. Shows progress, a
+  build log and a test box, and can rebuild monthly or quarterly.
+  Address search, What's Here, the field app and spreadsheet import
+  switch to it once it answers; until then they keep using Nominatim.
+  The portal-api image now includes open-geocode 1.0.0. A locked
+  portal (PORTAL_LOCK_ADMIN_TIER) is set up with `GEOCODER_REGIONS`.
+  OpenAddresses can be connected without leaving the page: sign in to
+  an existing account or create one (OpenAddresses emails a
+  confirmation link), and the portal creates and stores the token. The
+  password is not stored. Regions can also be picked on a map,
+  starting at the continents and opening down to states and
+  provinces. (#833)
+- Address search completes as you type when the portal uses
+  open-geocode: "223 Merch" finds 223 Merchants Walk, and a partly
+  typed place name finds the place. Map search, What's Here and the
+  field app all get it. Nominatim searches are unchanged. (#833)
+- Address search and spreadsheet address import can use a
+  self-hosted [open-geocode](https://github.com/open-geocode-rs/open-geocode)
+  server. Set `OPEN_GEOCODE_URL`. A whole state serves from one file of
+  tens of MB in under 1 GB of RAM, instead of a Nominatim database.
+  Spreadsheet import then takes up to 10,000 address rows (200 with
+  Nominatim), skips matches that only find the town or postcode, and
+  adds a `geocode_accuracy` column (rooftop, interpolated, street,
+  centroid). Map search shows each match's precision. Setup in
+  infra/OPEN-GEOCODE.md. (#833)
+- **Use in ArcGIS Pro** on a data layer's page copies its FeatureServer
+  URL and shows the three steps to add it in Pro. New help pages: Edit
+  in ArcGIS Pro, and Edit in QGIS with ArcGIS REST (browser sign-in or
+  an API key).
 - Field app: features are placed with a pin in the middle of the map,
   as in ArcGIS Field Maps. The form opens straight away for a point, a
   line or a polygon, over half of the map. A new point is **Not set**
@@ -29,12 +65,17 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 - ArcGIS Pro can sign in to GratisGIS and edit data layers: add, move,
   reshape and delete features and change attributes, saved through the
   same permission and validation checks as the portal, in one
-  transaction across the layers of a save. Sign in with your username
-  and a personal API key as the password; a read-only key can only
-  view. QGIS can edit too, with the key sent as an API header.
+  transaction across the layers of a save. Sign in with your GratisGIS
+  username and password. Accounts that use Google or Microsoft sign-in
+  or a two-step code use a personal API key as the password instead; a
+  read-only key can only view. QGIS can edit too, with the key sent as
+  an API header. Keycloak gains an `esri-desktop` client. deploy.sh
+  adds it to existing realms, and NAS installs add it on their next
+  start: nas-init now creates any missing client from the realm
+  template, without changing existing ones.
 - ArcGIS Pro and QGIS can add a data layer as a feature layer. Each
   data layer item is an Esri FeatureServer at
-  `/api/arcgis/rest/services/<name>/FeatureServer`, with search,
+  `/api/geoservices/rest/services/<name>/FeatureServer`, with search,
   filters, paging, statistics and reprojection. Public layers open with
   no sign-in. Migration `featureserver_layer` keeps each
   sublayer's layer number fixed.
@@ -93,6 +134,19 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Security
 
+- ArcGIS Pro and QGIS sign-in tokens are signed with a secret of their
+  own, `GRATIS_SIGNING_SECRET`, instead of a key made from the storage
+  (MinIO) password, which other services also hold. Nothing to do by
+  hand: `deploy.sh` adds it to an existing install on its next run, and
+  a NAS adds it on its next start with the current compose file (NAS
+  compose revision 4). An image-only update keeps working on the old
+  key and logs a warning. ArcGIS Pro and QGIS ask to sign in again
+  once. In production the API now refuses to start when the secret it
+  would sign with is empty or a well-known placeholder such as
+  `changeme`. (#844)
+- A public What's Here PDF can no longer keep signed-in report users
+  waiting: renders asked for without signing in get one Chromium slot
+  of their own, with shorter time limits. (#841)
 - A layer's boundary clip on
   the item GeoJSON read now follows the same rule as the feature
   routes, and a map's or editor's stored extent only draws on layers
@@ -146,6 +200,22 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Fixed
 
+- The app designer names layers by their title instead of an internal
+  key such as `lyr_jg79qfks`, in the Layers panel and in every widget's
+  layer list. A name the author typed still wins. (#838)
+- Save as template works for an app that still refers to an item that
+  was deleted or is no longer shared with you. Those references are left
+  out of the template and the designer says how many; before, the whole
+  save failed with "Referenced item ... was not found". (#839)
+- Report template and What's Here PDFs whose name has Cyrillic,
+  Chinese, Japanese or other non-Latin letters download again. They
+  answered an error. (#842)
+- The first time ArcGIS Pro or QGIS opens a layer made before ObjectIDs
+  existed, its features are numbered once, however many requests ask at
+  the same time, and once across API replicas. A request waits at most
+  15 seconds. A very large layer answers "This layer is being prepared
+  for ArcGIS clients. Try again in a minute." while numbering finishes
+  in the background. (#843)
 - Field app and maps: a table sublayer (a related table such as
   inspections) asked for a TileJSON it does not have, and the 404 was
   asked again every 15 seconds. The field app no longer hands table

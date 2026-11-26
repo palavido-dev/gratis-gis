@@ -2,7 +2,9 @@
 /**
  * Geocoder proxy. The browser hits `/api/geocode?q=...` and this route
  * forwards to the Nominatim instance configured by NOMINATIM_URL
- * (defaults to the docker-compose service at localhost:8081).
+ * (defaults to the docker-compose service at localhost:8081), or to
+ * an open-geocode server when OPEN_GEOCODE_URL is set. Either way the
+ * answer is Nominatim jsonv2 rows.
  *
  * Why proxy instead of letting the browser call Nominatim directly:
  *   1. One env var swaps local / staging / prod endpoints.
@@ -20,10 +22,61 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
 import { hasUsableSession } from '@/lib/session-state';
 import { nominatimTarget } from '@/lib/nominatim-config';
+import { activeOpenGeocodeUrl, toNominatimRows } from '@/lib/open-geocode';
 
 const USER_AGENT =
   'GratisGIS/0.1 (https://github.com/palavido-dev/gratis-gis)';
 const PUBLIC_NOMINATIM = 'https://nominatim.openstreetmap.org';
+
+async function askOpenGeocode(
+  base: string,
+  endpoint: 'autocomplete' | 'geocode',
+  q: string,
+): Promise<Response> {
+  const params = new URLSearchParams({ q, limit: '5' });
+  return fetch(`${base}/${endpoint}?${params}`, {
+    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
+    cache: 'no-store',
+  });
+}
+
+/**
+ * Ask the configured open-geocode server. No public fallback: an
+ * operator who set OPEN_GEOCODE_URL chose to keep searches on it.
+ *
+ * `autocomplete` is for search-as-you-type: open-geocode then matches
+ * the last word as a prefix ("223 Merch" finds 223 Merchants Walk),
+ * which its full geocoder does not. When autocomplete finds nothing,
+ * the full geocoder gets the same text, so a complete address with a
+ * typo still has a chance.
+ */
+async function searchOpenGeocode(
+  base: string,
+  q: string,
+  autocomplete: boolean,
+): Promise<NextResponse> {
+  try {
+    if (autocomplete) {
+      const res = await askOpenGeocode(base, 'autocomplete', q);
+      if (res.ok) {
+        const rows = toNominatimRows(await res.json());
+        if (rows.length > 0) return NextResponse.json(rows, { status: 200 });
+      }
+    }
+    const res = await askOpenGeocode(base, 'geocode', q);
+    if (!res.ok) {
+      return NextResponse.json(
+        { message: `open-geocode ${res.status}` },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json(toNominatimRows(await res.json()), { status: 200 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Geocoder unreachable';
+    return NextResponse.json({ message: msg }, { status: 502 });
+  }
+}
 
 async function searchNominatim(base: string, params: URLSearchParams): Promise<Response> {
   return fetch(`${base.replace(/\/$/, '')}/search?${params}`, {
@@ -47,6 +100,15 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get('q')?.trim() ?? '';
   if (q.length < 3) {
     return NextResponse.json([], { status: 200 });
+  }
+
+  const og = await activeOpenGeocodeUrl();
+  if (og) {
+    return searchOpenGeocode(
+      og,
+      q,
+      req.nextUrl.searchParams.get('autocomplete') === '1',
+    );
   }
 
   const params = new URLSearchParams({

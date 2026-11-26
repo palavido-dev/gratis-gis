@@ -62,7 +62,9 @@ x-gratis:
   # 2: portal-api and portal-worker share the gg-staging volume.
   # 3: optional settings pass through; email links use the portal
   #    address; portal-worker leaves crons to portal-api.
-  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "3"
+  # 4: bootstrap adds GRATIS_SIGNING_SECRET (ArcGIS Pro and QGIS
+  #    sign-ins) to an existing install.
+  GRATIS_COMPOSE_REV: &GRATIS_COMPOSE_REV "4"
   # Written into /boot/ready by bootstrap, and every service waits for
   # a marker that matches its own copy (58-4). The marker lives on a
   # volume and survives restarts, so a plain "file exists" test let
@@ -573,6 +575,19 @@ services:
                         "redirectUris": ["gratisgis://auth-callback"],
                         "webOrigins": [],
                         "attributes": {"pkce.code.challenge.method": "S256"},
+                        "protocolMappers": org_mappers(),
+                    },
+                    {
+                        "clientId": "esri-desktop",
+                        "name": "GratisGIS sign-in for ArcGIS Pro",
+                        "enabled": True,
+                        "publicClient": True,
+                        "standardFlowEnabled": False,
+                        "implicitFlowEnabled": False,
+                        "directAccessGrantsEnabled": True,
+                        "serviceAccountsEnabled": False,
+                        "redirectUris": [],
+                        "webOrigins": [],
                         "protocolMappers": org_mappers(),
                     },
                     {
@@ -1479,7 +1494,39 @@ services:
                 "CHROMIUM_TOKEN": rand(),
                 "INITIAL_USER_PASSWORD": rand(16),
                 "CREDENTIAL_ENCRYPTION_KEY": encryption_key(),
+                "GRATIS_SIGNING_SECRET": rand(),
             }
+
+
+        # Secrets every install has had since its first start.
+        FIRST_START_SECRETS = (
+            "POSTGRES_PASSWORD",
+            "KEYCLOAK_DB_PASSWORD",
+            "MINIO_ROOT_PASSWORD",
+            "KEYCLOAK_ADMIN_PASSWORD",
+            "KEYCLOAK_ADMIN_CLIENT_SECRET",
+            "NEXTAUTH_SECRET",
+            "CHROMIUM_TOKEN",
+            "INITIAL_USER_PASSWORD",
+            "CREDENTIAL_ENCRYPTION_KEY",
+        )
+
+        # Secrets a later release added. An install from before then gets a new
+        # random value on its next start and keeps it from then on, so an
+        # update needs no manual step. GRATIS_SIGNING_SECRET signs ArcGIS Pro
+        # and QGIS sign-ins; before it existed they were signed with the MinIO
+        # password.
+        ADDED_SECRETS = {
+            "GRATIS_SIGNING_SECRET": rand,
+        }
+
+
+        def saved_secrets(previous: dict[str, str]) -> dict[str, str]:
+            """The secrets of an existing install, with any newer ones added."""
+            secret = {key: previous[key] for key in FIRST_START_SECRETS}
+            for key, make in ADDED_SECRETS.items():
+                secret[key] = previous.get(key) or make()
+            return secret
 
 
         def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
@@ -1546,6 +1593,9 @@ services:
                 "BACKUP_DIR": "/app/backups",
                 "STORAGE_ALLOWED_ORIGINS": public,
                 "CREDENTIAL_ENCRYPTION_KEY": secret["CREDENTIAL_ENCRYPTION_KEY"],
+                # Read by portal-api only. Not in SERVICE_ENV_KEYS, so chromium
+                # and pointcloud-worker never see it.
+                "GRATIS_SIGNING_SECRET": secret["GRATIS_SIGNING_SECRET"],
                 "INITIAL_USER_PASSWORD": secret["INITIAL_USER_PASSWORD"],
                 "DEFAULT_ORG_SLUG": "gratis-gis",
                 "ACME_EMAIL": email,
@@ -1579,6 +1629,7 @@ services:
                 "CHROMIUM_TOKEN",
                 "INITIAL_USER_PASSWORD",
                 "CREDENTIAL_ENCRYPTION_KEY",
+                "GRATIS_SIGNING_SECRET",
             )
             for key in secret_keys:
                 if values[key] in WEAK or (key != "CREDENTIAL_ENCRYPTION_KEY" and len(values[key]) < 16):
@@ -1684,6 +1735,38 @@ services:
                 print(f"WARN: could not grant realm-management roles (HTTP {status}).", flush=True)
                 return
             print("Keycloak admin service account can list and manage users.", flush=True)
+
+
+        def ensure_clients(internal: str, auth: dict[str, str], values: dict[str, str]) -> None:
+            """Create any client the realm template has and this realm lacks.
+
+            `--import-realm` only runs on a first boot, so a client added in a
+            later release (esri-desktop, for ArcGIS Pro sign-in) never reached
+            an install that was already set up. Runs on every start. Never
+            changes a client that exists: an operator's edits stay.
+            """
+            base = f"{internal}/admin/realms/gratis-gis/clients"
+            for client in build_realm(values).get("clients", []):
+                cid = client.get("clientId")
+                if not cid:
+                    continue
+                query = urllib.parse.urlencode({"clientId": cid})
+                status, raw = _request(f"{base}?{query}", "GET", None, auth)
+                if status != 200:
+                    print(f"WARN: could not look up the {cid} client (HTTP {status}).")
+                    continue
+                if json.loads(raw):
+                    continue
+                status, _ = _request(
+                    base,
+                    "POST",
+                    json.dumps(client).encode(),
+                    {**auth, "Content-Type": "application/json"},
+                )
+                if status not in (200, 201, 204):
+                    print(f"WARN: could not create the {cid} client (HTTP {status}).")
+                    continue
+                print(f"Keycloak client {cid} added.", flush=True)
 
 
         def ensure_default_offline_access(internal: str, auth: dict[str, str]) -> None:
@@ -1817,6 +1900,7 @@ services:
             token = json.loads(raw).get("access_token") or ""
             auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             grant_service_account_roles(internal, auth)
+            ensure_clients(internal, auth, values)
             ensure_default_offline_access(internal, auth)
             sync_sign_in_address(internal, auth, values)
             status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
@@ -1958,17 +2042,7 @@ services:
             if not os.environ.get("GRATIS_BASE_URL", "").strip() and saved_address.exists():
                 os.environ["GRATIS_BASE_URL"] = saved_address.read_text(encoding="utf-8").strip()
             if previous:
-                secret = {key: previous[key] for key in (
-                    "POSTGRES_PASSWORD",
-                    "KEYCLOAK_DB_PASSWORD",
-                    "MINIO_ROOT_PASSWORD",
-                    "KEYCLOAK_ADMIN_PASSWORD",
-                    "KEYCLOAK_ADMIN_CLIENT_SECRET",
-                    "NEXTAUTH_SECRET",
-                    "CHROMIUM_TOKEN",
-                    "INITIAL_USER_PASSWORD",
-                    "CREDENTIAL_ENCRYPTION_KEY",
-                )}
+                secret = saved_secrets(previous)
             else:
                 secret = fresh_secrets()
             # An explicit GRATIS_BASE_URL always wins, including on a restart.
@@ -2193,6 +2267,9 @@ services:
         . /boot/env
         set +a
         unset MINIO_ROOT_USER_FILE MINIO_ROOT_PASSWORD_FILE MINIO_ACCESS_KEY_FILE MINIO_SECRET_KEY_FILE MINIO_CONFIG_ENV_FILE
+        # Only portal-api signs ArcGIS Pro sign-ins. Keep it out of
+        # the storage server's environment.
+        unset GRATIS_SIGNING_SECRET
         exec /usr/bin/silo server /data --console-address ":9001"
     ports:
       # Browser uploads. The host port is GRATIS_S3_PORT at the top
@@ -2291,6 +2368,10 @@ services:
       HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS: ${HOUSEKEEPING_FIELD_QUEUE_AUTO_PRUNE_GRACE_DAYS:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       # Vector tiles are also kept on disk, so maps load quickly after
       # a restart or an update. Set TILE_CACHE_DISK_MAX_BYTES=0 to turn
       # it off. The default cap is 1 GiB.
@@ -2353,12 +2434,23 @@ services:
       NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-}
       PORTAL_NAME: ${PORTAL_NAME:-}
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
+      # Seeds Admin -> Geocoding on a portal whose admin page is locked
+      # (PORTAL_LOCK_ADMIN_TIER), such as a public demo: comma-separated
+      # Geofabrik ids, for example us/west-virginia.
+      GEOCODER_REGIONS: ${GEOCODER_REGIONS:-}
+      GEOCODER_TIGER: ${GEOCODER_TIGER:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
       # 06-5: search index builds run here now, queued by portal-api.
       SEARCH_INDEX_BUILD_TIMEOUT_MS: ${SEARCH_INDEX_BUILD_TIMEOUT_MS:-}
     volumes:
       - boot:/boot:ro
       - gg-staging:/var/lib/gg-staging
+      # Admin -> Geocoding: downloads, TIGER cache and the built index.
+      - geocoder-data:/var/lib/gratis/geocoder
     depends_on:
       portal-api:
         condition: service_healthy
@@ -2476,6 +2568,10 @@ services:
       # public nominatim.openstreetmap.org unless
       # NOMINATIM_PUBLIC_FALLBACK is 0.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
       GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
       GRATIS_SESSION_IDLE_SECONDS: ${GRATIS_SESSION_IDLE_SECONDS:-}
@@ -2630,6 +2726,8 @@ volumes:
   gg-staging:
   # Vector tile disk cache. Safe to delete; tiles are rebuilt on use.
   tile-cache:
+  # Managed geocoder (portal-worker). Deleting it only costs a rebuild.
+  geocoder-data:
 
 networks:
   gratis-net:

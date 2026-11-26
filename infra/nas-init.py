@@ -461,6 +461,19 @@ def build_realm(values: dict[str, str]) -> dict:
                 "protocolMappers": org_mappers(),
             },
             {
+                "clientId": "esri-desktop",
+                "name": "GratisGIS sign-in for ArcGIS Pro",
+                "enabled": True,
+                "publicClient": True,
+                "standardFlowEnabled": False,
+                "implicitFlowEnabled": False,
+                "directAccessGrantsEnabled": True,
+                "serviceAccountsEnabled": False,
+                "redirectUris": [],
+                "webOrigins": [],
+                "protocolMappers": org_mappers(),
+            },
+            {
                 "clientId": "qgis-plugin",
                 "name": "GratisGIS QGIS Plugin",
                 "enabled": True,
@@ -1364,7 +1377,39 @@ def fresh_secrets() -> dict[str, str]:
         "CHROMIUM_TOKEN": rand(),
         "INITIAL_USER_PASSWORD": rand(16),
         "CREDENTIAL_ENCRYPTION_KEY": encryption_key(),
+        "GRATIS_SIGNING_SECRET": rand(),
     }
+
+
+# Secrets every install has had since its first start.
+FIRST_START_SECRETS = (
+    "POSTGRES_PASSWORD",
+    "KEYCLOAK_DB_PASSWORD",
+    "MINIO_ROOT_PASSWORD",
+    "KEYCLOAK_ADMIN_PASSWORD",
+    "KEYCLOAK_ADMIN_CLIENT_SECRET",
+    "NEXTAUTH_SECRET",
+    "CHROMIUM_TOKEN",
+    "INITIAL_USER_PASSWORD",
+    "CREDENTIAL_ENCRYPTION_KEY",
+)
+
+# Secrets a later release added. An install from before then gets a new
+# random value on its next start and keeps it from then on, so an
+# update needs no manual step. GRATIS_SIGNING_SECRET signs ArcGIS Pro
+# and QGIS sign-ins; before it existed they were signed with the MinIO
+# password.
+ADDED_SECRETS = {
+    "GRATIS_SIGNING_SECRET": rand,
+}
+
+
+def saved_secrets(previous: dict[str, str]) -> dict[str, str]:
+    """The secrets of an existing install, with any newer ones added."""
+    secret = {key: previous[key] for key in FIRST_START_SECRETS}
+    for key, make in ADDED_SECRETS.items():
+        secret[key] = previous.get(key) or make()
+    return secret
 
 
 def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
@@ -1431,6 +1476,9 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "BACKUP_DIR": "/app/backups",
         "STORAGE_ALLOWED_ORIGINS": public,
         "CREDENTIAL_ENCRYPTION_KEY": secret["CREDENTIAL_ENCRYPTION_KEY"],
+        # Read by portal-api only. Not in SERVICE_ENV_KEYS, so chromium
+        # and pointcloud-worker never see it.
+        "GRATIS_SIGNING_SECRET": secret["GRATIS_SIGNING_SECRET"],
         "INITIAL_USER_PASSWORD": secret["INITIAL_USER_PASSWORD"],
         "DEFAULT_ORG_SLUG": "gratis-gis",
         "ACME_EMAIL": email,
@@ -1464,6 +1512,7 @@ def assemble(urls: dict[str, str], secret: dict[str, str]) -> dict[str, str]:
         "CHROMIUM_TOKEN",
         "INITIAL_USER_PASSWORD",
         "CREDENTIAL_ENCRYPTION_KEY",
+        "GRATIS_SIGNING_SECRET",
     )
     for key in secret_keys:
         if values[key] in WEAK or (key != "CREDENTIAL_ENCRYPTION_KEY" and len(values[key]) < 16):
@@ -1569,6 +1618,38 @@ def grant_service_account_roles(internal: str, auth: dict[str, str]) -> None:
         print(f"WARN: could not grant realm-management roles (HTTP {status}).", flush=True)
         return
     print("Keycloak admin service account can list and manage users.", flush=True)
+
+
+def ensure_clients(internal: str, auth: dict[str, str], values: dict[str, str]) -> None:
+    """Create any client the realm template has and this realm lacks.
+
+    `--import-realm` only runs on a first boot, so a client added in a
+    later release (esri-desktop, for ArcGIS Pro sign-in) never reached
+    an install that was already set up. Runs on every start. Never
+    changes a client that exists: an operator's edits stay.
+    """
+    base = f"{internal}/admin/realms/gratis-gis/clients"
+    for client in build_realm(values).get("clients", []):
+        cid = client.get("clientId")
+        if not cid:
+            continue
+        query = urllib.parse.urlencode({"clientId": cid})
+        status, raw = _request(f"{base}?{query}", "GET", None, auth)
+        if status != 200:
+            print(f"WARN: could not look up the {cid} client (HTTP {status}).")
+            continue
+        if json.loads(raw):
+            continue
+        status, _ = _request(
+            base,
+            "POST",
+            json.dumps(client).encode(),
+            {**auth, "Content-Type": "application/json"},
+        )
+        if status not in (200, 201, 204):
+            print(f"WARN: could not create the {cid} client (HTTP {status}).")
+            continue
+        print(f"Keycloak client {cid} added.", flush=True)
 
 
 def ensure_default_offline_access(internal: str, auth: dict[str, str]) -> None:
@@ -1702,6 +1783,7 @@ def patch_keycloak(values: dict[str, str]) -> None:
     token = json.loads(raw).get("access_token") or ""
     auth = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     grant_service_account_roles(internal, auth)
+    ensure_clients(internal, auth, values)
     ensure_default_offline_access(internal, auth)
     sync_sign_in_address(internal, auth, values)
     status, raw = _request(f"{internal}/admin/realms/gratis-gis/users/profile", "GET", None, auth)
@@ -1843,17 +1925,7 @@ def main() -> None:
     if not os.environ.get("GRATIS_BASE_URL", "").strip() and saved_address.exists():
         os.environ["GRATIS_BASE_URL"] = saved_address.read_text(encoding="utf-8").strip()
     if previous:
-        secret = {key: previous[key] for key in (
-            "POSTGRES_PASSWORD",
-            "KEYCLOAK_DB_PASSWORD",
-            "MINIO_ROOT_PASSWORD",
-            "KEYCLOAK_ADMIN_PASSWORD",
-            "KEYCLOAK_ADMIN_CLIENT_SECRET",
-            "NEXTAUTH_SECRET",
-            "CHROMIUM_TOKEN",
-            "INITIAL_USER_PASSWORD",
-            "CREDENTIAL_ENCRYPTION_KEY",
-        )}
+        secret = saved_secrets(previous)
     else:
         secret = fresh_secrets()
     # An explicit GRATIS_BASE_URL always wins, including on a restart.

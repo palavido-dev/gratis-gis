@@ -458,38 +458,49 @@ export function CustomAppDetail({
   // access private (the author can re-share via the standard share
   // dialog on the new item).  We open the new template in a new
   // tab so the author doesn't lose context of the app they're
-  // editing.  The blueprint is stored exactly as-is; the
-  // instantiation path in the wizard (stampBlueprint) rewrites
-  // widget ids on each new app stamped from this template.
+  // editing.  The instantiation path in the wizard (stampBlueprint)
+  // rewrites widget ids on each new app stamped from this template.
+  //
+  // #839: the server saves it from this app, leaving out references
+  // to items that are gone or unreadable rather than refusing the
+  // whole template, and says how many it left out.
   const [savingAsTemplate, setSavingAsTemplate] = useState(false);
+  const [templateNotice, setTemplateNotice] = useState<string | null>(null);
   const onSaveAsTemplate = useCallback(async () => {
     setSavingAsTemplate(true);
     setError(null);
+    setTemplateNotice(null);
     try {
-      const res = await fetch('/api/portal/items', {
+      const res = await fetch(`/api/portal/items/${itemId}/save-as-template`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          type: 'app_template',
-          title: `${itemTitle} (template)`,
-          description: `Saved from ${itemTitle}`,
-          tags: ['user-saved'],
-          data: app,
-          access: 'private',
-        }),
+        body: JSON.stringify({ title: `${itemTitle} (template)`, data: app }),
       });
       if (!res.ok) {
-        const txt = await res.text().catch(() => '');
-        throw new Error(`save-as-template failed: ${res.status} ${txt}`);
+        const body = (await res.json().catch(() => null)) as { message?: unknown } | null;
+        const reason =
+          typeof body?.message === 'string'
+            ? body.message
+            : Array.isArray(body?.message)
+              ? body.message.join(' ')
+              : `error ${res.status}`;
+        throw new Error(`Could not save as template: ${reason}`);
       }
-      const body = (await res.json()) as { id: string };
+      const body = (await res.json()) as { id: string; omittedItemIds?: string[] };
+      const left = body.omittedItemIds?.length ?? 0;
+      setTemplateNotice(
+        left > 0
+          ? `Template saved. ${left} reference${left === 1 ? '' : 's'} to an item that no longer exists or that you cannot open ${left === 1 ? 'was' : 'were'} left out.`
+          : 'Template saved.',
+      );
+      setTimeout(() => setTemplateNotice(null), left > 0 ? 12000 : 3000);
       window.open(`/items/${body.id}`, '_blank', 'noopener,noreferrer');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'save-as-template failed');
+      setError(err instanceof Error ? err.message : 'Could not save as template.');
     } finally {
       setSavingAsTemplate(false);
     }
-  }, [app, itemTitle]);
+  }, [app, itemId, itemTitle]);
 
   const updateApp = useCallback((patch: AppPatch) => {
     // An explicit undefined means "unset this", not "leave it alone".
@@ -1019,6 +1030,11 @@ export function CustomAppDetail({
       )}
       {saved && (
         <span className="text-xs font-medium text-success">Saved</span>
+      )}
+      {templateNotice && (
+        <span className="text-xs font-medium text-ink-1" role="status">
+          {templateNotice}
+        </span>
       )}
       <button
         type="button"
@@ -3969,6 +3985,7 @@ function SourceRow({
   onRemove: () => void;
 }) {
   const myFields = useTargetFields(source.layer);
+  const ownTitle = useLayerTitle(source.layer);
   const parent = siblings.find((o) => o.id === source.via?.sourceId);
   const parentFields = useTargetFields(parent?.layer);
   return (
@@ -3980,7 +3997,8 @@ function SourceRow({
           value={source.label ?? ''}
           disabled={!canEdit}
           onChange={(e) => onChange({ label: e.target.value || undefined })}
-          placeholder={source.layer.layerKey}
+          placeholder={ownTitle ?? source.layer.layerKey}
+          title={ownTitle ?? source.layer.layerKey}
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-2xs text-ink-0 hover:border-border focus:border-ink-1 focus:outline-hidden"
           aria-label="Layer name"
         />
@@ -4068,7 +4086,7 @@ function SourceRow({
             >
               {siblings.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.label?.trim() || o.layer.layerKey}
+                  <SourceName source={o} />
                 </option>
               ))}
             </select>
@@ -4502,7 +4520,7 @@ function WidgetConfigForm({
                   ) : null}
                   {appTargets.map((src, i) => (
                     <option key={src.id} value={i}>
-                      {src.label?.trim() || src.layer.layerKey}
+                      <SourceName source={src} />
                     </option>
                   ))}
                 </>
@@ -6052,7 +6070,7 @@ function FeatureMutationWidgetConfigEditor({
           ) : null}
           {appTargets.map((src, i) => (
             <option key={src.id} value={i}>
-              {`Only ${src.label?.trim() || src.layer.layerKey}`}
+              Only <SourceName source={src} />
             </option>
           ))}
         </select>
@@ -8013,6 +8031,50 @@ type LayerItemLite = {
 };
 
 /**
+ * What to call one layer of a data layer item when the author has not
+ * named it (#838): the item's title, plus the layer's own label when
+ * the item holds more than one layer. Null when the layer is not
+ * found, so the caller can fall back to its key.
+ */
+function layerTitle(item: LayerItemLite, layerKey: string): string | null {
+  const layers = item.data?.layers ?? [];
+  const sub = layers.find((l) => l.id === layerKey);
+  if (!sub) return null;
+  const itemTitle = item.title?.trim() || null;
+  const subLabel = sub.label?.trim() || null;
+  if (!itemTitle) return subLabel;
+  if (layers.length <= 1 || !subLabel || subLabel === itemTitle) return itemTitle;
+  return `${itemTitle} / ${subLabel}`;
+}
+
+/** The layer's own title, read through the shared item cache. */
+function useLayerTitle(target: ViewerTarget): string | null {
+  const [title, setTitle] = useState<string | null>(null);
+  const { dataLayerId, layerKey } = target;
+  useEffect(() => {
+    let cancelled = false;
+    setTitle(null);
+    void fetchLayerItem(dataLayerId).then((item) => {
+      if (!cancelled) setTitle(item ? layerTitle(item, layerKey) : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataLayerId, layerKey]);
+  return title;
+}
+
+/**
+ * A source's name as the designer shows it: the author's label, else
+ * the layer's title, else its key while the title loads or when the
+ * layer is gone. Renders plain text, so it also works inside <option>.
+ */
+function SourceName({ source }: { source: AppDataSource }) {
+  const title = useLayerTitle(source.layer);
+  return <>{source.label?.trim() || title || source.layer.layerKey}</>;
+}
+
+/**
  * Data_layer item reads shared by every layer picker and field picker
  * in the designer, one request per item for the life of the page.
  * Each picker used to fetch every source's full item again, one at a
@@ -8058,7 +8120,7 @@ function useResolvedTargets(sources: AppDataSource[]): ResolvedTargetLite[] {
           if (item.data?.version !== 3) continue;
           const sub = item.data.layers?.find((l) => l.id === t.layerKey);
           if (!sub) continue;
-          const title = `${item.title ?? 'Layer'} / ${sub.label ?? t.layerKey}`;
+          const title = layerTitle(item, t.layerKey) ?? t.layerKey;
           out.push({
             sourceId: src.id,
             dataLayerId: t.dataLayerId,
@@ -8192,12 +8254,9 @@ function TargetSelect({
    *  the id is what survives source removal and reordering. */
   onChange: (index: number, sourceId: string | undefined) => void;
 }) {
-  // Resolve the layers' real names. The list used to read
-  // "#0 4d029569 / bridges", which asks an author to recognise a
-  // layer by eight characters of its item's UUID; nobody can, and it
-  // is the kind of database detail the UI is supposed to keep to
-  // itself.
-  const resolved = useResolvedTargets(appTargets);
+  // Options show the layers' real names (SourceName). The list used
+  // to read "#0 4d029569 / bridges", which asks an author to
+  // recognise a layer by eight characters of its item's UUID.
   // Same precedence as useWidgetSource: an id that no longer exists
   // (its layer was removed) binds to nothing at runtime, so it must
   // not fall back to the legacy index here either.  Show an explicit
@@ -8234,9 +8293,7 @@ function TargetSelect({
             ) : null}
             {appTargets.map((src, i) => (
               <option key={src.id} value={i}>
-                {src.label?.trim() ||
-                  resolved.find((r) => r.sourceId === src.id)?.title ||
-                  src.layer.layerKey}
+                <SourceName source={src} />
               </option>
             ))}
           </>

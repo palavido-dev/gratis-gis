@@ -401,6 +401,124 @@ describe('orphaned file sweep', () => {
   });
 });
 
+describe('orphaned file sweep: reporting', () => {
+  it('reports a refused register call as a non-terminal error and keeps the file', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK)) // presign
+      .mockResolvedValueOnce(new Response('', { status: 200 })) // PUT
+      .mockResolvedValueOnce(json(404, { message: 'Feature not found' })); // register
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    // The drain itself had nothing to do, but the photo failure is
+    // counted and explained rather than dropped. recordId is empty
+    // because no queue row sits behind it.
+    expect(result.failed).toBe(1);
+    expect(result.errors).toEqual([
+      {
+        recordId: '',
+        op: 'update',
+        layerLabel: LAYER.layerKey,
+        reason: {
+          code: 'sync.serverRefused',
+          params: { serverMessage: 'Feature not found' },
+        },
+        terminal: false,
+      },
+    ]);
+    // Best-effort: the file stays queued for the next sync.
+    expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
+  });
+
+  it('treats a 403 on register as terminal and keeps the file queued', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(
+        json(403, { message: 'Attachments are disabled on this layer' }),
+      );
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    // Still counted as not sent, and the server's own words are the
+    // reason. Terminal because the layer setting will not change by
+    // itself, but the photo is not thrown away.
+    expect(result.failed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      recordId: '',
+      terminal: true,
+      reason: {
+        code: 'sync.serverRefused',
+        params: { serverMessage: 'Attachments are disabled on this layer' },
+      },
+    });
+    expect(await listPendingBlobs(DC, USER)).toHaveLength(1);
+  });
+
+  it('keeps a 404 on register non-terminal', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(json(404, { message: 'Feature not found' }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.errors[0]?.terminal).toBe(false);
+  });
+
+  it('falls back to the attachment step code when the server gave no reason', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response('', { status: 403 }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.errors[0]?.reason).toEqual({
+      code: 'sync.attachmentRegisterFailed',
+      params: { status: 403 },
+    });
+    // A bare 403 on register is terminal too, whatever the body.
+    expect(result.errors[0]?.terminal).toBe(true);
+  });
+
+  it('one failing feature does not stop the next one uploading', async () => {
+    await putPendingBlob(blob({ blobId: 'blob-1', globalId: 'feature-1' }));
+    await putPendingBlob(blob({ blobId: 'blob-2', globalId: 'feature-2' }));
+    fetchMock
+      .mockResolvedValueOnce(new Response('', { status: 500 })) // presign, feature-1
+      .mockResolvedValueOnce(json(200, PRESIGN_OK)) // presign, feature-2
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(json(201, { id: 'att-2' }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.failed).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    const left = await listPendingBlobs(DC, USER);
+    expect(left.map((b) => b.blobId)).toEqual(['blob-1']);
+  });
+
+  it('uploads a successful orphan, deletes it and reports no error', async () => {
+    await putPendingBlob(blob());
+    fetchMock
+      .mockResolvedValueOnce(json(200, PRESIGN_OK))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(json(201, { id: 'att-1' }));
+
+    const result = await syncQueue(DC, { currentUserId: USER });
+
+    expect(result.failed).toBe(0);
+    expect(result.errors).toEqual([]);
+    expect(await listPendingBlobs(DC, USER)).toEqual([]);
+  });
+});
+
 describe('uploadPendingBlobsForFeature', () => {
   const ref = {
     dataCollectionId: DC,

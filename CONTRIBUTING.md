@@ -22,21 +22,17 @@ hosting lands).
 
 ## Branching & PRs
 
+Releases go out on the second Tuesday of each month (see
+[docs/VERSIONING.md](./docs/VERSIONING.md#release-schedule)). In the
+week before, main takes fixes only; a feature PR that is ready then
+merges after the release.
+
 - `main` is always deployable.
 - Feature work happens on branches named `feat/<short-slug>`; bug fixes on
   `fix/<short-slug>`.
-- The automated loop in
-  [docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md) uses three
-  streams (Researcher, Scoper, Developer). The Developer uses
-  `cursor/<slug>-2838` (or `palavido-dev/<slug>-2838`) only for items
-  Matthew marked yay. Use `feat/` or `fix/` for a change a person
-  should review outside that queue.
 - PRs require passing CI (lint, typecheck, test, build). Matthew is
   the final reviewer. Others may open pull requests; that is not a
-  review. The Developer stream may merge a PR it opened for an
-  approved queue item when CI is green. It does not merge a PR marked
-  for maintainer review, and it does not treat another contributor's
-  approval as Matthew's review.
+  review.
 - Dependabot opens dependency pull requests (see
   `.github/dependabot.yml`). Patch and minor updates squash-merge
   themselves once the CI and Security workflows are green
@@ -82,13 +78,9 @@ the front.
 ## How this project is built
 
 Matthew designs, directs, and reviews, and he is the final say. AI
-assists with the coding. That includes the automated loop described in
-[docs/autonomy/PLAYBOOK.md](./docs/autonomy/PLAYBOOK.md): a Researcher
-proposes, a Scoper ranks a morning list, Matthew gives yay/nay on each
-item, and a Developer implements approved items (opens PRs, merges on
-green CI). Releases need an explicit ask or an approved release queue
-item. Matthew makes the product, security-default, and licensing
-calls.
+assists with the coding. Releases follow the monthly schedule in
+[docs/VERSIONING.md](./docs/VERSIONING.md#release-schedule). Matthew
+makes the product, security-default, and licensing calls.
 
 Contributions that used AI assistance are welcome when the contributor
 takes responsibility for the change and says so in the pull request
@@ -142,8 +134,6 @@ call:
 
 Skip What's new for pure internals; still update help and
 CHANGELOG when an existing page or engineer note would be wrong.
-Autonomy builders also move `docs/autonomy/QUEUE.md` in the same
-PR when a queued item ships.
 
 ## Tests
 

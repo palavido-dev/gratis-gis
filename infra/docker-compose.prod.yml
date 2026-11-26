@@ -522,6 +522,11 @@ services:
       # item_credential and system_setting becomes unreadable -- treat
       # it as effectively immutable once set.
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY must be set in .env.prod}
+      # Signs ArcGIS Pro and QGIS sign-in tokens. Only this service gets
+      # it. Empty on purpose when an older .env.prod has no line yet:
+      # the api then falls back to the MinIO secret and logs a warning,
+      # and the next ./infra/deploy.sh adds the line.
+      GRATIS_SIGNING_SECRET: ${GRATIS_SIGNING_SECRET:-}
       # MinIO / S3. Variable names match what storage.service.ts /
       # backup.service.ts read; no S3_* aliases.
       #
@@ -710,6 +715,10 @@ services:
       # Address geocoding for CSV imports. This stack runs no
       # Nominatim, so it stays off unless you point it at one.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       # `off` stops the admin Updates page from calling GitHub.
       UPDATE_CHECK: ${UPDATE_CHECK:-}
       # Name of the install's organization when the admin first signs
@@ -852,9 +861,20 @@ services:
       PORTAL_NAME: ${PORTAL_NAME:-}
       # CSV address geocoding runs in import jobs here.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
+      # Seeds Admin -> Geocoding on a portal whose admin page is locked
+      # (PORTAL_LOCK_ADMIN_TIER), such as a public demo: comma-separated
+      # Geofabrik ids, for example us/west-virginia.
+      GEOCODER_REGIONS: ${GEOCODER_REGIONS:-}
+      GEOCODER_TIGER: ${GEOCODER_TIGER:-}
       PORTAL_BASEMAP_PMTILES_URL: ${PORTAL_BASEMAP_PMTILES_URL:-}
     volumes:
       - gg-staging:/var/lib/gg-staging
+      # Admin -> Geocoding: downloads, TIGER cache and the built index.
+      - geocoder-data:/var/lib/gratis/geocoder
 
     # Override CMD: same image but boot the worker entry point instead
     # of the http server.
@@ -1189,6 +1209,10 @@ services:
       # NOMINATIM_URL empty, searches go to the public
       # nominatim.openstreetmap.org unless NOMINATIM_PUBLIC_FALLBACK=0.
       NOMINATIM_URL: ${NOMINATIM_URL:-}
+      OPEN_GEOCODE_URL: ${OPEN_GEOCODE_URL:-}
+      # Admin -> Geocoding: portal-worker serves the index it builds
+      # here. Used only while it answers.
+      MANAGED_GEOCODER_URL: ${MANAGED_GEOCODER_URL:-http://portal-worker:8091}
       NOMINATIM_PUBLIC_FALLBACK: ${NOMINATIM_PUBLIC_FALLBACK:-}
       # Portal cookie lifetime and idle window (docs/operations/session.md).
       GRATIS_SESSION_MAX_AGE_SECONDS: ${GRATIS_SESSION_MAX_AGE_SECONDS:-}
@@ -1308,6 +1332,8 @@ volumes:
   # Optional disk tier of the vector tile cache (TILE_CACHE_DIR).
   # Disposable: deleting it only costs recomputing tiles.
   tile-cache:
+  # Managed geocoder (portal-worker). Deleting it only costs a rebuild.
+  geocoder-data:
 
 networks:
   gratis-net:

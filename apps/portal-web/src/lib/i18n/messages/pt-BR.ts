@@ -91,6 +91,7 @@ export const ptBR: Partial<CatalogShape> = {
       signIn: { title: 'Login', desc: 'Contas de trabalho usadas para entrar e se um autenticador é exigido.' },
       landing: { title: 'Página inicial', desc: 'O que os visitantes veem na página inicial antes de entrar.' },
       ai: { title: 'Assistente de IA', desc: 'Conectar um provedor de IA para rascunhos e criação. Desligado até você adicionar um.' },
+      geocoding: { title: 'Geocodificação', desc: 'Escolher as regiões cobertas pela busca de endereços. O portal baixa os dados do mapa e os mantém atualizados.' },
       feedback: { title: 'Caixa de feedback', desc: 'O que as pessoas enviaram pelo portal, do mais recente ao mais antigo.' },
       jobs: { title: 'Importações e análises', desc: 'Importações e análises em andamento e recentes, com cancelar e tentar de novo.' },
       fieldQueues: { title: 'Filas de campo', desc: 'O que cada dispositivo de campo tem para sincronizar e quando se conectou pela última vez.' },
@@ -1823,6 +1824,11 @@ export const ptBR: Partial<CatalogShape> = {
     connectProvider: "Conectar um provedor em Administração, Assistente de IA",
   },
   fieldQueue: {
+    syncProblemChip: 'Problema de sincronização',
+    syncProblemChipTitle: 'Algo não foi sincronizado. Toque para ler o motivo.',
+    syncProblemTitle: 'Problemas de sincronização',
+    syncProblemIntro:
+      'Estes itens não terminaram de sincronizar. Continuam neste dispositivo e serão tentados de novo na próxima sincronização.',
     rejectedChip:
       '{count, plural, one {# edição precisa de atenção} other {# edições precisam de atenção}}',
     rejectedChipTitle:
@@ -2475,6 +2481,19 @@ export const ptBR: Partial<CatalogShape> = {
     savingCell: 'Salvando...',
     readOnlyHere:
       'Esta tabela é somente leitura aqui. As linhas podem ser editadas em camadas que você tem permissão para alterar.',
+  },
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Usar no ArcGIS Pro',
+    title: 'Usar esta camada no ArcGIS Pro ou no QGIS',
+    urlLabel: 'URL do serviço',
+    copy: 'Copiar',
+    copied: 'Copiado',
+    step1: 'No ArcGIS Pro, na guia Mapa, clique em Adicionar dados e depois em Dados do caminho.',
+    step2: 'Cole a URL e clique em Adicionar.',
+    step3: 'Entre com seu usuário e senha do GratisGIS. Se você entra com Google, Microsoft ou um código de duas etapas, use uma chave de API pessoal como senha.',
+    publicNote: 'Camadas públicas abrem sem entrar.',
+    help: 'Editar no ArcGIS Pro e no QGIS',
   },
   addToMap: {
     newMap: 'Novo mapa',

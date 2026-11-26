@@ -16,6 +16,7 @@ import { installMetrics } from './metrics/install-metrics.js';
 import { writeStartupStatus } from './startup-status.js';
 import { logTenancyMode } from './common/tenancy.js';
 import { checkOperatorOrgConfig } from './backup/operator-org.js';
+import { checkEsriSigningSecret } from './auth/esri-signing-secret.js';
 
 // Process-level safety net (#117). Node >= 16 exits the process on an
 // uncaughtException OR an unhandledRejection by default; in prod that
@@ -43,6 +44,11 @@ async function bootstrap() {
   logTenancyMode(processLogger);
   checkOperatorOrgConfig(processLogger);
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // After create, so a dev .env file has been read, and before listen,
+  // so a refusal is a clean "Startup failed" exit. Only this process
+  // mints and checks ArcGIS Pro tokens; the workers build the same
+  // auth module but never serve a request, so they do not check.
+  checkEsriSigningSecret(processLogger);
   // Flush in-memory work (bbox windows, in-flight jobs) on SIGTERM
   // instead of dropping it when a deploy stops the container.
   app.enableShutdownHooks();

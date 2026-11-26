@@ -500,7 +500,10 @@ export async function geocode(
 ): Promise<SearchResult[]> {
   const q = query.trim();
   if (q.length < 3) return [];
-  const url = `${GEOCODE_URL}?q=${encodeURIComponent(q)}`;
+  // Callers run this as the user types. With open-geocode behind the
+  // proxy, autocomplete=1 matches the last word as a prefix; Nominatim
+  // ignores the flag.
+  const url = `${GEOCODE_URL}?q=${encodeURIComponent(q)}&autocomplete=1`;
   const init: RequestInit = { headers: { Accept: 'application/json' } };
   if (signal) init.signal = signal;
 

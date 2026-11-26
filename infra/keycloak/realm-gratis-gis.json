@@ -130,6 +130,49 @@
       ]
     },
     {
+      "clientId": "esri-desktop",
+      "name": "GratisGIS sign-in for ArcGIS Pro",
+      "description": "Checks a password for generateToken. Password grant only; its tokens are not accepted by the API.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "org",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "org",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "org",
+            "jsonType.label": "String"
+          }
+        },
+        {
+          "name": "org_role",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "org_role",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "org_role",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "qgis-plugin",
       "name": "GratisGIS QGIS Plugin",
       "enabled": true,

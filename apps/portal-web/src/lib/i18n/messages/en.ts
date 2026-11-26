@@ -107,6 +107,7 @@ export const en = {
       signIn: { title: 'Sign-in', desc: 'Work accounts people sign in with, and whether an authenticator is required.' },
       landing: { title: 'Landing page', desc: 'What visitors see on the front page before they sign in.' },
       ai: { title: 'AI assistant', desc: 'Connect an AI provider for drafting and building. Off until you add one.' },
+      geocoding: { title: 'Geocoding', desc: 'Pick the regions address search covers. The portal downloads the map data and keeps it up to date.' },
       feedback: { title: 'Feedback inbox', desc: 'What people have sent from the portal, newest first.' },
       jobs: { title: 'Imports and analyses', desc: 'Running and recent imports and analyses, with cancel and retry.' },
       fieldQueues: { title: 'Field queues', desc: 'What each field device has waiting to sync, and when it last checked in.' },
@@ -1891,6 +1892,11 @@ export const en = {
   // Offline queue rows the server refused for a reason a retry cannot
   // change. Shown from the field runtime header chip.
   fieldQueue: {
+    syncProblemChip: 'Sync problem',
+    syncProblemChipTitle: 'Something did not sync, and this is the reason. Tap to read it.',
+    syncProblemTitle: 'Sync problems',
+    syncProblemIntro:
+      'These items did not finish syncing. They are still on this device and will be tried again on the next sync.',
     rejectedChip: '{count, plural, one {# edit needs attention} other {# edits need attention}}',
     rejectedChipTitle:
       'The server refused these edits. Open to see why and retry or discard them.',
@@ -2629,6 +2635,19 @@ export const en = {
   },
   // Sending a portal item to a map, from its detail page and from the
   // map builder's auto add.
+  // Item page: open a data layer in ArcGIS Pro or QGIS.
+  useInPro: {
+    button: 'Use in ArcGIS Pro',
+    title: 'Use this layer in ArcGIS Pro or QGIS',
+    urlLabel: 'Service URL',
+    copy: 'Copy',
+    copied: 'Copied',
+    step1: 'In ArcGIS Pro, on the Map tab, click Add Data, then Data From Path.',
+    step2: 'Paste the URL and click Add.',
+    step3: 'Sign in with your GratisGIS user name and password. If you sign in with Google, Microsoft or a two-step code, use a personal API key as the password.',
+    publicNote: 'Public layers open without signing in.',
+    help: 'Editing in ArcGIS Pro and QGIS',
+  },
   addToMap: {
     newMap: 'New map',
     existingMap: 'An existing map',
@@ -4632,6 +4651,85 @@ export const en = {
   },
 
   /** Admin → AI (#162). */
+  adminGeocoding: {
+    pageIntro:
+      'Pick the regions people search addresses in. The portal downloads OpenStreetMap data for them, builds an address index and serves it. Nothing leaves your server.',
+    loadError: 'Could not load geocoding settings',
+    unavailable:
+      'This server image does not include open-geocode, so the portal cannot build an address index here. Address search uses Nominatim.',
+    locked: 'Geocoding settings are locked on this portal. The operator sets the regions with GEOCODER_REGIONS.',
+    overridden:
+      'OPEN_GEOCODE_URL is set on the server, so address search uses that geocoder and ignores what you build here.',
+    statusTitle: 'Status',
+    statusNone: 'Not set up',
+    statusQueued: 'Waiting to start',
+    statusDownloading: 'Downloading',
+    statusBuilding: 'Building',
+    statusReady: 'Ready',
+    statusFailed: 'Last build failed',
+    serving: 'Answering searches',
+    yes: 'Yes',
+    no: 'No',
+    builtAt: 'Built',
+    indexSize: 'Index size',
+    builtRegions: 'Regions in the index',
+    log: 'Build log',
+    regionsTitle: 'Regions',
+    regionsHelp:
+      'Search for a country, state or province and add it. Several regions go into one index. Smaller regions build faster and use less disk.',
+    remove: 'Remove {name}',
+    downloadSize: 'Download: {size}. The build needs a few times that in free disk.',
+    downloadSizeUnknown: 'Download size unknown.',
+    searchPlaceholder: 'Search regions, for example West Virginia',
+    pickList: 'Search',
+    pickMap: 'Map',
+    mapWorld: 'World',
+    mapTrail: 'Where you are on the map',
+    mapLabel: 'Map of regions',
+    mapHelp: 'Click a region to add it, or open it to see the states or provinces inside.',
+    mapAdd: 'Add',
+    mapAdded: 'Added',
+    mapOpen: 'Show regions inside',
+    loadingRegions: 'Loading the region list…',
+    sourcesTitle: 'Data',
+    sourceOsm: 'OpenStreetMap streets, places and addresses are always included.',
+    sourceTiger:
+      'U.S. Census address ranges (TIGER). Places house numbers along streets where OpenStreetMap has no address points. Adds about 2 GB of downloads on the first build.',
+    sourceOa:
+      'OpenAddresses points. Exact matches for many more addresses. Needs a free OpenAddresses account, which you can create or connect right here.',
+    oaTokenPlaceholder: 'OpenAddresses token',
+    oaTokenHelp: 'Stored encrypted. Sources whose licence forbids commercial use are left out.',
+    oaConnectedAs: 'Connected to OpenAddresses as {name}.',
+    oaConnected: 'OpenAddresses token saved.',
+    oaDisconnect: 'Disconnect OpenAddresses',
+    oaTabConnect: 'I have an account',
+    oaTabSignup: 'Create a free account',
+    oaTabPaste: 'Paste a token',
+    oaCheckEmail:
+      'OpenAddresses sent a confirmation link to {email}. Click it, then sign in here to finish.',
+    oaUsernameOrEmail: 'OpenAddresses username or email',
+    oaPassword: 'OpenAddresses password',
+    oaConnect: 'Connect',
+    oaEmail: 'Email',
+    oaUsername: 'Username',
+    oaNewPassword: 'Password (8 characters or more)',
+    oaSignupHelp:
+      'Creates an account on batch.openaddresses.io under your email. They send a confirmation link before it can be used.',
+    oaCreate: 'Create account',
+    oaPasteHelp: 'From batch.openaddresses.io, under your profile, Tokens.',
+    refresh: 'Rebuild with fresh data',
+    refreshOff: 'Only when I click Rebuild',
+    refreshMonthly: 'Every month',
+    refreshQuarterly: 'Every three months',
+    build: 'Save and build',
+    rebuild: 'Save and rebuild',
+    saveOnly: 'Save without building',
+    testTitle: 'Try it',
+    testPlaceholder: 'Type an address',
+    testButton: 'Search',
+    testNotServing: 'Build an index first.',
+    testNoMatch: 'No match.',
+  },
   adminAi: {
     pageIntro:
       'Optionally connect ChatGPT, Claude, Grok, or a local OpenAI-compatible server such as Ollama.',
