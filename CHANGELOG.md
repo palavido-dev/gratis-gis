@@ -8,6 +8,10 @@ versioning policy is in [docs/VERSIONING.md](./docs/VERSIONING.md).
 
 ### Added
 
+- A monthly release schedule: a new version on the second Tuesday of
+  each month at 9:00 AM Pacific, starting 2027-01-12, with patch
+  releases in between only for security, data loss or blocking bugs.
+  See docs/VERSIONING.md.
 - **Admin -> Geocoding** sets up address search with no server
   configuration: pick regions from Geofabrik's list, choose Census
   address ranges and OpenAddresses, and portal-worker downloads the

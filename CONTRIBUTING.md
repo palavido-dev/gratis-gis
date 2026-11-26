@@ -22,6 +22,11 @@ hosting lands).
 
 ## Branching & PRs
 
+Releases go out on the second Tuesday of each month (see
+[docs/VERSIONING.md](./docs/VERSIONING.md#release-schedule)). In the
+week before, main takes fixes only; a feature PR that is ready then
+merges after the release.
+
 - `main` is always deployable.
 - Feature work happens on branches named `feat/<short-slug>`; bug fixes on
   `fix/<short-slug>`.

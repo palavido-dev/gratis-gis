@@ -7,6 +7,30 @@ pick the newest stable release tag by default; a tag with a suffix
 automatically. See [UPGRADING.md](./UPGRADING.md) for how to move
 between releases.
 
+## Release schedule
+
+From January 2027, a minor release (`vX.Y.0`) ships once a month, on
+the second Tuesday at 9:00 AM Pacific. The first one is 2027-01-12.
+
+- **Freeze.** One week before the release, main takes fixes only. New
+  features merge after the release goes out. The freeze week is for
+  checking upgrades from the previous release and finishing the
+  changelog.
+- **Patch releases** (`vX.Y.Z`) ship between monthly releases only for
+  a security fix, a fix for data loss, or a fix for a bug that stops
+  people using a feature. Everything else waits for the next monthly
+  release.
+- **Only the latest release gets fixes.** There are no backports to
+  older minors; upgrade forward with [UPGRADING.md](./UPGRADING.md).
+- **Breaking changes** are listed first in the release notes, each with
+  a `Breaking:` line saying what to do.
+- **The public demo** at demo.gratisgis.org follows main, so a fix can
+  be tried there before it is released.
+
+A month with nothing worth releasing is skipped, and the notes on the
+next release say so. If a release date moves, the new date is posted
+in GitHub Discussions before the freeze starts.
+
 ## From v1.0.0 onward
 
 Semantic versioning applies to the public surface below: breaking
