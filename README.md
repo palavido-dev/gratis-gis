@@ -13,7 +13,8 @@ and it is not a drop-in for Experience Builder, Survey123, Field Maps,
 or enterprise identity depth.
 
 **Status:** [v1.7.0](./CHANGELOG.md). The public surface follows
-[semantic versioning](./docs/VERSIONING.md). For what ships today, see
+[semantic versioning](./docs/VERSIONING.md), with a new release on the
+second Tuesday of each month. For what ships today, see
 [docs/walkthrough.md](./docs/walkthrough.md) and the
 [changelog](./CHANGELOG.md). Store-listed native mobile apps are not
 part of 1.0; the field PWA is the supported field client.
