@@ -1827,6 +1827,11 @@ export const de: Partial<CatalogShape> = {
     connectProvider: "Einen Anbieter unter Admin, KI-Assistent verbinden",
   },
   fieldQueue: {
+    syncProblemChip: 'Sync-Problem',
+    syncProblemChipTitle: 'Etwas wurde nicht synchronisiert. Tippen, um den Grund zu lesen.',
+    syncProblemTitle: 'Sync-Probleme',
+    syncProblemIntro:
+      'Diese Elemente wurden nicht fertig synchronisiert. Sie bleiben auf diesem Gerät und werden bei der nächsten Synchronisierung erneut versucht.',
     rejectedChip:
       '{count, plural, one {# Änderung braucht Aufmerksamkeit} other {# Änderungen brauchen Aufmerksamkeit}}',
     rejectedChipTitle:

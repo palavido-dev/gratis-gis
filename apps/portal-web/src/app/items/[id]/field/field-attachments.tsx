@@ -89,6 +89,18 @@ interface Props {
    * definition.
    */
   canCapture?: boolean;
+  /**
+   * Whether the layer accepts attachments at all. False mirrors the
+   * server refusing every attachment write on the layer (403), so
+   * offering the camera would only queue photos that can never
+   * upload. Missing means enabled, the same reading the server makes.
+   *
+   * A layer with attachments off renders nothing unless files are
+   * already on this device or the server, so a collector can still
+   * see, and discard, photos queued before the layer was configured
+   * this way.
+   */
+  attachmentsEnabled?: boolean;
 }
 
 export function FieldAttachments({
@@ -99,8 +111,10 @@ export function FieldAttachments({
   currentUserId,
   featureExistsOnServer,
   isOnline,
-  canCapture = true,
+  canCapture: canCaptureProp = true,
+  attachmentsEnabled = true,
 }: Props) {
+  const canCapture = canCaptureProp && attachmentsEnabled;
   const [uploaded, setUploaded] = useState<ServerAttachment[]>([]);
   const [pending, setPending] = useState<PendingBlob[]>([]);
   const [busy, setBusy] = useState(false);
@@ -241,6 +255,9 @@ export function FieldAttachments({
 
   const total = uploaded.length + pending.length;
 
+  // Attachments off and nothing to show: no section at all.
+  if (!attachmentsEnabled && total === 0) return null;
+
   return (
     <div className="rounded-md border border-border bg-surface-0 p-2">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -307,7 +324,7 @@ export function FieldAttachments({
             <PendingTile
               key={row.blobId}
               row={row}
-              {...(canCapture
+              {...(canCapture || !attachmentsEnabled
                 ? { onDiscard: () => void discardPending(row) }
                 : {})}
             />

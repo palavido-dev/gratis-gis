@@ -1824,6 +1824,11 @@ export const ptBR: Partial<CatalogShape> = {
     connectProvider: "Conectar um provedor em Administração, Assistente de IA",
   },
   fieldQueue: {
+    syncProblemChip: 'Problema de sincronização',
+    syncProblemChipTitle: 'Algo não foi sincronizado. Toque para ler o motivo.',
+    syncProblemTitle: 'Problemas de sincronização',
+    syncProblemIntro:
+      'Estes itens não terminaram de sincronizar. Continuam neste dispositivo e serão tentados de novo na próxima sincronização.',
     rejectedChip:
       '{count, plural, one {# edição precisa de atenção} other {# edições precisam de atenção}}',
     rejectedChipTitle:

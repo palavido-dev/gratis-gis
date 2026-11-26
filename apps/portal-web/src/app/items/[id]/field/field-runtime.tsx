@@ -100,6 +100,7 @@ import {
   DialogContent,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { isOnlineNow, useIsOnline } from '@/lib/use-is-online';
@@ -113,6 +114,7 @@ import type {
 import {
   listRejected,
   newGlobalId,
+  replayErrorReason,
   syncQueue,
   uploadPendingBlobsForFeature,
   type SyncResult,
@@ -219,6 +221,11 @@ export interface EditableLayer {
    * inviting field collectors to author records into it.
    */
   addable?: boolean;
+  /** False when the layer's schema turns attachments off, which makes
+   *  the server refuse every attachment write. Absent means enabled,
+   *  matching the server's own check, so the field app does not offer
+   *  a camera whose photos could never upload. */
+  attachmentsEnabled?: boolean;
   /** Optional explicit form binding from the data_collection's
    *  formBindings map. When absent, an auto-form is generated. */
   boundFormItemId?: string;
@@ -854,6 +861,7 @@ export function FieldRuntime({
   // that warning has to count them.
   const [parkedForOthers, setParkedForOthers] = useState(0);
   const [rejectedOpen, setRejectedOpen] = useState(false);
+  const [syncProblemOpen, setSyncProblemOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<SyncResult | null>(null);
   useEffect(() => {
@@ -2184,6 +2192,27 @@ export function FieldRuntime({
             }}
           />
         ) : null}
+        {/* Why the last sync left something behind, when it was not a
+            queue row. Photos with no row behind them (and a failed
+            queue read) report with an empty recordId, so there is no
+            row to open. A compact chip keeps the header from crowding
+            the title and the Sync button; tapping it opens the full
+            reasons, since a tooltip does not exist on a phone. The
+            next sync run replaces the result and clears the chip. */}
+        {lastSyncResult?.errors.some((e) => e.recordId === '') ? (
+          <button
+            type="button"
+            onClick={() => setSyncProblemOpen(true)}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-danger/40 bg-danger/15 px-3 text-sm font-semibold text-danger hover:bg-danger/20"
+            title={t('fieldQueue.syncProblemChipTitle')}
+            aria-label={t('fieldQueue.syncProblemChipTitle')}
+          >
+            <AlertTriangle className="h-4 w-4" />
+            <span className="max-w-[9rem] truncate">
+              {t('fieldQueue.syncProblemChip')}
+            </span>
+          </button>
+        ) : null}
         {rejectedRecords.length > 0 ? (
           <button
             type="button"
@@ -2232,6 +2261,45 @@ export function FieldRuntime({
         />
       </header>
       ) : null}
+
+      <Dialog open={syncProblemOpen} onOpenChange={setSyncProblemOpen}>
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>{t('fieldQueue.syncProblemTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('fieldQueue.syncProblemIntro')}
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="max-h-[50vh] space-y-2 overflow-y-auto">
+            {(lastSyncResult?.errors ?? [])
+              .filter((e) => e.recordId === '')
+              .map((e, i) => (
+                <li
+                  key={i}
+                  className="rounded-md border border-danger/30 bg-danger/5 p-3"
+                >
+                  {e.layerLabel ? (
+                    <p className="text-sm font-medium text-ink-0">
+                      {e.layerLabel}
+                    </p>
+                  ) : null}
+                  <p className="mt-1 break-words text-sm text-danger">
+                    {formatOfflineMessage(t, e.reason)}
+                  </p>
+                </li>
+              ))}
+          </ul>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setSyncProblemOpen(false)}
+              className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-accent-foreground hover:bg-accent/90"
+            >
+              {t('fieldQueue.close')}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <RejectedEditsDialog
         open={rejectedOpen}
@@ -3087,6 +3155,27 @@ export function FieldRuntime({
             }
           }}
           onLocalWriteApplied={() => setOfflineWriteCounter((n) => n + 1)}
+          onBlobUploadFailed={(layerKey, reason) =>
+            // Same shape the drain reports, so the header shows it the
+            // same way. Replaces the previous result; the next sync
+            // run replaces this in turn.
+            setLastSyncResult({
+              processed: 0,
+              synced: 0,
+              failed: 1,
+              rejected: 0,
+              remaining: 0,
+              errors: [
+                {
+                  recordId: '',
+                  op: 'update',
+                  layerLabel: layerKey,
+                  reason,
+                  terminal: false,
+                },
+              ],
+            })
+          }
           onUpdateGeometry={(geom) => {
             // #249: keep the pendingMarker in sync when the user taps
             // "Update Point" inside the form. We only get called for
@@ -4284,6 +4373,7 @@ function FormModal({
   onClose,
   onSubmitted,
   onLocalWriteApplied,
+  onBlobUploadFailed,
   onUpdateGeometry,
 }: {
   dataCollectionId: string;
@@ -4345,6 +4435,10 @@ function FormModal({
    *  this to bump its offline-feature refresh counter so the new /
    *  edited feature appears on the map without a manual reload. */
   onLocalWriteApplied: () => void;
+  /** Fires when the photos captured with a just-saved feature could
+   *  not be uploaded. The record itself saved, so the submit still
+   *  succeeds; the runtime shows the reason in the header. */
+  onBlobUploadFailed: (layerKey: string, reason: OfflineMessage) => void;
   /** #249: invoked when the user taps "Update Point" inside the
    *  form sheet. Lets the runtime move the pendingMarker so the map
    *  stays in sync with whatever the form thinks the position is.
@@ -4761,7 +4855,9 @@ function FormModal({
         // indefinitely. A failure here is deliberately not fatal: the
         // record saved, and the file stays queued for the sweep at the
         // end of the next drain rather than failing a submit that
-        // actually succeeded.
+        // actually succeeded. The reason is handed up so the header can
+        // show it; dropping it left a photo that never uploaded with
+        // no explanation anywhere.
         try {
           await uploadPendingBlobsForFeature(
             {
@@ -4772,8 +4868,9 @@ function FormModal({
             },
             currentUserId,
           );
-        } catch {
+        } catch (err) {
           onLocalWriteApplied();
+          onBlobUploadFailed(modal.layer.layerKey, replayErrorReason(err));
         }
       } else {
         // Offline path. The browser reports !navigator.onLine so we
@@ -4956,6 +5053,7 @@ function FormModal({
               currentUserId={currentUserId}
               featureExistsOnServer={modal.mode === 'edit'}
               isOnline={isOnline}
+              attachmentsEnabled={modal.layer.attachmentsEnabled !== false}
             />
           </div>
           {/* Phase C: child layers in the same data_layer that
@@ -5534,6 +5632,9 @@ function FieldFeaturePopupSheet({
                     featureExistsOnServer
                     isOnline={isOnline}
                     canCapture={false}
+                    attachmentsEnabled={
+                      parentEditable.attachmentsEnabled !== false
+                    }
                   />
                 </div>
               ) : null}
