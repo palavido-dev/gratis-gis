@@ -1,0 +1,59 @@
+title: "[Pilot] "
+labels: ["hosted-pilot"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One organization gets GratisGIS hosted and looked after for 12 months at no cost, in return for real use and honest feedback. Details: https://gratisgis.org/pilot/
+
+        Applications close January 31, 2027. Prefer not to post in public? Email matthew@gratisgis.org with the same answers.
+  - type: input
+    id: organization
+    attributes:
+      label: Organization
+      description: Name and type (agency, school, nonprofit, company).
+    validations:
+      required: true
+  - type: input
+    id: users
+    attributes:
+      label: How many people would use it
+    validations:
+      required: true
+  - type: dropdown
+    id: today
+    attributes:
+      label: What you use today
+      multiple: true
+      options:
+        - ArcGIS Online
+        - ArcGIS Enterprise
+        - QGIS only
+        - Paper or spreadsheets
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: workflows
+    attributes:
+      label: One or two real workflows you would run on it
+      description: For example field inspections with photos, a public map of projects, or replacing a Survey123 form.
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Day-to-day contact
+      description: A name and role is enough here. Contact details can come later by email.
+    validations:
+      required: true
+  - type: dropdown
+    id: case-study
+    attributes:
+      label: Open to a public case study at the end?
+      options:
+        - "Yes"
+        - Maybe
+        - "No"
+    validations:
+      required: true
