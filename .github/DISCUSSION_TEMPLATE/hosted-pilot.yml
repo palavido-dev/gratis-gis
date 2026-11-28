@@ -6,7 +6,7 @@ body:
       value: |
         One organization gets GratisGIS hosted and looked after for 12 months at no cost, in return for real use and honest feedback. Details: https://gratisgis.org/pilot/
 
-        Applications close January 31, 2027. Prefer not to post in public? Email matthew@gratisgis.org with the same answers.
+        Applications close January 31, 2027. Prefer not to post in public? Use the form at https://gratisgis.org/pilot/ or email pilot@gratisgis.org.
   - type: input
     id: organization
     attributes:
