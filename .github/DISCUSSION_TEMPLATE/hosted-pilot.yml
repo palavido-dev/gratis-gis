@@ -14,10 +14,16 @@ body:
       description: Name and type (agency, school, nonprofit, company).
     validations:
       required: true
-  - type: input
+  - type: dropdown
     id: users
     attributes:
       label: How many people would use it
+      options:
+        - 1 to 5
+        - 6 to 15
+        - 16 to 50
+        - 51 to 200
+        - More than 200
     validations:
       required: true
   - type: dropdown
